@@ -25,7 +25,6 @@ import {
   Clock,
   CreditCard,
   PlayCircle,
-  XCircle,
 } from 'lucide-react';
 import type { VACEnrollmentWithDetails } from '@/types/vac';
 
@@ -100,24 +99,34 @@ function CourseCard({ enrollment }: { enrollment: VACEnrollmentWithDetails }) {
           </div>
 
           {/* Action Button */}
-          <Button size="sm" className="w-full gap-2">
-            {enrollment.status === 'active' ? (
-              <>
-                <PlayCircle className="h-4 w-4" />
-                Continue Learning
-              </>
-            ) : enrollment.status === 'completed' ? (
-              <>
-                <CheckCircle className="h-4 w-4" />
-                View Certificate
-              </>
-            ) : (
-              <>
-                <BookOpen className="h-4 w-4" />
-                View Course
-              </>
-            )}
-          </Button>
+          {enrollment.status === 'completed' ? (
+            <Button
+              size="sm"
+              className="w-full gap-2"
+              onClick={(e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                window.location.href = `/vac/certificate/${enrollment.id}`;
+              }}
+            >
+              <CheckCircle className="h-4 w-4" />
+              View Certificate
+            </Button>
+          ) : (
+            <Button size="sm" className="w-full gap-2">
+              {enrollment.status === 'active' ? (
+                <>
+                  <PlayCircle className="h-4 w-4" />
+                  Continue Learning
+                </>
+              ) : (
+                <>
+                  <BookOpen className="h-4 w-4" />
+                  View Course
+                </>
+              )}
+            </Button>
+          )}
         </CardContent>
       </Card>
     </Link>
@@ -180,7 +189,6 @@ export default function MyCoursesPage() {
   const activeEnrollments = activeData?.enrollments || [];
   const allEnrollments = allData?.enrollments || [];
   const completedEnrollments = allEnrollments.filter(e => e.status === 'completed');
-  const cancelledEnrollments = allEnrollments.filter(e => e.status === 'cancelled' || e.status === 'expired');
 
   return (
     <ContentLayout title="My Courses">

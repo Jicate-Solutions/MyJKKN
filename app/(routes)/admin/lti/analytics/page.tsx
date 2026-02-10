@@ -233,9 +233,6 @@ export default async function LtiAnalyticsPage({ searchParams }: PageProps) {
     .eq('user_id', user.id)
     .single();
 
-  console.log('[LTI Analytics] User role data:', userRole);
-  console.log('[LTI Analytics] Role error:', roleError);
-
   // Extract custom_roles from array (Supabase joins return arrays)
   const customRole = Array.isArray(userRole?.custom_roles)
     ? userRole?.custom_roles[0]
@@ -244,18 +241,12 @@ export default async function LtiAnalyticsPage({ searchParams }: PageProps) {
   const roleKey = customRole?.role_key;
   const permissions = customRole?.permissions || {};
 
-  console.log('[LTI Analytics] Role key:', roleKey);
-  console.log('[LTI Analytics] Permissions:', permissions);
-
   // Super admin has full access, otherwise check specific permissions
   if (roleKey !== 'super_admin') {
     if (!permissions['lti.analytics.view'] && !permissions['lti.monitor']) {
-      console.log('[LTI Analytics] Access denied - redirecting to dashboard');
       redirect('/dashboard');
     }
   }
-
-  console.log('[LTI Analytics] Access granted');
 
   // Await searchParams (Next.js 16 requirement)
   const params = await searchParams;
@@ -313,6 +304,7 @@ export default async function LtiAnalyticsPage({ searchParams }: PageProps) {
               institutions={filterOptions.institutions}
               tools={filterOptions.tools}
               currentFilters={params}
+              exportData={launchStats.launches}
             />
           </Suspense>
         </CardContent>

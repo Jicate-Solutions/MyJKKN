@@ -212,13 +212,6 @@ export class ActivityService {
 
       const totalPages = Math.ceil((count || 0) / limit);
 
-      console.log('ActivityService query result:', {
-        dataLength: data?.length || 0,
-        count,
-        totalPages,
-        filters
-      });
-
       return {
         data: data as UserActivityLogWithUser[],
         count: count || 0,

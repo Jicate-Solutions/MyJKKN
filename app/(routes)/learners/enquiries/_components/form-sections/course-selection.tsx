@@ -108,17 +108,6 @@ export function CourseSelectionSection({ form }: CourseSelectionProps) {
     ? [currentDegreeToUse, ...filteredDegrees]
     : filteredDegrees;
 
-  console.log('[course-selection] Degree Debug:', {
-    watchedInstitutionId,
-    watchedDegreeId,
-    filteredDegreesCount: filteredDegrees.length,
-    currentDegreeInFiltered,
-    specificDegree,
-    currentDegreeToUse,
-    finalDegreesCount: degrees.length,
-    loadingDegrees
-  });
-
   const filteredDepartments = departmentsData?.data || [];
   const currentDepartmentInFiltered = filteredDepartments.find((d: Department) => d.id === watchedDepartmentId);
 
@@ -133,17 +122,6 @@ export function CourseSelectionSection({ form }: CourseSelectionProps) {
   const departments = currentDepartmentToUse && !filteredDepartments.find((d: Department) => d.id === watchedDepartmentId)
     ? [currentDepartmentToUse, ...filteredDepartments]
     : filteredDepartments;
-
-  console.log('[course-selection] Department Debug:', {
-    watchedDegreeId,
-    watchedDepartmentId,
-    filteredDepartmentsCount: filteredDepartments.length,
-    currentDepartmentInFiltered,
-    specificDepartment,
-    currentDepartmentToUse,
-    finalDepartmentsCount: departments.length,
-    loadingDepartments
-  });
 
   const programs = programsData?.data || [];
   const semesters = semestersData?.data || [];
@@ -172,21 +150,6 @@ export function CourseSelectionSection({ form }: CourseSelectionProps) {
   const activeAcademicYears = currentAcademicYearToUse && !filteredAcademicYears.find((y: AcademicYear) => y.id === watchedAcademicYearId)
     ? [currentAcademicYearToUse, ...filteredAcademicYears]
     : filteredAcademicYears;
-
-  console.log('[course-selection] Academic Year Debug:', {
-    watchedInstitutionId,
-    watchedAcademicYearId,
-    academicYearsCount: academicYears?.length || 0,
-    academicYearsData: academicYears,
-    currentYearInFiltered,
-    specificAcademicYear,
-    currentAcademicYearToUse,
-    filteredAcademicYearsCount: filteredAcademicYears.length,
-    filteredAcademicYearsData: filteredAcademicYears,
-    finalAcademicYearsCount: activeAcademicYears.length,
-    finalAcademicYearsData: activeAcademicYears,
-    loadingAcademicYears
-  });
 
   return (
     <div className="space-y-6">

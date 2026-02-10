@@ -1,7 +1,7 @@
 'use client';
 
 import { Loader2, CreditCard, AlertTriangle } from 'lucide-react';
-import { toast } from 'react-hot-toast';
+import { toast } from 'sonner';
 import { Card, CardContent } from '@/components/ui/card';
 import { useParentDashboard } from '@/hooks/parent-portal';
 import { ensureArray } from '@/lib/utils/validation';
@@ -11,7 +11,7 @@ export function FeesClient() {
   const { data: dashboardData, isLoading, error } = useParentDashboard();
 
   const handlePayNow = (learnerId: string, amount: number) => {
-    toast.success('Online payment coming soon! Please contact the accounts department.');
+    toast.info('Online payment integration is being set up. Please contact the accounts department for now.');
   };
 
   if (isLoading) {

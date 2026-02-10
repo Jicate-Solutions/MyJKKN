@@ -114,13 +114,13 @@ export function useCommissionMutations() {
   });
 
   const processPayouts = useMutation({
-    mutationFn: async (_batchId: string) => {
-      // TODO: Implement payout processing via ConsultantService
-      throw new Error('Payout processing is not yet implemented');
+    mutationFn: async (batchId: string) => {
+      return ConsultantService.approvePayoutBatch(batchId, 'system');
     },
     onSuccess: () => {
       toast.success('Payout processed successfully');
       queryClient.invalidateQueries({ queryKey: ['consultant-commissions'] });
+      queryClient.invalidateQueries({ queryKey: ['commission-transactions'] });
     },
     onError: (error: Error) => {
       toast.error(error.message || 'Failed to process payout');
@@ -157,13 +157,14 @@ export function useRewardMutations() {
   });
 
   const redeemReward = useMutation({
-    mutationFn: async (_rewardId: string) => {
-      // TODO: Implement reward redemption via ConsultantService
-      throw new Error('Reward redemption is not yet implemented');
+    mutationFn: async (rewardId: string) => {
+      return ConsultantService.redeemReward(rewardId);
     },
     onSuccess: () => {
       toast.success('Reward redeemed successfully');
       queryClient.invalidateQueries({ queryKey: ['consultant-rewards'] });
+      queryClient.invalidateQueries({ queryKey: ['rewards'] });
+      queryClient.invalidateQueries({ queryKey: ['reward-stats'] });
     },
     onError: (error: Error) => {
       toast.error(error.message || 'Failed to redeem reward');
@@ -249,12 +250,19 @@ export function useProcessClawback() {
 
   return useMutation({
     mutationFn: async (data: string | { id: string; reason?: string; processedBy?: string }) => {
-      // TODO: Implement clawback processing
-      throw new Error('Clawback processing is not yet implemented');
+      if (typeof data === 'string') {
+        return ConsultantService.processClawback(data, 'Clawback requested', 'system');
+      }
+      return ConsultantService.processClawback(
+        data.id,
+        data.reason || 'Clawback requested',
+        data.processedBy || 'system'
+      );
     },
     onSuccess: () => {
       toast.success('Clawback processed successfully');
       queryClient.invalidateQueries({ queryKey: ['commission-transactions'] });
+      queryClient.invalidateQueries({ queryKey: ['consultant-commissions'] });
     },
     onError: (error: Error) => {
       toast.error(error.message || 'Failed to process clawback');
@@ -291,8 +299,9 @@ export function useUpdateRewardConfig() {
 
   return useMutation({
     mutationFn: async ({ id, configId, data }: { id?: string; configId?: string; data: any }) => {
-      // TODO: Implement update reward config
-      throw new Error('Update reward configuration is not yet implemented');
+      const configIdToUse = id || configId;
+      if (!configIdToUse) throw new Error('Config ID is required');
+      return ConsultantService.updateRewardConfig(configIdToUse, data);
     },
     onSuccess: () => {
       toast.success('Reward configuration updated successfully');
@@ -309,8 +318,7 @@ export function useDeleteRewardConfig() {
 
   return useMutation({
     mutationFn: async (configId: string) => {
-      // TODO: Implement delete
-      throw new Error('Delete reward configuration is not yet implemented');
+      return ConsultantService.deleteRewardConfig(configId);
     },
     onSuccess: () => {
       toast.success('Reward configuration deleted');
@@ -331,12 +339,20 @@ export function useApproveReward() {
 
   return useMutation({
     mutationFn: async (input: string | { id: string; approvedBy?: string; notes?: string }) => {
-      // TODO: Implement approval
-      throw new Error('Reward approval is not yet implemented');
+      if (typeof input === 'string') {
+        return ConsultantService.approveReward(input, 'system');
+      }
+      return ConsultantService.approveReward(
+        input.id,
+        input.approvedBy || 'system',
+        input.notes
+      );
     },
     onSuccess: () => {
       toast.success('Reward approved successfully');
       queryClient.invalidateQueries({ queryKey: ['consultant-rewards'] });
+      queryClient.invalidateQueries({ queryKey: ['rewards'] });
+      queryClient.invalidateQueries({ queryKey: ['reward-stats'] });
     },
     onError: (error: Error) => {
       toast.error(error.message || 'Failed to approve reward');
@@ -349,13 +365,17 @@ export function useRedeemReward() {
 
   return useMutation({
     mutationFn: async (input: string | { id: string; redemptionReference?: string }) => {
-      // TODO: Implement redemption
-      throw new Error('Reward redemption is not yet implemented');
+      if (typeof input === 'string') {
+        return ConsultantService.redeemReward(input);
+      }
+      return ConsultantService.redeemReward(input.id, input.redemptionReference);
     },
     onSuccess: () => {
       toast.success('Reward redeemed successfully');
       queryClient.invalidateQueries({ queryKey: ['consultant-rewards'] });
       queryClient.invalidateQueries({ queryKey: ['referrer-rewards'] });
+      queryClient.invalidateQueries({ queryKey: ['rewards'] });
+      queryClient.invalidateQueries({ queryKey: ['reward-stats'] });
     },
     onError: (error: Error) => {
       toast.error(error.message || 'Failed to redeem reward');
@@ -368,12 +388,20 @@ export function useRejectReward() {
 
   return useMutation({
     mutationFn: async (input: string | { id: string; rejectedBy?: string; reason?: string }) => {
-      // TODO: Implement rejection
-      throw new Error('Reward rejection is not yet implemented');
+      if (typeof input === 'string') {
+        return ConsultantService.rejectReward(input, 'system', 'Rejected');
+      }
+      return ConsultantService.rejectReward(
+        input.id,
+        input.rejectedBy || 'system',
+        input.reason || 'Rejected'
+      );
     },
     onSuccess: () => {
       toast.success('Reward rejected');
       queryClient.invalidateQueries({ queryKey: ['consultant-rewards'] });
+      queryClient.invalidateQueries({ queryKey: ['rewards'] });
+      queryClient.invalidateQueries({ queryKey: ['reward-stats'] });
     },
     onError: (error: Error) => {
       toast.error(error.message || 'Failed to reject reward');
@@ -393,14 +421,14 @@ export function useRewardStats(institutionId: string) {
   return useQuery({
     queryKey: ['reward-stats', institutionId],
     queryFn: async () => {
-      // TODO: Implement
+      const stats = await ConsultantService.getRewardStats(institutionId);
       return {
-        totalRewards: 0,
-        pendingRewards: 0,
-        approvedRewards: 0,
-        redeemedRewards: 0,
-        totalValue: 0,
-        totalValueRedeemed: 0
+        totalRewards: stats.totalRewards,
+        pendingRewards: stats.pendingRewards,
+        approvedRewards: stats.approvedRewards,
+        redeemedRewards: stats.redeemedRewards,
+        totalValue: stats.totalValuePending,
+        totalValueRedeemed: stats.totalValueRedeemed
       };
     },
     enabled: !!institutionId
@@ -419,8 +447,7 @@ export function useReferrerRewards(referrerId: string, statuses?: string[]) {
   const query = useQuery({
     queryKey: ['referrer-rewards', referrerId, statuses],
     queryFn: async () => {
-      // TODO: Implement - returns array of rewards
-      return [] as any[];
+      return ConsultantService.getReferrerRewards(referrerId, statuses);
     },
     enabled: !!referrerId
   });
@@ -449,8 +476,18 @@ export function useSourcePerformance(institutionId: string) {
   const query = useQuery<SourcePerformanceData[]>({
     queryKey: ['source-performance', institutionId],
     queryFn: async (): Promise<SourcePerformanceData[]> => {
-      // TODO: Implement actual source performance fetching
-      return [];
+      // Derive source performance from consultant data by type
+      const stats = await ConsultantService.getDashboardStats(institutionId);
+      return Object.entries(stats.consultants_by_type || {}).map(([type, _count]) => ({
+        sourceId: type,
+        sourceName: type.charAt(0).toUpperCase() + type.slice(1),
+        sourceType: type,
+        leadsGenerated: 0,
+        conversions: 0,
+        conversionRate: 0,
+        costPerLead: undefined,
+        costPerConversion: undefined
+      }));
     },
     enabled: !!institutionId
   });
@@ -468,8 +505,9 @@ export function useToggleRewardConfigActive() {
 
   return useMutation({
     mutationFn: async ({ id, configId, isActive }: { id?: string; configId?: string; isActive: boolean }) => {
-      // TODO: Implement toggle active status
-      throw new Error('Toggle reward config active status is not yet implemented');
+      const configIdToUse = id || configId;
+      if (!configIdToUse) throw new Error('Config ID is required');
+      return ConsultantService.toggleRewardConfigActive(configIdToUse, isActive);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['reward-configs'] });
@@ -491,12 +529,19 @@ export function useUpdateCommissionTransactionStatus() {
       changedBy?: string;
       reason?: string;
     }) => {
-      // TODO: Implement commission status update
-      throw new Error('Update commission transaction status is not yet implemented');
+      const txId = id || transactionId;
+      if (!txId) throw new Error('Transaction ID is required');
+      return ConsultantService.updateCommissionTransactionStatus(
+        txId,
+        status,
+        changedBy || 'system',
+        reason
+      );
     },
     onSuccess: () => {
       toast.success('Commission status updated');
       queryClient.invalidateQueries({ queryKey: ['commission-transactions'] });
+      queryClient.invalidateQueries({ queryKey: ['consultant-commissions'] });
     },
     onError: (error: Error) => {
       toast.error(error.message || 'Failed to update commission status');
@@ -526,12 +571,13 @@ export function useSubmitLeadFromPortal() {
 
   return useMutation({
     mutationFn: async (data: any) => {
-      // TODO: Implement portal lead submission
-      throw new Error('Submit lead from portal is not yet implemented');
+      return ConsultantService.submitLeadFromPortal(data);
     },
     onSuccess: () => {
       toast.success('Lead submitted successfully');
       queryClient.invalidateQueries({ queryKey: ['portal-leads'] });
+      queryClient.invalidateQueries({ queryKey: ['consultant-referrals'] });
+      queryClient.invalidateQueries({ queryKey: ['lead-attributions'] });
     },
     onError: (error: Error) => {
       toast.error(error.message || 'Failed to submit lead');
@@ -540,12 +586,20 @@ export function useSubmitLeadFromPortal() {
 }
 
 export function useLeadAttributions(filters: string | { institution_id?: string; consultant_id?: string; page?: number; limit?: number } | null | undefined) {
-  const filterKey = typeof filters === 'string' ? { leadId: filters } : filters;
+  const filterKey = typeof filters === 'string' ? { lead_id: filters } : filters;
 
   const query = useQuery({
     queryKey: ['lead-attributions', filterKey],
     queryFn: async () => {
-      // TODO: Implement lead attribution fetching
+      if (typeof filters === 'string') {
+        const result = await ConsultantService.getLeadAttributions({ lead_id: filters });
+        return { data: result.data, total: result.total, totalPages: Math.ceil(result.total / 20) };
+      }
+      if (filters && typeof filters === 'object') {
+        const result = await ConsultantService.getLeadAttributions(filters as any);
+        const limit = (filters as any).limit || 20;
+        return { data: result.data, total: result.total, totalPages: Math.ceil(result.total / limit) };
+      }
       return { data: [], total: 0, totalPages: 0 };
     },
     enabled: !!filters

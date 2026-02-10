@@ -40,6 +40,7 @@ import {
 import { toast } from "sonner";
 import { AdmissionErrorBoundary } from "@/components/admission";
 import { useUserInstitutionAccess } from "@/hooks/use-user-institution-access";
+import { createClientSupabaseClient } from "@/lib/supabase/client";
 import {
   useActiveScoringRule,
   useScoringRuleMutations,
@@ -67,6 +68,7 @@ function ScoringRulesPageContent() {
   // Local state for editing
   const [editMode, setEditMode] = useState(false);
   const [localConfig, setLocalConfig] = useState<ScoringRuleConfig>(defaultConfig);
+  const [scoreDistribution, setScoreDistribution] = useState<{ label: string; count: number; color: string }[]>([]);
 
   // Initialize local config from active rule or default
   useEffect(() => {
@@ -76,6 +78,39 @@ function ScoringRulesPageContent() {
       setLocalConfig(defaultConfig);
     }
   }, [activeConfig, isLoadingRule, rule, defaultConfig]);
+
+  // Load real score distribution from admission_leads
+  useEffect(() => {
+    if (!selectedInstitutionId) return;
+    const loadDistribution = async () => {
+      try {
+        const supabase = createClientSupabaseClient();
+        const { data, error } = await (supabase as any)
+          .from('admission_leads')
+          .select('score_category')
+          .eq('institution_id', selectedInstitutionId);
+        if (error) throw error;
+        const counts: Record<string, number> = {};
+        (data || []).forEach((lead: any) => {
+          const cat = lead.score_category || 'cold';
+          counts[cat] = (counts[cat] || 0) + 1;
+        });
+        const colorMap: Record<string, string> = {
+          hot: 'bg-red-500', warm: 'bg-orange-500', qualified: 'bg-yellow-500',
+          nurture: 'bg-blue-500', cold: 'bg-gray-400',
+        };
+        const dist = ['hot', 'warm', 'qualified', 'nurture', 'cold'].map(cat => ({
+          label: cat.charAt(0).toUpperCase() + cat.slice(1),
+          count: counts[cat] || 0,
+          color: colorMap[cat] || 'bg-gray-400',
+        }));
+        setScoreDistribution(dist);
+      } catch {
+        // Fallback to empty distribution
+      }
+    };
+    loadDistribution();
+  }, [selectedInstitutionId]);
 
   const isSaving = isCreating || isUpdating;
 
@@ -559,22 +594,25 @@ function ScoringRulesPageContent() {
             </CardHeader>
             <CardContent>
               <div className="flex items-end gap-2 h-32">
-                {[
-                  { label: "Hot", count: 234, color: "bg-red-500" },
-                  { label: "Warm", count: 456, color: "bg-orange-500" },
-                  { label: "Qualified", count: 678, color: "bg-yellow-500" },
-                  { label: "Nurture", count: 890, color: "bg-blue-500" },
-                  { label: "Cold", count: 345, color: "bg-gray-400" },
-                ].map((item, index) => (
+                {(scoreDistribution.length > 0 ? scoreDistribution : [
+                  { label: "Hot", count: 0, color: "bg-red-500" },
+                  { label: "Warm", count: 0, color: "bg-orange-500" },
+                  { label: "Qualified", count: 0, color: "bg-yellow-500" },
+                  { label: "Nurture", count: 0, color: "bg-blue-500" },
+                  { label: "Cold", count: 0, color: "bg-gray-400" },
+                ]).map((item, index) => {
+                  const maxCount = Math.max(...(scoreDistribution.length > 0 ? scoreDistribution : [{ count: 1 }]).map(d => d.count), 1);
+                  return (
                   <div key={index} className="flex-1 flex flex-col items-center gap-1">
                     <div
                       className={`w-full ${item.color} rounded-t`}
-                      style={{ height: `${(item.count / 890) * 100}%` }}
+                      style={{ height: `${(item.count / maxCount) * 100}%` }}
                     />
                     <p className="text-xs text-gray-600">{item.label}</p>
                     <p className="text-sm font-medium">{item.count}</p>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </CardContent>
           </Card>

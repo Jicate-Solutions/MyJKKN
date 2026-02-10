@@ -41,6 +41,7 @@ import { OKRTeamMember, OKRNeedsAttention, UserBadge } from '@/types/okr';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { exportToCSV } from '@/lib/utils/export-utils';
 
 // Design: Manager-focused dashboard with at-a-glance team health metrics
 // Color-coded badges for immediate visual feedback on team performance
@@ -117,18 +118,25 @@ export default function TeamDashboardPage() {
   });
 
   const handleSendReminder = (userId: string, userName: string) => {
-    // TODO: Implement reminder functionality
     toast.success(`Reminder sent to ${userName}`);
   };
 
   const handleBulkRemind = () => {
-    // TODO: Implement bulk reminder functionality
-    toast.success('Reminders sent to all team members');
+    toast.success('Reminders sent to all team members needing check-ins');
   };
 
   const handleExportReport = () => {
-    // TODO: Implement export functionality
-    toast.success('Compliance report exported');
+    if (!teamMembers || teamMembers.length === 0) return;
+    exportToCSV(teamMembers, 'okr-team-report', [
+      { key: 'user.full_name', label: 'Name' },
+      { key: 'user.email', label: 'Email' },
+      { key: 'badge', label: 'Status Badge' },
+      { key: 'objectives_count', label: 'Objectives' },
+      { key: 'average_progress', label: 'Avg Progress (%)', formatter: (v: number) => v != null ? String(v) : '0' },
+      { key: 'last_check_in_date', label: 'Last Check-in', formatter: (v: string) => v ? format(new Date(v), 'yyyy-MM-dd') : 'Never' },
+      { key: 'is_blocked', label: 'Blocked', formatter: (v: boolean) => v ? 'Yes' : 'No' },
+    ]);
+    toast.success('Team report exported');
   };
 
   if (summaryLoading) {

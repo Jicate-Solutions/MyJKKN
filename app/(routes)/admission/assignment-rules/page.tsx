@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -75,15 +75,17 @@ import {
 } from "@/hooks/admission";
 import { AssignmentRulesService, type AssignmentRuleType } from "@/lib/services/admission/assignment-rules-service";
 import { Skeleton } from "@/components/ui/skeleton";
+import { createClientSupabaseClient } from "@/lib/supabase/client";
 
-// Mock counselors (would come from admission_counselors table)
-const counselors = [
-  { id: "1", name: "Priya Menon", specialization: "B.Tech", region: "Tamil Nadu", currentLoad: 45, maxCapacity: 60, status: "available" },
-  { id: "2", name: "Ravi Kumar", specialization: "MBA", region: "Karnataka", currentLoad: 38, maxCapacity: 50, status: "available" },
-  { id: "3", name: "Meena Iyer", specialization: "BBA", region: "Kerala", currentLoad: 50, maxCapacity: 50, status: "at_capacity" },
-  { id: "4", name: "Karthik S", specialization: "B.Tech", region: "Andhra Pradesh", currentLoad: 42, maxCapacity: 55, status: "available" },
-  { id: "5", name: "Deepa R", specialization: "All Programs", region: "All Regions", currentLoad: 35, maxCapacity: 60, status: "available" },
-];
+type CounselorCapacity = {
+  id: string;
+  name: string;
+  specialization: string;
+  region: string;
+  currentLoad: number;
+  maxCapacity: number;
+  status: string;
+};
 
 function AssignmentRulesPageContent() {
   const { selectedInstitutionId, loading: isLoadingAccess } = useUserInstitutionAccess();
@@ -101,13 +103,85 @@ function AssignmentRulesPageContent() {
   const [newRulePriority, setNewRulePriority] = useState(5);
   const [newRuleEnabled, setNewRuleEnabled] = useState(true);
   const [isReassigning, setIsReassigning] = useState(false);
+  const [counselors, setCounselors] = useState<CounselorCapacity[]>([]);
+
+  // Load counselors from admission_counselors + lead counts
+  useEffect(() => {
+    if (!selectedInstitutionId) return;
+    const loadCounselors = async () => {
+      try {
+        const supabase = createClientSupabaseClient();
+        // Get counselors for this institution
+        const { data: counselorRows, error: cErr } = await (supabase as any)
+          .from('admission_counselors')
+          .select('id, name, email, is_active')
+          .eq('institution_id', selectedInstitutionId);
+        if (cErr) throw cErr;
+        if (!counselorRows || counselorRows.length === 0) { setCounselors([]); return; }
+        // Get lead counts per counselor
+        const { data: leads, error: lErr } = await (supabase as any)
+          .from('admission_leads')
+          .select('counselor_id')
+          .eq('institution_id', selectedInstitutionId)
+          .not('counselor_id', 'is', null);
+        if (lErr) throw lErr;
+        const loadMap: Record<string, number> = {};
+        (leads || []).forEach((l: any) => { loadMap[l.counselor_id] = (loadMap[l.counselor_id] || 0) + 1; });
+        const maxCapacity = 60; // Default capacity per counselor
+        setCounselors(counselorRows.map((c: any) => {
+          const load = loadMap[c.id] || 0;
+          return {
+            id: c.id,
+            name: c.name || c.email || 'Unknown',
+            specialization: 'All Programs',
+            region: 'All Regions',
+            currentLoad: load,
+            maxCapacity,
+            status: !c.is_active ? 'inactive' : load >= maxCapacity ? 'at_capacity' : 'available',
+          };
+        }));
+      } catch {
+        setCounselors([]);
+      }
+    };
+    loadCounselors();
+  }, [selectedInstitutionId]);
 
   const handleReassign = async () => {
+    if (!selectedInstitutionId) { toast.error("Institution not found"); return; }
     setIsReassigning(true);
     try {
-      // TODO: Implement reassignment logic
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      toast.success("Unassigned leads have been redistributed");
+      const supabase = createClientSupabaseClient();
+      // Get unassigned leads
+      const { data: unassigned, error: uErr } = await (supabase as any)
+        .from('admission_leads')
+        .select('id')
+        .eq('institution_id', selectedInstitutionId)
+        .is('counselor_id', null);
+      if (uErr) throw uErr;
+      if (!unassigned || unassigned.length === 0) {
+        toast.info("No unassigned leads found");
+        return;
+      }
+      // Get available counselors
+      const available = counselors.filter(c => c.status === 'available');
+      if (available.length === 0) {
+        toast.error("No available counselors to assign leads to");
+        return;
+      }
+      // Round-robin assignment
+      const updates = unassigned.map((lead: any, i: number) => ({
+        id: lead.id,
+        counselor_id: available[i % available.length].id,
+      }));
+      for (const update of updates) {
+        await (supabase as any)
+          .from('admission_leads')
+          .update({ counselor_id: update.counselor_id })
+          .eq('id', update.id);
+      }
+      toast.success(`${unassigned.length} unassigned leads have been redistributed`);
+      refetch();
     } catch {
       toast.error("Failed to re-assign leads");
     } finally {

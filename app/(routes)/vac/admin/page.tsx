@@ -208,12 +208,15 @@ export default function VACAdminDashboard() {
                 Module Settings
               </CardTitle>
               <CardDescription>
-                Configure VAC module preferences
+                Configure VAC tracks, grading rules, and enrollment preferences
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <Button variant="outline" className="w-full" disabled>
-                Coming Soon
+              <Button asChild variant="outline" className="w-full">
+                <Link href="/vac/admin/settings">
+                  View Settings
+                  <ArrowRight className="ml-2 h-4 w-4" />
+                </Link>
               </Button>
             </CardContent>
           </Card>

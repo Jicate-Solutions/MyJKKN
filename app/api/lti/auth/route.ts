@@ -146,12 +146,6 @@ async function handleOidcLogin(request: NextRequest) {
 
     // In a real implementation, store stateData securely
     // For now, log it for debugging
-    console.log('[LTI OIDC] Login initiation:', {
-      tool: tool.name,
-      user: user.id,
-      state,
-      redirect: authUrl.toString()
-    });
 
     // Redirect to tool's authentication endpoint
     return NextResponse.redirect(authUrl.toString());

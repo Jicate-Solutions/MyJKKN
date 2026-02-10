@@ -277,7 +277,6 @@ export class ParentSessionService {
 
     const cleanedCount = data?.count || 0;
     if (cleanedCount > 0) {
-      console.log(`[ParentSessionService] Cleaned up ${cleanedCount} expired sessions`);
     }
 
     return cleanedCount;

@@ -51,7 +51,6 @@ export async function parseExcelFile(
         if (matchingSheet) {
           selectedSheetName = matchingSheet;
           worksheet = workbook.Sheets[matchingSheet];
-          console.log(`[excel-parser] Using sheet "${matchingSheet}" (case-insensitive match for "${sheetName}")`);
         } else {
           // Sheet not found - provide helpful error with available sheets
           const availableSheets = workbook.SheetNames.join(', ');

@@ -25,12 +25,6 @@ export function useAcademicYears(initialFilters: AcademicYearFilters = {}) {
         setError(null);
         const currentFilters = newFilters || filters;
 
-        console.log('useAcademicYears: Fetching with filters:', currentFilters);
-        console.log('useAcademicYears: User context:', {
-          isSuperAdmin,
-          userInstitutionId: userProfile?.institution_id
-        });
-
         // Use institution-aware method if user is not super admin
         const result = isSuperAdmin
           ? await AcademicYearService.getAcademicYears(currentFilters)
@@ -39,11 +33,6 @@ export function useAcademicYears(initialFilters: AcademicYearFilters = {}) {
               userProfile?.institution_id,
               false
             );
-
-        console.log('useAcademicYears: Query result:', {
-          dataCount: result.data?.length,
-          metadata: result.metadata
-        });
 
         setAcademicYears(result.data);
 

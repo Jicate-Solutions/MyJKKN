@@ -33,7 +33,6 @@ export async function GET(request: NextRequest) {
 
     // Get API key from Authorization header
     const authHeader = request.headers.get('authorization');
-    console.log('[Staff API] 1. Auth header:', authHeader);
 
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return NextResponse.json(
@@ -44,7 +43,6 @@ export async function GET(request: NextRequest) {
 
     const apiKey = authHeader.substring(7); // Remove 'Bearer ' prefix
     const hashedKey = createHash('sha256').update(apiKey).digest('hex');
-    console.log('[Staff API] 2. Hashed key:', hashedKey);
 
     // Verify API key
     const { data: keyData, error: keyError } = await supabase
@@ -53,19 +51,6 @@ export async function GET(request: NextRequest) {
       .eq('key_value', hashedKey)
       .eq('is_active', true)
       .single();
-
-    console.log('[Staff API] 3. Key verification:', {
-      found: !!keyData,
-      error: keyError?.message,
-      keyData: keyData
-        ? {
-            id: keyData.id,
-            name: keyData.name,
-            is_active: keyData.is_active,
-            permissions: keyData.permissions
-          }
-        : null
-    });
 
     if (keyError || !keyData) {
       return NextResponse.json(
@@ -92,10 +77,6 @@ export async function GET(request: NextRequest) {
 
     // Get query parameters
     const url = new URL(request.url);
-    console.log(
-      '[Staff API] 4. Query params:',
-      Object.fromEntries(url.searchParams)
-    );
 
     // Check if client wants all records without pagination
     // Usage: ?all=true to fetch all staff records
@@ -118,11 +99,6 @@ export async function GET(request: NextRequest) {
       `,
       { count: 'exact' }
     );
-
-    console.log('[Staff API] 5. Executing query...', {
-      fetchAll,
-      pagination: fetchAll ? 'disabled' : `page ${page}, limit ${limit}`
-    });
 
     // Apply filters
     if (search) {
@@ -159,20 +135,6 @@ export async function GET(request: NextRequest) {
 
     // Execute query
     const { data: staff, error, count } = await query;
-
-    console.log('[Staff API] 6. Query result:', {
-      success: !!staff,
-      error: error?.message,
-      total: count,
-      returned: staff?.length || 0,
-      fetchedAll: fetchAll,
-      firstRecord: staff?.[0]
-        ? {
-            id: staff[0].id,
-            name: `${staff[0].first_name} ${staff[0].last_name}`
-          }
-        : null
-    });
 
     if (error) throw error;
 

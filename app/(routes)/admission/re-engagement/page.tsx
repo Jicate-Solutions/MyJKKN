@@ -48,6 +48,12 @@ import {
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { useAuth } from '@/hooks/use-auth';
 import {
+  useColdLeads,
+  useReEngagementCampaigns,
+  useReEngagementStats,
+  useMarkLeadAsHot,
+} from '@/hooks/admission/use-re-engagement';
+import {
   Flame,
   Snowflake,
   RefreshCw,
@@ -84,153 +90,6 @@ import { cn } from '@/lib/utils';
 import { format, formatDistanceToNow, differenceInDays } from 'date-fns';
 import { AdmissionErrorBoundary } from '@/components/admission';
 
-// Types
-interface ColdLead {
-  id: string;
-  name: string;
-  email: string;
-  phone: string;
-  program: string;
-  source: string;
-  lastContactDate: string;
-  daysSinceContact: number;
-  previousStage: string;
-  lostReason?: string;
-  reengagementAttempts: number;
-  lastReengagementDate?: string;
-  score: number;
-}
-
-interface ReengagementCampaign {
-  id: string;
-  name: string;
-  status: 'active' | 'paused' | 'completed' | 'draft';
-  channel: 'email' | 'whatsapp' | 'sms' | 'multi';
-  targetLeads: number;
-  contacted: number;
-  responded: number;
-  converted: number;
-  startDate: string;
-  endDate?: string;
-  message: string;
-}
-
-// Sample data
-const SAMPLE_COLD_LEADS: ColdLead[] = [
-  {
-    id: '1',
-    name: 'Vikram Singh',
-    email: 'vikram@email.com',
-    phone: '+91 98765 11111',
-    program: 'B.Tech Computer Science',
-    source: 'Website',
-    lastContactDate: new Date(Date.now() - 45 * 24 * 60 * 60 * 1000).toISOString(),
-    daysSinceContact: 45,
-    previousStage: 'interested',
-    lostReason: 'No response',
-    reengagementAttempts: 1,
-    lastReengagementDate: new Date(Date.now() - 15 * 24 * 60 * 60 * 1000).toISOString(),
-    score: 65
-  },
-  {
-    id: '2',
-    name: 'Priya Nair',
-    email: 'priya@email.com',
-    phone: '+91 98765 22222',
-    program: 'MBA Marketing',
-    source: 'Social Media',
-    lastContactDate: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
-    daysSinceContact: 30,
-    previousStage: 'contacted',
-    lostReason: 'Budget concerns',
-    reengagementAttempts: 0,
-    score: 75
-  },
-  {
-    id: '3',
-    name: 'Arjun Reddy',
-    email: 'arjun@email.com',
-    phone: '+91 98765 33333',
-    program: 'B.Sc Nursing',
-    source: 'Referral',
-    lastContactDate: new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString(),
-    daysSinceContact: 60,
-    previousStage: 'interested',
-    lostReason: 'Chose competitor',
-    reengagementAttempts: 2,
-    lastReengagementDate: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString(),
-    score: 45
-  },
-  {
-    id: '4',
-    name: 'Deepa Kumar',
-    email: 'deepa@email.com',
-    phone: '+91 98765 44444',
-    program: 'B.Pharm',
-    source: 'Education Fair',
-    lastContactDate: new Date(Date.now() - 20 * 24 * 60 * 60 * 1000).toISOString(),
-    daysSinceContact: 20,
-    previousStage: 'new',
-    reengagementAttempts: 0,
-    score: 80
-  },
-  {
-    id: '5',
-    name: 'Karthik Menon',
-    email: 'karthik@email.com',
-    phone: '+91 98765 55555',
-    program: 'M.Tech AI',
-    source: 'Google Ads',
-    lastContactDate: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString(),
-    daysSinceContact: 90,
-    previousStage: 'applied',
-    lostReason: 'Delayed decision',
-    reengagementAttempts: 3,
-    lastReengagementDate: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
-    score: 55
-  }
-];
-
-const SAMPLE_CAMPAIGNS: ReengagementCampaign[] = [
-  {
-    id: '1',
-    name: 'New Year Scholarship Offer',
-    status: 'active',
-    channel: 'email',
-    targetLeads: 150,
-    contacted: 120,
-    responded: 35,
-    converted: 12,
-    startDate: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString(),
-    message: 'Special scholarship offer for returning applicants'
-  },
-  {
-    id: '2',
-    name: 'Deadline Reminder',
-    status: 'completed',
-    channel: 'whatsapp',
-    targetLeads: 80,
-    contacted: 80,
-    responded: 28,
-    converted: 8,
-    startDate: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
-    endDate: new Date(Date.now() - 15 * 24 * 60 * 60 * 1000).toISOString(),
-    message: 'Final admission deadline approaching'
-  },
-  {
-    id: '3',
-    name: 'Campus Visit Invitation',
-    status: 'draft',
-    channel: 'multi',
-    targetLeads: 50,
-    contacted: 0,
-    responded: 0,
-    converted: 0,
-    startDate: new Date().toISOString(),
-    message: 'Invitation to visit our campus and meet faculty'
-  }
-];
-
 function getScoreColor(score: number) {
   if (score >= 70) return 'text-green-600 bg-green-100 dark:bg-green-900/30';
   if (score >= 50) return 'text-amber-600 bg-amber-100 dark:bg-amber-900/30';
@@ -243,17 +102,11 @@ function getColdnessLevel(days: number) {
   return { label: 'Cooling', color: 'bg-cyan-400', icon: Clock };
 }
 
-function CampaignCard({ campaign }: { campaign: ReengagementCampaign }) {
+function CampaignCard({ campaign }: { campaign: any }) {
   const [isLaunching, setIsLaunching] = useState(false);
-  const responseRate = campaign.contacted > 0
-    ? Math.round((campaign.responded / campaign.contacted) * 100)
-    : 0;
-  const conversionRate = campaign.responded > 0
-    ? Math.round((campaign.converted / campaign.responded) * 100)
-    : 0;
-  const progress = campaign.targetLeads > 0
-    ? Math.round((campaign.contacted / campaign.targetLeads) * 100)
-    : 0;
+  const totalSteps = campaign.total_steps || campaign.totalSteps || 1;
+  const currentStep = campaign.current_step_index || campaign.currentStep || 0;
+  const progress = totalSteps > 0 ? Math.round((currentStep / totalSteps) * 100) : 0;
 
   return (
     <Card>
@@ -273,15 +126,12 @@ function CampaignCard({ campaign }: { campaign: ReengagementCampaign }) {
               {campaign.status === 'draft' && <Clock className="h-5 w-5 text-gray-600" />}
             </div>
             <div>
-              <CardTitle className="text-lg">{campaign.name}</CardTitle>
+              <CardTitle className="text-lg">{campaign.name || `Campaign ${campaign.id?.slice(0, 8)}`}</CardTitle>
               <CardDescription className="flex items-center gap-2 mt-1">
-                {campaign.channel === 'email' && <Mail className="h-3 w-3" />}
-                {campaign.channel === 'whatsapp' && <MessageCircle className="h-3 w-3" />}
-                {campaign.channel === 'sms' && <Phone className="h-3 w-3" />}
-                {campaign.channel === 'multi' && <Zap className="h-3 w-3" />}
-                <span className="capitalize">{campaign.channel}</span>
+                <Zap className="h-3 w-3" />
+                <span className="capitalize">{campaign.status}</span>
                 <span>•</span>
-                <span>Started {formatDistanceToNow(new Date(campaign.startDate), { addSuffix: true })}</span>
+                <span>Started {campaign.started_at ? formatDistanceToNow(new Date(campaign.started_at), { addSuffix: true }) : 'N/A'}</span>
               </CardDescription>
             </div>
           </div>
@@ -298,25 +148,9 @@ function CampaignCard({ campaign }: { campaign: ReengagementCampaign }) {
         <div>
           <div className="flex justify-between text-sm mb-1">
             <span className="text-muted-foreground">Progress</span>
-            <span>{campaign.contacted} / {campaign.targetLeads} contacted</span>
+            <span>Step {currentStep} / {totalSteps}</span>
           </div>
           <Progress value={progress} className="h-2" />
-        </div>
-        <div className="grid grid-cols-3 gap-4 text-center">
-          <div className="p-3 rounded-lg bg-muted/50">
-            <p className="text-2xl font-bold">{campaign.responded}</p>
-            <p className="text-xs text-muted-foreground">Responded</p>
-            <p className="text-xs text-green-600">{responseRate}% rate</p>
-          </div>
-          <div className="p-3 rounded-lg bg-muted/50">
-            <p className="text-2xl font-bold">{campaign.converted}</p>
-            <p className="text-xs text-muted-foreground">Converted</p>
-            <p className="text-xs text-green-600">{conversionRate}% rate</p>
-          </div>
-          <div className="p-3 rounded-lg bg-muted/50">
-            <p className="text-2xl font-bold">{campaign.targetLeads - campaign.contacted}</p>
-            <p className="text-xs text-muted-foreground">Remaining</p>
-          </div>
         </div>
         <div className="flex justify-end gap-2">
           {campaign.status === 'draft' && (
@@ -454,7 +288,7 @@ function CreateCampaignDialog() {
             <div className="space-y-2">
               <Label>Estimated Reach</Label>
               <div className="p-3 rounded-lg bg-muted text-center">
-                <p className="text-lg font-bold">5 leads</p>
+                <p className="text-lg font-bold">-- leads</p>
                 <p className="text-xs text-muted-foreground">match criteria</p>
               </div>
             </div>
@@ -493,29 +327,55 @@ function CreateCampaignDialog() {
 
 function ColdLeadReengagementPageContent() {
   const { profile, isLoading: accessLoading } = useAuth();
-  const [coldLeads, setColdLeads] = useState<ColdLead[]>(SAMPLE_COLD_LEADS);
-  const [campaigns, setCampaigns] = useState<ReengagementCampaign[]>(SAMPLE_CAMPAIGNS);
+  const institutionId = profile?.institution_id || '';
   const [selectedLeads, setSelectedLeads] = useState<string[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [daysFilter, setDaysFilter] = useState<string>('all');
   const [isSendingMessage, setIsSendingMessage] = useState(false);
 
-  const totalColdLeads = coldLeads.length;
-  const veryColdLeads = coldLeads.filter(l => l.daysSinceContact >= 60).length;
-  const neverEngaged = coldLeads.filter(l => l.reengagementAttempts === 0).length;
-  const activeCampaigns = campaigns.filter(c => c.status === 'active').length;
+  // Real data hooks
+  const { leads: rawColdLeads, total: coldLeadTotal, isLoading: leadsLoading, refetch: refetchLeads } = useColdLeads({
+    institutionId,
+    search: searchTerm || undefined,
+    minDaysInactive: daysFilter !== 'all' ? parseInt(daysFilter) : undefined,
+  });
+  const { campaigns, isLoading: campaignsLoading, refetch: refetchCampaigns } = useReEngagementCampaigns(institutionId);
+  const { stats, isLoading: statsLoading, refetch: refetchStats } = useReEngagementStats(institutionId);
+  const markAsHot = useMarkLeadAsHot();
 
-  const filteredLeads = coldLeads.filter(lead => {
+  // Transform DB leads to UI format
+  const coldLeads = (rawColdLeads || []).map((lead: any) => {
+    const lastContact = lead.last_contact_at || lead.last_activity_at || lead.created_at;
+    const daysSinceContact = lastContact
+      ? differenceInDays(new Date(), new Date(lastContact))
+      : 0;
+    return {
+      id: lead.id,
+      name: lead.full_name || 'Unknown',
+      email: lead.email || '',
+      phone: lead.phone || '',
+      program: Array.isArray(lead.interested_programs) ? lead.interested_programs.join(', ') : (lead.interested_programs || ''),
+      source: lead.source || 'Unknown',
+      lastContactDate: lastContact || new Date().toISOString(),
+      daysSinceContact,
+      previousStage: lead.stage || lead.funnel_stage || 'new',
+      lostReason: lead.lost_reason || undefined,
+      reengagementAttempts: 0,
+      lastReengagementDate: undefined as string | undefined,
+      score: lead.score || lead.engagement_score || 0,
+    };
+  });
+
+  const totalColdLeads = stats.totalColdLeads;
+  const veryColdLeads = stats.veryColdLeads;
+  const neverEngaged = stats.neverEngaged;
+  const activeCampaigns = stats.activeCampaigns;
+
+  const filteredLeads = coldLeads.filter((lead: any) => {
     const matchesSearch = !searchTerm ||
       lead.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       lead.program.toLowerCase().includes(searchTerm.toLowerCase());
-
-    const matchesDays = daysFilter === 'all' ||
-      (daysFilter === '30' && lead.daysSinceContact >= 30) ||
-      (daysFilter === '60' && lead.daysSinceContact >= 60) ||
-      (daysFilter === '90' && lead.daysSinceContact >= 90);
-
-    return matchesSearch && matchesDays;
+    return matchesSearch;
   });
 
   const toggleLeadSelection = (id: string) => {
@@ -528,8 +388,15 @@ function ColdLeadReengagementPageContent() {
     if (selectedLeads.length === filteredLeads.length) {
       setSelectedLeads([]);
     } else {
-      setSelectedLeads(filteredLeads.map(l => l.id));
+      setSelectedLeads(filteredLeads.map((l: any) => l.id));
     }
+  };
+
+  const handleRefresh = () => {
+    refetchLeads();
+    refetchCampaigns();
+    refetchStats();
+    toast.success('Data refreshed');
   };
 
   return (
@@ -551,7 +418,7 @@ function ColdLeadReengagementPageContent() {
             </Breadcrumb>
 
             <div className="flex gap-2">
-              <Button variant="outline" onClick={() => toast.success('Data refreshed')}>
+              <Button variant="outline" onClick={handleRefresh}>
                 <RefreshCw className="h-4 w-4 mr-2" />
                 Refresh
               </Button>
@@ -695,124 +562,148 @@ function ColdLeadReengagementPageContent() {
               </div>
 
               <Card>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="w-12">
-                        <Checkbox
-                          checked={selectedLeads.length === filteredLeads.length && filteredLeads.length > 0}
-                          onCheckedChange={selectAll}
-                        />
-                      </TableHead>
-                      <TableHead>Lead</TableHead>
-                      <TableHead>Program</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Last Contact</TableHead>
-                      <TableHead>Score</TableHead>
-                      <TableHead>Re-engagements</TableHead>
-                      <TableHead className="w-12"></TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredLeads.map((lead) => {
-                      const coldness = getColdnessLevel(lead.daysSinceContact);
-                      return (
-                        <TableRow key={lead.id}>
-                          <TableCell>
-                            <Checkbox
-                              checked={selectedLeads.includes(lead.id)}
-                              onCheckedChange={() => toggleLeadSelection(lead.id)}
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex items-center gap-3">
-                              <Avatar className="h-8 w-8">
-                                <AvatarFallback>
-                                  {lead.name.split(' ').map(n => n[0]).join('').toUpperCase()}
-                                </AvatarFallback>
-                              </Avatar>
-                              <div>
-                                <p className="font-medium">{lead.name}</p>
-                                <p className="text-xs text-muted-foreground">{lead.email}</p>
+                {leadsLoading ? (
+                  <div className="flex items-center justify-center py-12">
+                    <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                  </div>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="w-12">
+                          <Checkbox
+                            checked={selectedLeads.length === filteredLeads.length && filteredLeads.length > 0}
+                            onCheckedChange={selectAll}
+                          />
+                        </TableHead>
+                        <TableHead>Lead</TableHead>
+                        <TableHead>Program</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Last Contact</TableHead>
+                        <TableHead>Score</TableHead>
+                        <TableHead>Re-engagements</TableHead>
+                        <TableHead className="w-12"></TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {filteredLeads.map((lead: any) => {
+                        const coldness = getColdnessLevel(lead.daysSinceContact);
+                        return (
+                          <TableRow key={lead.id}>
+                            <TableCell>
+                              <Checkbox
+                                checked={selectedLeads.includes(lead.id)}
+                                onCheckedChange={() => toggleLeadSelection(lead.id)}
+                              />
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex items-center gap-3">
+                                <Avatar className="h-8 w-8">
+                                  <AvatarFallback>
+                                    {lead.name.split(' ').map((n: string) => n[0]).join('').toUpperCase()}
+                                  </AvatarFallback>
+                                </Avatar>
+                                <div>
+                                  <p className="font-medium">{lead.name}</p>
+                                  <p className="text-xs text-muted-foreground">{lead.email}</p>
+                                </div>
                               </div>
-                            </div>
-                          </TableCell>
-                          <TableCell>{lead.program}</TableCell>
-                          <TableCell>
-                            <div className="flex items-center gap-2">
-                              <div className={cn("w-2 h-2 rounded-full", coldness.color)} />
-                              <span className="text-sm">{coldness.label}</span>
-                            </div>
-                            {lead.lostReason && (
-                              <p className="text-xs text-muted-foreground">{lead.lostReason}</p>
-                            )}
-                          </TableCell>
-                          <TableCell>
-                            <p>{lead.daysSinceContact} days ago</p>
-                            <p className="text-xs text-muted-foreground">
-                              {format(new Date(lead.lastContactDate), 'MMM d, yyyy')}
-                            </p>
-                          </TableCell>
-                          <TableCell>
-                            <Badge className={cn("text-xs", getScoreColor(lead.score))}>
-                              {lead.score}%
-                            </Badge>
-                          </TableCell>
-                          <TableCell>
-                            <p>{lead.reengagementAttempts} attempts</p>
-                            {lead.lastReengagementDate && (
+                            </TableCell>
+                            <TableCell>{lead.program}</TableCell>
+                            <TableCell>
+                              <div className="flex items-center gap-2">
+                                <div className={cn("w-2 h-2 rounded-full", coldness.color)} />
+                                <span className="text-sm">{coldness.label}</span>
+                              </div>
+                              {lead.lostReason && (
+                                <p className="text-xs text-muted-foreground">{lead.lostReason}</p>
+                              )}
+                            </TableCell>
+                            <TableCell>
+                              <p>{lead.daysSinceContact} days ago</p>
                               <p className="text-xs text-muted-foreground">
-                                Last: {formatDistanceToNow(new Date(lead.lastReengagementDate), { addSuffix: true })}
+                                {format(new Date(lead.lastContactDate), 'MMM d, yyyy')}
                               </p>
-                            )}
-                          </TableCell>
-                          <TableCell>
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                <Button variant="ghost" size="icon">
-                                  <MoreHorizontal className="h-4 w-4" />
-                                </Button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end">
-                                <DropdownMenuItem>
-                                  <Phone className="h-4 w-4 mr-2" />
-                                  Call
-                                </DropdownMenuItem>
-                                <DropdownMenuItem>
-                                  <MessageCircle className="h-4 w-4 mr-2" />
-                                  WhatsApp
-                                </DropdownMenuItem>
-                                <DropdownMenuItem>
-                                  <Mail className="h-4 w-4 mr-2" />
-                                  Email
-                                </DropdownMenuItem>
-                                <DropdownMenuSeparator />
-                                <DropdownMenuItem>
-                                  <History className="h-4 w-4 mr-2" />
-                                  View History
-                                </DropdownMenuItem>
-                                <DropdownMenuItem>
-                                  <Flame className="h-4 w-4 mr-2" />
-                                  Mark as Hot
-                                </DropdownMenuItem>
-                              </DropdownMenuContent>
-                            </DropdownMenu>
+                            </TableCell>
+                            <TableCell>
+                              <Badge className={cn("text-xs", getScoreColor(lead.score))}>
+                                {lead.score}%
+                              </Badge>
+                            </TableCell>
+                            <TableCell>
+                              <p>{lead.reengagementAttempts} attempts</p>
+                              {lead.lastReengagementDate && (
+                                <p className="text-xs text-muted-foreground">
+                                  Last: {formatDistanceToNow(new Date(lead.lastReengagementDate), { addSuffix: true })}
+                                </p>
+                              )}
+                            </TableCell>
+                            <TableCell>
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <Button variant="ghost" size="icon">
+                                    <MoreHorizontal className="h-4 w-4" />
+                                  </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                  <DropdownMenuItem>
+                                    <Phone className="h-4 w-4 mr-2" />
+                                    Call
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem>
+                                    <MessageCircle className="h-4 w-4 mr-2" />
+                                    WhatsApp
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem>
+                                    <Mail className="h-4 w-4 mr-2" />
+                                    Email
+                                  </DropdownMenuItem>
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuItem>
+                                    <History className="h-4 w-4 mr-2" />
+                                    View History
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem onClick={() => markAsHot.mutate(lead.id)}>
+                                    <Flame className="h-4 w-4 mr-2" />
+                                    Mark as Hot
+                                  </DropdownMenuItem>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                      {filteredLeads.length === 0 && (
+                        <TableRow>
+                          <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                            No cold leads found.
                           </TableCell>
                         </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
+                      )}
+                    </TableBody>
+                  </Table>
+                )}
               </Card>
             </TabsContent>
 
             {/* Campaigns Tab */}
             <TabsContent value="campaigns" className="space-y-4">
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                {campaigns.map((campaign) => (
-                  <CampaignCard key={campaign.id} campaign={campaign} />
-                ))}
-              </div>
+              {campaignsLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  {(campaigns || []).map((campaign: any) => (
+                    <CampaignCard key={campaign.id} campaign={campaign} />
+                  ))}
+                  {(campaigns || []).length === 0 && (
+                    <div className="col-span-2 text-center py-8 text-muted-foreground">
+                      No campaigns found. Create one to get started.
+                    </div>
+                  )}
+                </div>
+              )}
             </TabsContent>
 
             {/* Analytics Tab */}
@@ -827,19 +718,22 @@ function ColdLeadReengagementPageContent() {
                     <div className="space-y-4">
                       <div className="flex items-center justify-between">
                         <span className="text-sm">Response Rate</span>
-                        <span className="font-bold">28%</span>
+                        <span className="font-bold">--</span>
                       </div>
-                      <Progress value={28} className="h-2" />
+                      <Progress value={0} className="h-2" />
                       <div className="flex items-center justify-between">
                         <span className="text-sm">Conversion Rate</span>
-                        <span className="font-bold">12%</span>
+                        <span className="font-bold">--</span>
                       </div>
-                      <Progress value={12} className="h-2" />
+                      <Progress value={0} className="h-2" />
                       <div className="flex items-center justify-between">
                         <span className="text-sm">Re-activation Rate</span>
-                        <span className="font-bold">8%</span>
+                        <span className="font-bold">--</span>
                       </div>
-                      <Progress value={8} className="h-2" />
+                      <Progress value={0} className="h-2" />
+                      <p className="text-xs text-muted-foreground text-center pt-2">
+                        Analytics will populate as campaigns run.
+                      </p>
                     </div>
                   </CardContent>
                 </Card>
@@ -855,22 +749,25 @@ function ColdLeadReengagementPageContent() {
                           <MessageCircle className="h-4 w-4 text-green-600" />
                           <span>WhatsApp</span>
                         </div>
-                        <Badge variant="default">35%</Badge>
+                        <Badge variant="default">--</Badge>
                       </div>
                       <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50">
                         <div className="flex items-center gap-2">
                           <Mail className="h-4 w-4 text-blue-600" />
                           <span>Email</span>
                         </div>
-                        <Badge variant="secondary">22%</Badge>
+                        <Badge variant="secondary">--</Badge>
                       </div>
                       <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50">
                         <div className="flex items-center gap-2">
                           <Phone className="h-4 w-4 text-purple-600" />
                           <span>SMS</span>
                         </div>
-                        <Badge variant="secondary">18%</Badge>
+                        <Badge variant="secondary">--</Badge>
                       </div>
+                      <p className="text-xs text-muted-foreground text-center pt-2">
+                        Channel performance will populate as campaigns run.
+                      </p>
                     </div>
                   </CardContent>
                 </Card>

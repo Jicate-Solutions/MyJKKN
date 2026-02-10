@@ -332,8 +332,6 @@ export class SubCategoryService {
 
       if (error) throw error;
 
-      console.log(`Successfully deleted subcategory ${id} from database`);
-
       // Delete the category image from storage if it exists
       // Note: Subcategory images would be stored in the same bucket as parent categories
       if (categoryData.image_url) {
@@ -350,9 +348,6 @@ export class SubCategoryService {
             );
             // Don't throw here, just log the error
           } else {
-            console.log(
-              `Successfully deleted image for subcategory ${id} from URL: ${categoryData.image_url}`
-            );
           }
         } catch (imageError) {
           // Log the error but don't fail the entire operation

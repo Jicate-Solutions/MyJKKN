@@ -119,13 +119,10 @@ function parseGradePayload(body: any): LtiGradePayload {
  */
 export async function POST(request: NextRequest) {
   try {
-    console.log('[LTI Grades] Received grade passback request');
 
     // 1. Verify OAuth token
     const authHeader = request.headers.get('Authorization');
     const { clientId, scope } = await verifyOAuthToken(authHeader);
-
-    console.log('[LTI Grades] Token verified:', { clientId, scope });
 
     // 2. Check AGS scope
     if (!hasAgsScope(scope)) {
@@ -206,18 +203,11 @@ export async function POST(request: NextRequest) {
       launchId: body.launchId || body.launch_id
     };
 
-    console.log('[LTI Grades] Processing grade:', {
-      userId: gradePayload.userId,
-      score: `${gradePayload.scoreGiven}/${gradePayload.scoreMaximum}`,
-      resourceLinkId
-    });
-
     // 5. Process grade
     const result = await LtiGradeService.processGrade(gradePayload, context);
 
     // 6. Return success
     if (result.isDuplicate) {
-      console.log('[LTI Grades] Duplicate grade, returning OK');
       return NextResponse.json(
         {
           success: true,
@@ -228,11 +218,6 @@ export async function POST(request: NextRequest) {
         { status: 200 }
       );
     }
-
-    console.log('[LTI Grades] Grade stored successfully:', {
-      gradeId: result.grade.id,
-      percentage: result.grade.score_percentage
-    });
 
     return NextResponse.json(
       {

@@ -18,6 +18,13 @@ import {
   isCheckInOverdue,
   getDaysUntilDeadline
 } from './okr-badge-calculator';
+import { sendNotification } from '@/lib/services/notification/notification-service';
+import {
+  NotificationType,
+  NotificationCategory,
+  NotificationPriority,
+  NotificationChannel
+} from '@/types/notification';
 
 export class OKRComplianceService {
   private static supabase = createClientSupabaseClient();
@@ -214,13 +221,24 @@ export class OKRComplianceService {
         .eq('week_number', weekNumber)
         .eq('year', year);
 
-      // TODO: Integrate with notification system
-      // await NotificationService.send({
-      //   user_id: escalateTo,
-      //   type: 'okr_escalation',
-      //   title: 'OKR Non-Compliance Escalation',
-      //   message
-      // });
+      // Send notification to the escalation target (non-blocking)
+      try {
+        await sendNotification({
+          user_ids: [escalateTo],
+          type: NotificationType.WARNING,
+          category: NotificationCategory.SYSTEM,
+          priority: NotificationPriority.HIGH,
+          title: 'OKR Non-Compliance Escalation',
+          message,
+          metadata: { custom_data: { user_id: userId, action: 'okr_escalation' } },
+          action_url: '/okr/compliance',
+          action_label: 'View Compliance',
+          channels: [NotificationChannel.IN_APP, NotificationChannel.EMAIL]
+        });
+      } catch (notifError: any) {
+        // Notification failure should not break the escalation flow
+        console.error('[OKR] Failed to send escalation notification:', notifError?.message || 'Unknown error');
+      }
 
       toast.success('Escalation sent');
     } catch (error: any) {

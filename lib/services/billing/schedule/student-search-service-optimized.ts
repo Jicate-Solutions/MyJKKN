@@ -41,9 +41,6 @@ export class StudentSearchServiceOptimized {
     studentId: string
   ): Promise<StudentBillingSummary> {
     try {
-      console.log(
-        `Starting optimized billing summary for student: ${studentId}`
-      );
 
       // Step 1: Get student details (simple query)
       const student = await this.getStudentForBilling(studentId);
@@ -119,10 +116,6 @@ export class StudentSearchServiceOptimized {
           ? invoicesResult.value.data || []
           : [];
 
-      console.log(
-        `Fetched ${bills.length} bills, ${receipts.length} receipts, ${invoices.length} invoices`
-      );
-
       // Step 3: Get related data only for fetched records (parallel execution)
       const [
         categoryData,
@@ -156,8 +149,6 @@ export class StudentSearchServiceOptimized {
         enrichedReceipts,
         refundsData as any[]
       );
-
-      console.log(`Calculated summary for student ${studentId}:`, summary);
 
       return {
         student,

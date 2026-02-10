@@ -147,8 +147,19 @@ export class BillingParentCategoryService {
 
   static async deleteBillingParentCategory(id: string): Promise<void> {
     try {
-      // TODO: Check if category has associated sub-categories before deletion
-      // This will be implemented when we create the sub-category module
+      // Check if category has associated sub-categories before deletion
+      const { count, error: countError } = await this.supabase
+        .from('billing_sub_categories')
+        .select('*', { count: 'exact', head: true })
+        .eq('parent_category_id', id);
+
+      if (countError) throw countError;
+
+      if (count && count > 0) {
+        throw new Error(
+          `Cannot delete: this parent category has ${count} associated sub-categories. Remove them first.`
+        );
+      }
 
       const { error } = await (this.supabase
         .from('billing_parent_categories') as any)

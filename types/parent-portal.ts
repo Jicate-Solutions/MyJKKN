@@ -519,3 +519,57 @@ export function getAdminCommPriorityColor(priority: AdminCommunicationPriority):
   };
   return colors[priority] || colors.normal;
 }
+
+// ============================================================================
+// SKILL PROGRESSION (Parent-Facing Views)
+// ============================================================================
+
+export interface ParentCompetencyView {
+  id: string;
+  name: string;
+  type: string;
+  currentLevel: string;
+  progressPercent: number;
+  verified: boolean;
+}
+
+export interface ParentBuilderView {
+  code: string;
+  isActive: boolean;
+  projectsCompleted: number;
+  averageRating: number | null;
+}
+
+export interface ParentSolutionView {
+  title: string;
+  code: string;
+  role: string;
+  status: string;
+  rating: number | null;
+}
+
+export interface LearnerSkillData {
+  competencies: ParentCompetencyView[];
+  competencyStats: {
+    total: number;
+    mastered: number;
+    inProgress: number;
+    notStarted: number;
+  };
+  builder: ParentBuilderView | null;
+  solutions: ParentSolutionView[];
+  aiGraduation: {
+    cleared: boolean;
+    clearedAt: string | null;
+  };
+  industryReadiness: number | null;
+  capabilities: string[];
+}
+
+export const PROFICIENCY_LEVEL_CONFIG: Record<string, { label: string; color: string }> = {
+  novice: { label: 'Novice', color: 'bg-gray-400' },
+  beginner: { label: 'Beginner', color: 'bg-blue-400' },
+  intermediate: { label: 'Intermediate', color: 'bg-yellow-400' },
+  advanced: { label: 'Advanced', color: 'bg-green-400' },
+  expert: { label: 'Expert', color: 'bg-purple-500' },
+};

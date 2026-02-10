@@ -46,7 +46,6 @@ export class CategoryService {
   // Get single category with subcategories
   static async getCategoryById(id: string): Promise<Category | null> {
     try {
-      console.log(`CategoryService: fetching category with ID ${id}`);
 
       const { data: category, error: categoryError } = await this.supabase
         .from('categories')
@@ -56,7 +55,6 @@ export class CategoryService {
 
       if (categoryError) {
         if (categoryError.code === 'PGRST116') {
-          console.log(`CategoryService: No category found with ID ${id}`);
           return null;
         }
         console.error(
@@ -67,12 +65,10 @@ export class CategoryService {
       }
 
       if (!category) {
-        console.log(`CategoryService: No category data returned for ID ${id}`);
         return null;
       }
 
       const categoryTyped = category as any;
-      console.log(`CategoryService: Found category: ${categoryTyped.name}`);
 
       const { data: subcategories, error: subcategoriesError } =
         await this.supabase
@@ -88,10 +84,6 @@ export class CategoryService {
         );
         throw subcategoriesError;
       }
-
-      console.log(
-        `CategoryService: Found ${(subcategories || []).length} subcategories`
-      );
 
       return {
         ...categoryTyped,

@@ -42,7 +42,6 @@ export async function GET(
 
     // Get API key from Authorization header
     const authHeader = request.headers.get('authorization');
-    console.log('[Staff Detail API] 1. Auth header:', authHeader);
 
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return NextResponse.json(
@@ -53,7 +52,6 @@ export async function GET(
 
     const apiKey = authHeader.substring(7); // Remove 'Bearer ' prefix
     const hashedKey = createHash('sha256').update(apiKey).digest('hex');
-    console.log('[Staff Detail API] 2. Hashed key:', hashedKey);
 
     // Verify API key
     const { data: keyData, error: keyError } = await supabase
@@ -62,11 +60,6 @@ export async function GET(
       .eq('key_value', hashedKey)
       .eq('is_active', true)
       .single();
-
-    console.log('[Staff Detail API] 3. Key verification:', {
-      found: !!keyData,
-      error: keyError?.message
-    });
 
     if (keyError || !keyData) {
       return NextResponse.json(
@@ -91,8 +84,6 @@ export async function GET(
       );
     }
 
-    console.log('[Staff Detail API] 4. Executing query for staff ID:', staffId);
-
     // Query for the specific staff member
     const { data: staff, error } = await supabase
       .from('staff')
@@ -106,11 +97,6 @@ export async function GET(
       )
       .eq('id', staffId)
       .single();
-
-    console.log('[Staff Detail API] 5. Query result:', {
-      success: !!staff,
-      error: error?.message
-    });
 
     if (error) {
       if (error.code === 'PGRST116') {

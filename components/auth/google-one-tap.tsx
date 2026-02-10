@@ -32,10 +32,6 @@ export function GoogleOneTap() {
       if (childAppAuthCookie) {
         try {
           childAppAuth = JSON.parse(childAppAuthCookie.split('=')[1]);
-          console.log(
-            '[One Tap] Found child app auth from cookie:',
-            childAppAuth
-          );
         } catch (e) {
           console.error('[One Tap] Failed to parse child app auth cookie:', e);
         }
@@ -77,7 +73,6 @@ export function GoogleOneTap() {
           document.cookie = `child_app_auth=${JSON.stringify(
             childAppAuth
           )}; path=/; max-age=300; SameSite=Lax${isSecure ? '; Secure' : ''}`;
-          console.log('[One Tap] Storing child app auth:', childAppAuth);
         }
       }
 
@@ -125,7 +120,6 @@ export function GoogleOneTap() {
           if (childAppAuth.state)
             consentParams.append('state', childAppAuth.state);
 
-          console.log('[One Tap] Redirecting to child app consent');
           router.push(`/auth/child-app/login?${consentParams.toString()}`);
         } else {
           // Normal redirect based on role
@@ -194,9 +188,6 @@ export function GoogleOneTap() {
     const hasChildAppAuth = checkChildAppAuth();
 
     if (hasChildAppAuth) {
-      console.log(
-        '[One Tap] Child app auth detected immediately, skipping One Tap initialization'
-      );
       initialized.current = true;
       return;
     }
@@ -204,9 +195,6 @@ export function GoogleOneTap() {
     // Double-check after a short delay
     const checkTimer = setTimeout(() => {
       if (checkChildAppAuth()) {
-        console.log(
-          '[One Tap] Child app auth detected after delay, skipping One Tap initialization'
-        );
         initialized.current = true;
         return;
       }
@@ -242,12 +230,6 @@ export function GoogleOneTap() {
             
           const currentOrigin = window.location.origin;
 
-          console.log('Google One Tap Debug Info:');
-          console.log('Environment:', isDevelopment ? 'Development' : 'Production');
-          console.log('Current Origin:', currentOrigin);
-          console.log('Client ID:', clientId);
-          console.log('Full URL:', window.location.href);
-
           if (!clientId) {
             console.error('NEXT_PUBLIC_GOOGLE_CLIENT_ID is not set!');
             return;
@@ -270,21 +252,7 @@ export function GoogleOneTap() {
             use_fedcm_for_prompt: false
           });
 
-          window.google.accounts.id.prompt((notification: any) => {
-            if (notification.isNotDisplayed()) {
-              console.log(
-                'One Tap not displayed:',
-                notification.getNotDisplayedReason()
-              );
-            } else if (notification.isSkippedMoment()) {
-              console.log('One Tap skipped:', notification.getSkippedReason());
-            } else if (notification.isDismissedMoment()) {
-              console.log(
-                'One Tap dismissed:',
-                notification.getDismissedReason()
-              );
-            }
-          });
+          window.google.accounts.id.prompt();
 
           initialized.current = true;
         } catch (error) {

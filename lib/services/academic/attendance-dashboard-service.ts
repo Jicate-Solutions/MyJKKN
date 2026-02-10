@@ -539,9 +539,15 @@ export class AttendanceDashboardService {
         timetableQuery = timetableQuery.eq('section_id', sectionId);
       }
 
-      // Apply date range filtering for timetable validity - remove for now to get all timetables
-      // TODO: Add proper date filtering logic later if needed
-      // For now, let's get all active timetables and filter in code
+      // Filter timetables to those valid within the requested date range.
+      // A timetable is valid if its start_date <= queryEndDate AND its end_date >= queryStartDate.
+      // We use .or() to also include timetables with null dates (always valid).
+      timetableQuery = timetableQuery.or(
+        `start_date.is.null,start_date.lte.${queryEndDate}`
+      );
+      timetableQuery = timetableQuery.or(
+        `end_date.is.null,end_date.gte.${queryStartDate}`
+      );
 
       const { data: timetables, error: timetableError } = await timetableQuery;
 

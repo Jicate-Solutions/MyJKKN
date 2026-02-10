@@ -8,6 +8,7 @@ import { useParentDashboard } from '@/hooks/parent-portal';
 import { ensureArray } from '@/lib/utils/validation';
 import { LearnerCard } from './learner-card';
 import { DashboardOverview } from './dashboard-overview';
+import { SkillProgressionSection } from './skill-progression-section';
 
 export function ParentDashboardClient() {
   const router = useRouter();
@@ -157,6 +158,15 @@ export function ParentDashboardClient() {
           )}
         </div>
       </div>
+
+      {/* Skills & Growth per Learner */}
+      {learners.length > 0 && learners.map((learnerData) => (
+        <SkillProgressionSection
+          key={`skills-${learnerData.learner.id}`}
+          learnerId={learnerData.learner.id}
+          learnerName={`${learnerData.learner.first_name} ${learnerData.learner.last_name}`}
+        />
+      ))}
 
       {/* Recent Activity */}
       {dashboardData.recent_activities && dashboardData.recent_activities.length > 0 && (

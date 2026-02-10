@@ -53,8 +53,32 @@ import {
   XCircle,
   Loader2,
   BookOpen,
-  AlertCircle
+  AlertCircle,
+  Download
 } from 'lucide-react';
+
+function exportToCSV(enrollments: VACEnrollmentWithDetails[], courseName: string) {
+  const headers = ['Student Name', 'Email', 'Enrolled Date', 'Status', 'Payment Status'];
+  const rows = enrollments.map(e => [
+    e.user_name || 'N/A',
+    e.user_email || 'N/A',
+    new Date(e.enrolled_at).toLocaleDateString('en-IN'),
+    e.status,
+    e.payment_status
+  ]);
+
+  const csvContent = [
+    headers.join(','),
+    ...rows.map(row => row.map(cell => `"${cell}"`).join(','))
+  ].join('\n');
+
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = `vac-enrollments-${courseName.replace(/\s+/g, '-').toLowerCase()}-${new Date().toISOString().split('T')[0]}.csv`;
+  link.click();
+  URL.revokeObjectURL(link.href);
+}
 
 export default function VACAdminEnrollmentsPage() {
   const [selectedCourseId, setSelectedCourseId] = useState<string>('');
@@ -334,15 +358,27 @@ export default function VACAdminEnrollmentsPage() {
             {/* Enrollments Table */}
             <Card>
               <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <BookOpen className="h-5 w-5" />
-                  Enrollments
-                  {selectedCourse && (
-                    <Badge variant="outline" className="ml-2 font-normal">
-                      {selectedCourse.code}
-                    </Badge>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="flex items-center gap-2">
+                    <BookOpen className="h-5 w-5" />
+                    Enrollments
+                    {selectedCourse && (
+                      <Badge variant="outline" className="ml-2 font-normal">
+                        {selectedCourse.code}
+                      </Badge>
+                    )}
+                  </CardTitle>
+                  {enrollments.length > 0 && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => exportToCSV(enrollments, selectedCourse?.name || 'unknown')}
+                    >
+                      <Download className="h-4 w-4 mr-2" />
+                      Export CSV
+                    </Button>
                   )}
-                </CardTitle>
+                </div>
               </CardHeader>
               <CardContent>
                 {enrollmentsLoading ? (

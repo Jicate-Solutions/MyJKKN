@@ -33,7 +33,6 @@ export async function GET(request: NextRequest) {
 
     // Get API key from Authorization header
     const authHeader = request.headers.get('authorization');
-    console.log('1. Auth header:', authHeader);
 
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return NextResponse.json(
@@ -44,7 +43,6 @@ export async function GET(request: NextRequest) {
 
     const apiKey = authHeader.substring(7); // Remove 'Bearer ' prefix
     const hashedKey = createHash('sha256').update(apiKey).digest('hex');
-    console.log('2. Hashed key:', hashedKey);
 
     // Verify API key
     const { data: keyData, error: keyError } = await supabase
@@ -54,21 +52,7 @@ export async function GET(request: NextRequest) {
       .eq('is_active', true)
       .single();
 
-    console.log('3. Key verification:', {
-      found: !!keyData,
-      error: keyError?.message,
-      keyData: keyData
-        ? {
-            id: keyData.id,
-            name: keyData.name,
-            is_active: keyData.is_active,
-            permissions: keyData.permissions
-          }
-        : null
-    });
-
     // Check RLS policies
-    console.log('4. Checking RLS policies');
 
     if (keyError || !keyData) {
       return NextResponse.json({ error: 'Invalid API key' }, { status: 401 });
@@ -92,7 +76,6 @@ export async function GET(request: NextRequest) {
 
     // Get query parameters
     const url = new URL(request.url);
-    console.log('4. Query params:', Object.fromEntries(url.searchParams));
 
     const page = parseInt(url.searchParams.get('page') || '1');
     const limit = parseInt(url.searchParams.get('limit') || '10');
@@ -101,8 +84,6 @@ export async function GET(request: NextRequest) {
 
     // Build query
     let query = (supabase as any).from('institutions').select('*', { count: 'exact' });
-
-    console.log('5. Executing query...');
 
     // Apply filters
     if (search) {
@@ -120,18 +101,6 @@ export async function GET(request: NextRequest) {
 
     // Execute query
     const { data: institutions, error, count } = await query;
-
-    console.log('6. Query result:', {
-      success: !!institutions,
-      error: error?.message,
-      count,
-      firstRecord: institutions?.[0]
-        ? {
-            id: institutions[0].id,
-            name: institutions[0].name
-          }
-        : null
-    });
 
     if (error) throw error;
 

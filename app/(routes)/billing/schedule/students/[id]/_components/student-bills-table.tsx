@@ -60,6 +60,8 @@ import {
 import { usePermissions } from '@/hooks/use-permissions';
 import type { StudentBill } from '@/types/billing-schedule';
 import { Card } from '@/components/ui/card';
+import { useDeleteStudentBill } from '@/hooks/billing/use-student-bills';
+import { toast } from 'sonner';
 
 interface StudentBillsTableProps {
   bills: StudentBill[];
@@ -77,6 +79,7 @@ export function StudentBillsTable({
   const { canAccess, isSuperAdmin } = usePermissions();
   const [deletingBillId, setDeletingBillId] = useState<string | null>(null);
   const [selectedBills, setSelectedBills] = useState<string[]>([]);
+  const deleteStudentBill = useDeleteStudentBill();
 
   // Students have view-only access - hide all action permissions
   const canEditBills = !isStudentView && (isSuperAdmin || canAccess('billing.schedule', 'update'));
@@ -185,11 +188,12 @@ export function StudentBillsTable({
   const handleDeleteBill = async (billId: string) => {
     try {
       setDeletingBillId(billId);
-      // TODO: Implement delete bill functionality
-      console.log('Deleting bill:', billId);
+      await deleteStudentBill.mutateAsync(billId);
+      // Success toast is shown by the useDeleteStudentBill hook
       onRefresh();
     } catch (error) {
       console.error('Error deleting bill:', error);
+      // Error toast is shown by the useDeleteStudentBill hook
     } finally {
       setDeletingBillId(null);
     }

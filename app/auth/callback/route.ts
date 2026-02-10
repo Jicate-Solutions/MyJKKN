@@ -17,14 +17,8 @@ export async function GET(request: NextRequest) {
     const code = requestUrl.searchParams.get('code');
     const origin = requestUrl.origin;
 
-    console.log('[Auth Callback] 🔐 Auth callback initiated');
-    console.log('[Auth Callback] Request URL:', requestUrl.toString());
-    console.log('[Auth Callback] Origin:', origin);
-    console.log('[Auth Callback] Has code:', !!code);
-
     // Early return if no code
     if (!code) {
-      console.log('[Auth Callback] ❌ No auth code provided, redirecting to login');
       return NextResponse.redirect(
         new URL(`/auth/login?error=no_code`, origin)
       );
@@ -50,31 +44,25 @@ export async function GET(request: NextRequest) {
     );
 
     // Exchange code for session
-    console.log('[Auth Callback] Exchanging code for session...');
     const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(
       code
     );
     if (exchangeError) {
-      console.log('[Auth Callback] ❌ Code exchange failed:', exchangeError);
       return NextResponse.redirect(
         new URL(`/auth/login?error=exchange`, origin)
       );
     }
-    console.log('[Auth Callback] ✅ Code exchange successful');
 
     // Get user
-    console.log('[Auth Callback] Getting user session...');
     const {
       data: { user },
       error: userError
     } = await supabase.auth.getUser();
     if (userError || !user) {
-      console.log('[Auth Callback] ❌ Failed to get user:', userError);
       return NextResponse.redirect(
         new URL(`/auth/login?error=session`, origin)
       );
     }
-    console.log('[Auth Callback] ✅ User authenticated:', user.id, user.email);
 
     try {
       // Use service role client to bypass RLS for profile check
@@ -101,7 +89,6 @@ export async function GET(request: NextRequest) {
       if (profileCheckError) {
         console.error('[Auth Callback] Profile check error:', profileCheckError);
       }
-      console.log('[Auth Callback] Profile found:', !!existingProfile, 'for user:', user.email);
 
       // If no profile with this ID, check if one exists with this email (for pre-registered or migrating users)
       let migratedProfile: Profile | null = null;
@@ -117,9 +104,6 @@ export async function GET(request: NextRequest) {
         if (emailProfile) {
           // Check if this is a pre-registered profile
           if (emailProfile.is_pre_registered) {
-            console.log(
-              `Found pre-registered profile for ${user.email}, linking to Google auth`
-            );
 
             try {
               // First, delete the old pre-registered profile
@@ -165,9 +149,6 @@ export async function GET(request: NextRequest) {
 
               migratedProfile = newProfile;
 
-              console.log(
-                `✓ Successfully migrated pre-registered profile for ${user.email} to Google auth`
-              );
             } catch (migrationError) {
               console.error(
                 `❌ Profile migration failed for ${user.email}:`,
@@ -178,9 +159,6 @@ export async function GET(request: NextRequest) {
             }
           } else {
             // This is a legacy profile that needs migration
-            console.log(
-              `Found existing profile by email for ${user.email}, migrating to Google auth`
-            );
 
             try {
               // Step 1: Save user_roles for migration (if they exist)
@@ -189,11 +167,8 @@ export async function GET(request: NextRequest) {
                 .select('*')
                 .eq('user_id', emailProfile.id);
 
-              console.log(`Found ${userRoles?.length || 0} user role(s) to migrate`);
-
               // Step 2: Delete the old profile to avoid unique constraint violation
               // This will cascade delete user_roles due to foreign key constraint
-              console.log(`Deleting old profile with ID: ${emailProfile.id}`);
               const { error: deleteError } = await adminClient
                 .from('profiles')
                 .delete()
@@ -222,7 +197,6 @@ export async function GET(request: NextRequest) {
                 avatar_url: emailProfile.avatar_url ?? null
               };
 
-              console.log(`Creating new profile with Google auth ID: ${user.id}`);
               const { error: insertError } = await adminClient
                 .from('profiles')
                 .insert(legacyProfileData as any);
@@ -234,7 +208,6 @@ export async function GET(request: NextRequest) {
 
               // Step 4: Recreate user_roles for new profile (if they existed)
               if (userRoles && userRoles.length > 0) {
-                console.log(`Recreating ${userRoles.length} user role(s) for new profile`);
 
                 const newUserRoles = userRoles.map((role: any) => ({
                   user_id: user.id, // New Google auth user ID
@@ -260,9 +233,6 @@ export async function GET(request: NextRequest) {
                 is_pre_registered: false
               };
 
-              console.log(
-                `✓ Successfully migrated profile for ${user.email} to Google auth`
-              );
             } catch (migrationError) {
               console.error(
                 `❌ Profile migration failed for ${user.email}:`,
@@ -296,7 +266,6 @@ export async function GET(request: NextRequest) {
                 .eq('id', user.id);
               if (!fixError) {
                 actualProfile.institution_id = defaultInst.id;
-                console.log('[Auth Callback] Auto-fixed institution_id for existing user:', user.email);
               } else {
                 console.warn('[Auth Callback] Failed to auto-fix institution_id:', fixError);
               }
@@ -349,7 +318,6 @@ export async function GET(request: NextRequest) {
               .limit(1)
               .maybeSingle();
             defaultInstitutionId = defaultInst?.id || null;
-            console.log('[Auth Callback] Auto-assigned institution for new JKKN user:', defaultInstitutionId);
           } catch (instLookupError) {
             console.warn('[Auth Callback] Institution lookup failed (non-blocking):', instLookupError);
           }
@@ -376,9 +344,6 @@ export async function GET(request: NextRequest) {
         await logLoginActivity(newProfile);
 
         // Create session tracking record for new user
-        console.log('[Auth Callback] 🆕 Creating session for NEW user...');
-        console.log('[Auth Callback] 👤 User ID:', user.id);
-        console.log('[Auth Callback] 🎭 User role:', newProfile.role);
 
         try {
           const sessionInfo = await SessionTrackingService.createSession({
@@ -387,8 +352,6 @@ export async function GET(request: NextRequest) {
             request
           });
 
-          console.log('[Auth Callback] 📊 New user session result:', sessionInfo);
-
           if (sessionInfo) {
             cookieStore.set('analytics_session_id', sessionInfo.sessionId, {
               httpOnly: true,
@@ -396,7 +359,6 @@ export async function GET(request: NextRequest) {
               sameSite: 'lax',
               maxAge: 60 * 60 * 24
             });
-            console.log('[Auth Callback] ✅ New user session created:', sessionInfo.sessionId);
           } else {
             console.warn('[Auth Callback] ⚠️ New user session creation returned null');
           }
@@ -425,10 +387,6 @@ export async function GET(request: NextRequest) {
       await logLoginActivity(actualProfile);
 
       // Create session tracking record for engagement analytics
-      console.log('[Auth Callback] 🎯 Attempting to create analytics session...');
-      console.log('[Auth Callback] 👤 User ID:', user.id);
-      console.log('[Auth Callback] 🎭 User role:', actualProfile.role);
-      console.log('[Auth Callback] 🏢 Institution ID:', actualProfile.institution_id);
 
       try {
         const sessionInfo = await SessionTrackingService.createSession({
@@ -438,8 +396,6 @@ export async function GET(request: NextRequest) {
           request
         });
 
-        console.log('[Auth Callback] 📊 Session creation result:', sessionInfo);
-
         // Store session ID in cookie if session was created successfully
         if (sessionInfo) {
           cookieStore.set('analytics_session_id', sessionInfo.sessionId, {
@@ -448,8 +404,6 @@ export async function GET(request: NextRequest) {
             sameSite: 'lax',
             maxAge: 60 * 60 * 24 // 24 hours
           });
-          console.log('[Auth Callback] ✅ Analytics session created:', sessionInfo.sessionId);
-          console.log('[Auth Callback] 🍪 Cookie set: analytics_session_id');
         } else {
           console.warn('[Auth Callback] ⚠️ Session creation returned null - check SessionTrackingService logs above');
         }
@@ -468,56 +422,34 @@ export async function GET(request: NextRequest) {
 
       // If profile exists and is completed, redirect based on role
       let destination = '/';
-      console.log('[Auth Callback] Profile role:', actualProfile.role, 'user:', user.id, 'email:', user.email);
 
       if (actualProfile.role === 'guest') {
         destination = '/guest';
-        console.log('[Auth Callback] Guest role detected, redirecting to:', destination);
       } else if (actualProfile.role === 'student') {
-        console.log('[Auth Callback] Student role detected');
-        console.log('[Auth Callback] Student portal feature flag:', FEATURE_FLAGS.ENABLE_STUDENT_PORTAL);
 
         // Check student portal feature flag
         if (!FEATURE_FLAGS.ENABLE_STUDENT_PORTAL) {
           // Feature disabled - block students (original behavior)
           destination = '/auth/login?reason=student_redirect';
-          console.log('[Auth Callback] Student portal disabled, blocking access');
         } else {
-          console.log('[Auth Callback] Student portal enabled, validating access...');
 
           // Feature enabled - validate student lifecycle status
           const validation = await StudentValidationService.validateStudentAccess(user.id);
 
-          console.log('[Auth Callback] Validation result:', {
-            allowed: validation.allowed,
-            reason: validation.reason,
-            status: validation.status,
-            isGraduated: validation.isGraduated
-          });
-
           if (!validation.allowed) {
             // Student blocked due to lifecycle status - sign out and show error
-            console.log('[Auth Callback] Student blocked, reason:', validation.reason);
             await supabase.auth.signOut();
             destination = `/auth/login?reason=${validation.reason}`;
-            console.log('[Auth Callback] Signed out student, redirecting to:', destination);
           } else {
             // Student allowed - redirect to dashboard
             destination = '/';
-            console.log('[Auth Callback] ✅ Student access GRANTED');
-            console.log('[Auth Callback] Student status:', validation.status);
-            console.log('[Auth Callback] Redirecting to dashboard:', destination);
           }
         }
       } else if (actualProfile.role === 'driver') {
         destination = '/driver';
-        console.log('[Auth Callback] Driver role detected, redirecting to:', destination);
       } else {
-        console.log('[Auth Callback] Other role detected:', actualProfile.role, 'redirecting to:', destination);
       }
 
-      console.log('[Auth Callback] 🎯 Final redirect destination:', destination);
-      console.log('[Auth Callback] Full redirect URL:', new URL(destination, origin).toString());
       return NextResponse.redirect(new URL(destination, origin));
     } catch (dbError) {
       return NextResponse.redirect(new URL('/auth/complete-profile', origin));

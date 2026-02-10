@@ -5,145 +5,51 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Progress } from '@/components/ui/progress';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
-import { Switch } from '@/components/ui/switch';
 import {
   Users,
   Building,
-  TrendingUp,
   Search,
-  Filter,
   Plus,
   Download,
   Settings,
-  RefreshCw,
   CheckCircle2,
-  XCircle,
-  Clock,
-  BarChart3,
-  FileText,
   Eye,
   Edit,
-  Trash2,
   ExternalLink,
   IndianRupee,
-  Percent,
-  ArrowUpRight,
-  ArrowDownRight,
-  Globe,
   Key,
   Copy,
-  Mail,
-  Phone,
+  RefreshCw,
   Link2,
-  Shield,
+  FileText,
   Loader2
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { AdmissionErrorBoundary } from '@/components/admission';
-
-// Mock data for publishers
-const mockPublishers = [
-  {
-    id: 'PUB-001',
-    name: 'Shiksha.com',
-    website: 'https://shiksha.com',
-    contactPerson: 'Rajesh Kumar',
-    contactEmail: 'rajesh@shiksha.com',
-    contactPhone: '+91 98765 43210',
-    status: 'active',
-    apiKey: 'sk_live_xxxxxxxxxxxxx',
-    leadsThisMonth: 245,
-    leadsTotal: 1850,
-    conversions: 42,
-    conversionRate: 17.1,
-    commissionRate: 5,
-    totalCommission: 126000,
-    pendingCommission: 28000,
-    lastLeadDate: '2026-01-16',
-    performance: 'excellent'
-  },
-  {
-    id: 'PUB-002',
-    name: 'CollegeDekho',
-    website: 'https://collegedekho.com',
-    contactPerson: 'Priya Singh',
-    contactEmail: 'priya@collegedekho.com',
-    contactPhone: '+91 98765 43211',
-    status: 'active',
-    apiKey: 'sk_live_yyyyyyyyyyyyy',
-    leadsThisMonth: 180,
-    leadsTotal: 1420,
-    conversions: 28,
-    conversionRate: 15.5,
-    commissionRate: 4.5,
-    totalCommission: 94500,
-    pendingCommission: 18000,
-    lastLeadDate: '2026-01-15',
-    performance: 'good'
-  },
-  {
-    id: 'PUB-003',
-    name: 'GetMyUni',
-    website: 'https://getmyuni.com',
-    contactPerson: 'Amit Patel',
-    contactEmail: 'amit@getmyuni.com',
-    contactPhone: '+91 98765 43212',
-    status: 'active',
-    apiKey: 'sk_live_zzzzzzzzzzzzz',
-    leadsThisMonth: 95,
-    leadsTotal: 780,
-    conversions: 12,
-    conversionRate: 12.6,
-    commissionRate: 4,
-    totalCommission: 48000,
-    pendingCommission: 12000,
-    lastLeadDate: '2026-01-14',
-    performance: 'average'
-  },
-  {
-    id: 'PUB-004',
-    name: 'Careers360',
-    website: 'https://careers360.com',
-    contactPerson: 'Sneha Reddy',
-    contactEmail: 'sneha@careers360.com',
-    contactPhone: '+91 98765 43213',
-    status: 'inactive',
-    apiKey: 'sk_live_aaaaaaaaaaaaa',
-    leadsThisMonth: 0,
-    leadsTotal: 320,
-    conversions: 8,
-    conversionRate: 2.5,
-    commissionRate: 3,
-    totalCommission: 24000,
-    pendingCommission: 0,
-    lastLeadDate: '2025-12-20',
-    performance: 'poor'
-  }
-];
-
-const mockRecentLeads = [
-  { id: 'LEAD-001', name: 'Rahul Kumar', program: 'B.Tech CSE', source: 'Shiksha.com', date: '2026-01-16', status: 'new' },
-  { id: 'LEAD-002', name: 'Priya Sharma', program: 'MBA', source: 'CollegeDekho', date: '2026-01-16', status: 'contacted' },
-  { id: 'LEAD-003', name: 'Amit Singh', program: 'B.Tech ECE', source: 'Shiksha.com', date: '2026-01-15', status: 'qualified' },
-  { id: 'LEAD-004', name: 'Sneha Patel', program: 'M.Tech', source: 'GetMyUni', date: '2026-01-15', status: 'new' }
-];
+import { usePublishers } from '@/hooks/admission/use-data-quality';
+import { useConsultantMutations } from '@/hooks/admission/use-consultants';
 
 function PublishersPageContent() {
   const [activeTab, setActiveTab] = useState('publishers');
   const [searchTerm, setSearchTerm] = useState('');
   const [isAddPublisherOpen, setIsAddPublisherOpen] = useState(false);
-  const [isAddingPublisher, setIsAddingPublisher] = useState(false);
   const [isProcessingPayouts, setIsProcessingPayouts] = useState(false);
+  const [pubName, setPubName] = useState('');
+  const [pubContact, setPubContact] = useState('');
+  const [pubEmail, setPubEmail] = useState('');
+  const [pubPhone, setPubPhone] = useState('');
 
-  const totalLeads = mockPublishers.reduce((sum, p) => sum + p.leadsThisMonth, 0);
-  const totalConversions = mockPublishers.reduce((sum, p) => sum + p.conversions, 0);
-  const avgConversionRate = totalLeads > 0 ? (totalConversions / totalLeads * 100).toFixed(1) : '0.0';
-  const totalPendingCommission = mockPublishers.reduce((sum, p) => sum + p.pendingCommission, 0);
+  const { data: publishers, isLoading } = usePublishers();
+  const { createConsultant } = useConsultantMutations();
+  const pubList = (publishers || []) as any[];
+
+  const totalLeads = pubList.reduce((sum: number, p: any) => sum + (p.total_leads_referred || 0), 0);
+  const totalConversions = pubList.reduce((sum: number, p: any) => sum + (p.total_conversions || 0), 0);
+  const avgConversionRate = totalLeads > 0 ? ((totalConversions / totalLeads) * 100).toFixed(1) : '0.0';
+  const totalPendingCommission = pubList.reduce((sum: number, p: any) => sum + (p.pending_commission || 0), 0);
 
   const getStatusBadge = (status: string) => {
     return status === 'active'
@@ -151,15 +57,24 @@ function PublishersPageContent() {
       : 'bg-gray-100 text-gray-800';
   };
 
-  const getPerformanceBadge = (performance: string) => {
-    const styles: Record<string, string> = {
-      excellent: 'bg-green-100 text-green-800',
-      good: 'bg-blue-100 text-blue-800',
-      average: 'bg-yellow-100 text-yellow-800',
-      poor: 'bg-red-100 text-red-800'
-    };
-    return styles[performance] || 'bg-gray-100 text-gray-800';
+  const getPerformanceBadge = (rating: number | null) => {
+    if (!rating || rating >= 4) return 'bg-green-100 text-green-800';
+    if (rating >= 3) return 'bg-blue-100 text-blue-800';
+    if (rating >= 2) return 'bg-yellow-100 text-yellow-800';
+    return 'bg-red-100 text-red-800';
   };
+
+  const getPerformanceLabel = (rating: number | null) => {
+    if (!rating) return 'N/A';
+    if (rating >= 4) return 'excellent';
+    if (rating >= 3) return 'good';
+    if (rating >= 2) return 'average';
+    return 'poor';
+  };
+
+  const filteredPublishers = pubList.filter((p: any) =>
+    (p.name || '').toLowerCase().includes(searchTerm.toLowerCase())
+  );
 
   return (
     <div className="container mx-auto p-6 space-y-6">
@@ -173,7 +88,22 @@ function PublishersPageContent() {
           <p className="text-muted-foreground">Manage lead source partners and commissions</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={() => toast.success('Publisher report exported successfully')}>
+          <Button variant="outline" size="sm" onClick={() => {
+            if (!pubList.length) { toast.info('No publishers to export'); return; }
+            const headers = ['Name','Contact','Email','Status','Total Leads','Conversions','Conv Rate','Pending Commission','Total Earned'];
+            const rows = pubList.map((p: any) => [
+              p.name || '', p.contact_person || '', p.email || '', p.status || '',
+              p.total_leads_referred || 0, p.total_conversions || 0,
+              (p.conversion_rate || 0).toFixed(1), p.pending_commission || 0,
+              p.total_commission_earned || 0,
+            ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(','));
+            const csv = [headers.join(','), ...rows].join('\n');
+            const blob = new Blob([csv], { type: 'text/csv' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a'); a.href = url; a.download = `publishers-${new Date().toISOString().slice(0,10)}.csv`; a.click();
+            URL.revokeObjectURL(url);
+            toast.success('Publisher report exported');
+          }}>
             <Download className="h-4 w-4 mr-2" />
             Export Report
           </Button>
@@ -192,51 +122,52 @@ function PublishersPageContent() {
               <div className="grid gap-4 py-4">
                 <div className="space-y-2">
                   <Label>Publisher Name</Label>
-                  <Input placeholder="e.g., Shiksha.com" />
-                </div>
-                <div className="space-y-2">
-                  <Label>Website</Label>
-                  <Input placeholder="https://example.com" />
+                  <Input placeholder="e.g., Shiksha.com" value={pubName} onChange={e => setPubName(e.target.value)} />
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label>Contact Person</Label>
-                    <Input placeholder="Full name" />
+                    <Input placeholder="Full name" value={pubContact} onChange={e => setPubContact(e.target.value)} />
                   </div>
                   <div className="space-y-2">
                     <Label>Email</Label>
-                    <Input type="email" placeholder="email@example.com" />
+                    <Input type="email" placeholder="email@example.com" value={pubEmail} onChange={e => setPubEmail(e.target.value)} />
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label>Phone</Label>
-                    <Input placeholder="+91 98765 43210" />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Commission Rate (%)</Label>
-                    <Input type="number" placeholder="5" />
-                  </div>
+                <div className="space-y-2">
+                  <Label>Phone</Label>
+                  <Input placeholder="+91 98765 43210" value={pubPhone} onChange={e => setPubPhone(e.target.value)} />
                 </div>
               </div>
               <DialogFooter>
-                <Button variant="outline" onClick={() => setIsAddPublisherOpen(false)} disabled={isAddingPublisher}>Cancel</Button>
+                <Button variant="outline" onClick={() => setIsAddPublisherOpen(false)} disabled={createConsultant.isPending}>Cancel</Button>
                 <Button
                   onClick={async () => {
-                    setIsAddingPublisher(true);
-                    await new Promise(resolve => setTimeout(resolve, 1000));
-                    toast.success('Publisher added successfully with API key generated');
-                    setIsAddingPublisher(false);
-                    setIsAddPublisherOpen(false);
+                    if (!pubName.trim()) { toast.error('Publisher name is required'); return; }
+                    try {
+                      await createConsultant.mutateAsync({
+                        name: pubName.trim(),
+                        contact_person: pubContact.trim() || null,
+                        email: pubEmail.trim() || null,
+                        phone: pubPhone.trim() || null,
+                        consultant_type: 'publisher',
+                        status: 'active',
+                        institution_id: 'a1111111-1111-1111-1111-111111111111',
+                      } as any);
+                      setPubName(''); setPubContact(''); setPubEmail(''); setPubPhone('');
+                      setIsAddPublisherOpen(false);
+                    } catch {
+                      // error handled by hook
+                    }
                   }}
-                  disabled={isAddingPublisher}
+                  disabled={createConsultant.isPending}
                 >
-                  {isAddingPublisher ? (
+                  {createConsultant.isPending ? (
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                   ) : (
                     <Key className="h-4 w-4 mr-2" />
                   )}
-                  Generate API Key & Add
+                  Add Publisher
                 </Button>
               </DialogFooter>
             </DialogContent>
@@ -248,15 +179,12 @@ function PublishersPageContent() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">Leads This Month</CardTitle>
+            <CardTitle className="text-sm font-medium">Total Leads</CardTitle>
             <Users className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{totalLeads}</div>
-            <p className="text-xs text-green-600 flex items-center gap-1">
-              <ArrowUpRight className="h-3 w-3" />
-              +12% from last month
-            </p>
+            <div className="text-2xl font-bold">{isLoading ? '...' : totalLeads.toLocaleString()}</div>
+            <p className="text-xs text-muted-foreground">from all publishers</p>
           </CardContent>
         </Card>
 
@@ -266,7 +194,7 @@ function PublishersPageContent() {
             <CheckCircle2 className="h-4 w-4 text-green-500" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{totalConversions}</div>
+            <div className="text-2xl font-bold">{isLoading ? '...' : totalConversions}</div>
             <p className="text-xs text-muted-foreground">
               {avgConversionRate}% conversion rate
             </p>
@@ -279,9 +207,11 @@ function PublishersPageContent() {
             <Building className="h-4 w-4 text-blue-500" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{mockPublishers.filter(p => p.status === 'active').length}</div>
+            <div className="text-2xl font-bold">
+              {isLoading ? '...' : pubList.filter((p: any) => p.status === 'active').length}
+            </div>
             <p className="text-xs text-muted-foreground">
-              of {mockPublishers.length} total
+              of {pubList.length} total
             </p>
           </CardContent>
         </Card>
@@ -292,10 +222,10 @@ function PublishersPageContent() {
             <IndianRupee className="h-4 w-4 text-yellow-500" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-yellow-600">₹{(totalPendingCommission / 1000).toFixed(0)}K</div>
-            <p className="text-xs text-muted-foreground">
-              To be paid
-            </p>
+            <div className="text-2xl font-bold text-yellow-600">
+              {isLoading ? '...' : `₹${(totalPendingCommission / 1000).toFixed(0)}K`}
+            </div>
+            <p className="text-xs text-muted-foreground">To be paid</p>
           </CardContent>
         </Card>
       </div>
@@ -304,7 +234,6 @@ function PublishersPageContent() {
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
           <TabsTrigger value="publishers">Publishers</TabsTrigger>
-          <TabsTrigger value="leads">Recent Leads</TabsTrigger>
           <TabsTrigger value="commissions">Commissions</TabsTrigger>
           <TabsTrigger value="api">API Settings</TabsTrigger>
         </TabsList>
@@ -324,119 +253,98 @@ function PublishersPageContent() {
           </div>
 
           {/* Publishers Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {mockPublishers.map((publisher) => (
-              <Card key={publisher.id} className="hover:shadow-md transition-shadow">
-                <CardHeader className="pb-2">
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <CardTitle className="text-lg flex items-center gap-2">
-                        {publisher.name}
-                        <a href={publisher.website} target="_blank" rel="noopener noreferrer">
-                          <ExternalLink className="h-4 w-4 text-muted-foreground hover:text-primary" />
-                        </a>
-                      </CardTitle>
-                      <CardDescription className="flex items-center gap-2 mt-1">
-                        <span>{publisher.contactPerson}</span>
-                        <span>•</span>
-                        <span>{publisher.contactEmail}</span>
-                      </CardDescription>
-                    </div>
-                    <div className="flex flex-col gap-1 items-end">
-                      <Badge className={getStatusBadge(publisher.status)}>
-                        {publisher.status}
-                      </Badge>
-                      <Badge className={getPerformanceBadge(publisher.performance)}>
-                        {publisher.performance}
-                      </Badge>
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="grid grid-cols-3 gap-4 text-center">
-                    <div className="p-2 bg-muted rounded-lg">
-                      <p className="text-lg font-bold">{publisher.leadsThisMonth}</p>
-                      <p className="text-xs text-muted-foreground">Leads (Month)</p>
-                    </div>
-                    <div className="p-2 bg-muted rounded-lg">
-                      <p className="text-lg font-bold">{publisher.conversions}</p>
-                      <p className="text-xs text-muted-foreground">Conversions</p>
-                    </div>
-                    <div className="p-2 bg-muted rounded-lg">
-                      <p className="text-lg font-bold">{publisher.conversionRate}%</p>
-                      <p className="text-xs text-muted-foreground">Conv. Rate</p>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">Commission Rate</span>
-                    <span className="font-semibold">{publisher.commissionRate}%</span>
-                  </div>
-
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">Pending Commission</span>
-                    <span className="font-semibold text-yellow-600">₹{publisher.pendingCommission.toLocaleString()}</span>
-                  </div>
-
-                  <div className="flex gap-2 pt-2 border-t">
-                    <Button variant="outline" size="sm" className="flex-1" onClick={() => toast.success(`Viewing leads for ${publisher.name}`)}>
-                      <Eye className="h-4 w-4 mr-1" />
-                      View Leads
-                    </Button>
-                    <Button variant="outline" size="sm" className="flex-1" onClick={() => toast.success('Publisher details opened for editing')}>
-                      <Edit className="h-4 w-4 mr-1" />
-                      Edit
-                    </Button>
-                    <Button variant="ghost" size="sm" onClick={() => toast.success('Publisher settings opened')}>
-                      <Settings className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        </TabsContent>
-
-        <TabsContent value="leads" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Recent Leads from Publishers</CardTitle>
-              <CardDescription>Latest leads received from all partners</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                {mockRecentLeads.map((lead) => (
-                  <div key={lead.id} className="flex items-center justify-between p-4 border rounded-lg">
-                    <div className="flex items-center gap-4">
-                      <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
-                        <Users className="h-5 w-5 text-primary" />
-                      </div>
+          {isLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {filteredPublishers.map((publisher: any) => (
+                <Card key={publisher.id} className="hover:shadow-md transition-shadow">
+                  <CardHeader className="pb-2">
+                    <div className="flex items-start justify-between">
                       <div>
-                        <p className="font-medium">{lead.name}</p>
-                        <p className="text-sm text-muted-foreground">{lead.program}</p>
+                        <CardTitle className="text-lg flex items-center gap-2">
+                          {publisher.name}
+                          {publisher.website && (
+                            <a href={publisher.website} target="_blank" rel="noopener noreferrer">
+                              <ExternalLink className="h-4 w-4 text-muted-foreground hover:text-primary" />
+                            </a>
+                          )}
+                        </CardTitle>
+                        <CardDescription className="flex items-center gap-2 mt-1">
+                          <span>{publisher.contact_person || 'No contact'}</span>
+                          {publisher.email && (
+                            <>
+                              <span>-</span>
+                              <span>{publisher.email}</span>
+                            </>
+                          )}
+                        </CardDescription>
+                      </div>
+                      <div className="flex flex-col gap-1 items-end">
+                        <Badge className={getStatusBadge(publisher.status || 'inactive')}>
+                          {publisher.status || 'inactive'}
+                        </Badge>
+                        <Badge className={getPerformanceBadge(publisher.performance_rating)}>
+                          {getPerformanceLabel(publisher.performance_rating)}
+                        </Badge>
                       </div>
                     </div>
-                    <div className="flex items-center gap-4">
-                      <div className="text-right">
-                        <p className="text-sm font-medium">{lead.source}</p>
-                        <p className="text-xs text-muted-foreground">{lead.date}</p>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="grid grid-cols-3 gap-4 text-center">
+                      <div className="p-2 bg-muted rounded-lg">
+                        <p className="text-lg font-bold">{publisher.total_leads_referred || 0}</p>
+                        <p className="text-xs text-muted-foreground">Total Leads</p>
                       </div>
-                      <Badge className={
-                        lead.status === 'qualified' ? 'bg-green-100 text-green-800' :
-                        lead.status === 'contacted' ? 'bg-blue-100 text-blue-800' :
-                        'bg-yellow-100 text-yellow-800'
-                      }>
-                        {lead.status}
-                      </Badge>
-                      <Button variant="ghost" size="sm" onClick={() => toast.success(`Viewing details for ${lead.name}`)}>
-                        <Eye className="h-4 w-4" />
+                      <div className="p-2 bg-muted rounded-lg">
+                        <p className="text-lg font-bold">{publisher.total_conversions || 0}</p>
+                        <p className="text-xs text-muted-foreground">Conversions</p>
+                      </div>
+                      <div className="p-2 bg-muted rounded-lg">
+                        <p className="text-lg font-bold">{(publisher.conversion_rate || 0).toFixed(1)}%</p>
+                        <p className="text-xs text-muted-foreground">Conv. Rate</p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-muted-foreground">Pending Commission</span>
+                      <span className="font-semibold text-yellow-600">
+                        ₹{(publisher.pending_commission || 0).toLocaleString()}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-muted-foreground">Total Commission Earned</span>
+                      <span className="font-semibold">
+                        ₹{(publisher.total_commission_earned || 0).toLocaleString()}
+                      </span>
+                    </div>
+
+                    <div className="flex gap-2 pt-2 border-t">
+                      <Button variant="outline" size="sm" className="flex-1" onClick={() => toast.success(`Viewing leads for ${publisher.name}`)}>
+                        <Eye className="h-4 w-4 mr-1" />
+                        View Leads
+                      </Button>
+                      <Button variant="outline" size="sm" className="flex-1" onClick={() => toast.success('Publisher details opened for editing')}>
+                        <Edit className="h-4 w-4 mr-1" />
+                        Edit
+                      </Button>
+                      <Button variant="ghost" size="sm" onClick={() => toast.success('Publisher settings opened')}>
+                        <Settings className="h-4 w-4" />
                       </Button>
                     </div>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
+                  </CardContent>
+                </Card>
+              ))}
+              {filteredPublishers.length === 0 && (
+                <div className="col-span-2 text-center py-12 text-gray-500">
+                  No publishers found
+                </div>
+              )}
+            </div>
+          )}
         </TabsContent>
 
         <TabsContent value="commissions" className="space-y-4">
@@ -448,50 +356,52 @@ function PublishersPageContent() {
                   <CardDescription>Track and process publisher commissions</CardDescription>
                 </div>
                 <Button
-                  onClick={async () => {
-                    setIsProcessingPayouts(true);
-                    await new Promise(resolve => setTimeout(resolve, 1500));
-                    toast.success('Commission payouts processed successfully');
-                    setIsProcessingPayouts(false);
+                  onClick={() => {
+                    toast.info('Payout processing is handled through the Commissions page');
                   }}
                   disabled={isProcessingPayouts}
                 >
-                  {isProcessingPayouts ? (
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  ) : (
-                    <IndianRupee className="h-4 w-4 mr-2" />
-                  )}
+                  <IndianRupee className="h-4 w-4 mr-2" />
                   Process Payouts
                 </Button>
               </div>
             </CardHeader>
             <CardContent>
-              <div className="space-y-4">
-                {mockPublishers.filter(p => p.pendingCommission > 0).map((publisher) => (
-                  <div key={publisher.id} className="flex items-center justify-between p-4 border rounded-lg">
-                    <div className="flex items-center gap-4">
-                      <Building className="h-5 w-5 text-blue-500" />
-                      <div>
-                        <p className="font-medium">{publisher.name}</p>
-                        <p className="text-sm text-muted-foreground">
-                          {publisher.conversions} conversions @ {publisher.commissionRate}%
-                        </p>
+              {isLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {pubList.filter((p: any) => (p.pending_commission || 0) > 0).map((publisher: any) => (
+                    <div key={publisher.id} className="flex items-center justify-between p-4 border rounded-lg">
+                      <div className="flex items-center gap-4">
+                        <Building className="h-5 w-5 text-blue-500" />
+                        <div>
+                          <p className="font-medium">{publisher.name}</p>
+                          <p className="text-sm text-muted-foreground">
+                            {publisher.total_conversions || 0} conversions
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-4">
+                        <div className="text-right">
+                          <p className="text-lg font-bold text-yellow-600">
+                            ₹{(publisher.pending_commission || 0).toLocaleString()}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            Total: ₹{(publisher.total_commission_earned || 0).toLocaleString()}
+                          </p>
+                        </div>
+                        <Button variant="outline" onClick={() => toast.success(`Commission marked as paid for ${publisher.name}`)}>Mark Paid</Button>
                       </div>
                     </div>
-                    <div className="flex items-center gap-4">
-                      <div className="text-right">
-                        <p className="text-lg font-bold text-yellow-600">
-                          ₹{publisher.pendingCommission.toLocaleString()}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          Total: ₹{publisher.totalCommission.toLocaleString()}
-                        </p>
-                      </div>
-                      <Button variant="outline" onClick={() => toast.success(`Commission marked as paid for ${publisher.name}`)}>Mark Paid</Button>
-                    </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                  {pubList.filter((p: any) => (p.pending_commission || 0) > 0).length === 0 && (
+                    <div className="text-center py-8 text-gray-500">No pending commissions</div>
+                  )}
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -502,29 +412,33 @@ function PublishersPageContent() {
               <CardHeader>
                 <CardTitle className="text-lg flex items-center gap-2">
                   <Key className="h-5 w-5 text-yellow-500" />
-                  API Keys
+                  Active Publishers
                 </CardTitle>
-                <CardDescription>Manage publisher API access</CardDescription>
+                <CardDescription>Publisher API access management</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                {mockPublishers.filter(p => p.status === 'active').map((publisher) => (
-                  <div key={publisher.id} className="flex items-center justify-between p-3 border rounded-lg">
-                    <div>
-                      <p className="font-medium">{publisher.name}</p>
-                      <code className="text-xs text-muted-foreground bg-muted px-2 py-1 rounded">
-                        {publisher.apiKey.slice(0, 20)}...
-                      </code>
-                    </div>
-                    <div className="flex gap-1">
-                      <Button variant="ghost" size="sm" onClick={() => toast.success('API key copied to clipboard')}>
-                        <Copy className="h-4 w-4" />
-                      </Button>
-                      <Button variant="ghost" size="sm" onClick={() => toast.success('API key regenerated successfully')}>
-                        <RefreshCw className="h-4 w-4" />
-                      </Button>
-                    </div>
+                {isLoading ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
                   </div>
-                ))}
+                ) : (
+                  pubList.filter((p: any) => p.status === 'active').map((publisher: any) => (
+                    <div key={publisher.id} className="flex items-center justify-between p-3 border rounded-lg">
+                      <div>
+                        <p className="font-medium">{publisher.name}</p>
+                        <p className="text-xs text-muted-foreground">{publisher.email || 'No email'}</p>
+                      </div>
+                      <div className="flex gap-1">
+                        <Button variant="ghost" size="sm" onClick={() => toast.success('API key copied to clipboard')}>
+                          <Copy className="h-4 w-4" />
+                        </Button>
+                        <Button variant="ghost" size="sm" onClick={() => toast.success('API key regenerated successfully')}>
+                          <RefreshCw className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))
+                )}
               </CardContent>
             </Card>
 

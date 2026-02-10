@@ -38,6 +38,7 @@ BEGIN
     JOIN sh_builder_assignments ba ON ba.builder_id = b.id
     WHERE b.learner_id = p_learner_id
       AND ba.status = 'completed'
+      AND ba.rating IS NOT NULL
   ) INTO v_cleared;
 
   -- Update the learner profile

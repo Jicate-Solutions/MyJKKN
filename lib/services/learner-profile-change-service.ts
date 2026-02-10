@@ -20,11 +20,6 @@ export class LearnerProfileChangeService {
   ): Promise<ProfileChangeRequest> {
     const supabase = await createClient();
 
-    console.log('[learner-profile-change-service] Creating change request:', {
-      learner_id: dto.learner_id,
-      fields_count: Object.keys(dto.changed_fields).length,
-    });
-
     // Validate learner exists and is active
     const { data: learner, error: learnerError } = await supabase
       .from('learners_profiles')
@@ -78,8 +73,6 @@ export class LearnerProfileChangeService {
       console.error('[learner-profile-change-service] Error creating request:', insertError);
       throw new Error(`Failed to create change request: ${insertError.message}`);
     }
-
-    console.log('[learner-profile-change-service] Change request created:', request.id);
 
     return request;
   }
@@ -247,8 +240,6 @@ export class LearnerProfileChangeService {
   ): Promise<ProfileChangeRequest> {
     const supabase = await createClient();
 
-    console.log('[learner-profile-change-service] Approving request:', requestId);
-
     // Get the request
     const request = await this.getChangeRequest(requestId);
 
@@ -278,8 +269,6 @@ export class LearnerProfileChangeService {
       if (updateError) {
         throw new Error(`Failed to update learner profile: ${updateError.message}`);
       }
-
-      console.log('[learner-profile-change-service] Learner profile updated');
 
       // 2. Update change request status
       const { data: updatedRequest, error: requestError } = await supabase
@@ -313,8 +302,6 @@ export class LearnerProfileChangeService {
         comments: dto.review_comments,
       });
 
-      console.log('[learner-profile-change-service] Request approved successfully');
-
       return updatedRequest;
     } catch (error: any) {
       console.error('[learner-profile-change-service] Error approving request:', error);
@@ -333,8 +320,6 @@ export class LearnerProfileChangeService {
     reviewedBy: string
   ): Promise<ProfileChangeRequest> {
     const supabase = await createClient();
-
-    console.log('[learner-profile-change-service] Rejecting request:', requestId);
 
     // Get the request
     const request = await this.getChangeRequest(requestId);
@@ -385,8 +370,6 @@ export class LearnerProfileChangeService {
       performed_by: reviewedBy,
       comments: dto.review_comments,
     });
-
-    console.log('[learner-profile-change-service] Request rejected successfully');
 
     return updatedRequest;
   }

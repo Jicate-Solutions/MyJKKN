@@ -92,14 +92,15 @@ export class ScoringRulesService {
       .select('*')
       .eq('institution_id', institutionId)
       .eq('is_active', true)
-      .single();
+      .order('created_at', { ascending: false })
+      .limit(1);
 
-    if (error && error.code !== 'PGRST116') { // PGRST116 = no rows returned
+    if (error) {
       console.error('[admission/scoring-rules] Failed to fetch active rule:', error);
       throw new Error('Failed to fetch active scoring rule');
     }
 
-    return data;
+    return data?.[0] || null;
   }
 
   /**

@@ -32,7 +32,6 @@ export async function GET(
 
     // Get API key from Authorization header
     const authHeader = request.headers.get('authorization');
-    console.log('1. Auth header:', authHeader);
 
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return NextResponse.json(
@@ -43,7 +42,6 @@ export async function GET(
 
     const apiKey = authHeader.substring(7);
     const hashedKey = createHash('sha256').update(apiKey).digest('hex');
-    console.log('2. Hashed key:', hashedKey);
 
     // Verify API key
     const { data: keyData, error: keyError } = await supabase
@@ -52,19 +50,6 @@ export async function GET(
       .eq('key_value', hashedKey)
       .eq('is_active', true)
       .single();
-
-    console.log('3. Key verification:', {
-      found: !!keyData,
-      error: keyError?.message,
-      keyData: keyData
-        ? {
-            id: keyData.id,
-            name: keyData.name,
-            is_active: keyData.is_active,
-            permissions: keyData.permissions
-          }
-        : null
-    });
 
     if (keyError || !keyData) {
       return NextResponse.json(
@@ -87,8 +72,6 @@ export async function GET(
       );
     }
 
-    console.log('4. Fetching institution:', id);
-
     // Get institution with departments
     const { data: institution, error: institutionError } = await supabase
       .from('institutions')
@@ -101,19 +84,6 @@ export async function GET(
       .eq('id', id)
       .single();
 
-    console.log('5. Query result:', {
-      found: !!institution,
-      error: institutionError?.message,
-      departmentsCount: institution?.departments?.length || 0,
-      institutionData: institution
-        ? {
-            id: institution.id,
-            name: institution.name,
-            code: institution.code
-          }
-        : null
-    });
-
     if (institutionError) {
       if (institutionError.code === 'PGRST116') {
         return NextResponse.json(
@@ -123,8 +93,6 @@ export async function GET(
       }
       throw institutionError;
     }
-
-    console.log('6. Updating last used timestamp');
 
     // Update last used timestamp
     const { error: updateError } = await supabase

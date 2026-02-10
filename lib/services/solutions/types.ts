@@ -178,6 +178,9 @@ export interface Solution extends BaseEntity {
   networker_contact_id?: string;
   client_name?: string;
   client_organization?: string;
+  // IP retention fields (for product development tracking)
+  retained_ip?: boolean;
+  ip_retention_notes?: string;
 }
 
 export interface SolutionPhase extends BaseEntity {

@@ -80,14 +80,6 @@ export class AdmissionAIService {
       }
 
       // Log response length for debugging
-      console.log(
-        '[admission/ai-service] Response length:',
-        textContent.text.length
-      );
-      console.log(
-        '[admission/ai-service] Response preview (first 500 chars):',
-        textContent.text.substring(0, 500)
-      );
 
       // Parse AI response into structured insights
       const insights = this.parseAIResponse(textContent.text);

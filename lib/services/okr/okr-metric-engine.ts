@@ -992,16 +992,66 @@ export class OKRMetricEngine {
       expression = expression.replace(new RegExp(key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), value.toString());
     }
 
-    // Evaluate (using Function for simple expressions - in production use a proper parser)
+    // Safe arithmetic evaluator — no eval/Function()
     try {
-      // Only allow numbers, operators, parentheses, and whitespace
       if (!/^[\d\s+\-*/().]+$/.test(expression)) {
         throw new Error('Invalid formula expression');
       }
-      return Function(`"use strict"; return (${expression})`)();
+      return this.safeEvaluateArithmetic(expression);
     } catch {
       throw new Error(`Failed to evaluate formula: ${formula}`);
     }
+  }
+
+  /**
+   * Safe arithmetic evaluator using recursive descent parsing.
+   * Supports: +, -, *, /, parentheses, decimals. No eval/Function().
+   */
+  private static safeEvaluateArithmetic(expr: string): number {
+    const tokens = expr.match(/(\d+\.?\d*|[+\-*/()])/g) || [];
+    let pos = 0;
+
+    const peek = () => tokens[pos];
+    const consume = () => tokens[pos++];
+
+    const parseNumber = (): number => {
+      const token = peek();
+      if (token === '(') {
+        consume(); // '('
+        const val = parseAddSub();
+        consume(); // ')'
+        return val;
+      }
+      if (token === '-') {
+        consume();
+        return -parseNumber();
+      }
+      return parseFloat(consume());
+    };
+
+    const parseMulDiv = (): number => {
+      let left = parseNumber();
+      while (peek() === '*' || peek() === '/') {
+        const op = consume();
+        const right = parseNumber();
+        left = op === '*' ? left * right : left / (right || 1);
+      }
+      return left;
+    };
+
+    const parseAddSub = (): number => {
+      let left = parseMulDiv();
+      while (peek() === '+' || peek() === '-') {
+        const op = consume();
+        const right = parseMulDiv();
+        left = op === '+' ? left + right : left - right;
+      }
+      return left;
+    };
+
+    const result = parseAddSub();
+    if (isNaN(result) || !isFinite(result)) return 0;
+    return result;
   }
 
   private static async logExecution(

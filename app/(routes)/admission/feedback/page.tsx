@@ -47,138 +47,62 @@ import {
 import { toast } from 'sonner';
 import { AdmissionErrorBoundary } from '@/components/admission';
 import { format } from 'date-fns';
-
-// Mock feedback data
-const mockFeedback = [
-  {
-    id: 'FB-2026-001',
-    candidateName: 'Mohammed Arif',
-    email: 'mohammed.arif@email.com',
-    program: 'B.Tech Electronics',
-    status: 'declined_offer',
-    feedbackDate: '2026-01-22',
-    overallRating: 4,
-    npsScore: 7,
-    primaryReason: 'Joined another institution',
-    secondaryReasons: ['Better scholarship elsewhere', 'Closer to home'],
-    wouldRecommend: true,
-    processRating: 4,
-    communicationRating: 5,
-    transparencyRating: 4,
-    comments: 'The admission process was smooth, but I received a better scholarship offer from another institution.',
-    suggestions: 'Consider offering more competitive scholarships for deserving candidates.',
-    responded: true
-  },
-  {
-    id: 'FB-2026-002',
-    candidateName: 'Sneha Reddy',
-    email: 'sneha.reddy@email.com',
-    program: 'MBA',
-    status: 'expired_offer',
-    feedbackDate: '2026-01-21',
-    overallRating: 3,
-    npsScore: 5,
-    primaryReason: 'Financial constraints',
-    secondaryReasons: ['Fee too high', 'No scholarship offered'],
-    wouldRecommend: false,
-    processRating: 3,
-    communicationRating: 4,
-    transparencyRating: 3,
-    comments: 'The fees were higher than expected and no financial aid was offered despite my background.',
-    suggestions: 'More flexible payment plans and need-based scholarships would help.',
-    responded: true
-  },
-  {
-    id: 'FB-2026-003',
-    candidateName: 'Arun Gupta',
-    email: 'arun.gupta@email.com',
-    program: 'B.Tech Computer Science',
-    status: 'not_shortlisted',
-    feedbackDate: '2026-01-20',
-    overallRating: 2,
-    npsScore: 3,
-    primaryReason: 'Interview feedback',
-    secondaryReasons: ['Felt the evaluation was unfair'],
-    wouldRecommend: false,
-    processRating: 2,
-    communicationRating: 3,
-    transparencyRating: 2,
-    comments: 'I felt the interview panel was biased and did not give me a fair chance to present myself.',
-    suggestions: 'More transparent evaluation criteria and feedback would be helpful.',
-    responded: true
-  },
-  {
-    id: 'FB-2026-004',
-    candidateName: 'Kavitha Nair',
-    email: 'kavitha.nair@email.com',
-    program: 'B.Tech Computer Science',
-    status: 'withdrew',
-    feedbackDate: '2026-01-19',
-    overallRating: 5,
-    npsScore: 9,
-    primaryReason: 'Personal reasons',
-    secondaryReasons: ['Family relocation'],
-    wouldRecommend: true,
-    processRating: 5,
-    communicationRating: 5,
-    transparencyRating: 5,
-    comments: 'Excellent admission process! Had to withdraw due to family relocation, not the institution\'s fault.',
-    suggestions: 'Maybe offer option to defer admission for a year in special circumstances.',
-    responded: true
-  },
-  {
-    id: 'FB-2026-005',
-    candidateName: 'Ravi Shankar',
-    email: 'ravi.shankar@email.com',
-    program: 'B.Tech Mechanical',
-    status: 'declined_offer',
-    feedbackDate: null,
-    overallRating: null,
-    npsScore: null,
-    primaryReason: null,
-    secondaryReasons: [],
-    wouldRecommend: null,
-    processRating: null,
-    communicationRating: null,
-    transparencyRating: null,
-    comments: null,
-    suggestions: null,
-    responded: false
-  }
-];
-
-// Feedback reasons
-const feedbackReasons = [
-  { reason: 'Joined another institution', count: 12, percent: 30 },
-  { reason: 'Financial constraints', count: 8, percent: 20 },
-  { reason: 'Location preference', count: 6, percent: 15 },
-  { reason: 'Program mismatch', count: 5, percent: 12.5 },
-  { reason: 'Personal reasons', count: 4, percent: 10 },
-  { reason: 'Interview feedback', count: 3, percent: 7.5 },
-  { reason: 'Other', count: 2, percent: 5 }
-];
+import { useAuth } from '@/hooks/use-auth';
+import {
+  useFeedbackCandidates,
+  useFeedbackStats,
+  useUpdateFeedback,
+} from '@/hooks/admission/use-feedback';
 
 function FeedbackPageContent() {
+  const { profile } = useAuth();
+  const institutionId = profile?.institution_id || '';
   const [activeTab, setActiveTab] = useState('responses');
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [isViewDialogOpen, setIsViewDialogOpen] = useState(false);
   const [isRequestDialogOpen, setIsRequestDialogOpen] = useState(false);
-  const [selectedFeedback, setSelectedFeedback] = useState<typeof mockFeedback[0] | null>(null);
+  const [selectedFeedback, setSelectedFeedback] = useState<any>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [isSendingRequest, setIsSendingRequest] = useState(false);
   const [sendingRequestTo, setSendingRequestTo] = useState<string | null>(null);
 
-  // Stats
-  const totalCandidates = mockFeedback.length;
-  const respondedCount = mockFeedback.filter(f => f.responded).length;
+  // Real data hooks
+  const { candidates, total: totalCandidates, isLoading: candidatesLoading, refetch: refetchCandidates } = useFeedbackCandidates({
+    institutionId,
+    search: searchTerm || undefined,
+    status: statusFilter !== 'all' ? statusFilter as any : undefined,
+  });
+  const { stats, isLoading: statsLoading, refetch: refetchStats } = useFeedbackStats(institutionId);
+
+  // Transform candidates to feedback-like format
+  const feedbackData = (candidates || []).map((c: any) => ({
+    id: c.id,
+    candidateName: c.full_name || 'Unknown',
+    email: c.email || '',
+    program: Array.isArray(c.interested_programs) ? c.interested_programs.join(', ') : (c.interested_programs || ''),
+    status: c.funnel_stage || c.stage || 'lost',
+    feedbackDate: c.lost_at || c.updated_at || null,
+    overallRating: null as number | null,
+    npsScore: null as number | null,
+    primaryReason: c.lost_reason || null,
+    secondaryReasons: [] as string[],
+    wouldRecommend: null as boolean | null,
+    processRating: null as number | null,
+    communicationRating: null as number | null,
+    transparencyRating: null as number | null,
+    comments: c.notes || null,
+    suggestions: null as string | null,
+    responded: !!c.lost_reason,
+  }));
+
+  // Stats from real data
+  const respondedCount = stats.respondedCount;
   const responseRate = totalCandidates > 0 ? (respondedCount / totalCandidates) * 100 : 0;
-  const avgNPS = respondedCount > 0 ? mockFeedback.filter(f => f.npsScore).reduce((acc, f) => acc + (f.npsScore || 0), 0) / respondedCount : 0;
-  const avgRating = respondedCount > 0 ? mockFeedback.filter(f => f.overallRating).reduce((acc, f) => acc + (f.overallRating || 0), 0) / respondedCount : 0;
-  const recommendRate = respondedCount > 0 ? (mockFeedback.filter(f => f.wouldRecommend).length / respondedCount) * 100 : 0;
+  const topReasons = stats.topReasons || [];
 
   // Filter feedback
-  const filteredFeedback = mockFeedback.filter(fb => {
+  const filteredFeedback = feedbackData.filter((fb: any) => {
     const matchesSearch = fb.candidateName.toLowerCase().includes(searchTerm.toLowerCase()) ||
                           fb.id.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesStatus = statusFilter === 'all' || fb.status === statusFilter ||
@@ -190,13 +114,17 @@ function FeedbackPageContent() {
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'declined_offer':
+      case 'declined':
         return <Badge className="bg-orange-100 text-orange-700 border-orange-200">Declined Offer</Badge>;
       case 'expired_offer':
+      case 'expired':
         return <Badge className="bg-gray-100 text-gray-700 border-gray-200">Offer Expired</Badge>;
       case 'not_shortlisted':
         return <Badge className="bg-red-100 text-red-700 border-red-200">Not Shortlisted</Badge>;
       case 'withdrew':
         return <Badge className="bg-blue-100 text-blue-700 border-blue-200">Withdrew</Badge>;
+      case 'lost':
+        return <Badge className="bg-red-100 text-red-700 border-red-200">Lost</Badge>;
       default:
         return <Badge variant="outline">{status}</Badge>;
     }
@@ -223,7 +151,7 @@ function FeedbackPageContent() {
     );
   };
 
-  const handleViewFeedback = (feedback: typeof mockFeedback[0]) => {
+  const handleViewFeedback = (feedback: any) => {
     setSelectedFeedback(feedback);
     setIsViewDialogOpen(true);
   };
@@ -271,16 +199,10 @@ function FeedbackPageContent() {
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Avg. NPS Score</p>
-                <p className="text-2xl font-bold text-primary">{avgNPS.toFixed(1)}</p>
+                <p className="text-sm text-muted-foreground">Total Candidates</p>
+                <p className="text-2xl font-bold text-primary">{stats.totalCandidates}</p>
               </div>
-              {avgNPS >= 7 ? (
-                <ThumbsUp className="h-8 w-8 text-green-500 opacity-80" />
-              ) : avgNPS >= 5 ? (
-                <Meh className="h-8 w-8 text-yellow-500 opacity-80" />
-              ) : (
-                <ThumbsDown className="h-8 w-8 text-red-500 opacity-80" />
-              )}
+              <Users className="h-8 w-8 text-blue-500 opacity-80" />
             </div>
           </CardContent>
         </Card>
@@ -288,10 +210,10 @@ function FeedbackPageContent() {
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Avg. Rating</p>
-                <p className="text-2xl font-bold">{avgRating.toFixed(1)}/5</p>
+                <p className="text-sm text-muted-foreground">Declined Offer</p>
+                <p className="text-2xl font-bold">{stats.declinedOffer}</p>
               </div>
-              <Star className="h-8 w-8 text-yellow-500 opacity-80" />
+              <ThumbsDown className="h-8 w-8 text-orange-500 opacity-80" />
             </div>
           </CardContent>
         </Card>
@@ -299,10 +221,10 @@ function FeedbackPageContent() {
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Would Recommend</p>
-                <p className="text-2xl font-bold text-green-600">{recommendRate.toFixed(0)}%</p>
+                <p className="text-sm text-muted-foreground">Withdrew</p>
+                <p className="text-2xl font-bold">{stats.withdrew}</p>
               </div>
-              <Heart className="h-8 w-8 text-pink-500 opacity-80" />
+              <XCircle className="h-8 w-8 text-blue-500 opacity-80" />
             </div>
           </CardContent>
         </Card>
@@ -311,7 +233,7 @@ function FeedbackPageContent() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">Pending</p>
-                <p className="text-2xl font-bold text-yellow-600">{totalCandidates - respondedCount}</p>
+                <p className="text-2xl font-bold text-yellow-600">{stats.pendingCount}</p>
               </div>
               <Clock className="h-8 w-8 text-yellow-500 opacity-80" />
             </div>
@@ -385,99 +307,103 @@ function FeedbackPageContent() {
                     <SelectItem value="all">All Candidates</SelectItem>
                     <SelectItem value="responded">Responded</SelectItem>
                     <SelectItem value="pending">Pending Response</SelectItem>
-                    <SelectItem value="declined_offer">Declined Offer</SelectItem>
-                    <SelectItem value="expired_offer">Expired Offer</SelectItem>
-                    <SelectItem value="not_shortlisted">Not Shortlisted</SelectItem>
+                    <SelectItem value="declined">Declined Offer</SelectItem>
+                    <SelectItem value="expired">Expired Offer</SelectItem>
                     <SelectItem value="withdrew">Withdrew</SelectItem>
+                    <SelectItem value="lost">Lost</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
 
               {/* Responses List */}
-              <div className="space-y-4">
-                {filteredFeedback.map((feedback) => (
-                  <div key={feedback.id} className="p-4 border rounded-lg hover:bg-muted/30">
-                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                      <div className="flex items-start gap-4">
-                        <div className={`p-2 rounded-full ${
-                          feedback.responded ? 'bg-green-100' : 'bg-gray-100'
-                        }`}>
-                          {feedback.responded ? (
-                            <CheckCircle2 className="h-5 w-5 text-green-600" />
-                          ) : (
-                            <Clock className="h-5 w-5 text-gray-400" />
-                          )}
-                        </div>
-                        <div>
-                          <p className="font-medium">{feedback.candidateName}</p>
-                          <p className="text-sm text-muted-foreground">{feedback.program}</p>
-                          <div className="flex items-center gap-2 mt-1">
-                            {getStatusBadge(feedback.status)}
-                            {feedback.feedbackDate && (
-                              <span className="text-xs text-muted-foreground">
-                                {format(new Date(feedback.feedbackDate), 'MMM dd, yyyy')}
-                              </span>
+              {candidatesLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {filteredFeedback.map((feedback: any) => (
+                    <div key={feedback.id} className="p-4 border rounded-lg hover:bg-muted/30">
+                      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                        <div className="flex items-start gap-4">
+                          <div className={`p-2 rounded-full ${
+                            feedback.responded ? 'bg-green-100' : 'bg-gray-100'
+                          }`}>
+                            {feedback.responded ? (
+                              <CheckCircle2 className="h-5 w-5 text-green-600" />
+                            ) : (
+                              <Clock className="h-5 w-5 text-gray-400" />
                             )}
                           </div>
-                        </div>
-                      </div>
-                      {feedback.responded ? (
-                        <div className="flex items-center gap-6">
-                          <div className="text-center">
-                            <p className="text-xs text-muted-foreground">NPS</p>
-                            <div className="flex items-center gap-1">
-                              <span className="font-bold text-lg">{feedback.npsScore}</span>
-                              {getNPSBadge(feedback.npsScore)}
+                          <div>
+                            <p className="font-medium">{feedback.candidateName}</p>
+                            <p className="text-sm text-muted-foreground">{feedback.program}</p>
+                            <div className="flex items-center gap-2 mt-1">
+                              {getStatusBadge(feedback.status)}
+                              {feedback.feedbackDate && (
+                                <span className="text-xs text-muted-foreground">
+                                  {format(new Date(feedback.feedbackDate), 'MMM dd, yyyy')}
+                                </span>
+                              )}
                             </div>
                           </div>
-                          <div className="text-center">
-                            <p className="text-xs text-muted-foreground">Rating</p>
-                            {getRatingStars(feedback.overallRating)}
-                          </div>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleViewFeedback(feedback)}
-                          >
-                            <Eye className="mr-2 h-4 w-4" />
-                            View
-                          </Button>
                         </div>
-                      ) : (
-                        <Button size="sm" disabled={sendingRequestTo === feedback.id} onClick={async () => {
-                          setSendingRequestTo(feedback.id);
-                          try {
-                            await new Promise(r => setTimeout(r, 500));
-                            toast.success('Feedback request sent successfully');
-                          } finally {
-                            setSendingRequestTo(null);
-                          }
-                        }}>
-                          {sendingRequestTo === feedback.id ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
-                          Request Feedback
-                        </Button>
+                        {feedback.responded ? (
+                          <div className="flex items-center gap-6">
+                            <div className="text-center">
+                              <p className="text-xs text-muted-foreground">Reason</p>
+                              <Badge variant="outline" className="text-xs mt-1">{feedback.primaryReason || '-'}</Badge>
+                            </div>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleViewFeedback(feedback)}
+                            >
+                              <Eye className="mr-2 h-4 w-4" />
+                              View
+                            </Button>
+                          </div>
+                        ) : (
+                          <Button size="sm" disabled={sendingRequestTo === feedback.id} onClick={async () => {
+                            setSendingRequestTo(feedback.id);
+                            try {
+                              await new Promise(r => setTimeout(r, 500));
+                              toast.success('Feedback request sent successfully');
+                            } finally {
+                              setSendingRequestTo(null);
+                            }
+                          }}>
+                            {sendingRequestTo === feedback.id ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
+                            Request Feedback
+                          </Button>
+                        )}
+                      </div>
+                      {feedback.responded && feedback.primaryReason && (
+                        <div className="mt-3 pt-3 border-t">
+                          <div className="flex items-start gap-2">
+                            <Lightbulb className="h-4 w-4 text-yellow-500 mt-0.5" />
+                            <div>
+                              <p className="text-sm">
+                                <strong>Primary reason:</strong> {feedback.primaryReason}
+                              </p>
+                              {feedback.comments && (
+                                <p className="text-sm text-muted-foreground mt-1 line-clamp-2">
+                                  "{feedback.comments}"
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        </div>
                       )}
                     </div>
-                    {feedback.responded && feedback.primaryReason && (
-                      <div className="mt-3 pt-3 border-t">
-                        <div className="flex items-start gap-2">
-                          <Lightbulb className="h-4 w-4 text-yellow-500 mt-0.5" />
-                          <div>
-                            <p className="text-sm">
-                              <strong>Primary reason:</strong> {feedback.primaryReason}
-                            </p>
-                            {feedback.comments && (
-                              <p className="text-sm text-muted-foreground mt-1 line-clamp-2">
-                                "{feedback.comments}"
-                              </p>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
+                  ))}
+                  {filteredFeedback.length === 0 && (
+                    <div className="text-center py-8 text-muted-foreground">
+                      No feedback candidates found.
+                    </div>
+                  )}
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -493,7 +419,7 @@ function FeedbackPageContent() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  {feedbackReasons.map((reason, index) => (
+                  {topReasons.length > 0 ? topReasons.map((reason: any, index: number) => (
                     <div key={reason.reason} className="space-y-1">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
@@ -504,12 +430,16 @@ function FeedbackPageContent() {
                         </div>
                         <div className="flex items-center gap-2">
                           <span className="text-muted-foreground">{reason.count}</span>
-                          <Badge variant="outline">{reason.percent}%</Badge>
+                          <Badge variant="outline">{reason.percent?.toFixed(1) || 0}%</Badge>
                         </div>
                       </div>
-                      <Progress value={reason.percent} className="h-2" />
+                      <Progress value={reason.percent || 0} className="h-2" />
                     </div>
-                  ))}
+                  )) : (
+                    <div className="text-center py-8 text-muted-foreground">
+                      No feedback reasons collected yet.
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -517,32 +447,30 @@ function FeedbackPageContent() {
             {/* Status-wise Breakdown */}
             <Card>
               <CardHeader>
-                <CardTitle>Reasons by Status</CardTitle>
-                <CardDescription>Top reason for each status category</CardDescription>
+                <CardTitle>Candidate Breakdown</CardTitle>
+                <CardDescription>Counts by exit status</CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
                   {[
-                    { status: 'Declined Offer', reason: 'Joined another institution', count: 12 },
-                    { status: 'Offer Expired', reason: 'Financial constraints', count: 5 },
-                    { status: 'Not Shortlisted', reason: 'Interview feedback', count: 3 },
-                    { status: 'Withdrew', reason: 'Personal reasons', count: 4 }
+                    { status: 'Declined Offer', count: stats.declinedOffer },
+                    { status: 'Withdrew', count: stats.withdrew },
+                    { status: 'Lost', count: stats.lost },
+                    { status: 'Responded', count: stats.respondedCount },
+                    { status: 'Pending', count: stats.pendingCount },
                   ].map((item) => (
                     <div key={item.status} className="p-3 border rounded-lg">
                       <div className="flex items-center justify-between">
                         <span className="font-medium">{item.status}</span>
-                        <Badge variant="outline">{item.count} responses</Badge>
+                        <Badge variant="outline">{item.count}</Badge>
                       </div>
-                      <p className="text-sm text-muted-foreground mt-1">
-                        Top reason: {item.reason}
-                      </p>
                     </div>
                   ))}
                 </div>
               </CardContent>
             </Card>
 
-            {/* Sentiment Analysis */}
+            {/* Sentiment Analysis placeholder */}
             <Card>
               <CardHeader>
                 <CardTitle>Sentiment Analysis</CardTitle>
@@ -553,60 +481,36 @@ function FeedbackPageContent() {
                   <div className="grid grid-cols-3 gap-4 text-center">
                     <div className="p-4 bg-green-50 rounded-lg">
                       <Smile className="h-8 w-8 text-green-600 mx-auto mb-2" />
-                      <p className="text-2xl font-bold text-green-600">2</p>
+                      <p className="text-2xl font-bold text-green-600">--</p>
                       <p className="text-xs text-green-700">Positive</p>
                     </div>
                     <div className="p-4 bg-yellow-50 rounded-lg">
                       <Meh className="h-8 w-8 text-yellow-600 mx-auto mb-2" />
-                      <p className="text-2xl font-bold text-yellow-600">1</p>
+                      <p className="text-2xl font-bold text-yellow-600">--</p>
                       <p className="text-xs text-yellow-700">Neutral</p>
                     </div>
                     <div className="p-4 bg-red-50 rounded-lg">
                       <Frown className="h-8 w-8 text-red-600 mx-auto mb-2" />
-                      <p className="text-2xl font-bold text-red-600">1</p>
+                      <p className="text-2xl font-bold text-red-600">--</p>
                       <p className="text-xs text-red-700">Negative</p>
                     </div>
                   </div>
-                  <div className="p-4 border rounded-lg">
-                    <p className="text-sm font-medium mb-2">Key Sentiment Indicators:</p>
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm">Process Experience</span>
-                        <Badge className="bg-green-100 text-green-700">Positive</Badge>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm">Communication</span>
-                        <Badge className="bg-green-100 text-green-700">Positive</Badge>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm">Value for Money</span>
-                        <Badge className="bg-yellow-100 text-yellow-700">Mixed</Badge>
-                      </div>
-                    </div>
-                  </div>
+                  <p className="text-xs text-muted-foreground text-center">
+                    Sentiment analysis will be available when detailed survey responses are collected.
+                  </p>
                 </div>
               </CardContent>
             </Card>
 
-            {/* Competitive Analysis */}
+            {/* Competitive Insights placeholder */}
             <Card>
               <CardHeader>
                 <CardTitle>Competitive Insights</CardTitle>
                 <CardDescription>Where candidates went instead</CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="space-y-3">
-                  {[
-                    { institution: 'Other Private Universities', count: 5 },
-                    { institution: 'Government Institutions', count: 4 },
-                    { institution: 'IITs/NITs', count: 2 },
-                    { institution: 'Study Abroad', count: 1 }
-                  ].map((item) => (
-                    <div key={item.institution} className="flex items-center justify-between p-2 border rounded">
-                      <span className="text-sm">{item.institution}</span>
-                      <Badge variant="outline">{item.count}</Badge>
-                    </div>
-                  ))}
+                <div className="text-center py-8 text-muted-foreground">
+                  <p>Competitive insights will populate when candidates provide detailed feedback about alternative institutions.</p>
                 </div>
               </CardContent>
             </Card>
@@ -618,18 +522,18 @@ function FeedbackPageContent() {
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <Card className="lg:col-span-2">
               <CardHeader>
-                <CardTitle>Candidate Suggestions</CardTitle>
-                <CardDescription>Improvement ideas from candidates</CardDescription>
+                <CardTitle>Candidate Feedback Notes</CardTitle>
+                <CardDescription>Notes and comments from candidates</CardDescription>
               </CardHeader>
               <CardContent>
                 <ScrollArea className="h-[500px]">
                   <div className="space-y-4">
-                    {mockFeedback.filter(f => f.suggestions).map((feedback) => (
+                    {feedbackData.filter((f: any) => f.comments).map((feedback: any) => (
                       <div key={feedback.id} className="p-4 border rounded-lg">
                         <div className="flex items-start gap-3">
                           <Lightbulb className="h-5 w-5 text-yellow-500 mt-0.5" />
                           <div className="flex-1">
-                            <p className="text-sm">{feedback.suggestions}</p>
+                            <p className="text-sm">{feedback.comments}</p>
                             <div className="flex items-center gap-2 mt-2">
                               <span className="text-xs text-muted-foreground">{feedback.candidateName}</span>
                               <span className="text-xs text-muted-foreground">•</span>
@@ -640,6 +544,11 @@ function FeedbackPageContent() {
                         </div>
                       </div>
                     ))}
+                    {feedbackData.filter((f: any) => f.comments).length === 0 && (
+                      <div className="text-center py-8 text-muted-foreground">
+                        No comments or suggestions collected yet.
+                      </div>
+                    )}
                   </div>
                 </ScrollArea>
               </CardContent>
@@ -653,18 +562,14 @@ function FeedbackPageContent() {
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-2">
-                    {[
-                      { theme: 'Scholarship/Financial Aid', count: 8 },
-                      { theme: 'Payment Flexibility', count: 5 },
-                      { theme: 'Evaluation Transparency', count: 3 },
-                      { theme: 'Communication Speed', count: 2 },
-                      { theme: 'Deferment Option', count: 2 }
-                    ].map((item) => (
-                      <div key={item.theme} className="flex items-center justify-between p-2 bg-muted/50 rounded">
-                        <span className="text-sm">{item.theme}</span>
+                    {topReasons.length > 0 ? topReasons.slice(0, 5).map((item: any) => (
+                      <div key={item.reason} className="flex items-center justify-between p-2 bg-muted/50 rounded">
+                        <span className="text-sm">{item.reason}</span>
                         <Badge variant="outline">{item.count}</Badge>
                       </div>
-                    ))}
+                    )) : (
+                      <p className="text-sm text-muted-foreground text-center py-4">No themes detected yet.</p>
+                    )}
                   </div>
                 </CardContent>
               </Card>
@@ -675,21 +580,8 @@ function FeedbackPageContent() {
                   <CardDescription>Recommendations based on feedback</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <div className="space-y-3">
-                    {[
-                      { action: 'Review scholarship criteria', priority: 'high' },
-                      { action: 'Introduce EMI options', priority: 'high' },
-                      { action: 'Share interview rubric', priority: 'medium' },
-                      { action: 'Add deferment policy', priority: 'low' }
-                    ].map((item) => (
-                      <div key={item.action} className="flex items-center gap-2">
-                        <div className={`w-2 h-2 rounded-full ${
-                          item.priority === 'high' ? 'bg-red-500' :
-                          item.priority === 'medium' ? 'bg-yellow-500' : 'bg-gray-400'
-                        }`} />
-                        <span className="text-sm">{item.action}</span>
-                      </div>
-                    ))}
+                  <div className="text-center py-4 text-sm text-muted-foreground">
+                    Action items will be generated as more feedback is collected.
                   </div>
                 </CardContent>
               </Card>
@@ -700,149 +592,82 @@ function FeedbackPageContent() {
         {/* Trends Tab */}
         <TabsContent value="trends" className="mt-6">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* NPS Trend */}
             <Card>
               <CardHeader>
-                <CardTitle>NPS Score Trend</CardTitle>
-                <CardDescription>Monthly NPS score progression</CardDescription>
+                <CardTitle>Feedback Collection Trend</CardTitle>
+                <CardDescription>Monthly feedback collection performance</CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
                   <div className="flex items-center justify-between p-4 bg-muted/50 rounded-lg">
                     <div>
-                      <p className="text-sm text-muted-foreground">Current NPS</p>
-                      <p className="text-3xl font-bold">{avgNPS.toFixed(0)}</p>
-                    </div>
-                    <div className="flex items-center gap-1 text-green-600">
-                      <TrendingUp className="h-5 w-5" />
-                      <span className="text-sm font-medium">+2.5 from last month</span>
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    {[
-                      { month: 'Jan 2026', score: 6.5, change: 0 },
-                      { month: 'Dec 2025', score: 6.0, change: -0.5 },
-                      { month: 'Nov 2025', score: 6.5, change: 0.5 },
-                      { month: 'Oct 2025', score: 6.0, change: -0.2 }
-                    ].map((item) => (
-                      <div key={item.month} className="flex items-center justify-between p-2 border rounded">
-                        <span className="text-sm">{item.month}</span>
-                        <div className="flex items-center gap-2">
-                          <span className="font-medium">{item.score}</span>
-                          {item.change > 0 ? (
-                            <TrendingUp className="h-4 w-4 text-green-500" />
-                          ) : item.change < 0 ? (
-                            <TrendingDown className="h-4 w-4 text-red-500" />
-                          ) : (
-                            <span className="text-muted-foreground">-</span>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Response Rate Trend */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Response Rate Trend</CardTitle>
-                <CardDescription>Feedback collection performance</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between p-4 bg-muted/50 rounded-lg">
-                    <div>
-                      <p className="text-sm text-muted-foreground">Current Rate</p>
+                      <p className="text-sm text-muted-foreground">Response Rate</p>
                       <p className="text-3xl font-bold">{responseRate.toFixed(0)}%</p>
                     </div>
-                    <div className="flex items-center gap-1 text-green-600">
-                      <TrendingUp className="h-5 w-5" />
-                      <span className="text-sm font-medium">+5% from last month</span>
-                    </div>
                   </div>
-                  <div className="space-y-3">
-                    {[
-                      { month: 'Jan 2026', sent: 5, received: 4, rate: 80 },
-                      { month: 'Dec 2025', sent: 12, received: 9, rate: 75 },
-                      { month: 'Nov 2025', sent: 15, received: 10, rate: 67 },
-                      { month: 'Oct 2025', sent: 8, received: 5, rate: 63 }
-                    ].map((item) => (
-                      <div key={item.month} className="space-y-1">
-                        <div className="flex items-center justify-between text-sm">
-                          <span>{item.month}</span>
-                          <span>{item.received}/{item.sent} ({item.rate}%)</span>
-                        </div>
-                        <Progress value={item.rate} className="h-2" />
-                      </div>
-                    ))}
-                  </div>
+                  <p className="text-xs text-muted-foreground text-center">
+                    Trend data will populate over time as more feedback cycles complete.
+                  </p>
                 </div>
               </CardContent>
             </Card>
 
-            {/* Rating Distribution */}
             <Card>
               <CardHeader>
-                <CardTitle>Rating Distribution</CardTitle>
-                <CardDescription>Overall experience ratings</CardDescription>
+                <CardTitle>Exit Reasons Distribution</CardTitle>
+                <CardDescription>Why candidates left the funnel</CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="space-y-3">
-                  {[5, 4, 3, 2, 1].map((rating) => {
-                    const count = mockFeedback.filter(f => f.overallRating === rating).length;
-                    const percent = respondedCount > 0 ? (count / respondedCount) * 100 : 0;
-                    return (
-                      <div key={rating} className="flex items-center gap-4">
-                        <div className="flex items-center gap-1 w-24">
-                          {[...Array(rating)].map((_, i) => (
-                            <Star key={i} className="h-4 w-4 fill-yellow-400 text-yellow-400" />
-                          ))}
-                        </div>
-                        <div className="flex-1 h-4 bg-muted rounded overflow-hidden">
-                          <div
-                            className="h-full bg-yellow-400"
-                            style={{ width: `${percent}%` }}
-                          />
-                        </div>
-                        <span className="w-8 text-sm text-right">{count}</span>
+                  {topReasons.map((reason: any) => (
+                    <div key={reason.reason} className="space-y-1">
+                      <div className="flex items-center justify-between text-sm">
+                        <span>{reason.reason}</span>
+                        <span>{reason.count} ({reason.percent?.toFixed(0) || 0}%)</span>
                       </div>
-                    );
-                  })}
+                      <Progress value={reason.percent || 0} className="h-2" />
+                    </div>
+                  ))}
+                  {topReasons.length === 0 && (
+                    <p className="text-sm text-muted-foreground text-center py-4">No data available yet.</p>
+                  )}
                 </div>
               </CardContent>
             </Card>
 
-            {/* Recommendation Trend */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Candidate Volume</CardTitle>
+                <CardDescription>Total lost/declined candidates over time</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  <div className="grid grid-cols-3 gap-4 text-center">
+                    <div className="p-4 bg-muted/50 rounded-lg">
+                      <p className="text-2xl font-bold">{stats.totalCandidates}</p>
+                      <p className="text-xs text-muted-foreground">Total</p>
+                    </div>
+                    <div className="p-4 bg-muted/50 rounded-lg">
+                      <p className="text-2xl font-bold">{stats.respondedCount}</p>
+                      <p className="text-xs text-muted-foreground">Responded</p>
+                    </div>
+                    <div className="p-4 bg-muted/50 rounded-lg">
+                      <p className="text-2xl font-bold">{stats.pendingCount}</p>
+                      <p className="text-xs text-muted-foreground">Pending</p>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
             <Card>
               <CardHeader>
                 <CardTitle>Recommendation Rate</CardTitle>
                 <CardDescription>Would recommend to others</CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4 text-center">
-                    <div className="p-4 bg-green-50 rounded-lg">
-                      <ThumbsUp className="h-8 w-8 text-green-600 mx-auto mb-2" />
-                      <p className="text-2xl font-bold text-green-600">
-                        {mockFeedback.filter(f => f.wouldRecommend === true).length}
-                      </p>
-                      <p className="text-xs text-green-700">Would Recommend</p>
-                    </div>
-                    <div className="p-4 bg-red-50 rounded-lg">
-                      <ThumbsDown className="h-8 w-8 text-red-600 mx-auto mb-2" />
-                      <p className="text-2xl font-bold text-red-600">
-                        {mockFeedback.filter(f => f.wouldRecommend === false).length}
-                      </p>
-                      <p className="text-xs text-red-700">Would Not Recommend</p>
-                    </div>
-                  </div>
-                  <div className="p-3 border rounded-lg">
-                    <p className="text-sm text-center">
-                      <strong>{recommendRate.toFixed(0)}%</strong> of respondents would recommend us
-                    </p>
-                  </div>
+                <div className="text-center py-8 text-muted-foreground">
+                  <p>Recommendation data will be available when detailed survey responses are collected.</p>
                 </div>
               </CardContent>
             </Card>
@@ -859,74 +684,42 @@ function FeedbackPageContent() {
               {selectedFeedback?.candidateName} - {selectedFeedback?.program}
             </DialogDescription>
           </DialogHeader>
-          {selectedFeedback && selectedFeedback.responded && (
+          {selectedFeedback && (
             <div className="space-y-6 py-4">
-              {/* Ratings */}
-              <div className="grid grid-cols-3 gap-4">
-                <div className="text-center p-3 border rounded-lg">
-                  <p className="text-xs text-muted-foreground mb-1">Overall Rating</p>
-                  {getRatingStars(selectedFeedback.overallRating)}
-                </div>
-                <div className="text-center p-3 border rounded-lg">
-                  <p className="text-xs text-muted-foreground mb-1">NPS Score</p>
-                  <p className="text-2xl font-bold">{selectedFeedback.npsScore}</p>
-                </div>
-                <div className="text-center p-3 border rounded-lg">
-                  <p className="text-xs text-muted-foreground mb-1">Recommend?</p>
-                  {selectedFeedback.wouldRecommend ? (
-                    <ThumbsUp className="h-6 w-6 text-green-600 mx-auto" />
-                  ) : (
-                    <ThumbsDown className="h-6 w-6 text-red-600 mx-auto" />
-                  )}
-                </div>
-              </div>
-
-              {/* Detailed Ratings */}
-              <div className="space-y-3">
-                <p className="font-medium">Detailed Ratings</p>
-                <div className="grid grid-cols-3 gap-4">
-                  <div className="p-3 bg-muted/50 rounded-lg">
-                    <p className="text-xs text-muted-foreground">Process</p>
-                    {getRatingStars(selectedFeedback.processRating)}
-                  </div>
-                  <div className="p-3 bg-muted/50 rounded-lg">
-                    <p className="text-xs text-muted-foreground">Communication</p>
-                    {getRatingStars(selectedFeedback.communicationRating)}
-                  </div>
-                  <div className="p-3 bg-muted/50 rounded-lg">
-                    <p className="text-xs text-muted-foreground">Transparency</p>
-                    {getRatingStars(selectedFeedback.transparencyRating)}
-                  </div>
-                </div>
+              {/* Status */}
+              <div className="space-y-2">
+                <p className="font-medium">Status</p>
+                {getStatusBadge(selectedFeedback.status)}
               </div>
 
               {/* Reasons */}
-              <div className="space-y-2">
-                <p className="font-medium">Reasons for Not Joining</p>
-                <div className="flex flex-wrap gap-2">
+              {selectedFeedback.primaryReason && (
+                <div className="space-y-2">
+                  <p className="font-medium">Reason for Not Joining</p>
                   <Badge className="bg-primary/10 text-primary">{selectedFeedback.primaryReason}</Badge>
-                  {selectedFeedback.secondaryReasons.map((reason) => (
-                    <Badge key={reason} variant="outline">{reason}</Badge>
-                  ))}
                 </div>
-              </div>
+              )}
 
               {/* Comments */}
               {selectedFeedback.comments && (
                 <div className="space-y-2">
-                  <p className="font-medium">Comments</p>
+                  <p className="font-medium">Notes</p>
                   <p className="text-sm p-3 bg-muted/50 rounded-lg">"{selectedFeedback.comments}"</p>
                 </div>
               )}
 
-              {/* Suggestions */}
-              {selectedFeedback.suggestions && (
+              {/* Contact Info */}
+              <div className="space-y-2">
+                <p className="font-medium">Contact</p>
+                <p className="text-sm text-muted-foreground">{selectedFeedback.email}</p>
+              </div>
+
+              {selectedFeedback.feedbackDate && (
                 <div className="space-y-2">
-                  <p className="font-medium">Suggestions</p>
-                  <div className="flex items-start gap-2 p-3 bg-yellow-50 rounded-lg">
-                    <Lightbulb className="h-4 w-4 text-yellow-600 mt-0.5" />
-                    <p className="text-sm">{selectedFeedback.suggestions}</p>
-                  </div>
+                  <p className="font-medium">Date</p>
+                  <p className="text-sm text-muted-foreground">
+                    {format(new Date(selectedFeedback.feedbackDate), 'MMM dd, yyyy')}
+                  </p>
                 </div>
               )}
             </div>
@@ -956,7 +749,7 @@ function FeedbackPageContent() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All Pending ({totalCandidates - respondedCount})</SelectItem>
+                  <SelectItem value="all">All Pending ({stats.pendingCount})</SelectItem>
                   <SelectItem value="declined">Declined Offers</SelectItem>
                   <SelectItem value="expired">Expired Offers</SelectItem>
                   <SelectItem value="withdrew">Withdrew</SelectItem>
@@ -978,7 +771,7 @@ function FeedbackPageContent() {
             </div>
             <div className="p-3 bg-muted rounded-lg">
               <p className="text-sm">
-                <strong>Preview:</strong> {totalCandidates - respondedCount} candidates will receive feedback request
+                <strong>Preview:</strong> {stats.pendingCount} candidates will receive feedback request
               </p>
             </div>
           </div>

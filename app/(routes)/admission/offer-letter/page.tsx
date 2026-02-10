@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -16,153 +16,65 @@ import { Textarea } from '@/components/ui/textarea';
 import {
   FileText,
   Send,
-  Check,
-  X,
   Clock,
-  Users,
   Download,
   Mail,
   Eye,
   Edit,
   Printer,
-  RefreshCw,
   Calendar,
   AlertTriangle,
   CheckCircle2,
   XCircle,
   Timer,
-  FileCheck,
   FilePlus,
-  Upload,
   Search,
-  Filter,
-  MoreVertical,
-  Sparkles,
-  Copy,
-  ExternalLink,
   Bell,
   Settings,
   BarChart3,
   TrendingUp,
   Stamp,
-  PenTool,
-  History,
-  MessageSquare,
+  Copy,
   Loader2
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { AdmissionErrorBoundary } from '@/components/admission';
 import { format, differenceInDays, addDays } from 'date-fns';
+import { useAuth } from '@/hooks/use-auth';
+import {
+  useOfferLetters,
+  useOfferLetterStats,
+  useCreateOfferLetter,
+  useRecordOfferReminder,
+  useExtendOfferDeadline,
+} from '@/hooks/admission/use-offer-letters';
+import type { OfferLetterRow } from '@/lib/services/admission/offer-letter-service';
 
-// Mock data for offers
-const mockOffers = [
-  {
-    id: 'OFF-2026-001',
-    applicationId: 'APP-2026-001',
-    candidateName: 'Priya Sharma',
-    email: 'priya.sharma@email.com',
-    phone: '+91 98765 43210',
-    program: 'B.Tech Computer Science',
-    status: 'accepted',
-    offerDate: '2026-01-18',
-    deadline: '2026-01-28',
-    acceptedDate: '2026-01-20',
-    scholarship: 25,
-    totalFee: 150000,
-    finalFee: 112500,
-    documentsSubmitted: true,
-    tokenPaid: true
-  },
-  {
-    id: 'OFF-2026-002',
-    applicationId: 'APP-2026-002',
-    candidateName: 'Rahul Kumar',
-    email: 'rahul.kumar@email.com',
-    phone: '+91 98765 43211',
-    program: 'B.Tech Computer Science',
-    status: 'pending',
-    offerDate: '2026-01-18',
-    deadline: '2026-01-28',
-    acceptedDate: null,
-    scholarship: 15,
-    totalFee: 150000,
-    finalFee: 127500,
-    documentsSubmitted: false,
-    tokenPaid: false
-  },
-  {
-    id: 'OFF-2026-003',
-    applicationId: 'APP-2026-003',
-    candidateName: 'Ananya Patel',
-    email: 'ananya.patel@email.com',
-    phone: '+91 98765 43212',
-    program: 'B.Tech Computer Science',
-    status: 'pending',
-    offerDate: '2026-01-19',
-    deadline: '2026-01-29',
-    acceptedDate: null,
-    scholarship: 0,
-    totalFee: 150000,
-    finalFee: 150000,
-    documentsSubmitted: true,
-    tokenPaid: false
-  },
-  {
-    id: 'OFF-2026-004',
-    applicationId: 'APP-2026-004',
-    candidateName: 'Mohammed Arif',
-    email: 'mohammed.arif@email.com',
-    phone: '+91 98765 43213',
-    program: 'B.Tech Electronics',
-    status: 'declined',
-    offerDate: '2026-01-17',
-    deadline: '2026-01-27',
-    acceptedDate: null,
-    declinedDate: '2026-01-22',
-    declineReason: 'Joined another institution',
-    scholarship: 10,
-    totalFee: 140000,
-    finalFee: 126000,
-    documentsSubmitted: false,
-    tokenPaid: false
-  },
-  {
-    id: 'OFF-2026-005',
-    applicationId: 'APP-2026-005',
-    candidateName: 'Sneha Reddy',
-    email: 'sneha.reddy@email.com',
-    phone: '+91 98765 43214',
-    program: 'MBA',
-    status: 'expired',
-    offerDate: '2026-01-05',
-    deadline: '2026-01-15',
-    acceptedDate: null,
-    scholarship: 20,
-    totalFee: 250000,
-    finalFee: 200000,
-    documentsSubmitted: false,
-    tokenPaid: false
-  },
-  {
-    id: 'OFF-2026-006',
-    applicationId: 'APP-2026-006',
-    candidateName: 'Vikram Singh',
-    email: 'vikram.singh@email.com',
-    phone: '+91 98765 43215',
-    program: 'B.Tech Mechanical',
-    status: 'draft',
-    offerDate: null,
-    deadline: null,
-    acceptedDate: null,
-    scholarship: 0,
-    totalFee: 130000,
-    finalFee: 130000,
-    documentsSubmitted: false,
-    tokenPaid: false
-  }
-];
+// Helper to extract candidate name from offer letter row
+function getCandidateName(offer: OfferLetterRow): string {
+  const lead = offer.application?.admission_lead;
+  if (lead?.full_name) return lead.full_name;
+  const formData = offer.application?.form_data as Record<string, unknown> | null;
+  const personal = formData?.personal as Record<string, unknown> | undefined;
+  if (personal?.name) return String(personal.name);
+  return offer.letter_number || 'Unknown';
+}
 
-// Offer templates
+function getCandidateEmail(offer: OfferLetterRow): string {
+  return offer.application?.admission_lead?.email || '';
+}
+
+function getApplicationNumber(offer: OfferLetterRow): string {
+  return offer.application?.application_number || '';
+}
+
+function getProgram(offer: OfferLetterRow): string {
+  const lead = offer.application?.admission_lead;
+  if (lead?.interested_programs?.length) return lead.interested_programs[0];
+  return offer.admission_type || 'N/A';
+}
+
+// Offer templates (static, not DB-driven yet)
 const offerTemplates = [
   { id: 1, name: 'Standard Offer Letter', program: 'All Programs', isDefault: true },
   { id: 2, name: 'Scholarship Offer Letter', program: 'All Programs', isDefault: false },
@@ -170,6 +82,9 @@ const offerTemplates = [
 ];
 
 function OfferLetterPageContent() {
+  const { profile, isLoading: authLoading } = useAuth();
+  const institutionId = profile?.institution_id || '';
+
   const [activeTab, setActiveTab] = useState('offers');
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -178,31 +93,47 @@ function OfferLetterPageContent() {
   const [isCreateOfferDialogOpen, setIsCreateOfferDialogOpen] = useState(false);
   const [isViewOfferDialogOpen, setIsViewOfferDialogOpen] = useState(false);
   const [isReminderDialogOpen, setIsReminderDialogOpen] = useState(false);
-  const [selectedOffer, setSelectedOffer] = useState<typeof mockOffers[0] | null>(null);
-  const [isCreatingOffer, setIsCreatingOffer] = useState(false);
+  const [selectedOffer, setSelectedOffer] = useState<OfferLetterRow | null>(null);
   const [isSendingBulkOffers, setIsSendingBulkOffers] = useState(false);
   const [isSendingBulkReminders, setIsSendingBulkReminders] = useState(false);
   const [isSendingReminders, setIsSendingReminders] = useState(false);
 
-  // Stats
-  const totalOffers = mockOffers.length;
-  const pendingOffers = mockOffers.filter(o => o.status === 'pending').length;
-  const acceptedOffers = mockOffers.filter(o => o.status === 'accepted').length;
-  const declinedOffers = mockOffers.filter(o => o.status === 'declined').length;
-  const expiredOffers = mockOffers.filter(o => o.status === 'expired').length;
-  const acceptanceRate = ((acceptedOffers / (acceptedOffers + declinedOffers + expiredOffers)) * 100) || 0;
-
-  // Filter offers
-  const filteredOffers = mockOffers.filter(offer => {
-    const matchesSearch = offer.candidateName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                          offer.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                          offer.applicationId.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesStatus = statusFilter === 'all' || offer.status === statusFilter;
-    const matchesProgram = programFilter === 'all' || offer.program === programFilter;
-    return matchesSearch && matchesStatus && matchesProgram;
+  // Real data hooks
+  const { offers, isLoading: offersLoading } = useOfferLetters({
+    institutionId,
+    status: statusFilter !== 'all' ? statusFilter : undefined,
+    search: searchTerm || undefined,
   });
 
-  const getStatusBadge = (status: string) => {
+  const { stats, isLoading: statsLoading } = useOfferLetterStats(institutionId);
+  const createOfferMutation = useCreateOfferLetter();
+  const reminderMutation = useRecordOfferReminder();
+  const extendDeadlineMutation = useExtendOfferDeadline();
+
+  const isLoading = authLoading || offersLoading;
+
+  // Client-side filtering for program and search on candidate name
+  const filteredOffers = useMemo(() => {
+    return offers.filter((offer) => {
+      const name = getCandidateName(offer).toLowerCase();
+      const letterNum = (offer.letter_number || '').toLowerCase();
+      const appNum = getApplicationNumber(offer).toLowerCase();
+      const term = searchTerm.toLowerCase();
+      const matchesSearch = !searchTerm || name.includes(term) || letterNum.includes(term) || appNum.includes(term);
+      const matchesProgram = programFilter === 'all' || getProgram(offer) === programFilter;
+      return matchesSearch && matchesProgram;
+    });
+  }, [offers, searchTerm, programFilter]);
+
+  // Stats from real data
+  const totalOffers = stats?.total ?? 0;
+  const pendingOffers = stats?.pending ?? 0;
+  const acceptedOffers = stats?.accepted ?? 0;
+  const declinedOffers = stats?.declined ?? 0;
+  const expiredOffers = stats?.expired ?? 0;
+  const acceptanceRate = stats?.acceptanceRate ?? 0;
+
+  const getStatusBadge = (status: string | null) => {
     switch (status) {
       case 'accepted':
         return <Badge className="bg-green-100 text-green-700 border-green-200">Accepted</Badge>;
@@ -212,10 +143,8 @@ function OfferLetterPageContent() {
         return <Badge className="bg-red-100 text-red-700 border-red-200">Declined</Badge>;
       case 'expired':
         return <Badge className="bg-gray-100 text-gray-700 border-gray-200">Expired</Badge>;
-      case 'draft':
-        return <Badge className="bg-blue-100 text-blue-700 border-blue-200">Draft</Badge>;
       default:
-        return <Badge variant="outline">{status}</Badge>;
+        return <Badge className="bg-blue-100 text-blue-700 border-blue-200">Draft</Badge>;
     }
   };
 
@@ -228,7 +157,7 @@ function OfferLetterPageContent() {
     return <span className="text-muted-foreground">{days} days</span>;
   };
 
-  const handleViewOffer = (offer: typeof mockOffers[0]) => {
+  const handleViewOffer = (offer: OfferLetterRow) => {
     setSelectedOffer(offer);
     setIsViewOfferDialogOpen(true);
   };
@@ -248,6 +177,25 @@ function OfferLetterPageContent() {
       setSelectedOffers([...selectedOffers, id]);
     }
   };
+
+  const getLetterData = (offer: OfferLetterRow) => {
+    const ld = offer.letter_data as Record<string, unknown> | null;
+    return {
+      scholarship: Number(ld?.scholarship_percent || 0),
+      totalFee: Number(ld?.total_fee || 0),
+      finalFee: Number(ld?.final_fee || ld?.total_fee || 0),
+      documentsSubmitted: Boolean(ld?.documents_submitted),
+      tokenPaid: Boolean(ld?.token_paid),
+    };
+  };
+
+  if (isLoading) {
+    return (
+      <div className="container mx-auto p-6 flex items-center justify-center min-h-[400px]">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   return (
     <div className="container mx-auto p-6 space-y-6">
@@ -404,7 +352,6 @@ function OfferLetterPageContent() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Status</SelectItem>
-                    <SelectItem value="draft">Draft</SelectItem>
                     <SelectItem value="pending">Pending</SelectItem>
                     <SelectItem value="accepted">Accepted</SelectItem>
                     <SelectItem value="declined">Declined</SelectItem>
@@ -436,8 +383,11 @@ function OfferLetterPageContent() {
                     disabled={isSendingBulkOffers}
                     onClick={async () => {
                       setIsSendingBulkOffers(true);
-                      await new Promise(resolve => setTimeout(resolve, 1500));
-                      toast.success(`Sending offer letters to ${selectedOffers.length} candidates`);
+                      // Send reminders for all selected
+                      for (const id of selectedOffers) {
+                        await reminderMutation.mutateAsync(id).catch(() => {});
+                      }
+                      toast.success(`Sent reminders to ${selectedOffers.length} candidates`);
                       setIsSendingBulkOffers(false);
                     }}
                   >
@@ -454,7 +404,9 @@ function OfferLetterPageContent() {
                     disabled={isSendingBulkReminders}
                     onClick={async () => {
                       setIsSendingBulkReminders(true);
-                      await new Promise(resolve => setTimeout(resolve, 1500));
+                      for (const id of selectedOffers) {
+                        await reminderMutation.mutateAsync(id).catch(() => {});
+                      }
                       toast.success(`Sending reminders to ${selectedOffers.length} candidates`);
                       setIsSendingBulkReminders(false);
                     }}
@@ -493,91 +445,95 @@ function OfferLetterPageContent() {
                         <th className="p-3 text-left text-sm font-medium">Program</th>
                         <th className="p-3 text-center text-sm font-medium">Status</th>
                         <th className="p-3 text-center text-sm font-medium">Scholarship</th>
-                        <th className="p-3 text-center text-sm font-medium">Final Fee</th>
                         <th className="p-3 text-center text-sm font-medium">Deadline</th>
-                        <th className="p-3 text-center text-sm font-medium">Docs</th>
+                        <th className="p-3 text-center text-sm font-medium">Reminders</th>
                         <th className="p-3 text-center text-sm font-medium">Actions</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {filteredOffers.map((offer) => (
-                        <tr key={offer.id} className="border-t hover:bg-muted/30">
-                          <td className="p-3">
-                            <Checkbox
-                              checked={selectedOffers.includes(offer.id)}
-                              onCheckedChange={() => handleSelectOffer(offer.id)}
-                            />
-                          </td>
-                          <td className="p-3">
-                            <div>
-                              <p className="font-medium">{offer.id}</p>
-                              <p className="text-xs text-muted-foreground">{offer.applicationId}</p>
-                            </div>
-                          </td>
-                          <td className="p-3">
-                            <div>
-                              <p className="font-medium">{offer.candidateName}</p>
-                              <p className="text-xs text-muted-foreground">{offer.email}</p>
-                            </div>
-                          </td>
-                          <td className="p-3">
-                            <span className="text-sm">{offer.program}</span>
-                          </td>
-                          <td className="p-3 text-center">{getStatusBadge(offer.status)}</td>
-                          <td className="p-3 text-center">
-                            {offer.scholarship > 0 ? (
-                              <Badge className="bg-purple-100 text-purple-700 border-purple-200">
-                                {offer.scholarship}%
-                              </Badge>
-                            ) : (
-                              <span className="text-muted-foreground">-</span>
-                            )}
-                          </td>
-                          <td className="p-3 text-center">
-                            <span className="font-medium">₹{offer.finalFee.toLocaleString()}</span>
-                            {offer.scholarship > 0 && (
-                              <p className="text-xs text-muted-foreground line-through">
-                                ₹{offer.totalFee.toLocaleString()}
-                              </p>
-                            )}
-                          </td>
-                          <td className="p-3 text-center">
-                            {offer.deadline ? (
-                              <div>
-                                <p className="text-sm">{format(new Date(offer.deadline), 'MMM dd')}</p>
-                                {getDaysRemaining(offer.deadline)}
-                              </div>
-                            ) : (
-                              <span className="text-muted-foreground">-</span>
-                            )}
-                          </td>
-                          <td className="p-3 text-center">
-                            {offer.documentsSubmitted ? (
-                              <CheckCircle2 className="h-5 w-5 text-green-500 mx-auto" />
-                            ) : (
-                              <XCircle className="h-5 w-5 text-gray-300 mx-auto" />
-                            )}
-                          </td>
-                          <td className="p-3 text-center">
-                            <div className="flex items-center justify-center gap-1">
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-8 w-8"
-                                onClick={() => handleViewOffer(offer)}
-                              >
-                                <Eye className="h-4 w-4" />
-                              </Button>
-                              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => toast.success(`Offer letter sent to ${offer.candidateName}`)}>
-                                <Mail className="h-4 w-4" />
-                              </Button>
-                              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => toast.success('Downloading offer letter...')}>
-                                <Download className="h-4 w-4" />
-                              </Button>
-                            </div>
+                      {filteredOffers.length === 0 && (
+                        <tr>
+                          <td colSpan={9} className="p-8 text-center text-muted-foreground">
+                            {offersLoading ? 'Loading...' : 'No offer letters found'}
                           </td>
                         </tr>
-                      ))}
+                      )}
+                      {filteredOffers.map((offer) => {
+                        const ld = getLetterData(offer);
+                        return (
+                          <tr key={offer.id} className="border-t hover:bg-muted/30">
+                            <td className="p-3">
+                              <Checkbox
+                                checked={selectedOffers.includes(offer.id)}
+                                onCheckedChange={() => handleSelectOffer(offer.id)}
+                              />
+                            </td>
+                            <td className="p-3">
+                              <div>
+                                <p className="font-medium">{offer.letter_number || offer.id.slice(0, 8)}</p>
+                                <p className="text-xs text-muted-foreground">{getApplicationNumber(offer)}</p>
+                              </div>
+                            </td>
+                            <td className="p-3">
+                              <div>
+                                <p className="font-medium">{getCandidateName(offer)}</p>
+                                <p className="text-xs text-muted-foreground">{getCandidateEmail(offer)}</p>
+                              </div>
+                            </td>
+                            <td className="p-3">
+                              <span className="text-sm">{getProgram(offer)}</span>
+                            </td>
+                            <td className="p-3 text-center">{getStatusBadge(offer.response)}</td>
+                            <td className="p-3 text-center">
+                              {ld.scholarship > 0 ? (
+                                <Badge className="bg-purple-100 text-purple-700 border-purple-200">
+                                  {ld.scholarship}%
+                                </Badge>
+                              ) : (
+                                <span className="text-muted-foreground">-</span>
+                              )}
+                            </td>
+                            <td className="p-3 text-center">
+                              {offer.valid_until ? (
+                                <div>
+                                  <p className="text-sm">{format(new Date(offer.valid_until), 'MMM dd')}</p>
+                                  {getDaysRemaining(offer.valid_until)}
+                                </div>
+                              ) : (
+                                <span className="text-muted-foreground">-</span>
+                              )}
+                            </td>
+                            <td className="p-3 text-center">
+                              <span className="text-sm text-muted-foreground">{offer.reminder_sent_count}</span>
+                            </td>
+                            <td className="p-3 text-center">
+                              <div className="flex items-center justify-center gap-1">
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-8 w-8"
+                                  onClick={() => handleViewOffer(offer)}
+                                >
+                                  <Eye className="h-4 w-4" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-8 w-8"
+                                  onClick={() => {
+                                    reminderMutation.mutate(offer.id);
+                                  }}
+                                >
+                                  <Mail className="h-4 w-4" />
+                                </Button>
+                                <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => toast.success('Downloading offer letter...')}>
+                                  <Download className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -601,33 +557,39 @@ function OfferLetterPageContent() {
               <CardContent>
                 <ScrollArea className="h-[350px]">
                   <div className="space-y-3">
-                    {mockOffers.filter(o => o.status === 'pending').map((offer) => (
+                    {offers.filter(o => o.response === 'pending').map((offer) => (
                       <div key={offer.id} className="p-3 border rounded-lg hover:bg-muted/50">
                         <div className="flex items-center justify-between">
                           <div>
-                            <p className="font-medium">{offer.candidateName}</p>
-                            <p className="text-xs text-muted-foreground">{offer.program}</p>
+                            <p className="font-medium">{getCandidateName(offer)}</p>
+                            <p className="text-xs text-muted-foreground">{getProgram(offer)}</p>
                           </div>
                           <div className="text-right">
                             <div className="flex items-center gap-1 text-yellow-600">
                               <Timer className="h-4 w-4" />
-                              {getDaysRemaining(offer.deadline)}
+                              {getDaysRemaining(offer.valid_until)}
                             </div>
                           </div>
                         </div>
                         <div className="flex items-center justify-between mt-3">
-                          <Badge variant="outline">₹{offer.finalFee.toLocaleString()}</Badge>
+                          <Badge variant="outline">{offer.letter_number || offer.id.slice(0, 8)}</Badge>
                           <div className="flex items-center gap-1">
-                            <Button size="sm" variant="ghost" onClick={() => toast.success(`Reminder sent to ${offer.candidateName}`)}>
+                            <Button size="sm" variant="ghost" onClick={() => reminderMutation.mutate(offer.id)}>
                               <Bell className="h-3 w-3" />
                             </Button>
-                            <Button size="sm" variant="ghost" onClick={() => toast.success(`Offer letter sent to ${offer.candidateName}`)}>
+                            <Button size="sm" variant="ghost" onClick={() => reminderMutation.mutate(offer.id)}>
                               <Mail className="h-3 w-3" />
                             </Button>
                           </div>
                         </div>
                       </div>
                     ))}
+                    {offers.filter(o => o.response === 'pending').length === 0 && (
+                      <div className="text-center py-8 text-muted-foreground">
+                        <CheckCircle2 className="h-12 w-12 mx-auto mb-2 opacity-50" />
+                        <p>No pending offers</p>
+                      </div>
+                    )}
                   </div>
                 </ScrollArea>
               </CardContent>
@@ -645,76 +607,47 @@ function OfferLetterPageContent() {
               <CardContent>
                 <ScrollArea className="h-[350px]">
                   <div className="space-y-3">
-                    {mockOffers
-                      .filter(o => o.status === 'pending' && o.deadline &&
-                        differenceInDays(new Date(o.deadline), new Date()) <= 3)
+                    {offers
+                      .filter(o => o.response === 'pending' && o.valid_until &&
+                        differenceInDays(new Date(o.valid_until), new Date()) <= 3 &&
+                        differenceInDays(new Date(o.valid_until), new Date()) >= 0)
                       .map((offer) => (
                         <div key={offer.id} className="p-3 border border-red-200 bg-red-50 rounded-lg">
                           <div className="flex items-center justify-between">
                             <div>
-                              <p className="font-medium">{offer.candidateName}</p>
-                              <p className="text-xs text-muted-foreground">{offer.email}</p>
+                              <p className="font-medium">{getCandidateName(offer)}</p>
+                              <p className="text-xs text-muted-foreground">{getCandidateEmail(offer)}</p>
                             </div>
                             <Badge variant="destructive">
-                              {differenceInDays(new Date(offer.deadline!), new Date())} days left
+                              {differenceInDays(new Date(offer.valid_until!), new Date())} days left
                             </Badge>
                           </div>
                           <div className="flex items-center gap-2 mt-3">
-                            <Button size="sm" variant="outline" className="flex-1" onClick={() => toast.success(`Reminder sent to ${offer.candidateName}`)}>
+                            <Button size="sm" variant="outline" className="flex-1" onClick={() => reminderMutation.mutate(offer.id)}>
                               <Bell className="mr-2 h-3 w-3" />
                               Remind
                             </Button>
-                            <Button size="sm" variant="outline" className="flex-1" onClick={() => toast.success('Deadline extended by 7 days')}>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="flex-1"
+                              onClick={() => {
+                                const newDeadline = addDays(new Date(offer.valid_until!), 7).toISOString();
+                                extendDeadlineMutation.mutate({ id: offer.id, newDeadline });
+                              }}
+                            >
                               <Calendar className="mr-2 h-3 w-3" />
                               Extend
                             </Button>
                           </div>
                         </div>
                       ))}
-                    {mockOffers.filter(o => o.status === 'pending' && o.deadline &&
-                      differenceInDays(new Date(o.deadline), new Date()) <= 3).length === 0 && (
+                    {offers.filter(o => o.response === 'pending' && o.valid_until &&
+                      differenceInDays(new Date(o.valid_until), new Date()) <= 3 &&
+                      differenceInDays(new Date(o.valid_until), new Date()) >= 0).length === 0 && (
                       <div className="text-center py-8 text-muted-foreground">
                         <CheckCircle2 className="h-12 w-12 mx-auto mb-2 opacity-50" />
                         <p>No offers expiring soon</p>
-                      </div>
-                    )}
-                  </div>
-                </ScrollArea>
-              </CardContent>
-            </Card>
-
-            {/* Documents Pending */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Upload className="h-5 w-5 text-blue-500" />
-                  Documents Pending
-                </CardTitle>
-                <CardDescription>Accepted offers awaiting document submission</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <ScrollArea className="h-[250px]">
-                  <div className="space-y-3">
-                    {mockOffers
-                      .filter(o => o.status === 'accepted' && !o.documentsSubmitted)
-                      .map((offer) => (
-                        <div key={offer.id} className="p-3 border rounded-lg">
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <p className="font-medium">{offer.candidateName}</p>
-                              <p className="text-xs text-muted-foreground">{offer.program}</p>
-                            </div>
-                            <Button size="sm" variant="outline" onClick={() => toast.success(`Document request sent to ${offer.candidateName}`)}>
-                              <Mail className="mr-2 h-3 w-3" />
-                              Request Docs
-                            </Button>
-                          </div>
-                        </div>
-                      ))}
-                    {mockOffers.filter(o => o.status === 'accepted' && !o.documentsSubmitted).length === 0 && (
-                      <div className="text-center py-8 text-muted-foreground">
-                        <CheckCircle2 className="h-12 w-12 mx-auto mb-2 opacity-50" />
-                        <p>All documents submitted</p>
                       </div>
                     )}
                   </div>
@@ -727,27 +660,70 @@ function OfferLetterPageContent() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Edit className="h-5 w-5 text-gray-500" />
-                  Draft Offers
+                  Draft / Unsent Offers
                 </CardTitle>
-                <CardDescription>Offers ready to be sent</CardDescription>
+                <CardDescription>Offers not yet sent</CardDescription>
               </CardHeader>
               <CardContent>
                 <ScrollArea className="h-[250px]">
                   <div className="space-y-3">
-                    {mockOffers.filter(o => o.status === 'draft').map((offer) => (
+                    {offers.filter(o => !o.sent_at).map((offer) => (
                       <div key={offer.id} className="p-3 border rounded-lg">
                         <div className="flex items-center justify-between">
                           <div>
-                            <p className="font-medium">{offer.candidateName}</p>
-                            <p className="text-xs text-muted-foreground">{offer.program}</p>
+                            <p className="font-medium">{getCandidateName(offer)}</p>
+                            <p className="text-xs text-muted-foreground">{getProgram(offer)}</p>
                           </div>
-                          <Button size="sm" onClick={() => toast.success(`Offer letter sent to ${offer.candidateName}`)}>
+                          <Button size="sm" onClick={() => toast.success(`Offer letter sent to ${getCandidateName(offer)}`)}>
                             <Send className="mr-2 h-3 w-3" />
                             Send
                           </Button>
                         </div>
                       </div>
                     ))}
+                    {offers.filter(o => !o.sent_at).length === 0 && (
+                      <div className="text-center py-8 text-muted-foreground">
+                        <CheckCircle2 className="h-12 w-12 mx-auto mb-2 opacity-50" />
+                        <p>All offers have been sent</p>
+                      </div>
+                    )}
+                  </div>
+                </ScrollArea>
+              </CardContent>
+            </Card>
+
+            {/* Declined Offers */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <XCircle className="h-5 w-5 text-red-500" />
+                  Recently Declined
+                </CardTitle>
+                <CardDescription>Offers declined by candidates</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <ScrollArea className="h-[250px]">
+                  <div className="space-y-3">
+                    {offers.filter(o => o.response === 'declined').map((offer) => (
+                      <div key={offer.id} className="p-3 border rounded-lg">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="font-medium">{getCandidateName(offer)}</p>
+                            <p className="text-xs text-muted-foreground">{getProgram(offer)}</p>
+                          </div>
+                          <Badge variant="destructive">Declined</Badge>
+                        </div>
+                        {offer.rejection_reason && (
+                          <p className="text-xs text-muted-foreground mt-2">Reason: {offer.rejection_reason}</p>
+                        )}
+                      </div>
+                    ))}
+                    {offers.filter(o => o.response === 'declined').length === 0 && (
+                      <div className="text-center py-8 text-muted-foreground">
+                        <CheckCircle2 className="h-12 w-12 mx-auto mb-2 opacity-50" />
+                        <p>No declined offers</p>
+                      </div>
+                    )}
                   </div>
                 </ScrollArea>
               </CardContent>
@@ -758,7 +734,6 @@ function OfferLetterPageContent() {
         {/* Templates Tab */}
         <TabsContent value="templates" className="mt-6">
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Template List */}
             <div className="lg:col-span-2">
               <Card>
                 <CardHeader>
@@ -809,7 +784,6 @@ function OfferLetterPageContent() {
               </Card>
             </div>
 
-            {/* Template Variables */}
             <Card>
               <CardHeader>
                 <CardTitle>Available Variables</CardTitle>
@@ -851,21 +825,21 @@ function OfferLetterPageContent() {
               <CardContent>
                 <div className="space-y-4">
                   {[
-                    { stage: 'Offers Sent', count: 45, percent: 100, color: 'bg-blue-500' },
-                    { stage: 'Viewed', count: 42, percent: 93, color: 'bg-purple-500' },
-                    { stage: 'Accepted', count: 28, percent: 62, color: 'bg-green-500' },
-                    { stage: 'Documents Submitted', count: 24, percent: 53, color: 'bg-teal-500' },
-                    { stage: 'Token Paid', count: 22, percent: 49, color: 'bg-emerald-500' }
-                  ].map((stage, index) => (
+                    { stage: 'Offers Sent', count: totalOffers, percent: 100, color: 'bg-blue-500' },
+                    { stage: 'Pending Response', count: pendingOffers, percent: totalOffers > 0 ? (pendingOffers / totalOffers) * 100 : 0, color: 'bg-yellow-500' },
+                    { stage: 'Accepted', count: acceptedOffers, percent: totalOffers > 0 ? (acceptedOffers / totalOffers) * 100 : 0, color: 'bg-green-500' },
+                    { stage: 'Declined', count: declinedOffers, percent: totalOffers > 0 ? (declinedOffers / totalOffers) * 100 : 0, color: 'bg-red-500' },
+                    { stage: 'Expired', count: expiredOffers, percent: totalOffers > 0 ? (expiredOffers / totalOffers) * 100 : 0, color: 'bg-gray-500' }
+                  ].map((stage) => (
                     <div key={stage.stage} className="space-y-1">
                       <div className="flex items-center justify-between text-sm">
                         <span>{stage.stage}</span>
-                        <span className="font-medium">{stage.count} ({stage.percent}%)</span>
+                        <span className="font-medium">{stage.count} ({stage.percent.toFixed(0)}%)</span>
                       </div>
                       <div className="h-8 bg-muted rounded overflow-hidden">
                         <div
                           className={`h-full ${stage.color} transition-all`}
-                          style={{ width: `${stage.percent}%` }}
+                          style={{ width: `${Math.max(stage.percent, 2)}%` }}
                         />
                       </div>
                     </div>
@@ -877,38 +851,24 @@ function OfferLetterPageContent() {
             {/* Response Time */}
             <Card>
               <CardHeader>
-                <CardTitle>Response Time Analysis</CardTitle>
-                <CardDescription>Average time to accept offers</CardDescription>
+                <CardTitle>Response Summary</CardTitle>
+                <CardDescription>Overall offer response metrics</CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
                   <div className="grid grid-cols-3 gap-4">
                     <div className="text-center p-3 border rounded-lg">
-                      <p className="text-2xl font-bold text-green-600">2.3</p>
-                      <p className="text-xs text-muted-foreground">days (fastest)</p>
+                      <p className="text-2xl font-bold text-green-600">{acceptedOffers}</p>
+                      <p className="text-xs text-muted-foreground">Accepted</p>
                     </div>
                     <div className="text-center p-3 border rounded-lg bg-primary/5">
-                      <p className="text-2xl font-bold text-primary">5.8</p>
-                      <p className="text-xs text-muted-foreground">days (average)</p>
+                      <p className="text-2xl font-bold text-primary">{acceptanceRate.toFixed(0)}%</p>
+                      <p className="text-xs text-muted-foreground">Accept Rate</p>
                     </div>
                     <div className="text-center p-3 border rounded-lg">
-                      <p className="text-2xl font-bold text-yellow-600">9.2</p>
-                      <p className="text-xs text-muted-foreground">days (slowest)</p>
+                      <p className="text-2xl font-bold text-yellow-600">{pendingOffers}</p>
+                      <p className="text-xs text-muted-foreground">Pending</p>
                     </div>
-                  </div>
-                  <div className="space-y-3">
-                    {[
-                      { range: 'Within 1 day', count: 5, percent: 18 },
-                      { range: '2-3 days', count: 8, percent: 29 },
-                      { range: '4-7 days', count: 10, percent: 36 },
-                      { range: '7+ days', count: 5, percent: 18 }
-                    ].map((bucket) => (
-                      <div key={bucket.range} className="flex items-center gap-4">
-                        <span className="w-24 text-sm">{bucket.range}</span>
-                        <Progress value={bucket.percent} className="flex-1 h-2" />
-                        <span className="w-12 text-sm text-right">{bucket.count}</span>
-                      </div>
-                    ))}
                   </div>
                 </div>
               </CardContent>
@@ -922,47 +882,52 @@ function OfferLetterPageContent() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-3">
-                  {[
-                    { reason: 'Joined another institution', count: 8, percent: 40 },
-                    { reason: 'Financial constraints', count: 5, percent: 25 },
-                    { reason: 'Location preference', count: 3, percent: 15 },
-                    { reason: 'Program mismatch', count: 2, percent: 10 },
-                    { reason: 'Other reasons', count: 2, percent: 10 }
-                  ].map((item) => (
-                    <div key={item.reason} className="flex items-center justify-between p-3 border rounded-lg">
-                      <span className="text-sm">{item.reason}</span>
-                      <div className="flex items-center gap-2">
-                        <span className="text-muted-foreground">{item.count}</span>
-                        <Badge variant="outline">{item.percent}%</Badge>
+                  {offers
+                    .filter(o => o.response === 'declined' && o.rejection_reason)
+                    .reduce((acc, o) => {
+                      const reason = o.rejection_reason || 'No reason provided';
+                      const existing = acc.find(a => a.reason === reason);
+                      if (existing) existing.count++;
+                      else acc.push({ reason, count: 1 });
+                      return acc;
+                    }, [] as { reason: string; count: number }[])
+                    .map((item) => (
+                      <div key={item.reason} className="flex items-center justify-between p-3 border rounded-lg">
+                        <span className="text-sm">{item.reason}</span>
+                        <Badge variant="outline">{item.count}</Badge>
                       </div>
+                    ))}
+                  {offers.filter(o => o.response === 'declined').length === 0 && (
+                    <div className="text-center py-8 text-muted-foreground">
+                      <p>No declined offers to analyze</p>
                     </div>
-                  ))}
+                  )}
                 </div>
               </CardContent>
             </Card>
 
-            {/* Program-wise Acceptance */}
+            {/* Summary Card */}
             <Card>
               <CardHeader>
-                <CardTitle>Program-wise Acceptance</CardTitle>
-                <CardDescription>Acceptance rates by program</CardDescription>
+                <CardTitle>Quick Stats</CardTitle>
+                <CardDescription>At a glance</CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  {[
-                    { program: 'B.Tech Computer Science', sent: 20, accepted: 15, rate: 75 },
-                    { program: 'B.Tech Electronics', sent: 12, accepted: 8, rate: 67 },
-                    { program: 'MBA', sent: 8, accepted: 3, rate: 38 },
-                    { program: 'B.Tech Mechanical', sent: 5, accepted: 2, rate: 40 }
-                  ].map((item) => (
-                    <div key={item.program} className="space-y-1">
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm font-medium">{item.program}</span>
-                        <span className="text-sm">{item.accepted}/{item.sent} ({item.rate}%)</span>
-                      </div>
-                      <Progress value={item.rate} className="h-2" />
-                    </div>
-                  ))}
+                  <div className="flex items-center justify-between p-3 border rounded-lg">
+                    <span className="text-sm">Total Offers</span>
+                    <span className="font-bold">{totalOffers}</span>
+                  </div>
+                  <div className="flex items-center justify-between p-3 border rounded-lg">
+                    <span className="text-sm">Response Rate</span>
+                    <span className="font-bold">
+                      {totalOffers > 0 ? (((acceptedOffers + declinedOffers) / totalOffers) * 100).toFixed(0) : 0}%
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between p-3 border rounded-lg">
+                    <span className="text-sm">Acceptance Rate</span>
+                    <span className="font-bold text-green-600">{acceptanceRate.toFixed(0)}%</span>
+                  </div>
                 </div>
               </CardContent>
             </Card>
@@ -979,73 +944,86 @@ function OfferLetterPageContent() {
               Generate an offer letter for a shortlisted candidate
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label>Select Candidate</Label>
-              <Select>
-                <SelectTrigger>
-                  <SelectValue placeholder="Choose a candidate" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="app-001">Priya Sharma - B.Tech CS</SelectItem>
-                  <SelectItem value="app-002">Rahul Kumar - B.Tech CS</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>Template</Label>
-              <Select defaultValue="1">
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {offerTemplates.map((t) => (
-                    <SelectItem key={t.id} value={String(t.id)}>{t.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
+          <form
+            onSubmit={async (e) => {
+              e.preventDefault();
+              const formData = new FormData(e.currentTarget);
+              const applicationId = formData.get('applicationId') as string;
+              const scholarship = Number(formData.get('scholarship') || 0);
+              const deadline = formData.get('deadline') as string;
+              const notes = formData.get('notes') as string;
+
+              if (!applicationId) {
+                toast.error('Please select a candidate');
+                return;
+              }
+
+              createOfferMutation.mutate({
+                institution_id: institutionId,
+                application_id: applicationId,
+                letter_data: {
+                  scholarship_percent: scholarship,
+                  notes,
+                },
+                valid_until: deadline ? new Date(deadline).toISOString() : undefined,
+                sent_via: ['email'],
+              }, {
+                onSuccess: () => {
+                  setIsCreateOfferDialogOpen(false);
+                },
+              });
+            }}
+          >
+            <div className="space-y-4 py-4">
               <div className="space-y-2">
-                <Label>Scholarship (%)</Label>
-                <Input type="number" min="0" max="100" defaultValue="0" />
+                <Label>Application ID</Label>
+                <Input name="applicationId" placeholder="Enter application UUID" />
               </div>
               <div className="space-y-2">
-                <Label>Response Deadline</Label>
-                <Input type="date" />
+                <Label>Template</Label>
+                <Select defaultValue="1">
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {offerTemplates.map((t) => (
+                      <SelectItem key={t.id} value={String(t.id)}>{t.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Scholarship (%)</Label>
+                  <Input name="scholarship" type="number" min="0" max="100" defaultValue="0" />
+                </div>
+                <div className="space-y-2">
+                  <Label>Response Deadline</Label>
+                  <Input name="deadline" type="date" />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label>Additional Notes</Label>
+                <Textarea name="notes" placeholder="Any special conditions or notes..." />
               </div>
             </div>
-            <div className="space-y-2">
-              <Label>Additional Notes</Label>
-              <Textarea placeholder="Any special conditions or notes..." />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsCreateOfferDialogOpen(false)}>
-              Cancel
-            </Button>
-            <Button variant="outline" onClick={() => toast.success('Opening preview...')}>
-              <Eye className="mr-2 h-4 w-4" />
-              Preview
-            </Button>
-            <Button
-              disabled={isCreatingOffer}
-              onClick={async () => {
-                setIsCreatingOffer(true);
-                await new Promise(resolve => setTimeout(resolve, 1500));
-                toast.success('Offer letter created and sent');
-                setIsCreatingOffer(false);
-                setIsCreateOfferDialogOpen(false);
-              }}
-            >
-              {isCreatingOffer ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <Send className="mr-2 h-4 w-4" />
-              )}
-              Create & Send
-            </Button>
-          </DialogFooter>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setIsCreateOfferDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                disabled={createOfferMutation.isPending}
+              >
+                {createOfferMutation.isPending ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Send className="mr-2 h-4 w-4" />
+                )}
+                Create & Send
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
 
@@ -1055,68 +1033,72 @@ function OfferLetterPageContent() {
           <DialogHeader>
             <DialogTitle>Offer Letter Details</DialogTitle>
             <DialogDescription>
-              {selectedOffer?.id} - {selectedOffer?.candidateName}
+              {selectedOffer?.letter_number || selectedOffer?.id.slice(0, 8)} - {selectedOffer && getCandidateName(selectedOffer)}
             </DialogDescription>
           </DialogHeader>
-          {selectedOffer && (
-            <div className="space-y-6 py-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <Label className="text-muted-foreground">Candidate</Label>
-                  <p className="font-medium">{selectedOffer.candidateName}</p>
-                  <p className="text-sm text-muted-foreground">{selectedOffer.email}</p>
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-muted-foreground">Program</Label>
-                  <p className="font-medium">{selectedOffer.program}</p>
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-muted-foreground">Status</Label>
-                  {getStatusBadge(selectedOffer.status)}
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-muted-foreground">Offer Date</Label>
-                  <p className="font-medium">
-                    {selectedOffer.offerDate ? format(new Date(selectedOffer.offerDate), 'MMM dd, yyyy') : '-'}
-                  </p>
-                </div>
-              </div>
-              <div className="p-4 border rounded-lg bg-muted/50">
-                <div className="grid grid-cols-3 gap-4 text-center">
-                  <div>
-                    <p className="text-sm text-muted-foreground">Total Fee</p>
-                    <p className="text-lg font-bold">₹{selectedOffer.totalFee.toLocaleString()}</p>
+          {selectedOffer && (() => {
+            const ld = getLetterData(selectedOffer);
+            return (
+              <div className="space-y-6 py-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <Label className="text-muted-foreground">Candidate</Label>
+                    <p className="font-medium">{getCandidateName(selectedOffer)}</p>
+                    <p className="text-sm text-muted-foreground">{getCandidateEmail(selectedOffer)}</p>
                   </div>
-                  <div>
-                    <p className="text-sm text-muted-foreground">Scholarship</p>
-                    <p className="text-lg font-bold text-purple-600">{selectedOffer.scholarship}%</p>
+                  <div className="space-y-1">
+                    <Label className="text-muted-foreground">Program</Label>
+                    <p className="font-medium">{getProgram(selectedOffer)}</p>
                   </div>
-                  <div>
-                    <p className="text-sm text-muted-foreground">Final Fee</p>
-                    <p className="text-lg font-bold text-green-600">₹{selectedOffer.finalFee.toLocaleString()}</p>
+                  <div className="space-y-1">
+                    <Label className="text-muted-foreground">Status</Label>
+                    {getStatusBadge(selectedOffer.response)}
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-muted-foreground">Sent At</Label>
+                    <p className="font-medium">
+                      {selectedOffer.sent_at ? format(new Date(selectedOffer.sent_at), 'MMM dd, yyyy') : 'Not sent'}
+                    </p>
                   </div>
                 </div>
-              </div>
-              <div className="flex items-center gap-4">
-                <div className="flex items-center gap-2">
-                  {selectedOffer.documentsSubmitted ? (
-                    <CheckCircle2 className="h-5 w-5 text-green-500" />
-                  ) : (
-                    <XCircle className="h-5 w-5 text-gray-300" />
-                  )}
-                  <span className="text-sm">Documents Submitted</span>
+                {(ld.totalFee > 0 || ld.scholarship > 0) && (
+                  <div className="p-4 border rounded-lg bg-muted/50">
+                    <div className="grid grid-cols-3 gap-4 text-center">
+                      <div>
+                        <p className="text-sm text-muted-foreground">Total Fee</p>
+                        <p className="text-lg font-bold">₹{ld.totalFee.toLocaleString()}</p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-muted-foreground">Scholarship</p>
+                        <p className="text-lg font-bold text-purple-600">{ld.scholarship}%</p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-muted-foreground">Final Fee</p>
+                        <p className="text-lg font-bold text-green-600">₹{ld.finalFee.toLocaleString()}</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm">Valid Until:</span>
+                    <span className="text-sm font-medium">
+                      {selectedOffer.valid_until ? format(new Date(selectedOffer.valid_until), 'MMM dd, yyyy') : 'No deadline'}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm">Reminders Sent:</span>
+                    <span className="text-sm font-medium">{selectedOffer.reminder_sent_count}</span>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  {selectedOffer.tokenPaid ? (
-                    <CheckCircle2 className="h-5 w-5 text-green-500" />
-                  ) : (
-                    <XCircle className="h-5 w-5 text-gray-300" />
-                  )}
-                  <span className="text-sm">Token Fee Paid</span>
-                </div>
+                {selectedOffer.response_notes && (
+                  <div className="p-3 bg-muted rounded-lg">
+                    <p className="text-sm"><strong>Response Notes:</strong> {selectedOffer.response_notes}</p>
+                  </div>
+                )}
               </div>
-            </div>
-          )}
+            );
+          })()}
           <DialogFooter>
             <Button variant="outline" onClick={() => toast.success('Downloading offer letter PDF...')}>
               <Download className="mr-2 h-4 w-4" />
@@ -1145,14 +1127,14 @@ function OfferLetterPageContent() {
           <div className="space-y-4 py-4">
             <div className="space-y-2">
               <Label>Target Group</Label>
-              <Select defaultValue="expiring">
+              <Select defaultValue="all">
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Pending ({pendingOffers})</SelectItem>
-                  <SelectItem value="expiring">Expiring in 3 days (2)</SelectItem>
-                  <SelectItem value="no-response">No response in 5+ days (1)</SelectItem>
+                  <SelectItem value="expiring">Expiring in 3 days</SelectItem>
+                  <SelectItem value="no-response">No response in 5+ days</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -1171,7 +1153,7 @@ function OfferLetterPageContent() {
             </div>
             <div className="p-3 bg-muted rounded-lg">
               <p className="text-sm">
-                <strong>Preview:</strong> 2 candidates will receive reminder emails
+                <strong>Preview:</strong> {pendingOffers} candidates will receive reminder emails
               </p>
             </div>
           </div>
@@ -1183,7 +1165,10 @@ function OfferLetterPageContent() {
               disabled={isSendingReminders}
               onClick={async () => {
                 setIsSendingReminders(true);
-                await new Promise(resolve => setTimeout(resolve, 1500));
+                const pendingIds = offers.filter(o => o.response === 'pending').map(o => o.id);
+                for (const id of pendingIds) {
+                  await reminderMutation.mutateAsync(id).catch(() => {});
+                }
                 toast.success('Reminders sent successfully');
                 setIsSendingReminders(false);
                 setIsReminderDialogOpen(false);

@@ -255,9 +255,6 @@ export async function POST(request: Request) {
       }
       // All other users cannot assign system roles
       else {
-        console.log(
-          `User ${currentUser.role} attempted to assign system role ${role}`
-        );
         return NextResponse.json(
           { error: 'Only super admins, administrators, and HOD can assign system roles' },
           { status: 403 }
@@ -267,9 +264,6 @@ export async function POST(request: Request) {
 
     // Log successful role validation for custom roles
     if (!validRole.is_system_role) {
-      console.log(
-        `Allowing ${currentUser.role} to create user with custom role: ${role}`
-      );
     }
 
     // For Google OAuth only system, we pre-register profiles
@@ -296,27 +290,13 @@ export async function POST(request: Request) {
     // We'll use crypto.randomUUID() to create a valid UUID
     const placeholderId = crypto.randomUUID();
 
-    console.log('Creating pre-registered profile for Google OAuth:', {
-      placeholder_id: placeholderId,
-      email: email,
-      full_name: full_name,
-      role: role
-    });
-
     // Debug: Check service role configuration
-    console.log(
-      'Service role key exists:',
-      !!process.env.SUPABASE_SERVICE_ROLE_KEY
-    );
-    console.log('Supabase URL:', process.env.NEXT_PUBLIC_SUPABASE_URL);
 
     // Test admin client authentication
     const { data: authTest, error: authError } =
       await supabaseAdmin.auth.getSession();
-    console.log('Admin client auth test:', { authTest: !!authTest, authError });
 
     // Use the secure function to create pre-registered profile
-    console.log('Creating profile using secure function...');
 
     const { data: newProfile, error: createError } = await (supabase as any).rpc(
       'create_preregistered_profile',
@@ -391,7 +371,6 @@ export async function POST(request: Request) {
         console.warn('Failed to assign roles, user will have legacy single role only');
       } else {
         assignedRoles = role_ids;
-        console.log(`Assigned ${role_ids.length} roles to user ${placeholderId}`);
       }
     } else {
       // Legacy single role: look up the role ID and create a single assignment
@@ -415,7 +394,6 @@ export async function POST(request: Request) {
           console.warn('Failed to assign legacy role to user_roles:', roleAssignError);
         } else {
           assignedRoles = [roleData.id];
-          console.log(`Assigned legacy role ${role} (${roleData.id}) to user ${placeholderId}`);
         }
       }
     }

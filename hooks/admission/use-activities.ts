@@ -42,11 +42,13 @@ export function useLeadActivities(leadId?: string) {
 /**
  * Hook to fetch enhanced timeline (activities + stage changes)
  */
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export function useEnhancedTimeline(leadId?: string) {
   const query = useQuery({
     queryKey: activityKeys.timeline(leadId || ''),
     queryFn: () => ActivityService.getEnhancedTimeline(leadId!),
-    enabled: !!leadId,
+    enabled: !!leadId && UUID_REGEX.test(leadId),
   });
 
   return {

@@ -91,7 +91,6 @@ const nestPermissions = (
   if (!flat) return nested;
 
   // Debug the incoming flat permissions
-  console.log('Nesting flat permissions:', flat);
 
   Object.entries(flat).forEach(([key, value]) => {
     const parts = key.split('.');
@@ -119,7 +118,6 @@ const nestPermissions = (
     nested[moduleKey][actionKey] = Boolean(value);
   });
 
-  console.log('Nested permissions result:', nested);
   return nested;
 };
 
@@ -157,7 +155,6 @@ const flattenPermissions = (
     }
   });
 
-  console.log('Flattened permissions result:', flat);
   return flat;
 };
 
@@ -190,7 +187,6 @@ export function EditRoleDialog({
   // Initial default values for the form (nested structure)
   const defaultFormValues = useMemo(() => {
     // Debug the incoming role permissions
-    console.log('Role permissions received:', role.permissions);
 
     const nestedPerms = nestPermissions(role.permissions || {});
 
@@ -229,12 +225,6 @@ export function EditRoleDialog({
 
           // Debug when setting a specific permission
           if (fullKey === 'users.view') {
-            console.log(
-              'Setting users.view permission to:',
-              role.permissions?.[fullKey],
-              'Path:',
-              `${moduleKey}.${actionKey}`
-            );
           }
         }
       });
@@ -247,7 +237,6 @@ export function EditRoleDialog({
     };
 
     // Debug the final form values
-    console.log('Form default values:', result);
 
     return result;
   }, [role]);
@@ -262,7 +251,6 @@ export function EditRoleDialog({
     form.reset(defaultFormValues);
 
     // Debug form values after reset
-    console.log('Form values after reset:', form.getValues());
   }, [form, role, defaultFormValues]);
 
   // Adjusted handleSubmit to flatten permissions before calling onSubmit
@@ -765,13 +753,6 @@ export function EditRoleDialog({
 
                                 // Debug when rendering the specific permission
                                 if (fullKey === 'users.view') {
-                                  console.log(
-                                    'Rendering users.view permission',
-                                    `Field path: permissions.${moduleKey}.${actionKey}`,
-                                    `Current value: ${form.getValues(
-                                      `permissions.${moduleKey}.${actionKey}`
-                                    )}`
-                                  );
                                 }
 
                                 const fieldName =
@@ -798,10 +779,6 @@ export function EditRoleDialog({
                                             onCheckedChange={(checked) => {
                                               field.onChange(checked);
                                               // Debug when a permission is toggled
-                                              console.log(
-                                                `Toggled ${permission.key} to:`,
-                                                checked
-                                              );
                                             }}
                                             disabled={
                                               isSuperAdmin || isSubmitting

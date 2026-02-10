@@ -24,6 +24,15 @@ export interface PermissionTemplate {
   };
 }
 
+// Map between our UI permission names and the actual JSONB keys in custom_roles.permissions
+const PERMISSION_KEY_MAP: Record<string, string> = {
+  can_view: 'billing.discounts.view',
+  can_create: 'billing.discounts.create',
+  can_edit: 'billing.discounts.edit',
+  can_delete: 'billing.discounts.delete',
+  can_approve: 'billing.discounts.approve'
+};
+
 export const PERMISSION_TEMPLATES: PermissionTemplate[] = [
   {
     id: 'full_access',
@@ -89,99 +98,126 @@ export const PERMISSION_TEMPLATES: PermissionTemplate[] = [
 
 export class ScholarshipPermissionService {
   /**
-   * Get scholarship permissions for all roles
+   * Get scholarship permissions for all roles.
+   * Reads from custom_roles table and profiles table in the real database.
    */
   static async getAllScholarshipPermissions(): Promise<
     ScholarshipPermissions[]
   > {
-    try {
-      const supabase = getSupabaseClient();
+    const supabase = getSupabaseClient();
 
-      // Get all roles with their scholarship permissions
-      const { data: rolesData, error: rolesError } = await (supabase as any)
-        .from('custom_roles')
-        .select('role_key, role_name, permissions');
+    // Get all roles with their permissions JSONB
+    const { data: rolesData, error: rolesError } = await supabase
+      .from('custom_roles')
+      .select('role_key, role_name, permissions');
 
-      if (rolesError) throw rolesError;
-
-      // Get user counts for each role
-      const { data: userCounts, error: countsError } = await (supabase as any)
-        .from('profiles')
-        .select('role')
-        .neq('role', null);
-
-      if (countsError) throw countsError;
-
-      // Count users by role
-      const roleUserCounts = userCounts.reduce(
-        (acc: Record<string, number>, user: { role: string }) => {
-          acc[user.role] = (acc[user.role] || 0) + 1;
-          return acc;
-        },
-        {} as Record<string, number>
+    if (rolesError) {
+      console.error(
+        '[billing/scholarship-permissions] Failed to fetch custom_roles:',
+        rolesError
       );
+      throw rolesError;
+    }
 
-      // Map to scholarship permissions format
-      const permissions: ScholarshipPermissions[] = rolesData.map(
-        (role: any) => ({
+    if (!rolesData || rolesData.length === 0) {
+      console.warn(
+        '[billing/scholarship-permissions] No roles found in custom_roles table'
+      );
+      return [];
+    }
+
+    // Get user counts grouped by role from profiles
+    const { data: profilesData, error: profilesError } = await supabase
+      .from('profiles')
+      .select('role');
+
+    if (profilesError) {
+      console.warn(
+        '[billing/scholarship-permissions] Failed to fetch profiles for user counts:',
+        profilesError
+      );
+      // Don't throw - user counts are supplementary, not critical
+    }
+
+    // Count users per role
+    const roleUserCounts: Record<string, number> = {};
+    if (profilesData) {
+      for (const profile of profilesData) {
+        if (profile.role) {
+          roleUserCounts[profile.role] =
+            (roleUserCounts[profile.role] || 0) + 1;
+        }
+      }
+    }
+
+    // Map roles to ScholarshipPermissions format
+    const permissions: ScholarshipPermissions[] = rolesData.map(
+      (role) => {
+        const perms =
+          (role.permissions as Record<string, boolean | string> | null) || {};
+
+        return {
           role_name: role.role_name,
           role_key: role.role_key,
-          can_view:
-            role.permissions?.['billing.discounts.view'] === true ||
-            role.permissions?.['billing.discounts.view'] === 'true',
-          can_create:
-            role.permissions?.['billing.discounts.create'] === true ||
-            role.permissions?.['billing.discounts.create'] === 'true',
-          can_edit:
-            role.permissions?.['billing.discounts.edit'] === true ||
-            role.permissions?.['billing.discounts.edit'] === 'true',
-          can_delete:
-            role.permissions?.['billing.discounts.delete'] === true ||
-            role.permissions?.['billing.discounts.delete'] === 'true',
-          can_approve:
-            role.permissions?.['billing.discounts.approve'] === true ||
-            role.permissions?.['billing.discounts.approve'] === 'true',
+          can_view: perms[PERMISSION_KEY_MAP.can_view] === true,
+          can_create: perms[PERMISSION_KEY_MAP.can_create] === true,
+          can_edit: perms[PERMISSION_KEY_MAP.can_edit] === true,
+          can_delete: perms[PERMISSION_KEY_MAP.can_delete] === true,
+          can_approve: perms[PERMISSION_KEY_MAP.can_approve] === true,
           user_count: roleUserCounts[role.role_key] || 0
-        })
-      );
+        };
+      }
+    );
 
-      return permissions;
-    } catch (error) {
-      console.error('Error fetching scholarship permissions:', error);
-      throw error;
-    }
+    return permissions;
   }
 
   /**
-   * Get scholarship permissions for a specific role
+   * Get scholarship permissions for a specific role.
    */
   static async getScholarshipPermissions(
     roleKey: string
   ): Promise<ScholarshipPermissions | null> {
-    try {
-      const supabase = getSupabaseClient();
-      const { data, error } = await (supabase as any).rpc(
-        'get_scholarship_permissions',
-        {
-          target_role_key: roleKey
-        }
+    const supabase = getSupabaseClient();
+
+    const { data, error } = await supabase
+      .from('custom_roles')
+      .select('role_key, role_name, permissions')
+      .eq('role_key', roleKey)
+      .single();
+
+    if (error) {
+      console.error(
+        `[billing/scholarship-permissions] Failed to fetch permissions for role ${roleKey}:`,
+        error
       );
-
-      if (error) throw error;
-
-      return data?.[0] || null;
-    } catch (error) {
-      console.error('Error fetching role permissions:', error);
       throw error;
     }
+
+    if (!data) return null;
+
+    const perms =
+      (data.permissions as Record<string, boolean | string> | null) || {};
+
+    return {
+      role_name: data.role_name,
+      role_key: data.role_key,
+      can_view: perms[PERMISSION_KEY_MAP.can_view] === true,
+      can_create: perms[PERMISSION_KEY_MAP.can_create] === true,
+      can_edit: perms[PERMISSION_KEY_MAP.can_edit] === true,
+      can_delete: perms[PERMISSION_KEY_MAP.can_delete] === true,
+      can_approve: perms[PERMISSION_KEY_MAP.can_approve] === true
+    };
   }
 
   /**
-   * Update scholarship permissions for a role
+   * Update scholarship permissions for a role by directly modifying the
+   * custom_roles.permissions JSONB column. This ensures the same keys
+   * are written that getAllScholarshipPermissions reads.
    */
   static async updateScholarshipPermissions(
     roleKey: string,
-    permissions: {
+    newPermissions: {
       can_view: boolean;
       can_create: boolean;
       can_edit: boolean;
@@ -189,22 +225,57 @@ export class ScholarshipPermissionService {
       can_approve: boolean;
     }
   ): Promise<void> {
-    try {
-      const supabase = getSupabaseClient();
-      const { error } = await (supabase as any).rpc('update_scholarship_permissions', {
-        target_role_key: roleKey,
-        ...permissions
-      });
+    const supabase = getSupabaseClient();
 
-      if (error) throw error;
-    } catch (error) {
-      console.error('Error updating scholarship permissions:', error);
-      throw error;
+    // First, fetch the current permissions JSONB so we can merge
+    const { data: roleData, error: fetchError } = await supabase
+      .from('custom_roles')
+      .select('permissions')
+      .eq('role_key', roleKey)
+      .single();
+
+    if (fetchError) {
+      console.error(
+        `[billing/scholarship-permissions] Failed to fetch role ${roleKey} for update:`,
+        fetchError
+      );
+      throw fetchError;
+    }
+
+    // Merge the existing permissions with the updated scholarship keys
+    const existingPerms =
+      (roleData?.permissions as Record<string, boolean> | null) || {};
+
+    const updatedPerms: Record<string, boolean> = {
+      ...existingPerms,
+      [PERMISSION_KEY_MAP.can_view]: newPermissions.can_view,
+      [PERMISSION_KEY_MAP.can_create]: newPermissions.can_create,
+      [PERMISSION_KEY_MAP.can_edit]: newPermissions.can_edit,
+      [PERMISSION_KEY_MAP.can_delete]: newPermissions.can_delete,
+      [PERMISSION_KEY_MAP.can_approve]: newPermissions.can_approve
+    };
+
+    // Write back the merged permissions
+    // Cast to the Json-compatible shape that Supabase expects
+    const { error: updateError } = await supabase
+      .from('custom_roles')
+      .update({
+        permissions: updatedPerms as { [key: string]: boolean }
+      })
+      .eq('role_key', roleKey);
+
+    if (updateError) {
+      console.error(
+        `[billing/scholarship-permissions] Failed to update permissions for role ${roleKey}:`,
+        updateError
+      );
+      throw updateError;
     }
   }
 
   /**
-   * Apply a permission template to a role
+   * Apply a permission template to a role.
+   * Uses direct JSONB update for reliability.
    */
   static async applyPermissionTemplate(
     roleKey: string,
@@ -212,46 +283,11 @@ export class ScholarshipPermissionService {
   ): Promise<void> {
     const template = PERMISSION_TEMPLATES.find((t) => t.id === templateId);
     if (!template) {
-      throw new Error(`Permission template ${templateId} not found`);
+      throw new Error(`Permission template "${templateId}" not found`);
     }
 
-    try {
-      let functionName: string;
-
-      switch (templateId) {
-        case 'full_access':
-          functionName = 'grant_full_scholarship_access';
-          break;
-        case 'creator':
-          functionName = 'grant_scholarship_creator_access';
-          break;
-        case 'reviewer':
-          functionName = 'grant_scholarship_reviewer_access';
-          break;
-        case 'readonly':
-          functionName = 'grant_scholarship_readonly_access';
-          break;
-        case 'no_access':
-          functionName = 'revoke_scholarship_access';
-          break;
-        default:
-          // For custom templates, use the generic update function
-          return this.updateScholarshipPermissions(
-            roleKey,
-            template.permissions
-          );
-      }
-
-      const supabase = getSupabaseClient();
-      const { error } = await (supabase as any).rpc(functionName, {
-        target_role_key: roleKey
-      });
-
-      if (error) throw error;
-    } catch (error) {
-      console.error('Error applying permission template:', error);
-      throw error;
-    }
+    // Directly update the JSONB permissions - same code path for all templates
+    await this.updateScholarshipPermissions(roleKey, template.permissions);
   }
 
   /**
@@ -263,18 +299,13 @@ export class ScholarshipPermissionService {
     canView: number;
     noAccess: number;
   }> {
-    try {
-      const permissions = await this.getAllScholarshipPermissions();
+    const permissions = await this.getAllScholarshipPermissions();
 
-      return {
-        canCreate: permissions.filter((p) => p.can_create).length,
-        canApprove: permissions.filter((p) => p.can_approve).length,
-        canView: permissions.filter((p) => p.can_view).length,
-        noAccess: permissions.filter((p) => !p.can_view && !p.can_create).length
-      };
-    } catch (error) {
-      console.error('Error getting permission summary:', error);
-      throw error;
-    }
+    return {
+      canCreate: permissions.filter((p) => p.can_create).length,
+      canApprove: permissions.filter((p) => p.can_approve).length,
+      canView: permissions.filter((p) => p.can_view).length,
+      noAccess: permissions.filter((p) => !p.can_view && !p.can_create).length
+    };
   }
 }

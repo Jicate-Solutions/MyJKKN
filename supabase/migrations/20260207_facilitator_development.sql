@@ -62,6 +62,7 @@ ALTER TABLE facilitator_industry_immersion ENABLE ROW LEVEL SECURITY;
 
 -- RLS Policies for facilitator_development
 -- Users can only access records from their institution
+DROP POLICY IF EXISTS "Users can view facilitator_development from their institution" ON facilitator_development;
 CREATE POLICY "Users can view facilitator_development from their institution"
   ON facilitator_development FOR SELECT
   USING (
@@ -72,6 +73,7 @@ CREATE POLICY "Users can view facilitator_development from their institution"
     )
   );
 
+DROP POLICY IF EXISTS "Users can create facilitator_development for their institution" ON facilitator_development;
 CREATE POLICY "Users can create facilitator_development for their institution"
   ON facilitator_development FOR INSERT
   WITH CHECK (
@@ -82,6 +84,7 @@ CREATE POLICY "Users can create facilitator_development for their institution"
     )
   );
 
+DROP POLICY IF EXISTS "Users can update facilitator_development from their institution" ON facilitator_development;
 CREATE POLICY "Users can update facilitator_development from their institution"
   ON facilitator_development FOR UPDATE
   USING (
@@ -92,6 +95,7 @@ CREATE POLICY "Users can update facilitator_development from their institution"
     )
   );
 
+DROP POLICY IF EXISTS "Users can delete facilitator_development from their institution" ON facilitator_development;
 CREATE POLICY "Users can delete facilitator_development from their institution"
   ON facilitator_development FOR DELETE
   USING (
@@ -104,6 +108,7 @@ CREATE POLICY "Users can delete facilitator_development from their institution"
 
 -- RLS Policies for facilitator_industry_immersion
 -- Users can only access immersions linked to development records from their institution
+DROP POLICY IF EXISTS "Users can view immersions from their institution" ON facilitator_industry_immersion;
 CREATE POLICY "Users can view immersions from their institution"
   ON facilitator_industry_immersion FOR SELECT
   USING (
@@ -115,6 +120,7 @@ CREATE POLICY "Users can view immersions from their institution"
     )
   );
 
+DROP POLICY IF EXISTS "Users can create immersions for their institution" ON facilitator_industry_immersion;
 CREATE POLICY "Users can create immersions for their institution"
   ON facilitator_industry_immersion FOR INSERT
   WITH CHECK (
@@ -126,6 +132,7 @@ CREATE POLICY "Users can create immersions for their institution"
     )
   );
 
+DROP POLICY IF EXISTS "Users can update immersions from their institution" ON facilitator_industry_immersion;
 CREATE POLICY "Users can update immersions from their institution"
   ON facilitator_industry_immersion FOR UPDATE
   USING (
@@ -137,6 +144,7 @@ CREATE POLICY "Users can update immersions from their institution"
     )
   );
 
+DROP POLICY IF EXISTS "Users can delete immersions from their institution" ON facilitator_industry_immersion;
 CREATE POLICY "Users can delete immersions from their institution"
   ON facilitator_industry_immersion FOR DELETE
   USING (

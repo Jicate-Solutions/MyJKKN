@@ -134,9 +134,6 @@ export class UserRolesService {
         }
       }
 
-      console.log(
-        `[users/roles] Batch fetched roles for ${userIds.length} users`
-      );
       return rolesByUser;
     } catch (error) {
       console.error('[users/roles] Failed to batch fetch user roles:', error);
@@ -200,9 +197,6 @@ export class UserRolesService {
         throw insertError;
       }
 
-      console.log(
-        `[users/roles] Successfully assigned ${roleIds.length} roles to user ${userId}`
-      );
     } catch (error) {
       console.error('[users/roles] Failed to assign roles:', error);
       throw error;
@@ -245,7 +239,6 @@ export class UserRolesService {
         throw error;
       }
 
-      console.log(`[users/roles] Added role ${roleId} to user ${userId}`);
     } catch (error) {
       console.error('[users/roles] Failed to add role:', error);
       throw error;
@@ -311,7 +304,6 @@ export class UserRolesService {
         }
       }
 
-      console.log(`[users/roles] Removed role ${roleId} from user ${userId}`);
     } catch (error) {
       console.error('[users/roles] Failed to remove role:', error);
       throw error;
@@ -352,9 +344,6 @@ export class UserRolesService {
 
       if (updateError) throw updateError;
 
-      console.log(
-        `[users/roles] Set primary role ${roleId} for user ${userId}`
-      );
     } catch (error) {
       console.error('[users/roles] Failed to set primary role:', error);
       throw error;

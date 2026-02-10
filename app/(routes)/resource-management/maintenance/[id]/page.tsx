@@ -67,10 +67,6 @@ export default function MaintenanceDetailPage({
   const cancelLog = useCancelMaintenanceLog();
 
   // Debug logging
-  console.log('[MaintenanceDetailPage] ID:', id);
-  console.log('[MaintenanceDetailPage] isLoading:', isLoading);
-  console.log('[MaintenanceDetailPage] log:', log);
-  console.log('[MaintenanceDetailPage] error:', error);
 
   const handleEdit = () => {
     router.push(`/resource-management/maintenance/${id}/edit`);

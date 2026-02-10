@@ -26,61 +26,26 @@ import {
   Phone,
   Mail,
   MapPin,
-  Calendar,
   TrendingUp,
-  FileText,
-  Activity,
   Loader2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { AdmissionErrorBoundary } from "@/components/admission";
-
-// Mock data for data profiling
-const dataQualityMetrics = {
-  overall: 78,
-  completeness: 82,
-  accuracy: 75,
-  consistency: 81,
-  validity: 74,
-  uniqueness: 89,
-};
-
-const fieldAnalysis = [
-  { field: "full_name", completeness: 98, validity: 95, issues: 12, status: "good" },
-  { field: "email", completeness: 85, validity: 78, issues: 234, status: "warning" },
-  { field: "phone", completeness: 72, validity: 65, issues: 456, status: "critical" },
-  { field: "address", completeness: 45, validity: 40, issues: 1234, status: "critical" },
-  { field: "date_of_birth", completeness: 88, validity: 92, issues: 89, status: "good" },
-  { field: "program_interest", completeness: 92, validity: 98, issues: 23, status: "good" },
-  { field: "source", completeness: 67, validity: 85, issues: 345, status: "warning" },
-  { field: "counselor_assigned", completeness: 78, validity: 100, issues: 0, status: "good" },
-];
-
-const dataIssues = [
-  { type: "Invalid Phone", count: 456, severity: "critical", affectedRecords: "12.3%" },
-  { type: "Missing Email", count: 234, severity: "warning", affectedRecords: "6.3%" },
-  { type: "Incomplete Address", count: 1234, severity: "critical", affectedRecords: "33.2%" },
-  { type: "Duplicate Entries", count: 189, severity: "warning", affectedRecords: "5.1%" },
-  { type: "Invalid Source Code", count: 67, severity: "low", affectedRecords: "1.8%" },
-  { type: "Missing Program Interest", count: 89, severity: "low", affectedRecords: "2.4%" },
-];
-
-const recentProfilingRuns = [
-  { id: 1, date: "2026-01-16", records: 3712, issues: 2045, duration: "2m 34s", status: "completed" },
-  { id: 2, date: "2026-01-15", records: 3698, issues: 2089, duration: "2m 28s", status: "completed" },
-  { id: 3, date: "2026-01-14", records: 3654, issues: 2134, duration: "2m 31s", status: "completed" },
-  { id: 4, date: "2026-01-13", records: 3621, issues: 2201, duration: "2m 45s", status: "completed" },
-];
+import { useDataProfilingMetrics, useFieldAnalysis, useDataIssues } from "@/hooks/admission/use-data-quality";
 
 function DataProfilingPageContent() {
   const [isRunning, setIsRunning] = useState(false);
   const [activeTab, setActiveTab] = useState("overview");
   const [isExporting, setIsExporting] = useState(false);
 
+  const { data: metrics, isLoading: metricsLoading, refetch: refetchMetrics } = useDataProfilingMetrics();
+  const { data: fieldAnalysis, isLoading: fieldsLoading, refetch: refetchFields } = useFieldAnalysis();
+  const { data: dataIssues, isLoading: issuesLoading, refetch: refetchIssues } = useDataIssues();
+
   const handleRunProfiling = async () => {
     setIsRunning(true);
     try {
-      await new Promise((resolve) => setTimeout(resolve, 3000));
+      await Promise.all([refetchMetrics(), refetchFields(), refetchIssues()]);
       toast.success("Data profiling completed successfully");
     } catch {
       toast.error("Failed to run data profiling");
@@ -92,7 +57,7 @@ function DataProfilingPageContent() {
   const handleExportReport = async () => {
     setIsExporting(true);
     try {
-      await new Promise((resolve) => setTimeout(resolve, 1500));
+      await new Promise((resolve) => setTimeout(resolve, 500));
       toast.success("Report exported successfully");
     } catch {
       toast.error("Failed to export report");
@@ -127,6 +92,12 @@ function DataProfilingPageContent() {
     }
   };
 
+  const m = metrics || { overall: 0, completeness: 0, validity: 0, totalLeads: 0 };
+  const criticalCount = (dataIssues || []).filter(i => i.severity === 'critical').reduce((sum, i) => sum + i.count, 0);
+  const warningCount = (dataIssues || []).filter(i => i.severity === 'warning').reduce((sum, i) => sum + i.count, 0);
+  const totalIssueCount = (dataIssues || []).reduce((sum, i) => sum + i.count, 0);
+  const cleanRecords = m.totalLeads - totalIssueCount;
+
   return (
     <div className="container mx-auto py-6 space-y-6">
       {/* Header */}
@@ -141,70 +112,50 @@ function DataProfilingPageContent() {
           </p>
         </div>
         <div className="flex gap-2">
-          <Button
-            variant="outline"
-            className="gap-2"
-            onClick={handleExportReport}
-            disabled={isExporting}
-          >
-            {isExporting ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Download className="h-4 w-4" />
-            )}
+          <Button variant="outline" className="gap-2" onClick={handleExportReport} disabled={isExporting}>
+            {isExporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
             {isExporting ? "Exporting..." : "Export Report"}
           </Button>
-          <Button
-            onClick={handleRunProfiling}
-            disabled={isRunning}
-            className="gap-2 bg-[#0b6d41] hover:bg-[#095232]"
-          >
-            {isRunning ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <RefreshCw className="h-4 w-4" />
-            )}
+          <Button onClick={handleRunProfiling} disabled={isRunning} className="gap-2 bg-[#0b6d41] hover:bg-[#095232]">
+            {isRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
             {isRunning ? "Running..." : "Run Profiling"}
           </Button>
         </div>
       </div>
 
       {/* Overall Quality Score */}
-      <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card className="md:col-span-2 border-l-4 border-l-[#0b6d41]">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-gray-600">Overall Data Quality</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="flex items-end gap-4">
-              <span className="text-5xl font-bold text-[#0b6d41]">{dataQualityMetrics.overall}%</span>
-              <div className="flex items-center text-green-600 text-sm mb-2">
-                <TrendingUp className="h-4 w-4 mr-1" />
-                +3% vs last week
-              </div>
+              <span className="text-5xl font-bold text-[#0b6d41]">{metricsLoading ? '...' : `${m.overall}%`}</span>
             </div>
-            <Progress value={dataQualityMetrics.overall} className="mt-3 h-2" />
+            <Progress value={m.overall} className="mt-3 h-2" />
           </CardContent>
         </Card>
 
-        {Object.entries(dataQualityMetrics)
-          .filter(([key]) => key !== "overall")
-          .map(([key, value]) => (
-            <Card key={key}>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-xs font-medium text-gray-600 capitalize">
-                  {key}
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{value}%</div>
-                <Progress
-                  value={value}
-                  className="mt-2 h-1.5"
-                />
-              </CardContent>
-            </Card>
-          ))}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-xs font-medium text-gray-600 capitalize">Completeness</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{metricsLoading ? '...' : `${m.completeness}%`}</div>
+            <Progress value={m.completeness} className="mt-2 h-1.5" />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-xs font-medium text-gray-600 capitalize">Validity</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{metricsLoading ? '...' : `${m.validity}%`}</div>
+            <Progress value={m.validity} className="mt-2 h-1.5" />
+          </CardContent>
+        </Card>
       </div>
 
       {/* Main Content Tabs */}
@@ -218,65 +169,59 @@ function DataProfilingPageContent() {
             <AlertTriangle className="h-4 w-4" />
             Data Issues
           </TabsTrigger>
-          <TabsTrigger value="history" className="gap-2">
-            <Activity className="h-4 w-4" />
-            Profiling History
-          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" className="space-y-4">
           <Card>
             <CardHeader>
               <CardTitle>Field-Level Analysis</CardTitle>
-              <CardDescription>
-                Quality metrics for each data field in admission leads
-              </CardDescription>
+              <CardDescription>Quality metrics for each data field in admission leads</CardDescription>
             </CardHeader>
             <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Field Name</TableHead>
-                    <TableHead>Completeness</TableHead>
-                    <TableHead>Validity</TableHead>
-                    <TableHead>Issues Found</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Action</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {fieldAnalysis.map((field) => (
-                    <TableRow key={field.field}>
-                      <TableCell className="font-medium capitalize">
-                        {field.field.replace(/_/g, " ")}
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <Progress value={field.completeness} className="w-20 h-2" />
-                          <span className="text-sm">{field.completeness}%</span>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <Progress value={field.validity} className="w-20 h-2" />
-                          <span className="text-sm">{field.validity}%</span>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <span className={field.issues > 100 ? "text-red-600 font-medium" : ""}>
-                          {field.issues.toLocaleString()}
-                        </span>
-                      </TableCell>
-                      <TableCell>{getStatusBadge(field.status)}</TableCell>
-                      <TableCell>
-                        <Button variant="ghost" size="sm">
-                          View Details
-                        </Button>
-                      </TableCell>
+              {fieldsLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Field Name</TableHead>
+                      <TableHead>Completeness</TableHead>
+                      <TableHead>Validity</TableHead>
+                      <TableHead>Issues Found</TableHead>
+                      <TableHead>Status</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {(fieldAnalysis || []).map((field) => (
+                      <TableRow key={field.field}>
+                        <TableCell className="font-medium capitalize">
+                          {field.field.replace(/_/g, " ")}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <Progress value={field.completeness} className="w-20 h-2" />
+                            <span className="text-sm">{field.completeness}%</span>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <Progress value={field.validity} className="w-20 h-2" />
+                            <span className="text-sm">{field.validity}%</span>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <span className={field.issues > 100 ? "text-red-600 font-medium" : ""}>
+                            {field.issues.toLocaleString()}
+                          </span>
+                        </TableCell>
+                        <TableCell>{getStatusBadge(field.status)}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -291,9 +236,7 @@ function DataProfilingPageContent() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-3xl font-bold text-red-600">
-                  {dataIssues.filter((i) => i.severity === "critical").reduce((sum, i) => sum + i.count, 0).toLocaleString()}
-                </div>
+                <div className="text-3xl font-bold text-red-600">{issuesLoading ? '...' : criticalCount.toLocaleString()}</div>
                 <p className="text-sm text-red-700">Requires immediate attention</p>
               </CardContent>
             </Card>
@@ -306,9 +249,7 @@ function DataProfilingPageContent() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-3xl font-bold text-yellow-600">
-                  {dataIssues.filter((i) => i.severity === "warning").reduce((sum, i) => sum + i.count, 0).toLocaleString()}
-                </div>
+                <div className="text-3xl font-bold text-yellow-600">{issuesLoading ? '...' : warningCount.toLocaleString()}</div>
                 <p className="text-sm text-yellow-700">Should be reviewed</p>
               </CardContent>
             </Card>
@@ -321,8 +262,10 @@ function DataProfilingPageContent() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-3xl font-bold text-green-600">2,734</div>
-                <p className="text-sm text-green-700">73.6% of total records</p>
+                <div className="text-3xl font-bold text-green-600">{issuesLoading ? '...' : Math.max(0, cleanRecords).toLocaleString()}</div>
+                <p className="text-sm text-green-700">
+                  {m.totalLeads > 0 ? `${Math.round(Math.max(0, cleanRecords) / m.totalLeads * 100)}%` : '0%'} of total records
+                </p>
               </CardContent>
             </Card>
           </div>
@@ -333,72 +276,37 @@ function DataProfilingPageContent() {
               <CardDescription>Detailed list of data quality issues found</CardDescription>
             </CardHeader>
             <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Issue Type</TableHead>
-                    <TableHead>Count</TableHead>
-                    <TableHead>Severity</TableHead>
-                    <TableHead>Affected Records</TableHead>
-                    <TableHead>Action</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {dataIssues.map((issue, index) => (
-                    <TableRow key={index}>
-                      <TableCell className="font-medium">{issue.type}</TableCell>
-                      <TableCell>{issue.count.toLocaleString()}</TableCell>
-                      <TableCell>{getSeverityBadge(issue.severity)}</TableCell>
-                      <TableCell>{issue.affectedRecords}</TableCell>
-                      <TableCell>
-                        <Button variant="outline" size="sm">
-                          Fix Now
-                        </Button>
-                      </TableCell>
+              {issuesLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Issue Type</TableHead>
+                      <TableHead>Count</TableHead>
+                      <TableHead>Severity</TableHead>
+                      <TableHead>Affected Records</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="history" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Profiling History</CardTitle>
-              <CardDescription>Recent data profiling runs and their results</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Date</TableHead>
-                    <TableHead>Records Analyzed</TableHead>
-                    <TableHead>Issues Found</TableHead>
-                    <TableHead>Duration</TableHead>
-                    <TableHead>Status</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {recentProfilingRuns.map((run) => (
-                    <TableRow key={run.id}>
-                      <TableCell className="font-medium">{run.date}</TableCell>
-                      <TableCell>{run.records.toLocaleString()}</TableCell>
-                      <TableCell>
-                        <span className="text-red-600">{run.issues.toLocaleString()}</span>
-                      </TableCell>
-                      <TableCell>{run.duration}</TableCell>
-                      <TableCell>
-                        <Badge className="bg-green-100 text-green-800">
-                          <CheckCircle2 className="h-3 w-3 mr-1" />
-                          {run.status}
-                        </Badge>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {(dataIssues || []).map((issue, index) => (
+                      <TableRow key={index}>
+                        <TableCell className="font-medium">{issue.type}</TableCell>
+                        <TableCell>{issue.count.toLocaleString()}</TableCell>
+                        <TableCell>{getSeverityBadge(issue.severity)}</TableCell>
+                        <TableCell>{issue.affectedPercentage}%</TableCell>
+                      </TableRow>
+                    ))}
+                    {dataIssues && dataIssues.length === 0 && (
+                      <TableRow>
+                        <TableCell colSpan={4} className="text-center py-8 text-gray-500">No issues found</TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -414,7 +322,7 @@ function DataProfilingPageContent() {
               </div>
               <div>
                 <p className="text-sm text-gray-600">Total Leads</p>
-                <p className="text-2xl font-bold">3,712</p>
+                <p className="text-2xl font-bold">{metricsLoading ? '...' : m.totalLeads.toLocaleString()}</p>
               </div>
             </div>
           </CardContent>
@@ -427,8 +335,10 @@ function DataProfilingPageContent() {
                 <Phone className="h-6 w-6 text-red-600" />
               </div>
               <div>
-                <p className="text-sm text-gray-600">Invalid Phones</p>
-                <p className="text-2xl font-bold">456</p>
+                <p className="text-sm text-gray-600">Phone Issues</p>
+                <p className="text-2xl font-bold">
+                  {issuesLoading ? '...' : (dataIssues || []).find(i => i.type === 'Invalid Phone')?.count.toLocaleString() || '0'}
+                </p>
               </div>
             </div>
           </CardContent>
@@ -442,7 +352,9 @@ function DataProfilingPageContent() {
               </div>
               <div>
                 <p className="text-sm text-gray-600">Missing Emails</p>
-                <p className="text-2xl font-bold">234</p>
+                <p className="text-2xl font-bold">
+                  {issuesLoading ? '...' : (dataIssues || []).find(i => i.type === 'Missing Email')?.count.toLocaleString() || '0'}
+                </p>
               </div>
             </div>
           </CardContent>
@@ -456,7 +368,9 @@ function DataProfilingPageContent() {
               </div>
               <div>
                 <p className="text-sm text-gray-600">Incomplete Address</p>
-                <p className="text-2xl font-bold">1,234</p>
+                <p className="text-2xl font-bold">
+                  {issuesLoading ? '...' : (dataIssues || []).find(i => i.type === 'Incomplete Address')?.count.toLocaleString() || '0'}
+                </p>
               </div>
             </div>
           </CardContent>

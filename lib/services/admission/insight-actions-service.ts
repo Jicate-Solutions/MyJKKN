@@ -822,12 +822,14 @@ export class InsightActionsService {
     for (const leadId of leadIds) {
       try {
         // Check if lead is already in an active sequence
-        const { data: existing } = await this.supabase
+        const { data: existingRows } = await this.supabase
           .from('admission_drip_sequences')
           .select('id')
           .eq('lead_id', leadId)
           .eq('status', 'active')
-          .single();
+          .limit(1);
+
+        const existing = existingRows?.[0];
 
         if (existing) {
           skipped++;

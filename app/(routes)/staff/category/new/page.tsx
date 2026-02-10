@@ -30,10 +30,6 @@ export default function NewCategoryPage() {
   useEffect(() => {
     if (!permissionsLoading) {
       setPermissionsLoaded(true);
-      console.log('New Category permissions debug:', {
-        isSuperAdmin,
-        canCreateCategories: canAccess('staff.categories', 'create')
-      });
     }
   }, [permissionsLoading, isSuperAdmin, canAccess]);
 
@@ -44,7 +40,6 @@ export default function NewCategoryPage() {
     const canCreateCategories =
       isSuperAdmin || canAccess('staff.categories', 'create');
     if (!canCreateCategories) {
-      console.log('User does not have permission to create categories');
       router.push('/unauthorized');
     }
   }, [permissionsLoaded, isSuperAdmin, canAccess, router]);

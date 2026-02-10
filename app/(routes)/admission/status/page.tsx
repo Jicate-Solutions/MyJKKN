@@ -33,7 +33,6 @@ import {
   AlertTriangle,
   XCircle,
   ArrowRight,
-  FileText,
   Users,
   GraduationCap,
   Calendar,
@@ -45,101 +44,81 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { AdmissionErrorBoundary } from "@/components/admission";
-
-// Mock data for application status tracking
-const statusStats = {
-  total: 1245,
-  lead: 456,
-  applied: 345,
-  documentsUploaded: 234,
-  underReview: 123,
-  interviewed: 67,
-  offered: 45,
-  enrolled: 34,
-};
-
-const statusFlow = [
-  { id: "lead", name: "Lead", count: 456, color: "bg-gray-200" },
-  { id: "applied", name: "Applied", count: 345, color: "bg-blue-200" },
-  { id: "documents", name: "Documents", count: 234, color: "bg-yellow-200" },
-  { id: "review", name: "Under Review", count: 123, color: "bg-orange-200" },
-  { id: "interview", name: "Interviewed", count: 67, color: "bg-purple-200" },
-  { id: "offered", name: "Offered", count: 45, color: "bg-green-200" },
-  { id: "enrolled", name: "Enrolled", count: 34, color: "bg-[#0b6d41] text-white" },
-];
-
-const applications = [
-  {
-    id: "ADM-2026-0001",
-    name: "Rajesh Kumar",
-    email: "rajesh@email.com",
-    phone: "9876543210",
-    program: "B.Tech Computer Science",
-    status: "Under Review",
-    stage: 4,
-    lastActivity: "Document verification pending",
-    updatedAt: "2026-01-15 14:30",
-  },
-  {
-    id: "ADM-2026-0002",
-    name: "Priya Sharma",
-    email: "priya@email.com",
-    phone: "8765432109",
-    program: "MBA Finance",
-    status: "Interviewed",
-    stage: 5,
-    lastActivity: "Interview completed",
-    updatedAt: "2026-01-15 11:00",
-  },
-  {
-    id: "ADM-2026-0003",
-    name: "Amit Patel",
-    email: "amit@email.com",
-    phone: "7654321098",
-    program: "B.Tech Mechanical",
-    status: "Documents Submitted",
-    stage: 3,
-    lastActivity: "All documents uploaded",
-    updatedAt: "2026-01-14 16:45",
-  },
-  {
-    id: "ADM-2026-0004",
-    name: "Sneha Reddy",
-    email: "sneha@email.com",
-    phone: "6543210987",
-    program: "BBA",
-    status: "Offered",
-    stage: 6,
-    lastActivity: "Offer letter sent",
-    updatedAt: "2026-01-14 10:20",
-  },
-  {
-    id: "ADM-2026-0005",
-    name: "Vikram Singh",
-    email: "vikram@email.com",
-    phone: "5432109876",
-    program: "B.Tech Electronics",
-    status: "Applied",
-    stage: 2,
-    lastActivity: "Application submitted",
-    updatedAt: "2026-01-13 09:15",
-  },
-];
-
-const activityLog = [
-  { time: "2026-01-15 14:30", applicant: "Rajesh Kumar", action: "Document uploaded", type: "document" },
-  { time: "2026-01-15 11:00", applicant: "Priya Sharma", action: "Interview completed", type: "interview" },
-  { time: "2026-01-15 10:45", applicant: "Amit Patel", action: "Status changed to Under Review", type: "status" },
-  { time: "2026-01-14 16:45", applicant: "Sneha Reddy", action: "Offer letter generated", type: "offer" },
-  { time: "2026-01-14 15:30", applicant: "Vikram Singh", action: "Application submitted", type: "application" },
-];
+import { useAuth } from "@/hooks/use-auth";
+import {
+  useApplicationsStatus,
+  usePipelineStats,
+  useRecentActivity,
+} from "@/hooks/admission/use-status-tracking";
+import { format } from "date-fns";
 
 function StatusPageContent() {
+  const { profile } = useAuth();
+  const institutionId = profile?.institution_id || "";
   const [searchTerm, setSearchTerm] = useState("");
   const [filterStatus, setFilterStatus] = useState("all");
   const [filterProgram, setFilterProgram] = useState("all");
   const [isExporting, setIsExporting] = useState(false);
-  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // Real data hooks
+  const {
+    applications: rawApplications,
+    total: totalApplications,
+    isLoading: appsLoading,
+    refetch: refetchApps,
+  } = useApplicationsStatus({
+    institutionId,
+    status: filterStatus !== "all" ? filterStatus : undefined,
+    search: searchTerm || undefined,
+  });
+
+  const {
+    stats,
+    isLoading: statsLoading,
+    refetch: refetchStats,
+  } = usePipelineStats(institutionId);
+
+  const {
+    activities,
+    isLoading: activityLoading,
+    refetch: refetchActivity,
+  } = useRecentActivity(institutionId, 20);
+
+  // Build pipeline flow from real stats
+  const statusFlow = [
+    { id: "draft", name: "Draft", count: stats.draft, color: "bg-gray-200" },
+    { id: "submitted", name: "Submitted", count: stats.submitted, color: "bg-blue-200" },
+    { id: "under_review", name: "Under Review", count: stats.under_review, color: "bg-orange-200" },
+    { id: "approved", name: "Approved", count: stats.approved, color: "bg-green-200" },
+    { id: "rejected", name: "Rejected", count: stats.rejected, color: "bg-red-200" },
+    { id: "enrolled", name: "Enrolled", count: stats.enrolled, color: "bg-[#0b6d41] text-white" },
+  ];
+
+  // Transform applications to UI format
+  const applications = (rawApplications || []).map((app: any) => ({
+    id: app.application_number || app.id?.slice(0, 12) || "N/A",
+    name: app.lead_name || "Unknown",
+    email: app.lead_email || "",
+    phone: app.lead_phone || "",
+    program: app.lead_program || "",
+    status: app.status || "draft",
+    stage: app.current_step || 1,
+    totalStages: app.total_steps || 7,
+    completionPct: app.completion_percentage || 0,
+    lastActivity: app.review_notes || (app.submitted_at ? "Application submitted" : "Draft created"),
+    updatedAt: app.updated_at,
+  }));
+
+  // Client-side search filtering (for name/email, since search filter only does application_number)
+  const filteredApps = applications.filter((app: any) => {
+    if (!searchTerm) return true;
+    const term = searchTerm.toLowerCase();
+    return (
+      app.name.toLowerCase().includes(term) ||
+      app.email.toLowerCase().includes(term) ||
+      app.id.toLowerCase().includes(term)
+    );
+  });
 
   const handleExport = async () => {
     setIsExporting(true);
@@ -154,35 +133,26 @@ function StatusPageContent() {
   };
 
   const handleRefresh = async () => {
-    setIsRefreshing(true);
-    try {
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-      toast.success("Data refreshed successfully");
-    } catch {
-      toast.error("Failed to refresh");
-    } finally {
-      setIsRefreshing(false);
-    }
+    await Promise.all([refetchApps(), refetchStats(), refetchActivity()]);
+    toast.success("Data refreshed successfully");
   };
+
+  const isRefreshing = appsLoading || statsLoading || activityLoading;
 
   const getStatusBadge = (status: string) => {
     switch (status) {
-      case "Lead":
-        return <Badge variant="outline">Lead</Badge>;
-      case "Applied":
-        return <Badge className="bg-blue-100 text-blue-800">Applied</Badge>;
-      case "Documents Submitted":
-        return <Badge className="bg-yellow-100 text-yellow-800">Documents Submitted</Badge>;
-      case "Under Review":
+      case "draft":
+        return <Badge variant="outline">Draft</Badge>;
+      case "submitted":
+        return <Badge className="bg-blue-100 text-blue-800">Submitted</Badge>;
+      case "under_review":
         return <Badge className="bg-orange-100 text-orange-800">Under Review</Badge>;
-      case "Interviewed":
-        return <Badge className="bg-purple-100 text-purple-800">Interviewed</Badge>;
-      case "Offered":
-        return <Badge className="bg-green-100 text-green-800">Offered</Badge>;
-      case "Enrolled":
-        return <Badge className="bg-[#0b6d41] text-white">Enrolled</Badge>;
-      case "Rejected":
+      case "approved":
+        return <Badge className="bg-green-100 text-green-800">Approved</Badge>;
+      case "rejected":
         return <Badge variant="destructive">Rejected</Badge>;
+      case "enrolled":
+        return <Badge className="bg-[#0b6d41] text-white">Enrolled</Badge>;
       default:
         return <Badge variant="outline">{status}</Badge>;
     }
@@ -190,16 +160,14 @@ function StatusPageContent() {
 
   const getActivityIcon = (type: string) => {
     switch (type) {
-      case "document":
-        return <FileText className="h-4 w-4 text-blue-500" />;
-      case "interview":
-        return <Users className="h-4 w-4 text-purple-500" />;
-      case "status":
-        return <Activity className="h-4 w-4 text-orange-500" />;
-      case "offer":
+      case "email":
+        return <Mail className="h-4 w-4 text-blue-500" />;
+      case "sms":
+        return <Phone className="h-4 w-4 text-green-500" />;
+      case "whatsapp":
         return <CheckCircle2 className="h-4 w-4 text-green-500" />;
-      case "application":
-        return <GraduationCap className="h-4 w-4 text-blue-500" />;
+      case "status_change":
+        return <Activity className="h-4 w-4 text-orange-500" />;
       default:
         return <Activity className="h-4 w-4 text-gray-500" />;
     }
@@ -254,26 +222,32 @@ function StatusPageContent() {
           <CardDescription>Overview of applications across all stages</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="flex items-center justify-between overflow-x-auto pb-4">
-            {statusFlow.map((stage, index) => (
-              <div key={stage.id} className="flex items-center">
-                <div className="flex flex-col items-center min-w-[100px]">
-                  <div
-                    className={`w-16 h-16 rounded-full flex items-center justify-center text-lg font-bold ${stage.color}`}
-                  >
-                    {stage.count}
+          {statsLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+            </div>
+          ) : (
+            <div className="flex items-center justify-between overflow-x-auto pb-4">
+              {statusFlow.map((stage, index) => (
+                <div key={stage.id} className="flex items-center">
+                  <div className="flex flex-col items-center min-w-[100px]">
+                    <div
+                      className={`w-16 h-16 rounded-full flex items-center justify-center text-lg font-bold ${stage.color}`}
+                    >
+                      {stage.count}
+                    </div>
+                    <p className="text-sm font-medium mt-2">{stage.name}</p>
+                    <p className="text-xs text-gray-500">
+                      {stats.total > 0 ? ((stage.count / stats.total) * 100).toFixed(1) : '0.0'}%
+                    </p>
                   </div>
-                  <p className="text-sm font-medium mt-2">{stage.name}</p>
-                  <p className="text-xs text-gray-500">
-                    {statusStats.total > 0 ? ((stage.count / statusStats.total) * 100).toFixed(1) : '0.0'}%
-                  </p>
+                  {index < statusFlow.length - 1 && (
+                    <ArrowRight className="h-5 w-5 text-gray-300 mx-2" />
+                  )}
                 </div>
-                {index < statusFlow.length - 1 && (
-                  <ArrowRight className="h-5 w-5 text-gray-300 mx-2" />
-                )}
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -282,7 +256,7 @@ function StatusPageContent() {
         <TabsList>
           <TabsTrigger value="applications" className="gap-2">
             <Users className="h-4 w-4" />
-            All Applications ({statusStats.total})
+            All Applications ({stats.total})
           </TabsTrigger>
           <TabsTrigger value="activity" className="gap-2">
             <Activity className="h-4 w-4" />
@@ -315,12 +289,11 @@ function StatusPageContent() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Statuses</SelectItem>
-                    <SelectItem value="lead">Lead</SelectItem>
-                    <SelectItem value="applied">Applied</SelectItem>
-                    <SelectItem value="documents">Documents Submitted</SelectItem>
-                    <SelectItem value="review">Under Review</SelectItem>
-                    <SelectItem value="interviewed">Interviewed</SelectItem>
-                    <SelectItem value="offered">Offered</SelectItem>
+                    <SelectItem value="draft">Draft</SelectItem>
+                    <SelectItem value="submitted">Submitted</SelectItem>
+                    <SelectItem value="under_review">Under Review</SelectItem>
+                    <SelectItem value="approved">Approved</SelectItem>
+                    <SelectItem value="rejected">Rejected</SelectItem>
                     <SelectItem value="enrolled">Enrolled</SelectItem>
                   </SelectContent>
                 </Select>
@@ -343,73 +316,98 @@ function StatusPageContent() {
           {/* Applications Table */}
           <Card>
             <CardContent className="pt-4">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Application ID</TableHead>
-                    <TableHead>Applicant</TableHead>
-                    <TableHead>Program</TableHead>
-                    <TableHead>Progress</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Last Activity</TableHead>
-                    <TableHead>Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {applications.map((app) => (
-                    <TableRow key={app.id}>
-                      <TableCell>
-                        <code className="bg-gray-100 px-2 py-1 rounded text-sm font-mono">
-                          {app.id}
-                        </code>
-                      </TableCell>
-                      <TableCell>
-                        <div>
-                          <p className="font-medium">{app.name}</p>
-                          <div className="flex items-center gap-3 text-sm text-gray-500 mt-1">
-                            <span className="flex items-center gap-1">
-                              <Mail className="h-3 w-3" />
-                              {app.email}
-                            </span>
-                            <span className="flex items-center gap-1">
-                              <Phone className="h-3 w-3" />
-                              {app.phone}
-                            </span>
-                          </div>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <Building className="h-4 w-4 text-gray-400" />
-                          {app.program}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="w-32">
-                          <Progress value={(app.stage / 7) * 100} className="h-2" />
-                          <p className="text-xs text-gray-500 mt-1">Stage {app.stage} of 7</p>
-                        </div>
-                      </TableCell>
-                      <TableCell>{getStatusBadge(app.status)}</TableCell>
-                      <TableCell>
-                        <div>
-                          <p className="text-sm">{app.lastActivity}</p>
-                          <p className="text-xs text-gray-500 flex items-center gap-1 mt-1">
-                            <Calendar className="h-3 w-3" />
-                            {app.updatedAt}
-                          </p>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Button variant="ghost" size="sm" className="gap-1">
-                          <Eye className="h-4 w-4" />
-                          View
-                        </Button>
-                      </TableCell>
+              {appsLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Application ID</TableHead>
+                      <TableHead>Applicant</TableHead>
+                      <TableHead>Program</TableHead>
+                      <TableHead>Progress</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Last Activity</TableHead>
+                      <TableHead>Actions</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredApps.length > 0 ? (
+                      filteredApps.map((app: any) => (
+                        <TableRow key={app.id}>
+                          <TableCell>
+                            <code className="bg-gray-100 px-2 py-1 rounded text-sm font-mono">
+                              {app.id}
+                            </code>
+                          </TableCell>
+                          <TableCell>
+                            <div>
+                              <p className="font-medium">{app.name}</p>
+                              <div className="flex items-center gap-3 text-sm text-gray-500 mt-1">
+                                {app.email && (
+                                  <span className="flex items-center gap-1">
+                                    <Mail className="h-3 w-3" />
+                                    {app.email}
+                                  </span>
+                                )}
+                                {app.phone && (
+                                  <span className="flex items-center gap-1">
+                                    <Phone className="h-3 w-3" />
+                                    {app.phone}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-2">
+                              <Building className="h-4 w-4 text-gray-400" />
+                              {app.program || "—"}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="w-32">
+                              <Progress
+                                value={app.completionPct || (app.stage / app.totalStages) * 100}
+                                className="h-2"
+                              />
+                              <p className="text-xs text-gray-500 mt-1">
+                                Stage {app.stage} of {app.totalStages}
+                              </p>
+                            </div>
+                          </TableCell>
+                          <TableCell>{getStatusBadge(app.status)}</TableCell>
+                          <TableCell>
+                            <div>
+                              <p className="text-sm">{app.lastActivity}</p>
+                              {app.updatedAt && (
+                                <p className="text-xs text-gray-500 flex items-center gap-1 mt-1">
+                                  <Calendar className="h-3 w-3" />
+                                  {format(new Date(app.updatedAt), "MMM dd, yyyy HH:mm")}
+                                </p>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <Button variant="ghost" size="sm" className="gap-1">
+                              <Eye className="h-4 w-4" />
+                              View
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    ) : (
+                      <TableRow>
+                        <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                          No applications found.
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -421,20 +419,34 @@ function StatusPageContent() {
               <CardDescription>Latest updates across all applications</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="space-y-4">
-                {activityLog.map((log, index) => (
-                  <div key={index} className="flex items-start gap-4 p-3 border rounded-lg">
-                    <div className="p-2 bg-gray-100 rounded-lg">
-                      {getActivityIcon(log.type)}
+              {activityLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                </div>
+              ) : activities.length > 0 ? (
+                <div className="space-y-4">
+                  {activities.map((log: any) => (
+                    <div key={log.id} className="flex items-start gap-4 p-3 border rounded-lg">
+                      <div className="p-2 bg-gray-100 rounded-lg">
+                        {getActivityIcon(log.step_type)}
+                      </div>
+                      <div className="flex-1">
+                        <p className="font-medium">{log.action || log.step_type || "Activity"}</p>
+                        <p className="text-sm text-gray-600">Lead: {log.lead_id?.slice(0, 8) || "—"}</p>
+                      </div>
+                      {log.created_at && (
+                        <p className="text-sm text-gray-500">
+                          {format(new Date(log.created_at), "MMM dd, HH:mm")}
+                        </p>
+                      )}
                     </div>
-                    <div className="flex-1">
-                      <p className="font-medium">{log.action}</p>
-                      <p className="text-sm text-gray-600">{log.applicant}</p>
-                    </div>
-                    <p className="text-sm text-gray-500">{log.time}</p>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-8 text-muted-foreground">
+                  No recent activity found.
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -449,11 +461,13 @@ function StatusPageContent() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <p className="text-3xl font-bold text-red-600">78</p>
-                <p className="text-gray-600">Applications pending &gt; 48 hours</p>
+                <p className="text-3xl font-bold text-red-600">{stats.under_review}</p>
+                <p className="text-gray-600">Applications under review</p>
                 <div className="mt-4">
-                  <Progress value={78} className="h-2 bg-red-100" />
-                  <p className="text-sm text-gray-500 mt-2">33% of pending documents</p>
+                  <Progress value={stats.total > 0 ? (stats.under_review / stats.total) * 100 : 0} className="h-2 bg-red-100" />
+                  <p className="text-sm text-gray-500 mt-2">
+                    {stats.total > 0 ? ((stats.under_review / stats.total) * 100).toFixed(0) : 0}% of total applications
+                  </p>
                 </div>
                 <Button variant="outline" className="mt-4 w-full">
                   View Affected Applications
@@ -465,18 +479,20 @@ function StatusPageContent() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Clock className="h-5 w-5 text-orange-500" />
-                  Interview Scheduling Backlog
+                  Pending Submissions
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <p className="text-3xl font-bold text-orange-600">45</p>
-                <p className="text-gray-600">Applications awaiting interview slot</p>
+                <p className="text-3xl font-bold text-orange-600">{stats.draft}</p>
+                <p className="text-gray-600">Applications still in draft</p>
                 <div className="mt-4">
-                  <Progress value={45} className="h-2 bg-orange-100" />
-                  <p className="text-sm text-gray-500 mt-2">37% of reviewed applications</p>
+                  <Progress value={stats.total > 0 ? (stats.draft / stats.total) * 100 : 0} className="h-2 bg-orange-100" />
+                  <p className="text-sm text-gray-500 mt-2">
+                    {stats.total > 0 ? ((stats.draft / stats.total) * 100).toFixed(0) : 0}% of total applications
+                  </p>
                 </div>
                 <Button variant="outline" className="mt-4 w-full">
-                  Schedule Interviews
+                  Send Reminders
                 </Button>
               </CardContent>
             </Card>
@@ -485,18 +501,20 @@ function StatusPageContent() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <XCircle className="h-5 w-5 text-yellow-500" />
-                  Incomplete Applications
+                  Rejected Applications
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <p className="text-3xl font-bold text-yellow-600">123</p>
-                <p className="text-gray-600">Applications with missing documents</p>
+                <p className="text-3xl font-bold text-yellow-600">{stats.rejected}</p>
+                <p className="text-gray-600">Applications rejected</p>
                 <div className="mt-4">
-                  <Progress value={35} className="h-2 bg-yellow-100" />
-                  <p className="text-sm text-gray-500 mt-2">35% of total applications</p>
+                  <Progress value={stats.total > 0 ? (stats.rejected / stats.total) * 100 : 0} className="h-2 bg-yellow-100" />
+                  <p className="text-sm text-gray-500 mt-2">
+                    {stats.total > 0 ? ((stats.rejected / stats.total) * 100).toFixed(0) : 0}% of total applications
+                  </p>
                 </div>
                 <Button variant="outline" className="mt-4 w-full">
-                  Send Reminders
+                  Review Rejections
                 </Button>
               </CardContent>
             </Card>
@@ -505,15 +523,17 @@ function StatusPageContent() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Users className="h-5 w-5 text-purple-500" />
-                  Offer Acceptance Pending
+                  Approved Pending Enrollment
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <p className="text-3xl font-bold text-purple-600">28</p>
-                <p className="text-gray-600">Offers not yet accepted</p>
+                <p className="text-3xl font-bold text-purple-600">{stats.approved}</p>
+                <p className="text-gray-600">Approved but not yet enrolled</p>
                 <div className="mt-4">
-                  <Progress value={62} className="h-2 bg-purple-100" />
-                  <p className="text-sm text-gray-500 mt-2">62% of offers sent</p>
+                  <Progress value={stats.total > 0 ? (stats.approved / stats.total) * 100 : 0} className="h-2 bg-purple-100" />
+                  <p className="text-sm text-gray-500 mt-2">
+                    {stats.total > 0 ? ((stats.approved / stats.total) * 100).toFixed(0) : 0}% of total applications
+                  </p>
                 </div>
                 <Button variant="outline" className="mt-4 w-full">
                   Follow Up

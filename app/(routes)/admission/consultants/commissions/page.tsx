@@ -208,8 +208,70 @@ export default function CommissionTrackingPage() {
   };
 
   const handleExport = () => {
-    // TODO: Implement CSV export
-    toast.info('Export feature coming soon');
+    const data = filteredTransactions;
+    if (!data || data.length === 0) {
+      toast.error('No transactions to export');
+      return;
+    }
+
+    const headers = [
+      'Transaction Code',
+      'Consultant Name',
+      'Consultant Code',
+      'Lead/Student',
+      'Fee Amount',
+      'Commission Rate',
+      'Rate Type',
+      'Calculated Amount',
+      'Final Amount',
+      'TDS Amount',
+      'Net Amount',
+      'Status',
+      'Milestone Stage',
+      'Created Date',
+      'Status Changed Date',
+    ];
+
+    const rows = data.map((t) => [
+      t.transaction_code || t.id.slice(0, 8),
+      t.consultant?.name || '',
+      t.consultant?.code || '',
+      t.lead?.full_name || '',
+      t.fee_amount,
+      t.commission_rate,
+      t.rate_type,
+      t.calculated_amount,
+      t.final_amount,
+      t.tds_amount || 0,
+      t.net_amount,
+      t.status,
+      t.milestone_stage || '',
+      t.created_at ? format(new Date(t.created_at), 'yyyy-MM-dd') : '',
+      t.status_changed_at ? format(new Date(t.status_changed_at), 'yyyy-MM-dd') : '',
+    ]);
+
+    const csvContent = [
+      headers.join(','),
+      ...rows.map((row) =>
+        row.map((cell) => {
+          const str = String(cell ?? '');
+          return str.includes(',') || str.includes('"') || str.includes('\n')
+            ? `"${str.replace(/"/g, '""')}"`
+            : str;
+        }).join(',')
+      ),
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `commission-transactions-${format(new Date(), 'yyyy-MM-dd')}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    toast.success(`Exported ${data.length} transactions`);
   };
 
   const formatCurrency = (amount: number) => {

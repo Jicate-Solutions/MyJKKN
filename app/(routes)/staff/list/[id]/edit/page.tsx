@@ -45,10 +45,6 @@ export default function EditStaffPage({ params }: EditStaffPageProps) {
   useEffect(() => {
     if (!permissionsLoading) {
       setPermissionsLoaded(true);
-      console.log('Edit Staff permissions debug:', {
-        isSuperAdmin,
-        canEditStaff: canAccess('staff', 'edit')
-      });
     }
   }, [permissionsLoading, isSuperAdmin, canAccess]);
 
@@ -58,7 +54,6 @@ export default function EditStaffPage({ params }: EditStaffPageProps) {
 
     const canEditStaff = isSuperAdmin || canAccess('staff', 'edit');
     if (!canEditStaff) {
-      console.log('User does not have permission to edit staff');
       router.push('/unauthorized');
       return;
     }

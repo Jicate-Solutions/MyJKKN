@@ -137,8 +137,6 @@ export class OKRKeyResultService {
         order_index: input.order_index ?? nextIndex
       };
 
-      console.log('[OKR] Creating key result with data:', JSON.stringify(insertData, null, 2));
-
       const { data, error } = await (this.getSupabase() as any)
         .from('okr_key_results')
         .insert([insertData])
@@ -175,7 +173,6 @@ export class OKRKeyResultService {
         console.error('[OKR] Auth error or no user:', authError?.message || 'No user session');
         throw new Error('Authentication required. Please log in again.');
       }
-      console.log('[OKR] Updating key result. User:', user.id, 'KR ID:', id);
 
       const { data, error } = await (this.getSupabase() as any)
         .from('okr_key_results')

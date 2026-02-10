@@ -25,6 +25,15 @@ interface FilterOption {
   name: string;
 }
 
+interface AnalyticsExportRow {
+  id: string;
+  user_id: string;
+  tool_id: string;
+  myjkkn_role: string;
+  launched_at: string;
+  institution_id: string;
+}
+
 interface AnalyticsFiltersProps {
   institutions: FilterOption[];
   tools: FilterOption[];
@@ -34,12 +43,14 @@ interface AnalyticsFiltersProps {
     institutionId?: string;
     toolId?: string;
   };
+  exportData?: AnalyticsExportRow[];
 }
 
 export function AnalyticsFilters({
   institutions,
   tools,
-  currentFilters
+  currentFilters,
+  exportData
 }: AnalyticsFiltersProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -62,8 +73,42 @@ export function AnalyticsFilters({
   };
 
   const handleExport = () => {
-    // TODO: Implement Excel export
-    alert('Export functionality coming soon!');
+    if (!exportData || exportData.length === 0) {
+      alert('No data available to export');
+      return;
+    }
+
+    const rows = exportData.map((row) => ({
+      'Launch ID': row.id,
+      'User ID': row.user_id,
+      'Tool ID': row.tool_id,
+      'Role': row.myjkkn_role,
+      'Launched At': row.launched_at,
+      'Institution ID': row.institution_id
+    }));
+
+    const headers = Object.keys(rows[0]);
+    const csv = [
+      headers.join(','),
+      ...rows.map((row) =>
+        headers
+          .map((h) => {
+            const val = String(row[h as keyof typeof row] ?? '');
+            return val.includes(',') || val.includes('"')
+              ? `"${val.replace(/"/g, '""')}"`
+              : val;
+          })
+          .join(',')
+      )
+    ].join('\n');
+
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `lti-analytics-${format(new Date(), 'yyyy-MM-dd')}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   const hasFilters = Object.values(currentFilters).some((v) => v);
@@ -148,7 +193,7 @@ export function AnalyticsFilters({
         )}
         <Button variant="outline" size="sm" onClick={handleExport}>
           <Download className="h-4 w-4 mr-2" />
-          Export to Excel
+          Export CSV
         </Button>
       </div>
     </div>

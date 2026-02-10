@@ -51,6 +51,23 @@ const badgeConfig: Record<UserBadge, { label: string; icon: typeof CheckCircle2;
   blocked: { label: 'Blocked', icon: XCircle, className: 'text-rose-700 bg-rose-700/10 border-rose-700/20' }
 };
 
+// Tracking status derived from overall progress
+type TrackingStatus = 'on_track' | 'at_risk' | 'behind' | 'completed';
+
+function getTrackingStatus(progress: number): TrackingStatus {
+  if (progress >= 100) return 'completed';
+  if (progress >= 70) return 'on_track';
+  if (progress >= 40) return 'at_risk';
+  return 'behind';
+}
+
+const trackingStatusConfig: Record<TrackingStatus, { label: string; icon: typeof CheckCircle2; className: string }> = {
+  on_track: { label: 'On Track', icon: CheckCircle2, className: 'text-emerald-500 bg-emerald-500/10 border-emerald-500/20' },
+  at_risk: { label: 'At Risk', icon: AlertCircle, className: 'text-yellow-500 bg-yellow-500/10 border-yellow-500/20' },
+  behind: { label: 'Behind', icon: XCircle, className: 'text-red-500 bg-red-500/10 border-red-500/20' },
+  completed: { label: 'Completed', icon: CheckCircle2, className: 'text-blue-500 bg-blue-500/10 border-blue-500/20' }
+};
+
 export default function DepartmentAdminPage() {
   const { profile } = useAuth();
   const [activeTab, setActiveTab] = useState('overview');
@@ -87,6 +104,13 @@ export default function DepartmentAdminPage() {
   const { data: teamSummary, isLoading: teamLoading } = useTeamSummary({
     institution_id: profile?.institution_id || '',
     department_id: filterDepartmentId ?? undefined
+  });
+  const { data: studentObjectives, isLoading: studentLoading } = useObjectives({
+    institution_id: profile?.institution_id || '',
+    department_id: filterDepartmentId ?? undefined,
+    level: 'individual',
+    status: 'active',
+    limit: 50
   });
   const { data: complianceStatus } = useMyComplianceStatus();
 
@@ -526,27 +550,99 @@ export default function DepartmentAdminPage() {
           <TabsContent value="students" className="space-y-4">
             <Card className="border-slate-800">
               <CardHeader>
-                <CardTitle>Student OKR Summary</CardTitle>
+                <CardTitle>Student OKR Tracking</CardTitle>
                 <CardDescription>
-                  Student learner OKR compliance and elective participation
+                  Individual student objectives and progress within the department
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="text-center py-12">
-                  <GraduationCap className="h-12 w-12 mx-auto mb-4 text-muted-foreground opacity-50" />
-                  <p className="text-lg font-medium">Student OKR Tracking</p>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    Student OKR dashboard will be implemented here
-                  </p>
-                  <Alert className="mt-6 text-left">
-                    <AlertCircle className="h-4 w-4" />
-                    <AlertTitle>Coming Soon</AlertTitle>
-                    <AlertDescription>
-                      Student learner core OKR compliance and elective OKR activity tracking will be available soon.
-                      This will show department-wide student engagement with the OKR system.
-                    </AlertDescription>
-                  </Alert>
-                </div>
+                {studentLoading ? (
+                  <div className="space-y-3">
+                    {[...Array(5)].map((_, i) => (
+                      <Skeleton key={i} className="h-16 w-full" />
+                    ))}
+                  </div>
+                ) : !studentObjectives?.data || studentObjectives.data.length === 0 ? (
+                  <div className="text-center py-12">
+                    <GraduationCap className="h-12 w-12 mx-auto mb-4 text-muted-foreground opacity-50" />
+                    <p className="text-lg font-medium">No Student Objectives Found</p>
+                    <p className="text-sm text-muted-foreground mt-1 max-w-md mx-auto">
+                      There are no active individual-level OKR objectives for students in this department.
+                      Student objectives will appear here once they are created and set to active status.
+                    </p>
+                    <Button asChild className="mt-4" style={{ backgroundColor: '#0b6d41' }}>
+                      <Link href="/okr/objectives/create?tier=3&level=individual">
+                        <Plus className="h-4 w-4 mr-2" />
+                        Create Student OKR
+                      </Link>
+                    </Button>
+                  </div>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="border-slate-800 hover:bg-transparent">
+                        <TableHead>Student</TableHead>
+                        <TableHead>Objective</TableHead>
+                        <TableHead className="w-[120px]">Status</TableHead>
+                        <TableHead className="w-[200px]">Progress</TableHead>
+                        <TableHead className="w-[80px]">KRs</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {studentObjectives.data.map((objective: OKRObjective) => {
+                        const status = getTrackingStatus(objective.overall_progress);
+                        const StatusIcon = trackingStatusConfig[status].icon;
+                        return (
+                          <TableRow key={objective.id} className="border-slate-800 hover:bg-slate-900/50">
+                            <TableCell>
+                              <div>
+                                <p className="font-medium">
+                                  {objective.owner?.full_name || objective.owner?.email || 'Unknown'}
+                                </p>
+                                {objective.owner?.email && objective.owner?.full_name && (
+                                  <p className="text-xs text-muted-foreground">
+                                    {objective.owner.email}
+                                  </p>
+                                )}
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <Link
+                                href={`/okr/objectives/${objective.id}`}
+                                className="font-medium hover:text-[#0b6d41] transition-colors"
+                              >
+                                {objective.title}
+                              </Link>
+                              {objective.description && (
+                                <p className="text-xs text-muted-foreground mt-1 line-clamp-1">
+                                  {objective.description}
+                                </p>
+                              )}
+                            </TableCell>
+                            <TableCell>
+                              <Badge
+                                variant="outline"
+                                className={cn('text-xs', trackingStatusConfig[status].className)}
+                              >
+                                <StatusIcon className="h-3 w-3 mr-1" />
+                                {trackingStatusConfig[status].label}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex items-center gap-2">
+                                <Progress value={objective.overall_progress} className="h-2 flex-1" />
+                                <span className="text-xs font-mono w-10">{objective.overall_progress}%</span>
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <span className="text-sm font-mono">{objective.key_results?.length || 0}</span>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                )}
               </CardContent>
             </Card>
           </TabsContent>

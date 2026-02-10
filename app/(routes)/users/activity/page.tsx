@@ -72,6 +72,7 @@ import {
   UserActivityLogWithUser
 } from '@/types/activity';
 import { cn } from '@/lib/utils';
+import { exportToCSV } from '@/lib/utils/export-utils';
 
 // Engagement Analytics imports
 import { EngagementFilters } from '@/components/analytics/engagement-filters';
@@ -232,12 +233,6 @@ export default function ActivityPage() {
   const hasAnalyticsPermission = true; // For testing - remove this later
 
   // Debug logging
-  console.log('Activity Data:', {
-    activityData,
-    activityLoading,
-    activityError,
-    filters: finalFilters
-  });
 
   const handleRefresh = () => {
     refreshActivity();
@@ -1000,8 +995,23 @@ export default function ActivityPage() {
               <EngagementFilters
                 onFilterChange={(filters) => setEngagementFilters(filters)}
                 onExport={() => {
-                  // TODO: Implement export functionality
-                  console.log('Export engagement data');
+                  if (!engagementMetrics?.students || engagementMetrics.students.length === 0) return;
+                  exportToCSV(engagementMetrics.students, 'engagement-analytics', [
+                    { key: 'name', label: 'Student Name' },
+                    { key: 'student_id', label: 'Student ID' },
+                    { key: 'email', label: 'Email' },
+                    { key: 'program_name', label: 'Program' },
+                    { key: 'section_name', label: 'Section' },
+                    { key: 'engagement_level', label: 'Engagement Level' },
+                    { key: 'logins_last_7_days', label: 'Logins (7d)' },
+                    { key: 'logins_last_30_days', label: 'Logins (30d)' },
+                    { key: 'avg_session_duration_minutes', label: 'Avg Session (min)', formatter: (v: number) => v != null ? v.toFixed(1) : '' },
+                    { key: 'total_time_spent_hours', label: 'Total Time (hrs)', formatter: (v: number) => v != null ? v.toFixed(1) : '' },
+                    { key: 'modules_accessed_count', label: 'Modules Accessed' },
+                    { key: 'last_login_at', label: 'Last Login' },
+                    { key: 'days_since_last_login', label: 'Days Since Last Login' },
+                    { key: 'percentile_rank', label: 'Percentile Rank', formatter: (v: number) => v != null ? v.toFixed(1) : '' },
+                  ]);
                 }}
               />
             </div>

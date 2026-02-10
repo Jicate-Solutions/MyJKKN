@@ -109,7 +109,6 @@ export async function GET(
     const userRole = apiKeyData.metadata?.role || 'guest';
 
     // Debug log for role-based filtering
-    console.log('Using role for filtering:', userRole);
 
     // Fetch the application with the given ID
     const { data: application, error: appError } = await supabase

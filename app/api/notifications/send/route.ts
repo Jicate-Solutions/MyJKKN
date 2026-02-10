@@ -273,7 +273,6 @@ async function sendWebPushNotifications(
       .in('user_id', userIds);
 
     if (!subscriptions || subscriptions.length === 0) {
-      console.log('No push subscriptions found for target users');
       return;
     }
 
@@ -305,9 +304,6 @@ async function sendWebPushNotifications(
     });
 
     await Promise.allSettled(pushPromises);
-    console.log(
-      `Sent push notifications to ${subscriptions.length} subscriptions`
-    );
   } catch (error) {
     console.error('Error in sendWebPushNotifications:', error);
   }

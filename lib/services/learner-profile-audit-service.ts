@@ -40,8 +40,6 @@ export class LearnerProfileAuditService {
       throw new Error(`Failed to create audit log: ${error.message}`);
     }
 
-    console.log('[learner-profile-audit-service] Audit entry created:', data.id);
-
     return data;
   }
 

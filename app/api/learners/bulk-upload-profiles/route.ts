@@ -377,20 +377,10 @@ export async function POST(request: NextRequest) {
       };
 
       // Convert names to IDs if name fields are provided
-      console.log(`[bulk-upload-api] Row ${parsedRow.rowNumber}: Starting name-to-ID resolution`);
-      console.log(`[bulk-upload-api] Row ${parsedRow.rowNumber}: Names provided:`, {
-        institution: sanitizedData._institution_name,
-        department: sanitizedData._department_name,
-        program: sanitizedData._program_name,
-        semester: sanitizedData._semester_name,
-        section: sanitizedData._section_name
-      });
 
       // Institution
       if (sanitizedData._institution_name && !sanitizedData.institution_id) {
-        console.log(`[bulk-upload-api] Row ${parsedRow.rowNumber}: Resolving institution "${sanitizedData._institution_name}"`);
         const instResult = await NameToIdResolver.resolveInstitutionId(sanitizedData._institution_name);
-        console.log(`[bulk-upload-api] Row ${parsedRow.rowNumber}: Institution result:`, instResult);
         if (instResult.found && instResult.id) {
           sanitizedData.institution_id = instResult.id;
         }
@@ -425,13 +415,11 @@ export async function POST(request: NextRequest) {
 
       // Program
       if (sanitizedData._program_name && !sanitizedData.program_id) {
-        console.log(`[bulk-upload-api] Row ${parsedRow.rowNumber}: Resolving program "${sanitizedData._program_name}" with institution_id:`, sanitizedData.institution_id, 'department_id:', sanitizedData.department_id);
         const progResult = await NameToIdResolver.resolveProgramId(
           sanitizedData._program_name,
           sanitizedData.institution_id,
           sanitizedData.department_id
         );
-        console.log(`[bulk-upload-api] Row ${parsedRow.rowNumber}: Program result:`, progResult);
         if (progResult.found && progResult.id) {
           sanitizedData.program_id = progResult.id;
         } else {
@@ -441,13 +429,11 @@ export async function POST(request: NextRequest) {
 
       // Semester
       if (sanitizedData._semester_name && !sanitizedData.semester_id) {
-        console.log(`[bulk-upload-api] Row ${parsedRow.rowNumber}: Resolving semester "${sanitizedData._semester_name}" with institution_id:`, sanitizedData.institution_id, 'program_id:', sanitizedData.program_id);
         const semResult = await NameToIdResolver.resolveSemesterId(
           sanitizedData._semester_name,
           sanitizedData.institution_id,
           sanitizedData.program_id
         );
-        console.log(`[bulk-upload-api] Row ${parsedRow.rowNumber}: Semester result:`, semResult);
         if (semResult.found && semResult.id) {
           sanitizedData.semester_id = semResult.id;
         } else {
@@ -457,13 +443,11 @@ export async function POST(request: NextRequest) {
 
       // Section
       if (sanitizedData._section_name && !sanitizedData.section_id) {
-        console.log(`[bulk-upload-api] Row ${parsedRow.rowNumber}: Resolving section "${sanitizedData._section_name}" with institution_id:`, sanitizedData.institution_id, 'semester_id:', sanitizedData.semester_id);
         const secResult = await NameToIdResolver.resolveSectionId(
           sanitizedData._section_name,
           sanitizedData.institution_id,
           sanitizedData.semester_id
         );
-        console.log(`[bulk-upload-api] Row ${parsedRow.rowNumber}: Section result:`, secResult);
         if (secResult.found && secResult.id) {
           sanitizedData.section_id = secResult.id;
         } else {

@@ -7,7 +7,7 @@ import {
   ChevronUp,
   ChevronDown,
   UserCircle,
-  ExternalLink
+  Star
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -237,6 +237,12 @@ export function LearnerComplianceTable({
                           <Badge variant='outline' className='text-xs capitalize'>
                             {learner.assignmentRole}
                           </Badge>
+                        )}
+                        {learner.assignmentRating != null && (
+                          <span className='flex items-center gap-0.5 text-xs text-amber-600'>
+                            <Star className='h-3 w-3 fill-amber-400 text-amber-400' />
+                            {learner.assignmentRating.toFixed(1)}
+                          </span>
                         )}
                         <Badge
                           variant='outline'

@@ -608,8 +608,6 @@ export async function POST(request: NextRequest): Promise<NextResponse<ImportRes
       }, { status: 400 });
     }
 
-    console.log(`[enquiries/import] Processing ${dataRows.length} rows`);
-
     // ============================================================
     // 3. PARSE AND VALIDATE ROWS
     // ============================================================
@@ -858,8 +856,6 @@ export async function POST(request: NextRequest): Promise<NextResponse<ImportRes
       });
     }
 
-    console.log(`[enquiries/import] Validated ${validatedRows.length} rows, inserting...`);
-
     // ============================================================
     // 6. INSERT VALID ROWS (BATCH INSERT)
     // ============================================================
@@ -965,7 +961,6 @@ export async function POST(request: NextRequest): Promise<NextResponse<ImportRes
     }
 
     const successCount = insertedLearners?.length || 0;
-    console.log(`[enquiries/import] ✅ Successfully inserted ${successCount} enquiries`);
 
     // ============================================================
     // 7. RETURN RESULT

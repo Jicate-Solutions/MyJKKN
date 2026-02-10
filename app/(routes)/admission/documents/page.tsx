@@ -24,7 +24,6 @@ import {
 } from "@/components/ui/select";
 import {
   FileText,
-  Upload,
   CheckCircle2,
   AlertTriangle,
   XCircle,
@@ -43,99 +42,49 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { AdmissionErrorBoundary } from "@/components/admission";
-
-// Mock data for document management
-const documentStats = {
-  totalApplications: 1245,
-  pendingVerification: 234,
-  verified: 876,
-  rejected: 45,
-  incomplete: 90,
-};
-
-const documentTypes = [
-  { id: "10th_marksheet", name: "10th Marksheet", required: true },
-  { id: "12th_marksheet", name: "12th Marksheet", required: true },
-  { id: "photo", name: "Passport Photo", required: true },
-  { id: "id_proof", name: "ID Proof (Aadhar/PAN)", required: true },
-  { id: "ug_degree", name: "UG Degree Certificate", required: false },
-  { id: "transfer_cert", name: "Transfer Certificate", required: false },
-  { id: "migration_cert", name: "Migration Certificate", required: false },
-  { id: "income_cert", name: "Income Certificate", required: false },
-];
-
-const pendingDocuments = [
-  {
-    id: 1,
-    applicant: "Rajesh Kumar",
-    application_id: "ADM-2026-0001",
-    document: "10th Marksheet",
-    uploaded_at: "2026-01-15 10:30",
-    file_type: "PDF",
-    file_size: "1.2 MB",
-    status: "pending",
-  },
-  {
-    id: 2,
-    applicant: "Priya Sharma",
-    application_id: "ADM-2026-0002",
-    document: "12th Marksheet",
-    uploaded_at: "2026-01-15 11:45",
-    file_type: "PDF",
-    file_size: "2.1 MB",
-    status: "pending",
-  },
-  {
-    id: 3,
-    applicant: "Amit Patel",
-    application_id: "ADM-2026-0003",
-    document: "Passport Photo",
-    uploaded_at: "2026-01-15 09:15",
-    file_type: "JPG",
-    file_size: "450 KB",
-    status: "pending",
-  },
-  {
-    id: 4,
-    applicant: "Sneha Reddy",
-    application_id: "ADM-2026-0004",
-    document: "ID Proof",
-    uploaded_at: "2026-01-14 16:20",
-    file_type: "PDF",
-    file_size: "890 KB",
-    status: "pending",
-  },
-  {
-    id: 5,
-    applicant: "Vikram Singh",
-    application_id: "ADM-2026-0005",
-    document: "UG Degree",
-    uploaded_at: "2026-01-14 14:10",
-    file_type: "PDF",
-    file_size: "1.8 MB",
-    status: "pending",
-  },
-];
-
-const recentVerifications = [
-  { id: 1, applicant: "Meera Iyer", document: "10th Marksheet", verified_by: "Admin", status: "approved", date: "2026-01-15" },
-  { id: 2, applicant: "Karthik N", document: "Photo", verified_by: "Admin", status: "rejected", date: "2026-01-15", reason: "Photo not clear" },
-  { id: 3, applicant: "Deepa M", document: "12th Marksheet", verified_by: "Admin", status: "approved", date: "2026-01-14" },
-  { id: 4, applicant: "Ravi Kumar", document: "ID Proof", verified_by: "Admin", status: "approved", date: "2026-01-14" },
-];
+import {
+  useDocumentTypes,
+  useDocumentStats,
+  usePendingDocuments,
+  useRecentVerifications,
+  useUpdateDocumentVerification,
+} from "@/hooks/admission/use-data-quality";
 
 function DocumentsPageContent() {
   const [searchTerm, setSearchTerm] = useState("");
-  const [filterStatus, setFilterStatus] = useState("all");
   const [filterDocType, setFilterDocType] = useState("all");
   const [isExporting, setIsExporting] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
 
-  const handleExportReport = async () => {
+  const { data: docTypes, isLoading: typesLoading } = useDocumentTypes();
+  const { data: docStats, isLoading: statsLoading } = useDocumentStats();
+  const { data: pendingDocs, isLoading: pendingLoading } = usePendingDocuments();
+  const { data: recentVer, isLoading: verLoading } = useRecentVerifications();
+  const updateVerification = useUpdateDocumentVerification();
+
+  const documentTypes = docTypes || [];
+  const stats = docStats || { totalDocuments: 0, pendingVerification: 0, verified: 0, rejected: 0, incomplete: 0 };
+  const pendingDocuments = pendingDocs || [];
+  const recentVerifications = recentVer || [];
+
+  const isLoading = typesLoading || statsLoading || pendingLoading || verLoading;
+
+  const handleExportReport = () => {
+    const allDocs = [...pendingDocuments, ...recentVerifications];
+    if (!allDocs.length) { toast.info('No documents to export'); return; }
     setIsExporting(true);
     try {
-      await new Promise((resolve) => setTimeout(resolve, 1500));
+      const headers = ['Document Type','Application ID','File Name','Status','Uploaded','Rejection Reason'];
+      const rows = allDocs.map(d => [
+        d.document_type_name, d.application_id || '', d.file_name || '',
+        d.verification_status || 'pending', d.uploaded_at ? new Date(d.uploaded_at).toLocaleDateString() : '',
+        d.rejection_reason || '',
+      ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(','));
+      const csv = [headers.join(','), ...rows].join('\n');
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = `documents-report-${new Date().toISOString().slice(0,10)}.csv`; a.click();
+      URL.revokeObjectURL(url);
       toast.success("Report exported successfully");
     } catch {
       toast.error("Failed to export report");
@@ -144,43 +93,46 @@ function DocumentsPageContent() {
     }
   };
 
-  const handleSyncDocuments = async () => {
+  const handleSyncDocuments = () => {
     setIsSyncing(true);
-    try {
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-      toast.success("Documents synced successfully");
-    } catch {
-      toast.error("Failed to sync documents");
-    } finally {
+    // Refetch all document data
+    Promise.all([
+      // useQueryClient would be needed to invalidate; for now trigger reloads by toggling state
+    ]).finally(() => {
       setIsSyncing(false);
-    }
+      toast.success("Documents synced successfully");
+      window.location.reload();
+    });
   };
 
-  const handleSaveConfig = async () => {
-    setIsSaving(true);
+  const handleApproveDocument = async (docId: string, docName: string) => {
     try {
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-      toast.success("Configuration saved successfully");
+      await updateVerification.mutateAsync({ docId, status: 'verified' });
+      toast.success(`Document approved: ${docName}`);
     } catch {
-      toast.error("Failed to save configuration");
-    } finally {
-      setIsSaving(false);
+      toast.error(`Failed to approve: ${docName}`);
     }
   };
 
-  const handleApproveDocument = (applicant: string) => {
-    toast.success(`Document approved for ${applicant}`);
+  const handleRejectDocument = async (docId: string, docName: string) => {
+    try {
+      await updateVerification.mutateAsync({ docId, status: 'rejected', rejectionReason: 'Rejected by reviewer' });
+      toast.error(`Document rejected: ${docName}`);
+    } catch {
+      toast.error(`Failed to reject: ${docName}`);
+    }
   };
 
-  const handleRejectDocument = (applicant: string) => {
-    toast.error(`Document rejected for ${applicant}`);
+  const handleRequestReupload = async (docId: string, docName: string) => {
+    try {
+      await updateVerification.mutateAsync({ docId, status: 'pending', rejectionReason: 'Re-upload requested' });
+      toast.info(`Re-upload requested for: ${docName}`);
+    } catch {
+      toast.error(`Failed to request re-upload: ${docName}`);
+    }
   };
 
-  const handleRequestReupload = (applicant: string) => {
-    toast.info(`Re-upload requested from ${applicant}`);
-  };
-
-  const getStatusBadge = (status: string) => {
+  const getStatusBadge = (status: string | null) => {
     switch (status) {
       case "pending":
         return (
@@ -189,11 +141,11 @@ function DocumentsPageContent() {
             Pending
           </Badge>
         );
-      case "approved":
+      case "verified":
         return (
           <Badge className="bg-green-100 text-green-800">
             <CheckCircle2 className="h-3 w-3 mr-1" />
-            Approved
+            Verified
           </Badge>
         );
       case "rejected":
@@ -204,8 +156,20 @@ function DocumentsPageContent() {
           </Badge>
         );
       default:
-        return <Badge variant="outline">{status}</Badge>;
+        return (
+          <Badge className="bg-yellow-100 text-yellow-800">
+            <Clock className="h-3 w-3 mr-1" />
+            Pending
+          </Badge>
+        );
     }
+  };
+
+  const formatFileSize = (bytes: number | null) => {
+    if (!bytes) return 'N/A';
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1048576) return `${(bytes / 1024).toFixed(0)} KB`;
+    return `${(bytes / 1048576).toFixed(1)} MB`;
   };
 
   return (
@@ -259,8 +223,10 @@ function DocumentsPageContent() {
                 <Users className="h-5 w-5 text-blue-600" />
               </div>
               <div>
-                <p className="text-xs text-gray-600">Total Applications</p>
-                <p className="text-xl font-bold">{documentStats.totalApplications.toLocaleString()}</p>
+                <p className="text-xs text-gray-600">Total Documents</p>
+                <p className="text-xl font-bold">
+                  {statsLoading ? '...' : stats.totalDocuments.toLocaleString()}
+                </p>
               </div>
             </div>
           </CardContent>
@@ -274,7 +240,9 @@ function DocumentsPageContent() {
               </div>
               <div>
                 <p className="text-xs text-gray-600">Pending Verification</p>
-                <p className="text-xl font-bold text-yellow-600">{documentStats.pendingVerification}</p>
+                <p className="text-xl font-bold text-yellow-600">
+                  {statsLoading ? '...' : stats.pendingVerification}
+                </p>
               </div>
             </div>
           </CardContent>
@@ -288,7 +256,9 @@ function DocumentsPageContent() {
               </div>
               <div>
                 <p className="text-xs text-gray-600">Verified</p>
-                <p className="text-xl font-bold text-green-600">{documentStats.verified}</p>
+                <p className="text-xl font-bold text-green-600">
+                  {statsLoading ? '...' : stats.verified}
+                </p>
               </div>
             </div>
           </CardContent>
@@ -302,7 +272,9 @@ function DocumentsPageContent() {
               </div>
               <div>
                 <p className="text-xs text-gray-600">Rejected</p>
-                <p className="text-xl font-bold text-red-600">{documentStats.rejected}</p>
+                <p className="text-xl font-bold text-red-600">
+                  {statsLoading ? '...' : stats.rejected}
+                </p>
               </div>
             </div>
           </CardContent>
@@ -316,7 +288,9 @@ function DocumentsPageContent() {
               </div>
               <div>
                 <p className="text-xs text-gray-600">Incomplete</p>
-                <p className="text-xl font-bold text-orange-600">{documentStats.incomplete}</p>
+                <p className="text-xl font-bold text-orange-600">
+                  {statsLoading ? '...' : stats.incomplete}
+                </p>
               </div>
             </div>
           </CardContent>
@@ -328,7 +302,7 @@ function DocumentsPageContent() {
         <TabsList>
           <TabsTrigger value="pending" className="gap-2">
             <Clock className="h-4 w-4" />
-            Pending Verification ({documentStats.pendingVerification})
+            Pending Verification ({statsLoading ? '...' : stats.pendingVerification})
           </TabsTrigger>
           <TabsTrigger value="verified" className="gap-2">
             <FileCheck className="h-4 w-4" />
@@ -348,7 +322,7 @@ function DocumentsPageContent() {
                 <div className="relative flex-1 min-w-[200px]">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
                   <Input
-                    placeholder="Search by name or application ID..."
+                    placeholder="Search by file name or application ID..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     className="pl-9"
@@ -362,7 +336,7 @@ function DocumentsPageContent() {
                   <SelectContent>
                     <SelectItem value="all">All Documents</SelectItem>
                     {documentTypes.map((doc) => (
-                      <SelectItem key={doc.id} value={doc.id}>
+                      <SelectItem key={doc.id} value={doc.code}>
                         {doc.name}
                       </SelectItem>
                     ))}
@@ -375,86 +349,110 @@ function DocumentsPageContent() {
           {/* Pending Documents Table */}
           <Card>
             <CardContent className="pt-4">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Applicant</TableHead>
-                    <TableHead>Application ID</TableHead>
-                    <TableHead>Document</TableHead>
-                    <TableHead>Uploaded</TableHead>
-                    <TableHead>File Info</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {pendingDocuments.map((doc) => (
-                    <TableRow key={doc.id}>
-                      <TableCell className="font-medium">{doc.applicant}</TableCell>
-                      <TableCell>
-                        <code className="bg-gray-100 px-2 py-1 rounded text-sm">
-                          {doc.application_id}
-                        </code>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          {doc.file_type === "PDF" ? (
-                            <FileText className="h-4 w-4 text-red-500" />
-                          ) : (
-                            <FileImage className="h-4 w-4 text-blue-500" />
-                          )}
-                          {doc.document}
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-sm text-gray-600">
-                        <div className="flex items-center gap-1">
-                          <Calendar className="h-3 w-3" />
-                          {doc.uploaded_at}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <span className="text-sm text-gray-600">
-                          {doc.file_type} • {doc.file_size}
-                        </span>
-                      </TableCell>
-                      <TableCell>{getStatusBadge(doc.status)}</TableCell>
-                      <TableCell>
-                        <div className="flex gap-1">
-                          <Button variant="ghost" size="icon" title="View document">
-                            <Eye className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="text-green-600 hover:text-green-700 hover:bg-green-50"
-                            title="Approve"
-                            onClick={() => handleApproveDocument(doc.applicant)}
-                          >
-                            <CheckCircle2 className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                            title="Reject"
-                            onClick={() => handleRejectDocument(doc.applicant)}
-                          >
-                            <XCircle className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            title="Request re-upload"
-                            onClick={() => handleRequestReupload(doc.applicant)}
-                          >
-                            <RotateCcw className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </TableCell>
+              {pendingLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Document Type</TableHead>
+                      <TableHead>Application ID</TableHead>
+                      <TableHead>File Name</TableHead>
+                      <TableHead>Uploaded</TableHead>
+                      <TableHead>File Info</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Actions</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {pendingDocuments
+                      .filter(doc => {
+                        const matchesSearch = !searchTerm ||
+                          (doc.file_name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+                          (doc.application_id || '').toLowerCase().includes(searchTerm.toLowerCase());
+                        const matchesType = filterDocType === 'all' || doc.document_type_code === filterDocType;
+                        return matchesSearch && matchesType;
+                      })
+                      .map((doc) => (
+                      <TableRow key={doc.id}>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            {(doc.mime_type || '').includes('pdf') ? (
+                              <FileText className="h-4 w-4 text-red-500" />
+                            ) : (
+                              <FileImage className="h-4 w-4 text-blue-500" />
+                            )}
+                            {doc.document_type_name}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <code className="bg-gray-100 px-2 py-1 rounded text-sm">
+                            {doc.application_id || 'N/A'}
+                          </code>
+                        </TableCell>
+                        <TableCell className="text-sm">{doc.file_name || 'Unknown'}</TableCell>
+                        <TableCell className="text-sm text-gray-600">
+                          <div className="flex items-center gap-1">
+                            <Calendar className="h-3 w-3" />
+                            {doc.uploaded_at ? new Date(doc.uploaded_at).toLocaleDateString() : 'N/A'}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <span className="text-sm text-gray-600">
+                            {(doc.mime_type || '').split('/').pop()?.toUpperCase() || 'N/A'} - {formatFileSize(doc.file_size)}
+                          </span>
+                        </TableCell>
+                        <TableCell>{getStatusBadge(doc.verification_status)}</TableCell>
+                        <TableCell>
+                          <div className="flex gap-1">
+                            <Button variant="ghost" size="icon" title="View document">
+                              <Eye className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="text-green-600 hover:text-green-700 hover:bg-green-50"
+                              title="Approve"
+                              onClick={() => handleApproveDocument(doc.id, doc.document_type_name)}
+                              disabled={updateVerification.isPending}
+                            >
+                              <CheckCircle2 className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                              title="Reject"
+                              onClick={() => handleRejectDocument(doc.id, doc.document_type_name)}
+                              disabled={updateVerification.isPending}
+                            >
+                              <XCircle className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              title="Request re-upload"
+                              onClick={() => handleRequestReupload(doc.id, doc.document_type_name)}
+                              disabled={updateVerification.isPending}
+                            >
+                              <RotateCcw className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                    {pendingDocuments.length === 0 && (
+                      <TableRow>
+                        <TableCell colSpan={7} className="text-center py-8 text-gray-500">
+                          No pending documents
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -463,35 +461,50 @@ function DocumentsPageContent() {
           <Card>
             <CardHeader>
               <CardTitle>Recent Verification Activity</CardTitle>
-              <CardDescription>Documents verified in the last 7 days</CardDescription>
+              <CardDescription>Recently verified or rejected documents</CardDescription>
             </CardHeader>
             <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Date</TableHead>
-                    <TableHead>Applicant</TableHead>
-                    <TableHead>Document</TableHead>
-                    <TableHead>Verified By</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Reason</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {recentVerifications.map((item) => (
-                    <TableRow key={item.id}>
-                      <TableCell className="text-sm text-gray-600">{item.date}</TableCell>
-                      <TableCell className="font-medium">{item.applicant}</TableCell>
-                      <TableCell>{item.document}</TableCell>
-                      <TableCell>{item.verified_by}</TableCell>
-                      <TableCell>{getStatusBadge(item.status)}</TableCell>
-                      <TableCell className="text-sm text-gray-600">
-                        {item.reason || "-"}
-                      </TableCell>
+              {verLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Document Type</TableHead>
+                      <TableHead>Application ID</TableHead>
+                      <TableHead>File</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Reason</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {recentVerifications.map((item) => (
+                      <TableRow key={item.id}>
+                        <TableCell className="font-medium">{item.document_type_name}</TableCell>
+                        <TableCell>
+                          <code className="bg-gray-100 px-2 py-1 rounded text-sm">
+                            {item.application_id || 'N/A'}
+                          </code>
+                        </TableCell>
+                        <TableCell className="text-sm">{item.file_name || 'Unknown'}</TableCell>
+                        <TableCell>{getStatusBadge(item.verification_status)}</TableCell>
+                        <TableCell className="text-sm text-gray-600">
+                          {item.rejection_reason || "-"}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                    {recentVerifications.length === 0 && (
+                      <TableRow>
+                        <TableCell colSpan={5} className="text-center py-8 text-gray-500">
+                          No recent verifications
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -505,39 +518,42 @@ function DocumentsPageContent() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="space-y-3">
-                {documentTypes.map((doc) => (
-                  <div
-                    key={doc.id}
-                    className="flex items-center justify-between p-4 border rounded-lg"
-                  >
-                    <div className="flex items-center gap-3">
-                      <FileText className="h-5 w-5 text-gray-400" />
-                      <div>
-                        <p className="font-medium">{doc.name}</p>
-                        <p className="text-sm text-gray-600">
-                          {doc.required ? "Required for all applications" : "Optional document"}
-                        </p>
+              {typesLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {documentTypes.map((doc) => (
+                    <div
+                      key={doc.id}
+                      className="flex items-center justify-between p-4 border rounded-lg"
+                    >
+                      <div className="flex items-center gap-3">
+                        <FileText className="h-5 w-5 text-gray-400" />
+                        <div>
+                          <p className="font-medium">{doc.name}</p>
+                          <p className="text-sm text-gray-600">
+                            {doc.is_required ? "Required for all applications" : "Optional document"}
+                            {doc.allowed_extensions && ` - ${doc.allowed_extensions.join(', ')}`}
+                            {doc.max_file_size_mb && ` - Max ${doc.max_file_size_mb}MB`}
+                          </p>
+                        </div>
                       </div>
+                      <Badge variant={doc.is_required ? "destructive" : "outline"}>
+                        {doc.is_required ? "Required" : "Optional"}
+                      </Badge>
                     </div>
-                    <Badge variant={doc.required ? "destructive" : "outline"}>
-                      {doc.required ? "Required" : "Optional"}
-                    </Badge>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                  {documentTypes.length === 0 && (
+                    <div className="text-center py-8 text-gray-500">No document types configured</div>
+                  )}
+                </div>
+              )}
               <div className="mt-6 flex gap-2">
-                <Button
-                  className="bg-[#0b6d41] hover:bg-[#095232]"
-                  onClick={handleSaveConfig}
-                  disabled={isSaving}
-                >
-                  {isSaving ? (
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  ) : null}
-                  {isSaving ? "Saving..." : "Save Configuration"}
+                <Button variant="outline" onClick={() => toast.info('Contact your institution admin to add or manage document types')}>
+                  Add Document Type
                 </Button>
-                <Button variant="outline">Add Document Type</Button>
               </div>
             </CardContent>
           </Card>
@@ -573,14 +589,17 @@ function DocumentsPageContent() {
                   <span className="font-bold">24 hours</span>
                 </div>
                 <div className="flex justify-between items-center">
-                  <span className="text-gray-600">Current average</span>
-                  <span className="font-bold text-green-600">18 hours</span>
+                  <span className="text-gray-600">Documents verified</span>
+                  <span className="font-bold text-green-600">{stats.verified}</span>
                 </div>
                 <div className="flex justify-between items-center">
-                  <span className="text-gray-600">Within SLA</span>
-                  <span className="font-bold text-green-600">94%</span>
+                  <span className="text-gray-600">Pending review</span>
+                  <span className="font-bold text-yellow-600">{stats.pendingVerification}</span>
                 </div>
-                <Progress value={94} className="mt-2 h-2" />
+                <Progress
+                  value={stats.totalDocuments > 0 ? (stats.verified / stats.totalDocuments) * 100 : 0}
+                  className="mt-2 h-2"
+                />
               </CardContent>
             </Card>
           </div>

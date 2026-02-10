@@ -90,7 +90,6 @@ async function checkAdminPermission(userId: string, institutionId: string): Prom
  * Get WhatsApp connection status for current institution
  */
 export async function getConnectionStatus(): Promise<ActionResponse<ConnectionStatusActionResponse>> {
-  console.log('[whatsapp/actions] getConnectionStatus called');
   try {
     const { userId, institutionId } = await getCurrentUser();
 
@@ -121,12 +120,6 @@ export async function getConnectionStatus(): Promise<ActionResponse<ConnectionSt
       throw new Error(selectError.message);
     }
 
-    console.log('[whatsapp/actions] DB connection:', {
-      id: connection?.id,
-      session_id: connection?.session_id,
-      status: connection?.status
-    });
-
     // If no connection exists, return empty state
     if (!connection) {
       return {
@@ -144,13 +137,7 @@ export async function getConnectionStatus(): Promise<ActionResponse<ConnectionSt
     // If we have a session ID, check actual status from WhatsApp service
     if (connection.session_id) {
       try {
-        console.log('[whatsapp/actions] Polling service for session:', connection.session_id);
         serviceStatus = await getServiceConnectionStatus(connection.session_id);
-        console.log('[whatsapp/actions] Service status:', {
-          status: serviceStatus?.status,
-          hasQr: !!serviceStatus?.qr,
-          qrLength: serviceStatus?.qr?.length
-        });
 
         // Update connection status if it changed (use server client)
         if (serviceStatus.status !== connection.status) {
@@ -320,15 +307,7 @@ export async function initializeConnection(): Promise<ActionResponse<InitConnect
 
     // Initialize connection with WhatsApp service
     try {
-      console.log('[whatsapp/actions] Calling serviceInitializeConnection with sessionId:', sessionId);
       const initResult = await serviceInitializeConnection(sessionId);
-      console.log('[whatsapp/actions] initResult:', {
-        status: initResult.status,
-        hasQr: !!initResult.qr,
-        qrLength: initResult.qr?.length,
-        phone: initResult.phone,
-        error: initResult.error
-      });
 
       // Update connection status based on service response
       if (initResult.qr) {

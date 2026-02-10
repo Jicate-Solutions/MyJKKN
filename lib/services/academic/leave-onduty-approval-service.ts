@@ -20,6 +20,13 @@ import {
   LeaveOndutyApplication,
 } from '@/types/leave-onduty';
 import { LeaveOndutyAttendanceIntegrationService } from './leave-onduty-attendance-integration-service';
+import { sendNotification } from '@/lib/services/notification/notification-service';
+import {
+  NotificationType,
+  NotificationCategory,
+  NotificationPriority,
+  NotificationChannel,
+} from '@/types/notification';
 
 // Helper to get untyped client for tables not yet in database.types.ts
 const getSupabase = () => createClientSupabaseClient() as any;
@@ -113,7 +120,34 @@ export class LeaveOndutyApprovalService {
       .update({ status: 'rejected' })
       .eq('id', applicationId);
 
-    // TODO: Notify learner of rejection
+    // Notify learner of rejection
+    const { data: rejectedApp } = await supabase
+      .from('leave_onduty_applications')
+      .select('learner_id, category, sub_category')
+      .eq('id', applicationId)
+      .single();
+
+    if (rejectedApp?.learner_id) {
+      try {
+        await sendNotification({
+          user_ids: [rejectedApp.learner_id],
+          type: NotificationType.ERROR,
+          category: NotificationCategory.APPROVAL,
+          priority: NotificationPriority.HIGH,
+          title: 'Leave/OnDuty Application Rejected',
+          message: `Your ${rejectedApp.category} application (${rejectedApp.sub_category}) has been rejected.`,
+          metadata: {
+            reference_id: applicationId,
+            reference_type: 'leave_onduty_application',
+          },
+          action_url: `/academic/leave-onduty/applications/${applicationId}`,
+          action_label: 'View Application',
+          channels: [NotificationChannel.IN_APP],
+        });
+      } catch (notifError) {
+        console.warn('[leave-approval] Failed to send rejection notification:', notifError);
+      }
+    }
   }
 
   /**
@@ -143,7 +177,40 @@ export class LeaveOndutyApprovalService {
       .update({ current_step: nextStep })
       .eq('id', application.id);
 
-    // TODO: Notify next approver
+    // Notify next approver (if approval record exists with an assigned approver)
+    const { data: nextApprovals } = await supabase
+      .from('leave_onduty_approvals')
+      .select('approver_id')
+      .eq('application_id', application.id)
+      .eq('step_order', nextStep)
+      .eq('status', 'pending');
+
+    if (nextApprovals && nextApprovals.length > 0) {
+      const nextApproverIds = nextApprovals
+        .map((a: any) => a.approver_id)
+        .filter(Boolean) as string[];
+      if (nextApproverIds.length > 0) {
+        try {
+          await sendNotification({
+            user_ids: nextApproverIds,
+            type: NotificationType.WARNING,
+            category: NotificationCategory.APPROVAL,
+            priority: NotificationPriority.HIGH,
+            title: 'Leave/OnDuty Approval Required',
+            message: `A ${application.category} application requires your approval (Step ${nextStep}).`,
+            metadata: {
+              reference_id: application.id,
+              reference_type: 'leave_onduty_application',
+            },
+            action_url: `/academic/leave-onduty/approvals`,
+            action_label: 'Review Application',
+            channels: [NotificationChannel.IN_APP],
+          });
+        } catch (notifError) {
+          console.warn('[leave-approval] Failed to notify next approver:', notifError);
+        }
+      }
+    }
   }
 
   /**
@@ -196,7 +263,34 @@ export class LeaveOndutyApprovalService {
       applicationId
     );
 
-    // TODO: Notify learner of approval
+    // Notify learner of approval
+    const { data: approvedApp } = await supabase
+      .from('leave_onduty_applications')
+      .select('learner_id, category, sub_category')
+      .eq('id', applicationId)
+      .single();
+
+    if (approvedApp?.learner_id) {
+      try {
+        await sendNotification({
+          user_ids: [approvedApp.learner_id],
+          type: NotificationType.SUCCESS,
+          category: NotificationCategory.APPROVAL,
+          priority: NotificationPriority.NORMAL,
+          title: 'Leave/OnDuty Application Approved',
+          message: `Your ${approvedApp.category} application (${approvedApp.sub_category}) has been approved.`,
+          metadata: {
+            reference_id: applicationId,
+            reference_type: 'leave_onduty_application',
+          },
+          action_url: `/academic/leave-onduty/applications/${applicationId}`,
+          action_label: 'View Application',
+          channels: [NotificationChannel.IN_APP],
+        });
+      } catch (notifError) {
+        console.warn('[leave-approval] Failed to send approval notification:', notifError);
+      }
+    }
   }
 
   /**
@@ -328,9 +422,36 @@ export class LeaveOndutyApprovalService {
     applicationId: string,
     approverIds: string[]
   ): Promise<void> {
-    // TODO: Implement notification system
-    // This will integrate with the notifications module
-    console.log('Notifying approvers:', approverIds, 'for application:', applicationId);
+    if (!approverIds.length) return;
+
+    const supabase = getSupabase();
+
+    // Get application details for the notification message
+    const { data: application } = await supabase
+      .from('leave_onduty_applications')
+      .select('category, sub_category')
+      .eq('id', applicationId)
+      .single();
+
+    try {
+      await sendNotification({
+        user_ids: approverIds,
+        type: NotificationType.WARNING,
+        category: NotificationCategory.APPROVAL,
+        priority: NotificationPriority.HIGH,
+        title: 'Leave/OnDuty Approval Required',
+        message: `A new ${application?.category || 'leave/onduty'} application (${application?.sub_category || ''}) requires your approval.`,
+        metadata: {
+          reference_id: applicationId,
+          reference_type: 'leave_onduty_application',
+        },
+        action_url: `/academic/leave-onduty/approvals`,
+        action_label: 'Review Application',
+        channels: [NotificationChannel.IN_APP],
+      });
+    } catch (notifError) {
+      console.warn('[leave-approval] Failed to notify approvers:', notifError);
+    }
   }
 
   /**
@@ -384,7 +505,22 @@ export class LeaveOndutyApprovalService {
     }
 
     // TODO: Assign approvers based on role and scope
-    // TODO: Notify initial approvers
+
+    // Notify initial approvers (those with assigned approver_id)
+    const { data: createdApprovals } = await supabase
+      .from('leave_onduty_approvals')
+      .select('approver_id')
+      .eq('application_id', applicationId)
+      .eq('status', 'pending');
+
+    if (createdApprovals) {
+      const initialApproverIds = createdApprovals
+        .map((a: any) => a.approver_id)
+        .filter(Boolean) as string[];
+      if (initialApproverIds.length > 0) {
+        await this.notifyApprovers(applicationId, initialApproverIds);
+      }
+    }
   }
 
   /**
@@ -428,14 +564,38 @@ export class LeaveOndutyApprovalService {
       .gte('action_taken_at', `${today}T00:00:00`)
       .lte('action_taken_at', `${today}T23:59:59`);
 
-    // Calculate average turnaround time
-    // TODO: Implement average calculation based on created_at to action_taken_at
+    // Calculate average turnaround time (created_at to action_taken_at)
+    let turnaroundQuery: any = supabase
+      .from('leave_onduty_approvals')
+      .select('created_at, action_taken_at')
+      .eq('approver_id', approverId)
+      .not('action_taken_at', 'is', null);
+
+    if (startDate) {
+      turnaroundQuery = turnaroundQuery.gte('action_taken_at', startDate);
+    }
+    if (endDate) {
+      turnaroundQuery = turnaroundQuery.lte('action_taken_at', endDate);
+    }
+
+    const { data: completedApprovals } = await turnaroundQuery;
+
+    let averageTurnaroundHours = 0;
+    if (completedApprovals && completedApprovals.length > 0) {
+      const totalHours = completedApprovals.reduce((sum: number, a: any) => {
+        const created = new Date(a.created_at).getTime();
+        const acted = new Date(a.action_taken_at).getTime();
+        return sum + (acted - created) / (1000 * 60 * 60);
+      }, 0);
+      averageTurnaroundHours =
+        Math.round((totalHours / completedApprovals.length) * 10) / 10;
+    }
 
     return {
       pending: pendingCount || 0,
       approved_today: approvedToday || 0,
       rejected_today: rejectedToday || 0,
-      average_turnaround_hours: 0, // TODO: Calculate
+      average_turnaround_hours: averageTurnaroundHours,
     };
   }
 }

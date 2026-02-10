@@ -310,16 +310,6 @@ export default function BulkUploadEnquiries({ onSuccess }: { onSuccess?: () => v
 
             // Debug log for first row to show column mapping (development only)
             if (process.env.NODE_ENV === 'development' && index === 0) {
-              console.log('[bulk-upload-enquiries] Excel column names:', Object.keys(row));
-              console.log('[bulk-upload-enquiries] Mapped education fields:', {
-                tenth_max_marks: mappedData.tenth_max_marks,
-                tenth_obtained_marks: mappedData.tenth_obtained_marks,
-                tenth_percentage: mappedData.tenth_percentage,
-                twelfth_group: mappedData.twelfth_group,
-                twelfth_max_marks: mappedData.twelfth_max_marks,
-                twelfth_obtained_marks: mappedData.twelfth_obtained_marks,
-                twelfth_percentage: mappedData.twelfth_percentage,
-              });
             }
 
             // Sanitize data (using enquiry-specific fields)
@@ -489,11 +479,6 @@ export default function BulkUploadEnquiries({ onSuccess }: { onSuccess?: () => v
 
       // Debug logging for regulations and batches
       if (process.env.NODE_ENV === 'development') {
-        console.log('[bulk-upload-enquiries] Database validation complete');
-        console.log('[bulk-upload-enquiries] Regulations validation result:', dbValidationResult.regulations);
-        console.log('[bulk-upload-enquiries] Batches validation result:', dbValidationResult.batches);
-        console.log('[bulk-upload-enquiries] First row regulation_name:', parsedRows[0]?.sanitizedData?.regulation_name);
-        console.log('[bulk-upload-enquiries] First row batch_name:', parsedRows[0]?.sanitizedData?.batch_name);
       }
 
       // Merge database validation results with existing validation
@@ -702,17 +687,6 @@ export default function BulkUploadEnquiries({ onSuccess }: { onSuccess?: () => v
 
           // Debug log for education fields (helps track mapping issues)
           if (process.env.NODE_ENV === 'development') {
-            console.log('[bulk-upload-enquiries] Row', row.rowNumber, 'Education fields:', {
-              last_school: data.last_school,
-              board_of_study: data.board_of_study,
-              tenth_max_marks: data.tenth_max_marks,
-              tenth_obtained_marks: data.tenth_obtained_marks,
-              tenth_percentage: data.tenth_percentage,
-              twelfth_group: data.twelfth_group,
-              twelfth_max_marks: data.twelfth_max_marks,
-              twelfth_obtained_marks: data.twelfth_obtained_marks,
-              twelfth_percentage: data.twelfth_percentage,
-            });
           }
 
           // Build composite keys for hierarchical lookups
@@ -732,15 +706,6 @@ export default function BulkUploadEnquiries({ onSuccess }: { onSuccess?: () => v
 
           // Debug logging for regulation and batch IDs
           if (process.env.NODE_ENV === 'development') {
-            console.log('[bulk-upload-enquiries] Row', row.rowNumber, 'ID Resolution:', {
-              regulation_name: data.regulation_name,
-              regulation_id,
-              batch_name: data.batch_name,
-              batch_id,
-              academic_year_name: data.academic_year_name,
-              academic_year_id,
-              admission_year: data.admission_year,
-            });
           }
 
           // Prepare data for API with resolved IDs (enquiry specific)

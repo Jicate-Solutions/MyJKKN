@@ -205,16 +205,13 @@ export class ConsultantService {
       .from('education_consultants')
       .select('*')
       .eq('code', code)
-      .single();
+      .limit(1);
 
     if (error) {
-      if (error.code === 'PGRST116') {
-        return null;
-      }
       throw new Error(error.message);
     }
 
-    return data;
+    return data?.[0] || null;
   }
 
   /**
@@ -361,16 +358,15 @@ export class ConsultantService {
       query = query.is('program_id', null);
     }
 
-    const { data, error } = await query.single();
+    const { data, error } = await query
+      .order('created_at', { ascending: false })
+      .limit(1);
 
     if (error) {
-      if (error.code === 'PGRST116') {
-        return null;
-      }
       throw new Error(error.message);
     }
 
-    return data;
+    return data?.[0] || null;
   }
 
   /**

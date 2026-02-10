@@ -160,7 +160,6 @@ export class OKRNotificationService {
         throw userNotificationError;
       }
 
-      console.log(`[OKR Notification] Sent ${payload.type} notification to user ${payload.user_id}`);
     } catch (error: any) {
       console.error('[OKR Notification] Error sending notification:', error?.message || error?.code || error?.details || JSON.stringify(error));
       throw error;
@@ -286,7 +285,6 @@ export class OKRNotificationService {
         }
       }
 
-      console.log(`[OKR] Weekly reminders sent to ${sentCount} users`);
       return sentCount;
     } catch (error: any) {
       console.error('[OKR] Error sending weekly reminders:', error?.message || error?.code || error?.details || JSON.stringify(error));
@@ -359,7 +357,6 @@ export class OKRNotificationService {
         }
       }
 
-      console.log(`[OKR] Deadline warnings sent to ${sentCount} users`);
       return sentCount;
     } catch (error: any) {
       console.error('[OKR] Error sending deadline warnings:', error?.message || error?.code || error?.details || JSON.stringify(error));
@@ -523,7 +520,6 @@ export class OKRNotificationService {
         }
       }
 
-      console.log(`[OKR] Sent ${overdueAlerts} overdue alerts and ${escalations} escalations`);
       return { overdueAlerts, escalations };
     } catch (error: any) {
       console.error('[OKR] Error sending overdue alerts:', error?.message || error?.code || error?.details || JSON.stringify(error));

@@ -34,220 +34,48 @@ import {
 import {
   Globe,
   Plus,
-  Edit,
-  Trash2,
   Search,
   TrendingUp,
-  TrendingDown,
   Users,
-  DollarSign,
   Target,
   BarChart3,
   ExternalLink,
   Copy,
-  Facebook,
-  Instagram,
-  Youtube,
-  Newspaper,
-  Phone,
-  Mail,
-  MessageSquare,
-  Building,
   Megaphone,
   Loader2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { AdmissionErrorBoundary } from "@/components/admission";
-
-// Mock data for source tracking
-const sourceStats = {
-  totalLeads: 3712,
-  totalSources: 24,
-  attributedLeads: 3345,
-  attributionRate: 90.1,
-  topSource: "Website",
-  bestROI: "Referral",
-};
-
-const sources = [
-  {
-    id: 1,
-    name: "Website",
-    type: "Digital",
-    icon: "globe",
-    leads: 1245,
-    conversions: 156,
-    conversionRate: 12.5,
-    cost: 50000,
-    cpl: 40,
-    roi: 3.2,
-    trend: "up",
-    status: "active",
-  },
-  {
-    id: 2,
-    name: "Facebook Ads",
-    type: "Paid Social",
-    icon: "facebook",
-    leads: 678,
-    conversions: 68,
-    conversionRate: 10.0,
-    cost: 120000,
-    cpl: 177,
-    roi: 1.8,
-    trend: "up",
-    status: "active",
-  },
-  {
-    id: 3,
-    name: "Instagram",
-    type: "Paid Social",
-    icon: "instagram",
-    leads: 456,
-    conversions: 41,
-    conversionRate: 9.0,
-    cost: 80000,
-    cpl: 175,
-    roi: 1.6,
-    trend: "down",
-    status: "active",
-  },
-  {
-    id: 4,
-    name: "Referral",
-    type: "Organic",
-    icon: "users",
-    leads: 345,
-    conversions: 69,
-    conversionRate: 20.0,
-    cost: 0,
-    cpl: 0,
-    roi: 999,
-    trend: "up",
-    status: "active",
-  },
-  {
-    id: 5,
-    name: "Walk-in",
-    type: "Offline",
-    icon: "building",
-    leads: 234,
-    conversions: 47,
-    conversionRate: 20.1,
-    cost: 0,
-    cpl: 0,
-    roi: 999,
-    trend: "stable",
-    status: "active",
-  },
-  {
-    id: 6,
-    name: "YouTube Ads",
-    type: "Paid Social",
-    icon: "youtube",
-    leads: 189,
-    conversions: 15,
-    conversionRate: 7.9,
-    cost: 100000,
-    cpl: 529,
-    roi: 0.9,
-    trend: "down",
-    status: "active",
-  },
-  {
-    id: 7,
-    name: "Newspaper Ad",
-    type: "Traditional",
-    icon: "newspaper",
-    leads: 123,
-    conversions: 10,
-    conversionRate: 8.1,
-    cost: 200000,
-    cpl: 1626,
-    roi: 0.4,
-    trend: "down",
-    status: "paused",
-  },
-  {
-    id: 8,
-    name: "WhatsApp Campaign",
-    type: "Digital",
-    icon: "message",
-    leads: 287,
-    conversions: 34,
-    conversionRate: 11.8,
-    cost: 15000,
-    cpl: 52,
-    roi: 4.1,
-    trend: "up",
-    status: "active",
-  },
-];
-
-const utmParameters = [
-  { source: "facebook", medium: "paid", campaign: "admission_2026", leads: 678 },
-  { source: "instagram", medium: "paid", campaign: "admission_2026", leads: 456 },
-  { source: "google", medium: "cpc", campaign: "brand_keywords", leads: 234 },
-  { source: "youtube", medium: "video", campaign: "testimonials", leads: 189 },
-  { source: "email", medium: "newsletter", campaign: "jan_update", leads: 145 },
-];
+import { useSourceBreakdown, useSourceStats } from "@/hooks/admission/use-data-quality";
 
 function SourcesPageContent() {
   const [searchTerm, setSearchTerm] = useState("");
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
 
+  const { data: sourceBreakdown, isLoading: breakdownLoading } = useSourceBreakdown();
+  const { data: sourceStats, isLoading: statsLoading } = useSourceStats();
+
+  const sources = sourceBreakdown || [];
+  const stats = sourceStats || { totalLeads: 0, totalSources: 0, attributedLeads: 0, attributionRate: 0, topSource: 'N/A' };
+
   const handleCopyUrl = (url: string) => {
     navigator.clipboard.writeText(url);
     toast.success("URL copied to clipboard");
   };
 
-  const handleCreateSource = async () => {
-    setIsCreating(true);
-    try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      toast.success("Source added successfully");
-      setShowAddDialog(false);
-    } catch {
-      toast.error("Failed to add source");
-    } finally {
-      setIsCreating(false);
-    }
-  };
-
-  const getSourceIcon = (icon: string) => {
-    switch (icon) {
-      case "globe":
-        return <Globe className="h-5 w-5 text-blue-500" />;
-      case "facebook":
-        return <Facebook className="h-5 w-5 text-blue-600" />;
-      case "instagram":
-        return <Instagram className="h-5 w-5 text-pink-500" />;
-      case "youtube":
-        return <Youtube className="h-5 w-5 text-red-500" />;
-      case "users":
-        return <Users className="h-5 w-5 text-green-500" />;
-      case "building":
-        return <Building className="h-5 w-5 text-gray-500" />;
-      case "newspaper":
-        return <Newspaper className="h-5 w-5 text-gray-600" />;
-      case "message":
-        return <MessageSquare className="h-5 w-5 text-green-600" />;
-      default:
-        return <Globe className="h-5 w-5 text-gray-400" />;
-    }
-  };
-
-  const getTrendIcon = (trend: string) => {
-    if (trend === "up") return <TrendingUp className="h-4 w-4 text-green-500" />;
-    if (trend === "down") return <TrendingDown className="h-4 w-4 text-red-500" />;
-    return <span className="text-gray-400">-</span>;
+  const handleCreateSource = () => {
+    // Sources are derived from lead_source values on admission_leads
+    // No separate sources table - this is informational only
+    toast.info("Sources are automatically tracked from lead entries");
+    setShowAddDialog(false);
   };
 
   const filteredSources = sources.filter((source) =>
-    source.name.toLowerCase().includes(searchTerm.toLowerCase())
+    source.source.toLowerCase().includes(searchTerm.toLowerCase())
   );
+
+  const isLoading = breakdownLoading || statsLoading;
 
   return (
     <div className="container mx-auto py-6 space-y-6">
@@ -259,7 +87,7 @@ function SourcesPageContent() {
             Source Attribution
           </h1>
           <p className="text-gray-600 mt-1">
-            Track and analyze lead sources for ROI optimization
+            Track and analyze lead sources for optimization
           </p>
         </div>
         <Button onClick={() => setShowAddDialog(true)} className="gap-2 bg-[#0b6d41] hover:bg-[#095232]">
@@ -269,7 +97,7 @@ function SourcesPageContent() {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         <Card>
           <CardContent className="pt-6">
             <div className="flex items-center gap-3">
@@ -278,7 +106,9 @@ function SourcesPageContent() {
               </div>
               <div>
                 <p className="text-xs text-gray-600">Total Leads</p>
-                <p className="text-xl font-bold">{sourceStats.totalLeads.toLocaleString()}</p>
+                <p className="text-xl font-bold">
+                  {isLoading ? '...' : stats.totalLeads.toLocaleString()}
+                </p>
               </div>
             </div>
           </CardContent>
@@ -292,7 +122,9 @@ function SourcesPageContent() {
               </div>
               <div>
                 <p className="text-xs text-gray-600">Active Sources</p>
-                <p className="text-xl font-bold">{sourceStats.totalSources}</p>
+                <p className="text-xl font-bold">
+                  {isLoading ? '...' : stats.totalSources}
+                </p>
               </div>
             </div>
           </CardContent>
@@ -306,7 +138,9 @@ function SourcesPageContent() {
               </div>
               <div>
                 <p className="text-xs text-gray-600">Attributed</p>
-                <p className="text-xl font-bold text-green-600">{sourceStats.attributedLeads.toLocaleString()}</p>
+                <p className="text-xl font-bold text-green-600">
+                  {isLoading ? '...' : stats.attributedLeads.toLocaleString()}
+                </p>
               </div>
             </div>
           </CardContent>
@@ -316,8 +150,10 @@ function SourcesPageContent() {
           <CardContent className="pt-6">
             <div>
               <p className="text-xs text-gray-600">Attribution Rate</p>
-              <p className="text-xl font-bold text-[#0b6d41]">{sourceStats.attributionRate}%</p>
-              <Progress value={sourceStats.attributionRate} className="mt-2 h-1.5" />
+              <p className="text-xl font-bold text-[#0b6d41]">
+                {isLoading ? '...' : `${stats.attributionRate}%`}
+              </p>
+              <Progress value={stats.attributionRate} className="mt-2 h-1.5" />
             </div>
           </CardContent>
         </Card>
@@ -330,21 +166,9 @@ function SourcesPageContent() {
               </div>
               <div>
                 <p className="text-xs text-gray-600">Top Source</p>
-                <p className="text-xl font-bold">{sourceStats.topSource}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-emerald-100 rounded-lg">
-                <DollarSign className="h-5 w-5 text-emerald-600" />
-              </div>
-              <div>
-                <p className="text-xs text-gray-600">Best ROI</p>
-                <p className="text-xl font-bold">{sourceStats.bestROI}</p>
+                <p className="text-xl font-bold">
+                  {isLoading ? '...' : stats.topSource}
+                </p>
               </div>
             </div>
           </CardContent>
@@ -362,9 +186,9 @@ function SourcesPageContent() {
             <ExternalLink className="h-4 w-4" />
             UTM Tracking
           </TabsTrigger>
-          <TabsTrigger value="roi" className="gap-2">
+          <TabsTrigger value="performance" className="gap-2">
             <BarChart3 className="h-4 w-4" />
-            ROI Analysis
+            Performance
           </TabsTrigger>
         </TabsList>
 
@@ -387,150 +211,61 @@ function SourcesPageContent() {
           {/* Sources Table */}
           <Card>
             <CardContent className="pt-4">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Source</TableHead>
-                    <TableHead>Type</TableHead>
-                    <TableHead>Leads</TableHead>
-                    <TableHead>Conversions</TableHead>
-                    <TableHead>Conv. Rate</TableHead>
-                    <TableHead>Cost</TableHead>
-                    <TableHead>CPL</TableHead>
-                    <TableHead>ROI</TableHead>
-                    <TableHead>Trend</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredSources.map((source) => (
-                    <TableRow key={source.id}>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          {getSourceIcon(source.icon)}
-                          <span className="font-medium">{source.name}</span>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="outline">{source.type}</Badge>
-                      </TableCell>
-                      <TableCell className="font-medium">{source.leads.toLocaleString()}</TableCell>
-                      <TableCell>{source.conversions}</TableCell>
-                      <TableCell>
-                        <span
-                          className={
-                            source.conversionRate >= 15
-                              ? "text-green-600 font-medium"
-                              : source.conversionRate >= 10
-                              ? "text-yellow-600"
-                              : "text-red-600"
-                          }
-                        >
-                          {source.conversionRate.toFixed(1)}%
-                        </span>
-                      </TableCell>
-                      <TableCell>
-                        {source.cost > 0 ? `₹${(source.cost / 1000).toFixed(0)}K` : "-"}
-                      </TableCell>
-                      <TableCell>
-                        {source.cpl > 0 ? `₹${source.cpl}` : "-"}
-                      </TableCell>
-                      <TableCell>
-                        <span
-                          className={
-                            source.roi >= 3
-                              ? "text-green-600 font-bold"
-                              : source.roi >= 1.5
-                              ? "text-yellow-600 font-medium"
-                              : source.roi > 0
-                              ? "text-red-600"
-                              : "text-gray-400"
-                          }
-                        >
-                          {source.roi === 999 ? "∞" : `${source.roi.toFixed(1)}x`}
-                        </span>
-                      </TableCell>
-                      <TableCell>{getTrendIcon(source.trend)}</TableCell>
-                      <TableCell>
-                        <Badge variant={source.status === "active" ? "default" : "secondary"}>
-                          {source.status}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex gap-1">
-                          <Button variant="ghost" size="icon">
-                            <Edit className="h-4 w-4" />
-                          </Button>
-                          <Button variant="ghost" size="icon" className="text-red-500">
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </TableCell>
+              {isLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Source</TableHead>
+                      <TableHead>Leads</TableHead>
+                      <TableHead>Conversions</TableHead>
+                      <TableHead>Conv. Rate</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredSources.map((source, index) => (
+                      <TableRow key={index}>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <Globe className="h-4 w-4 text-gray-400" />
+                            <span className="font-medium">{source.source}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell className="font-medium">{source.leads.toLocaleString()}</TableCell>
+                        <TableCell>{source.conversions}</TableCell>
+                        <TableCell>
+                          <span
+                            className={
+                              source.conversionRate >= 15
+                                ? "text-green-600 font-medium"
+                                : source.conversionRate >= 10
+                                ? "text-yellow-600"
+                                : "text-red-600"
+                            }
+                          >
+                            {source.conversionRate.toFixed(1)}%
+                          </span>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                    {filteredSources.length === 0 && (
+                      <TableRow>
+                        <TableCell colSpan={4} className="text-center py-8 text-gray-500">
+                          No sources found
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
 
         <TabsContent value="utm" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>UTM Parameter Tracking</CardTitle>
-              <CardDescription>
-                Track campaign performance using UTM parameters
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Source</TableHead>
-                    <TableHead>Medium</TableHead>
-                    <TableHead>Campaign</TableHead>
-                    <TableHead>Leads</TableHead>
-                    <TableHead>Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {utmParameters.map((utm, index) => (
-                    <TableRow key={index}>
-                      <TableCell>
-                        <code className="bg-gray-100 px-2 py-1 rounded text-sm">
-                          {utm.source}
-                        </code>
-                      </TableCell>
-                      <TableCell>
-                        <code className="bg-gray-100 px-2 py-1 rounded text-sm">
-                          {utm.medium}
-                        </code>
-                      </TableCell>
-                      <TableCell>
-                        <code className="bg-gray-100 px-2 py-1 rounded text-sm">
-                          {utm.campaign}
-                        </code>
-                      </TableCell>
-                      <TableCell className="font-medium">{utm.leads}</TableCell>
-                      <TableCell>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="gap-2"
-                          onClick={() => handleCopyUrl(`https://jkkn.edu.in/apply?utm_source=${utm.source}&utm_medium=${utm.medium}&utm_campaign=${utm.campaign}`)}
-                        >
-                          <Copy className="h-4 w-4" />
-                          Copy URL
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
-
           <Card>
             <CardHeader>
               <CardTitle>UTM Builder</CardTitle>
@@ -594,7 +329,7 @@ function SourcesPageContent() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="roi" className="space-y-4">
+        <TabsContent value="performance" className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <Card className="border-l-4 border-l-green-500">
               <CardHeader>
@@ -604,95 +339,74 @@ function SourcesPageContent() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="space-y-4">
-                  {sources
-                    .filter((s) => s.roi >= 3 || s.roi === 999)
-                    .sort((a, b) => b.conversionRate - a.conversionRate)
-                    .slice(0, 5)
-                    .map((source, index) => (
-                      <div key={index} className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          {getSourceIcon(source.icon)}
-                          <span>{source.name}</span>
+                {isLoading ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {sources
+                      .filter(s => s.conversionRate >= 10)
+                      .sort((a, b) => b.conversionRate - a.conversionRate)
+                      .slice(0, 5)
+                      .map((source, index) => (
+                        <div key={index} className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <Globe className="h-4 w-4 text-gray-400" />
+                            <span>{source.source}</span>
+                          </div>
+                          <div className="flex items-center gap-4">
+                            <span className="text-green-600 font-medium">
+                              {source.conversionRate.toFixed(1)}% conv.
+                            </span>
+                            <Badge className="bg-green-100 text-green-800">
+                              {source.leads} leads
+                            </Badge>
+                          </div>
                         </div>
-                        <div className="flex items-center gap-4">
-                          <span className="text-green-600 font-medium">
-                            {source.conversionRate.toFixed(1)}% conv.
-                          </span>
-                          <Badge className="bg-green-100 text-green-800">
-                            {source.roi === 999 ? "∞" : `${source.roi.toFixed(1)}x`} ROI
-                          </Badge>
-                        </div>
-                      </div>
-                    ))}
-                </div>
+                      ))}
+                    {sources.filter(s => s.conversionRate >= 10).length === 0 && (
+                      <p className="text-center text-gray-500 py-4">No high-performing sources yet</p>
+                    )}
+                  </div>
+                )}
               </CardContent>
             </Card>
 
-            <Card className="border-l-4 border-l-red-500">
+            <Card className="border-l-4 border-l-blue-500">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  <TrendingDown className="h-5 w-5 text-red-500" />
-                  Underperforming Sources
+                  <BarChart3 className="h-5 w-5 text-blue-500" />
+                  Sources by Volume
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="space-y-4">
-                  {sources
-                    .filter((s) => s.roi < 1.5 && s.roi > 0)
-                    .sort((a, b) => a.roi - b.roi)
-                    .slice(0, 5)
-                    .map((source, index) => (
-                      <div key={index} className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          {getSourceIcon(source.icon)}
-                          <span>{source.name}</span>
+                {isLoading ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {sources.slice(0, 5).map((source, index) => {
+                      const maxLeads = sources[0]?.leads || 1;
+                      return (
+                        <div key={index} className="space-y-1">
+                          <div className="flex items-center justify-between text-sm">
+                            <span>{source.source}</span>
+                            <span className="font-medium">{source.leads} leads</span>
+                          </div>
+                          <Progress value={(source.leads / maxLeads) * 100} className="h-2" />
                         </div>
-                        <div className="flex items-center gap-4">
-                          <span className="text-red-600 font-medium">
-                            ₹{source.cpl} CPL
-                          </span>
-                          <Badge variant="destructive">
-                            {source.roi.toFixed(1)}x ROI
-                          </Badge>
-                        </div>
-                      </div>
-                    ))}
-                </div>
-                <Button variant="outline" className="w-full mt-4">
-                  Review Budget Allocation
-                </Button>
+                      );
+                    })}
+                    {sources.length === 0 && (
+                      <p className="text-center text-gray-500 py-4">No source data available</p>
+                    )}
+                  </div>
+                )}
               </CardContent>
             </Card>
           </div>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Budget Recommendations</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
-                  <p className="font-medium text-green-800">Increase Budget</p>
-                  <p className="text-sm text-green-700 mt-1">
-                    WhatsApp Campaign and Referral program show excellent ROI. Consider increasing investment.
-                  </p>
-                </div>
-                <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-                  <p className="font-medium text-yellow-800">Optimize</p>
-                  <p className="text-sm text-yellow-700 mt-1">
-                    Instagram ads have declining performance. Review targeting and creatives.
-                  </p>
-                </div>
-                <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
-                  <p className="font-medium text-red-800">Consider Pausing</p>
-                  <p className="text-sm text-red-700 mt-1">
-                    Newspaper ads show poor ROI (0.4x). Consider reallocating budget to digital channels.
-                  </p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
         </TabsContent>
       </Tabs>
 
@@ -724,10 +438,6 @@ function SourcesPageContent() {
                   <SelectItem value="traditional">Traditional</SelectItem>
                 </SelectContent>
               </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>Monthly Budget (optional)</Label>
-              <Input type="number" placeholder="₹" />
             </div>
           </div>
           <DialogFooter>

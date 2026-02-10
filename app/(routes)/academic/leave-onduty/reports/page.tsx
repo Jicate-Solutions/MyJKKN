@@ -54,6 +54,7 @@ import {
 } from 'lucide-react';
 import { format, startOfMonth, endOfMonth, subMonths } from 'date-fns';
 import { cn } from '@/lib/utils';
+import { exportToCSV } from '@/lib/utils/export-utils';
 
 export default function LeaveOndutyReportsPage() {
   const { profile } = useAuth();
@@ -116,8 +117,23 @@ export default function LeaveOndutyReportsPage() {
   const stats = calculateStatistics();
 
   const handleExport = () => {
-    // TODO: Implement export to CSV/Excel
-    console.log('Export functionality coming soon');
+    if (!applications || applications.length === 0) return;
+    exportToCSV(applications, 'leave-onduty-report', [
+      { key: 'id', label: 'Application ID' },
+      { key: 'category', label: 'Category' },
+      { key: 'sub_category', label: 'Sub Category' },
+      { key: 'status', label: 'Status' },
+      { key: 'learner.first_name', label: 'First Name' },
+      { key: 'learner.last_name', label: 'Last Name' },
+      { key: 'learner.roll_number', label: 'Roll Number' },
+      { key: 'application_date', label: 'Application Date' },
+      { key: 'start_date', label: 'Start Date' },
+      { key: 'end_date', label: 'End Date' },
+      { key: 'period_type', label: 'Period Type' },
+      { key: 'reason', label: 'Reason' },
+      { key: 'created_at', label: 'Created At' },
+      { key: 'updated_at', label: 'Updated At' },
+    ]);
   };
 
   if (isLoading) {

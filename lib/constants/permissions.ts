@@ -603,6 +603,14 @@ export const PERMISSION_CATEGORIES = [
     ]
   },
   {
+    name: 'Solutions Hub - Compliance',
+    key: 'solutions_hub_compliance',
+    permissions: [
+      { key: 'solutions_hub.compliance.view', label: 'View Compliance Dashboard' },
+      { key: 'solutions_hub.compliance.manage', label: 'Manage Clearance (Grant/Revoke)' }
+    ]
+  },
+  {
     name: 'Solutions Hub - Phases',
     key: 'solutions_hub_phases',
     permissions: [

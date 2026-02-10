@@ -31,6 +31,7 @@ import { AuditAction, AuditModule, AuditSeverity } from '@/types/audit-trail';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { ActivityTimelineView } from './_components/activity-timeline-view';
+import { exportToCSV } from '@/lib/utils/export-utils';
 
 export default function AuditTrailPage() {
   const { profile: user } = useAuth();
@@ -54,8 +55,20 @@ export default function AuditTrailPage() {
   const { data: stats, isLoading: statsLoading } = useAuditStats(filters);
 
   const handleExport = () => {
-    // TODO: Implement export functionality
-    console.log('Export audit logs');
+    // Flatten all logs from the timeline groups
+    const allLogs = timeline.flatMap((group) => group.logs);
+    if (allLogs.length === 0) return;
+    exportToCSV(allLogs, 'audit-trail', [
+      { key: 'created_at', label: 'Timestamp' },
+      { key: 'action', label: 'Action' },
+      { key: 'module', label: 'Module' },
+      { key: 'severity', label: 'Severity' },
+      { key: 'entity_type', label: 'Entity Type' },
+      { key: 'entity_name', label: 'Entity Name' },
+      { key: 'description', label: 'Description' },
+      { key: 'user_id', label: 'User ID' },
+      { key: 'ip_address', label: 'IP Address' },
+    ]);
   };
 
   return (

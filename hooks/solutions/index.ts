@@ -602,3 +602,63 @@ export {
   type EarningsSummary as UnifiedEarningsSummaryType,
   type PayoutHistoryEntry,
 } from './use-unified-earnings';
+
+// ============================================
+// PRODUCTS & TRL HOOKS
+// ============================================
+
+export {
+  // Products
+  useProducts,
+  useProduct,
+  useProductStats,
+  useRetainedIPSolutions,
+  useTRLHistory,
+  useCreateProduct,
+  useUpdateProduct,
+  useDeleteProduct,
+  useArchiveProduct,
+  useUpdateProductStatus,
+  // TRL Management
+  useUpdateTRL,
+  // Validations
+  useProductValidations,
+  useAddValidation,
+  useUpdateValidation,
+  useDeleteValidation,
+  // RDIF
+  useRDIFPrerequisites,
+  useRDIFReadinessScore,
+  useThreeYearBridgeStatus,
+  useNextRDIFMilestones,
+  useUpdatePrerequisite,
+  // Constants
+  PRODUCT_STATUSES,
+  TRL_LEVELS,
+  DOMAIN_LABELS,
+  PATENT_STATUS_LABELS,
+  VALIDATION_TYPE_LABELS,
+  RDIF_PREREQUISITE_KEYS,
+  BRIDGE_YEAR_THRESHOLDS,
+  // Types
+  type ProductFilters,
+  type ProductWithValidations,
+  type SHProduct,
+  type SHProductValidation,
+  type SHRDIFPrerequisite,
+  type ProductStats,
+  type ProductStatus,
+  type ProductDomain,
+  type RDIFSector,
+  type PatentStatus,
+  type ValidationType,
+  type ValidationStatus,
+  type RDIFReadinessResult,
+  type ThreeYearBridgeStatus,
+  type RDIFMilestone,
+  type CreateProductInput,
+  type UpdateProductInput,
+  type CreateValidationInput,
+  type UpdateValidationInput,
+  type UpdatePrerequisiteInput,
+} from './use-products';

@@ -5,6 +5,13 @@
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
+import { sendNotification } from '@/lib/services/notification/notification-service';
+import {
+  NotificationType,
+  NotificationCategory,
+  NotificationPriority,
+  NotificationChannel
+} from '@/types/notification';
 
 export class OKRComplianceAdminService {
   private static supabase = createClientSupabaseClient();
@@ -243,8 +250,26 @@ export class OKRComplianceAdminService {
       const { data: { user } } = await this.supabase.auth.getUser();
       if (!user) throw new Error('Admin not authenticated');
 
-      // TODO: Integrate with notification system
-      // For now, just create audit log entries
+      // Send in-app notifications to all targeted users (non-blocking)
+      try {
+        await sendNotification({
+          user_ids: userIds,
+          type: NotificationType.REMINDER,
+          category: NotificationCategory.SYSTEM,
+          priority: NotificationPriority.HIGH,
+          title: 'OKR Check-in Reminder',
+          message: 'Your weekly OKR check-in is overdue. Please complete it to maintain your compliance status.',
+          metadata: { custom_data: { action: 'okr_bulk_reminder', sent_by: user.id } },
+          action_url: '/okr/check-in',
+          action_label: 'Complete Check-in',
+          channels: [NotificationChannel.IN_APP]
+        });
+      } catch (notifError: any) {
+        // Notification failure should not break the reminder flow
+        console.error('[OKR Admin] Failed to send bulk reminder notifications:', notifError?.message || 'Unknown error');
+      }
+
+      // Create audit log entries
       const logs = userIds.map(userId => ({
         user_id: userId,
         action: 'reminder_sent',

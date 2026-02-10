@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb,
@@ -27,6 +27,8 @@ import {
 import { Separator } from '@/components/ui/separator';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { useAuth } from '@/hooks/use-auth';
+import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 import {
   Settings,
   MessageCircle,
@@ -249,9 +251,38 @@ function ChannelConfig({
 
 function AdmissionSettingsPageContent() {
   const { profile, isLoading: accessLoading } = useAuth();
+  const { selectedInstitutionId } = useUserInstitutionAccess();
   const [settings, setSettings] = useState<FrequencySettings>(DEFAULT_SETTINGS);
   const [isSaving, setIsSaving] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
+  const [isLoadingSettings, setIsLoadingSettings] = useState(true);
+
+  // Load settings from admission_workflow_configs on mount
+  useEffect(() => {
+    if (!selectedInstitutionId) return;
+    const loadSettings = async () => {
+      setIsLoadingSettings(true);
+      try {
+        const supabase = createClientSupabaseClient();
+        const { data, error } = await (supabase as any)
+          .from('admission_workflow_configs')
+          .select('sla_config')
+          .eq('institution_id', selectedInstitutionId)
+          .eq('config_name', 'frequency_settings')
+          .maybeSingle();
+        if (error) throw error;
+        if (data?.sla_config) {
+          const saved = typeof data.sla_config === 'string' ? JSON.parse(data.sla_config) : data.sla_config;
+          setSettings({ ...DEFAULT_SETTINGS, ...saved });
+        }
+      } catch {
+        // Use defaults if no saved settings found
+      } finally {
+        setIsLoadingSettings(false);
+      }
+    };
+    loadSettings();
+  }, [selectedInstitutionId]);
 
   const updateChannelConfig = (
     channel: 'whatsapp' | 'sms' | 'email',
@@ -277,10 +308,22 @@ function AdmissionSettingsPageContent() {
   };
 
   const handleSave = async () => {
+    if (!selectedInstitutionId) {
+      toast.error('Institution not found');
+      return;
+    }
     setIsSaving(true);
     try {
-      // TODO: Save to database
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      const supabase = createClientSupabaseClient();
+      const { error } = await (supabase as any)
+        .from('admission_workflow_configs')
+        .upsert({
+          institution_id: selectedInstitutionId,
+          config_name: 'frequency_settings',
+          sla_config: settings,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'institution_id,config_name' });
+      if (error) throw error;
       toast.success('Settings saved successfully');
       setHasChanges(false);
     } catch {
@@ -706,7 +749,7 @@ function AdmissionSettingsPageContent() {
                           <p className="font-medium">Duplicate Content Blocking</p>
                           <p className="text-xs text-muted-foreground">
                             {settings.blockDuplicateContent
-                              ? `{settings.minContentInterval}h interval between same content`
+                              ? `${settings.minContentInterval}h interval between same content`
                               : 'Same content can be sent repeatedly'}
                           </p>
                         </div>

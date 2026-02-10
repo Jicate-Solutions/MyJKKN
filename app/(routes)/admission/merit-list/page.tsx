@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -49,146 +49,14 @@ import {
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { AdmissionErrorBoundary } from '@/components/admission';
-
-// Mock data for merit list
-const mockCandidates = [
-  {
-    id: 'APP-2026-001',
-    name: 'Priya Sharma',
-    program: 'B.Tech Computer Science',
-    category: 'General',
-    academicScore: 92,
-    entranceScore: 88,
-    interviewScore: 85,
-    gdScore: 82,
-    extracurricularScore: 78,
-    totalScore: 87.4,
-    rank: 1,
-    status: 'shortlisted',
-    email: 'priya.sharma@email.com',
-    phone: '+91 98765 43210',
-    photo: null
-  },
-  {
-    id: 'APP-2026-002',
-    name: 'Rahul Kumar',
-    program: 'B.Tech Computer Science',
-    category: 'OBC',
-    academicScore: 89,
-    entranceScore: 85,
-    interviewScore: 88,
-    gdScore: 80,
-    extracurricularScore: 75,
-    totalScore: 85.2,
-    rank: 2,
-    status: 'shortlisted',
-    email: 'rahul.kumar@email.com',
-    phone: '+91 98765 43211',
-    photo: null
-  },
-  {
-    id: 'APP-2026-003',
-    name: 'Ananya Patel',
-    program: 'B.Tech Computer Science',
-    category: 'General',
-    academicScore: 88,
-    entranceScore: 82,
-    interviewScore: 90,
-    gdScore: 85,
-    extracurricularScore: 80,
-    totalScore: 84.8,
-    rank: 3,
-    status: 'pending',
-    email: 'ananya.patel@email.com',
-    phone: '+91 98765 43212',
-    photo: null
-  },
-  {
-    id: 'APP-2026-004',
-    name: 'Mohammed Arif',
-    program: 'B.Tech Computer Science',
-    category: 'Minority',
-    academicScore: 85,
-    entranceScore: 90,
-    interviewScore: 78,
-    gdScore: 82,
-    extracurricularScore: 72,
-    totalScore: 83.6,
-    rank: 4,
-    status: 'shortlisted',
-    email: 'mohammed.arif@email.com',
-    phone: '+91 98765 43213',
-    photo: null
-  },
-  {
-    id: 'APP-2026-005',
-    name: 'Sneha Reddy',
-    program: 'B.Tech Computer Science',
-    category: 'SC',
-    academicScore: 78,
-    entranceScore: 88,
-    interviewScore: 85,
-    gdScore: 80,
-    extracurricularScore: 85,
-    totalScore: 82.8,
-    rank: 5,
-    status: 'waitlisted',
-    email: 'sneha.reddy@email.com',
-    phone: '+91 98765 43214',
-    photo: null
-  },
-  {
-    id: 'APP-2026-006',
-    name: 'Vikram Singh',
-    program: 'B.Tech Computer Science',
-    category: 'General',
-    academicScore: 90,
-    entranceScore: 75,
-    interviewScore: 82,
-    gdScore: 78,
-    extracurricularScore: 70,
-    totalScore: 81.2,
-    rank: 6,
-    status: 'pending',
-    email: 'vikram.singh@email.com',
-    phone: '+91 98765 43215',
-    photo: null
-  },
-  {
-    id: 'APP-2026-007',
-    name: 'Kavitha Nair',
-    program: 'B.Tech Computer Science',
-    category: 'ST',
-    academicScore: 75,
-    entranceScore: 82,
-    interviewScore: 88,
-    gdScore: 85,
-    extracurricularScore: 82,
-    totalScore: 80.6,
-    rank: 7,
-    status: 'shortlisted',
-    email: 'kavitha.nair@email.com',
-    phone: '+91 98765 43216',
-    photo: null
-  },
-  {
-    id: 'APP-2026-008',
-    name: 'Arun Gupta',
-    program: 'B.Tech Computer Science',
-    category: 'EWS',
-    academicScore: 82,
-    entranceScore: 78,
-    interviewScore: 80,
-    gdScore: 76,
-    extracurricularScore: 74,
-    totalScore: 79.2,
-    rank: 8,
-    status: 'waitlisted',
-    email: 'arun.gupta@email.com',
-    phone: '+91 98765 43217',
-    photo: null
-  }
-];
+import { useAuth } from '@/hooks/use-auth';
+import {
+  useMeritLists,
+  useMeritListStats,
+  useCreateMeritList,
+  usePublishMeritList,
+} from '@/hooks/admission/use-merit-lists';
+import type { MeritListRow, MeritListEntry } from '@/lib/services/admission/merit-list-service';
 
 // Scoring weights configuration
 const defaultWeights = {
@@ -210,6 +78,9 @@ const categoryQuotas = [
 ];
 
 function MeritListPageContent() {
+  const { profile } = useAuth();
+  const institutionId = profile?.institution_id || '';
+
   const [activeTab, setActiveTab] = useState('merit-list');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedProgram, setSelectedProgram] = useState('all');
@@ -236,12 +107,48 @@ function MeritListPageContent() {
   const [isSavingCutoffs, setIsSavingCutoffs] = useState(false);
   const [isRunningShortlist, setIsRunningShortlist] = useState(false);
 
+  // Real data hooks
+  const { meritLists, isLoading: listsLoading } = useMeritLists(institutionId);
+  const { stats: meritStats, isLoading: statsLoading } = useMeritListStats(institutionId);
+  const publishMutation = usePublishMeritList();
+
+  // Flatten entries from all merit lists
+  const allCandidates = useMemo(() => {
+    const candidates: (MeritListEntry & { listName?: string; listId?: string })[] = [];
+    for (const list of meritLists) {
+      const entries = (list.entries || []) as MeritListEntry[];
+      for (const entry of entries) {
+        candidates.push({ ...entry, listName: list.list_name, listId: list.id });
+      }
+    }
+    return candidates;
+  }, [meritLists]);
+
+  // Transform to UI format
+  const mockCandidates = allCandidates.map((c, index) => ({
+    id: c.application_number || c.application_id?.slice(0, 12) || `ENTRY-${index + 1}`,
+    name: c.candidate_name || 'Unknown',
+    program: (c as any).listName || '',
+    category: c.category || 'General',
+    academicScore: c.academic_score || 0,
+    entranceScore: c.entrance_score || 0,
+    interviewScore: c.interview_score || 0,
+    gdScore: c.gd_score || 0,
+    extracurricularScore: c.extracurricular_score || 0,
+    totalScore: c.total_score || 0,
+    rank: c.rank || (index + 1),
+    status: c.status || 'pending',
+    email: c.email || '',
+    phone: c.phone || '',
+    photo: null,
+  }));
+
   // Stats calculations
-  const totalCandidates = mockCandidates.length;
-  const shortlistedCount = mockCandidates.filter(c => c.status === 'shortlisted').length;
-  const waitlistedCount = mockCandidates.filter(c => c.status === 'waitlisted').length;
-  const pendingCount = mockCandidates.filter(c => c.status === 'pending').length;
-  const avgScore = mockCandidates.reduce((acc, c) => acc + c.totalScore, 0) / totalCandidates;
+  const totalCandidates = meritStats.totalCandidates;
+  const shortlistedCount = meritStats.shortlisted;
+  const waitlistedCount = meritStats.waitlisted;
+  const pendingCount = meritStats.pending;
+  const avgScore = meritStats.avgScore;
 
   // Filter candidates
   const filteredCandidates = mockCandidates.filter(candidate => {
@@ -323,7 +230,6 @@ function MeritListPageContent() {
   };
 
   const handleBulkAction = (action: 'shortlist' | 'waitlist' | 'reject') => {
-    console.log(`Performing ${action} on candidates:`, selectedCandidates);
     const count = selectedCandidates.length;
     setSelectedCandidates([]);
     if (action === 'shortlist') {
@@ -1158,7 +1064,6 @@ function MeritListPageContent() {
               onClick={async () => {
                 setIsRunningShortlist(true);
                 try {
-                  console.log('Running auto shortlist...');
                   await new Promise(resolve => setTimeout(resolve, 1500));
                   setIsShortlistDialogOpen(false);
                   toast.success('Auto shortlist completed successfully');

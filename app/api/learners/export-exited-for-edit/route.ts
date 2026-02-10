@@ -117,18 +117,6 @@ export async function GET(request: NextRequest) {
     const semesterId = searchParams.get('semester_id') || undefined;
     const sectionId = searchParams.get('section_id') || undefined;
 
-    console.log('[export-exited] Request parameters:', {
-      includeComplete,
-      institutionId,
-      degreeId,
-      departmentId,
-      programId,
-      semesterId,
-      sectionId,
-      isSuperAdmin: profile.is_super_admin,
-      userInstitutionId: profile.institution_id
-    });
-
     // 5. Export active learners
     const learners = await BulkLearnerEditService.exportActiveForEdit(
       institutionId,
@@ -139,8 +127,6 @@ export async function GET(request: NextRequest) {
       semesterId,
       sectionId
     );
-
-    console.log('[export-active] Learners fetched:', learners.length);
 
     // Check if no data found
     if (learners.length === 0) {

@@ -48,7 +48,6 @@ export function useSurveyResponseSummary(surveyId: string) {
 export function useExportResponses() {
   const exportResponses = async (surveyId: string, surveyTitle?: string) => {
     // Export functionality - generates CSV file of responses
-    console.log('[useExportResponses] Export requested for survey:', surveyId, surveyTitle);
 
     try {
       const responses = await NPSService.getResponses({

@@ -184,7 +184,8 @@ function WorkflowCard({
   isDuplicating?: boolean;
 }) {
   const { triggerTypes, actionTypes } = useWorkflowHelpers();
-  const triggerLabel = triggerTypes.find(t => t.value === workflow.trigger.type)?.label || workflow.trigger.type;
+  const triggerType = workflow.trigger?.type;
+  const triggerLabel = (triggerType && triggerTypes.find(t => t.value === triggerType)?.label) || triggerType || 'Unknown';
 
   return (
     <Card className={!workflow.is_active ? 'opacity-60' : ''}>
@@ -239,20 +240,20 @@ function WorkflowCard({
         {/* Trigger */}
         <div className="flex items-center gap-2 text-sm">
           <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-100 dark:bg-blue-900 rounded-full">
-            <TriggerIcon type={workflow.trigger.type} />
+            {triggerType && <TriggerIcon type={triggerType} />}
             <span className="font-medium">
               {triggerLabel}
-              {workflow.trigger.config?.stage && `: ${workflow.trigger.config.stage}`}
-              {workflow.trigger.config?.to_stage && `: ${workflow.trigger.config.to_stage}`}
-              {workflow.trigger.config?.delay_days && `: ${workflow.trigger.config.delay_days} days`}
-              {workflow.trigger.config?.delay_hours && `: ${workflow.trigger.config.delay_hours} hours`}
+              {workflow.trigger?.config?.stage && `: ${workflow.trigger.config.stage}`}
+              {workflow.trigger?.config?.to_stage && `: ${workflow.trigger.config.to_stage}`}
+              {workflow.trigger?.config?.delay_days && `: ${workflow.trigger.config.delay_days} days`}
+              {workflow.trigger?.config?.delay_hours && `: ${workflow.trigger.config.delay_hours} hours`}
             </span>
           </div>
         </div>
 
         {/* Actions Flow */}
         <div className="flex items-center gap-2 flex-wrap">
-          {workflow.actions.map((action, index) => {
+          {(workflow.actions || []).map((action, index) => {
             const color = ACTION_COLORS[action.type] || 'bg-gray-500';
             const actionLabel = actionTypes.find(a => a.value === action.type)?.label || action.type;
             return (
@@ -265,7 +266,7 @@ function WorkflowCard({
               </div>
             );
           })}
-          {workflow.actions.length === 0 && (
+          {(!workflow.actions || workflow.actions.length === 0) && (
             <span className="text-sm text-muted-foreground">No actions configured</span>
           )}
         </div>
@@ -539,8 +540,8 @@ function WorkflowBuilderPageContent() {
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  const { workflows, isLoading: workflowsLoading, refetch } = useWorkflows(selectedInstitutionId);
-  const { stats } = useWorkflowStats(selectedInstitutionId);
+  const { workflows, isLoading: workflowsLoading, isError: workflowsError, refetch } = useWorkflows(selectedInstitutionId);
+  const { stats, isError: statsError } = useWorkflowStats(selectedInstitutionId);
 
   const {
     createWorkflow,
@@ -554,6 +555,7 @@ function WorkflowBuilderPageContent() {
   } = useWorkflowMutations();
 
   const isLoading = accessLoading || workflowsLoading;
+  const hasError = workflowsError || statsError;
 
   const filteredWorkflows = workflows.filter(w => {
     if (filter === 'active') return w.is_active;
@@ -601,6 +603,28 @@ function WorkflowBuilderPageContent() {
       <PermissionGuard module="admission" action="view">
         <ContentLayout title="Workflow Builder">
           <WorkflowsSkeleton />
+        </ContentLayout>
+      </PermissionGuard>
+    );
+  }
+
+  if (hasError) {
+    return (
+      <PermissionGuard module="admission" action="view">
+        <ContentLayout title="Workflow Builder">
+          <Card>
+            <CardContent className="py-12 text-center">
+              <AlertCircle className="h-12 w-12 mx-auto mb-4 text-muted-foreground opacity-50" />
+              <h3 className="text-lg font-medium mb-2">Unable to load workflows</h3>
+              <p className="text-muted-foreground mb-4">
+                There was an error loading the workflow data. This may be a temporary issue.
+              </p>
+              <Button onClick={() => refetch()}>
+                <RefreshCw className="h-4 w-4 mr-2" />
+                Try Again
+              </Button>
+            </CardContent>
+          </Card>
         </ContentLayout>
       </PermissionGuard>
     );

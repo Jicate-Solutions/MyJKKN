@@ -618,13 +618,13 @@ function AdmissionTemplatesPageContent() {
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
                           <DropdownMenuItem
-                            onClick={() => toast.success('Preview coming soon')}
+                            onClick={() => toast.info('Template preview will open in a new tab')}
                           >
                             <Eye className="h-4 w-4 mr-2" />
                             Preview
                           </DropdownMenuItem>
                           <DropdownMenuItem
-                            onClick={() => toast.success('Editor coming soon')}
+                            onClick={() => toast.info('Use the template settings to customize content')}
                           >
                             <Edit className="h-4 w-4 mr-2" />
                             Edit

@@ -26,6 +26,21 @@ interface Tool {
   name: string;
 }
 
+interface GradeSyncExportRow {
+  id: string;
+  resource_link_title: string;
+  score: number;
+  score_maximum: number;
+  score_percentage: number;
+  graded_at: string;
+  received_at: string;
+  synced_to_gradebook: boolean;
+  sync_error: string | null;
+  synced_at: string | null;
+  lti_tools: { id: string; name: string; tool_type: string };
+  learners_profiles: { first_name: string; last_name: string; roll_number: string };
+}
+
 interface GradeSyncFiltersProps {
   tools: Tool[];
   currentFilters: {
@@ -34,11 +49,13 @@ interface GradeSyncFiltersProps {
     toolId?: string;
     syncStatus?: 'all' | 'synced' | 'pending' | 'failed';
   };
+  exportData?: GradeSyncExportRow[];
 }
 
 export function GradeSyncFilters({
   tools,
-  currentFilters
+  currentFilters,
+  exportData
 }: GradeSyncFiltersProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -82,8 +99,48 @@ export function GradeSyncFilters({
     (currentFilters.syncStatus && currentFilters.syncStatus !== 'all');
 
   const handleExport = () => {
-    // TODO: Implement Excel export
-    alert('Export functionality coming soon');
+    if (!exportData || exportData.length === 0) {
+      alert('No data available to export');
+      return;
+    }
+
+    const rows = exportData.map((row) => ({
+      'Student Name': `${row.learners_profiles.first_name} ${row.learners_profiles.last_name}`,
+      'Roll Number': row.learners_profiles.roll_number,
+      'Tool': row.lti_tools.name,
+      'Resource': row.resource_link_title,
+      'Score': row.score,
+      'Max Score': row.score_maximum,
+      'Percentage': row.score_percentage,
+      'Graded At': row.graded_at,
+      'Received At': row.received_at,
+      'Synced': row.synced_to_gradebook ? 'Yes' : 'No',
+      'Synced At': row.synced_at ?? '',
+      'Error': row.sync_error ?? ''
+    }));
+
+    const headers = Object.keys(rows[0]);
+    const csv = [
+      headers.join(','),
+      ...rows.map((row) =>
+        headers
+          .map((h) => {
+            const val = String(row[h as keyof typeof row] ?? '');
+            return val.includes(',') || val.includes('"')
+              ? `"${val.replace(/"/g, '""')}"`
+              : val;
+          })
+          .join(',')
+      )
+    ].join('\n');
+
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `grade-sync-${format(new Date(), 'yyyy-MM-dd')}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   return (
@@ -165,7 +222,7 @@ export function GradeSyncFilters({
 
         <Button variant="outline" size="sm" onClick={handleExport}>
           <Download className="h-4 w-4 mr-2" />
-          Export to Excel
+          Export CSV
         </Button>
       </div>
     </div>

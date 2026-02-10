@@ -79,7 +79,6 @@ export default function LoginPage() {
 
     const initializeAuth = async () => {
       if (hasRun) {
-        console.log('[Login Page] Auth check already running, skipping');
         return;
       }
       hasRun = true;
@@ -87,7 +86,6 @@ export default function LoginPage() {
 
       // If this is a student redirect, stop auth checking immediately
       if (params.get('reason') === 'student_redirect') {
-        console.log('[Login Page] Student redirect detected, stopping auth check');
         setIsCheckingAuth(false);
         return;
       }
@@ -110,7 +108,6 @@ export default function LoginPage() {
         if (!isMounted) return;
 
         if (!error && data.user) {
-          console.log('[Login Page] User authenticated');
 
           // User is authenticated, check their role
           const { data: profile } = await supabase
@@ -127,9 +124,6 @@ export default function LoginPage() {
             // Check student portal feature flag
             if (!FEATURE_FLAGS.ENABLE_STUDENT_PORTAL) {
               // Feature disabled - block students (original behavior)
-              console.log(
-                '[Login Page] Student portal disabled - signing out and staying on login page'
-              );
 
               // Sign out the student
               await supabase.auth.signOut();
@@ -151,9 +145,6 @@ export default function LoginPage() {
             } else {
               // Feature enabled - student is already logged in, allow them to proceed
               // Lifecycle validation already happened in auth callback
-              console.log(
-                '[Login Page] Student portal enabled - student already authenticated, redirecting to dashboard'
-              );
               // Continue to redirect logic below (destination will be set to '/')
             }
           }
@@ -189,7 +180,6 @@ export default function LoginPage() {
             }
           }
 
-          console.log('[Login Page] Redirecting authenticated user to:', destination);
           router.push(destination);
         } else {
           // User is not authenticated, just update state
@@ -386,9 +376,6 @@ export default function LoginPage() {
         // Ensure we use the current domain, not production
         redirectTo = `${origin}/auth/callback`;
       }
-
-      console.log('[Login Page] Current origin:', window.location.origin);
-      console.log('[Login Page] OAuth redirect URL:', redirectTo);
 
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',

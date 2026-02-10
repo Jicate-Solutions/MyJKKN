@@ -522,14 +522,21 @@ export class BillingInvoiceServiceOptimized {
 
   // Additional utility methods
   static async sendInvoice(id: string, email: string): Promise<void> {
-    // Implementation for sending invoice via email
-    console.log(`Sending invoice ${id} to ${email}`);
-    // TODO: Implement email sending logic
+    // Email integration pending: Requires email provider (e.g., Resend, SendGrid).
+    // When ready, call EmailService.sendInvoice(invoice) here.
+    // See: https://resend.com/docs for recommended provider.
+    console.info('[billing/invoices] Invoice email not sent — email provider not configured', {
+      invoiceId: id,
+      recipientEmail: email,
+    });
   }
 
   static async downloadInvoicePDF(id: string): Promise<void> {
-    // Implementation for downloading invoice as PDF
-    console.log(`Downloading PDF for invoice ${id}`);
-    // TODO: Implement PDF generation and download
+    // PDF generation pending: Requires a PDF library (e.g., @react-pdf/renderer, jsPDF, Puppeteer).
+    // When ready, generate PDF from invoice HTML and trigger browser download.
+    // See: https://react-pdf.org/ for recommended approach in Next.js.
+    console.info('[billing/invoices] PDF download not available — PDF generator not configured', {
+      invoiceId: id,
+    });
   }
 }

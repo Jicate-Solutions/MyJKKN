@@ -20,9 +20,6 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const email = searchParams.get('email');
 
-    console.log('=== EMAIL CHECK DEBUG ===');
-    console.log('Checking email:', email);
-
     if (!email) {
       return NextResponse.json(
         { error: 'Email parameter is required' },
@@ -37,16 +34,7 @@ export async function GET(request: NextRequest) {
       .eq('email', email)
       .single();
 
-    console.log('Profile check result:', {
-      data: profileData ? 'Profile found' : 'No profile',
-      isPreRegistered: profileData?.is_pre_registered,
-      error: profileError?.message || 'No error'
-    });
-
     const emailExists = profileData !== null;
-
-    console.log('Final result - Email exists:', emailExists);
-    console.log('=== END EMAIL CHECK DEBUG ===');
 
     // Prepare user details for better UX
     let existingUserDetails = null;

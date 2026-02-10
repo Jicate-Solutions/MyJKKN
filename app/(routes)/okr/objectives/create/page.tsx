@@ -413,10 +413,6 @@ export default function CreateObjectivePage() {
   // ============================================================================
 
   const handleSubmit = async () => {
-    console.log('[OKR-CREATE] handleSubmit called');
-    console.log('[OKR-CREATE] Form state:', { title, institutionId, tier, level, startDate, endDate, parentObjectiveId });
-    console.log('[OKR-CREATE] Key Results:', keyResults);
-    console.log('[OKR-CREATE] Validation:', { isBasicsValid, isParentValid, isKeyResultsValid, isFormValid });
 
     // Validate with Zod
     // Explicitly convert number fields to ensure proper types (fixes "Expected number, received string" error)
@@ -437,12 +433,10 @@ export default function CreateObjectivePage() {
       }))
     };
 
-    console.log('[OKR-CREATE] FormData for validation:', JSON.stringify(formData, null, 2));
     const result = createObjectiveSchema.safeParse(formData);
 
     if (!result.success) {
       const errors = result.error.errors;
-      console.log('[OKR-CREATE] Zod validation errors:', JSON.stringify(errors, null, 2));
       const firstError = errors[0];
       const errorPath = firstError.path.join('.');
       toast.error(`${errorPath ? `[${errorPath}] ` : ''}${firstError.message}`);

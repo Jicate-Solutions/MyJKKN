@@ -89,7 +89,6 @@ export class UserDashboardService {
       }
 
       const data = allData;
-      console.log(`[user-activity-summary] Fetched ${data.length} total users`);
 
       const now = new Date();
       const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
@@ -161,7 +160,6 @@ export class UserDashboardService {
       }
 
       const data = allData;
-      console.log(`[role-based-stats] Fetched ${data.length} total users`);
 
       const roleStats: Record<string, { total: number; active: number }> = {};
 
@@ -291,7 +289,6 @@ export class UserDashboardService {
       }
 
       const data = allData;
-      console.log(`[institution-distribution] Fetched ${data.length} total users`);
 
       const institutionStats: Record<
         string,

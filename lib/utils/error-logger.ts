@@ -35,7 +35,9 @@ export class ErrorLogger {
 
     // In production, send to error tracking service (Sentry, etc.)
     if (process.env.NODE_ENV === 'production') {
-      // TODO: Send to Sentry or similar
+      // External error tracking (e.g., Sentry) not yet configured.
+      // When ready: Sentry.captureException(error, { extra: context });
+      // Setup: npm install @sentry/nextjs && npx @sentry/wizard@latest -i nextjs
       console.error('[PRODUCTION ERROR]', JSON.stringify(errorData));
 
       // Only log non-operational errors with full stack trace

@@ -491,7 +491,7 @@ export function PracticalPeriodConfigForm({
           <Alert>
             <AlertCircle className='h-4 w-4' />
             <AlertDescription className='text-xs'>
-              Automatic rotation is not yet implemented. System will still require manual selection.
+              Automatic rotation requires manual selection of the rotation pattern. The system will apply your chosen pattern to future scheduling cycles.
             </AlertDescription>
           </Alert>
         )}

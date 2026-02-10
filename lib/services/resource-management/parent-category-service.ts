@@ -278,7 +278,6 @@ export class ParentCategoryService {
           await StorageService.deleteCategoryImageByUrl(
             existingCategory.image_url
           );
-          console.log(`Cleaned up old image for category ${id} during update`);
         } catch (imageError) {
           console.error(
             `Failed to clean up old image for category ${id}:`,
@@ -354,8 +353,6 @@ export class ParentCategoryService {
         throw error;
       }
 
-      console.log(`Successfully deleted category ${id} from database.`);
-
       // Delete the category image from storage if it exists
       if (category.image_url) {
         try {
@@ -369,9 +366,6 @@ export class ParentCategoryService {
             );
             // Don't throw here, just log the error
           } else {
-            console.log(
-              `Successfully deleted image for category ${id} from URL: ${category.image_url}`
-            );
           }
         } catch (imageError) {
           // Log the error but don't fail the entire operation
@@ -411,17 +405,10 @@ export class ParentCategoryService {
       errors: []
     };
 
-    console.log(
-      `Starting bulk delete of ${ids.length} parent categories with cascade image cleanup`
-    );
-
     for (const id of ids) {
       try {
         await this.deleteParentCategory(id);
         result.processedCount++;
-        console.log(
-          `Successfully deleted parent category ${id} with cascade cleanup`
-        );
       } catch (error) {
         result.success = false;
         result.errors.push({
@@ -432,9 +419,6 @@ export class ParentCategoryService {
       }
     }
 
-    console.log(
-      `Bulk delete completed: ${result.processedCount}/${ids.length} categories processed`
-    );
     return result;
   }
 

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -57,153 +57,22 @@ import {
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { AdmissionErrorBoundary } from '@/components/admission';
-
-// Mock data for exams
-const mockExams = [
-  {
-    id: 'EX-2026-001',
-    name: 'B.Tech Entrance Exam 2026',
-    program: 'B.Tech',
-    status: 'active',
-    scheduledDate: '2026-01-20',
-    duration: 180, // minutes
-    totalQuestions: 100,
-    sections: [
-      { name: 'Mathematics', questions: 30, marks: 30, cutoff: 12 },
-      { name: 'Physics', questions: 25, marks: 25, cutoff: 10 },
-      { name: 'Chemistry', questions: 25, marks: 25, cutoff: 10 },
-      { name: 'English', questions: 10, marks: 10, cutoff: 4 },
-      { name: 'Logical Reasoning', questions: 10, marks: 10, cutoff: 4 }
-    ],
-    totalMarks: 100,
-    passingScore: 40,
-    negativeMarking: true,
-    negativeMarkValue: 0.25,
-    registeredCandidates: 245,
-    completedCandidates: 198,
-    qualifiedCandidates: 156
-  },
-  {
-    id: 'EX-2026-002',
-    name: 'MBA Aptitude Test 2026',
-    program: 'MBA',
-    status: 'scheduled',
-    scheduledDate: '2026-01-25',
-    duration: 120,
-    totalQuestions: 80,
-    sections: [
-      { name: 'Quantitative Ability', questions: 25, marks: 25, cutoff: 10 },
-      { name: 'Data Interpretation', questions: 20, marks: 20, cutoff: 8 },
-      { name: 'Verbal Ability', questions: 20, marks: 20, cutoff: 8 },
-      { name: 'General Awareness', questions: 15, marks: 15, cutoff: 6 }
-    ],
-    totalMarks: 80,
-    passingScore: 32,
-    negativeMarking: true,
-    negativeMarkValue: 0.33,
-    registeredCandidates: 156,
-    completedCandidates: 0,
-    qualifiedCandidates: 0
-  }
-];
-
-// Mock candidate results
-const mockResults = [
-  {
-    id: 'APP-2026-001',
-    name: 'Priya Sharma',
-    email: 'priya.sharma@email.com',
-    examId: 'EX-2026-001',
-    status: 'completed',
-    totalScore: 78,
-    sectionScores: { Mathematics: 26, Physics: 22, Chemistry: 18, English: 8, 'Logical Reasoning': 4 },
-    qualified: true,
-    percentile: 92.5,
-    rank: 12,
-    timeTaken: 165,
-    proctoringFlags: 0,
-    submittedAt: '2026-01-20T11:45:00'
-  },
-  {
-    id: 'APP-2026-002',
-    name: 'Rahul Kumar',
-    email: 'rahul.kumar@email.com',
-    examId: 'EX-2026-001',
-    status: 'completed',
-    totalScore: 72,
-    sectionScores: { Mathematics: 24, Physics: 20, Chemistry: 16, English: 7, 'Logical Reasoning': 5 },
-    qualified: true,
-    percentile: 88.2,
-    rank: 28,
-    timeTaken: 175,
-    proctoringFlags: 1,
-    submittedAt: '2026-01-20T11:52:00'
-  },
-  {
-    id: 'APP-2026-003',
-    name: 'Ananya Patel',
-    email: 'ananya.patel@email.com',
-    examId: 'EX-2026-001',
-    status: 'completed',
-    totalScore: 65,
-    sectionScores: { Mathematics: 20, Physics: 18, Chemistry: 15, English: 8, 'Logical Reasoning': 4 },
-    qualified: true,
-    percentile: 78.5,
-    rank: 56,
-    timeTaken: 178,
-    proctoringFlags: 0,
-    submittedAt: '2026-01-20T11:58:00'
-  },
-  {
-    id: 'APP-2026-004',
-    name: 'Mohammed Arif',
-    email: 'mohammed.arif@email.com',
-    examId: 'EX-2026-001',
-    status: 'completed',
-    totalScore: 35,
-    sectionScores: { Mathematics: 10, Physics: 8, Chemistry: 8, English: 5, 'Logical Reasoning': 4 },
-    qualified: false,
-    percentile: 32.1,
-    rank: 145,
-    timeTaken: 180,
-    proctoringFlags: 0,
-    submittedAt: '2026-01-20T12:00:00'
-  },
-  {
-    id: 'APP-2026-005',
-    name: 'Sneha Reddy',
-    email: 'sneha.reddy@email.com',
-    examId: 'EX-2026-001',
-    status: 'in_progress',
-    totalScore: 0,
-    sectionScores: {},
-    qualified: false,
-    percentile: 0,
-    rank: 0,
-    timeTaken: 45,
-    proctoringFlags: 2,
-    submittedAt: null
-  },
-  {
-    id: 'APP-2026-006',
-    name: 'Vikram Singh',
-    email: 'vikram.singh@email.com',
-    examId: 'EX-2026-001',
-    status: 'not_started',
-    totalScore: 0,
-    sectionScores: {},
-    qualified: false,
-    percentile: 0,
-    rank: 0,
-    timeTaken: 0,
-    proctoringFlags: 0,
-    submittedAt: null
-  }
-];
+import { useAuth } from '@/hooks/use-auth';
+import {
+  useScreeningExams,
+  useScreeningExamNames,
+  useScreeningExamStats,
+  useCreateScreeningExam,
+  useUpdateScreeningExam,
+} from '@/hooks/admission/use-screening-exams';
+import type { ScreeningExamRow } from '@/lib/services/admission/screening-exam-service';
 
 function ScreeningExamPageContent() {
+  const { profile } = useAuth();
+  const institutionId = profile?.institution_id || '';
+
   const [activeTab, setActiveTab] = useState('exams');
-  const [selectedExam, setSelectedExam] = useState<string | null>('EX-2026-001');
+  const [selectedExamName, setSelectedExamName] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [isCreateExamDialogOpen, setIsCreateExamDialogOpen] = useState(false);
@@ -219,23 +88,87 @@ function ScreeningExamPageContent() {
   const [isSendingResults, setIsSendingResults] = useState(false);
   const [isExportingResults, setIsExportingResults] = useState(false);
 
-  const currentExam = mockExams.find(e => e.id === selectedExam) || mockExams[0];
+  // Real data hooks
+  const { exams: allExams, isLoading: examsLoading } = useScreeningExams(institutionId, statusFilter !== 'all' ? { status: statusFilter } : undefined);
+  const { examNames } = useScreeningExamNames(institutionId);
+  const { stats: examStats } = useScreeningExamStats(institutionId, selectedExamName || undefined);
+  const createExamMutation = useCreateScreeningExam();
+  const updateExamMutation = useUpdateScreeningExam();
 
-  // Filter results based on selected exam
-  const examResults = mockResults.filter(r => r.examId === selectedExam);
-  const filteredResults = examResults.filter(result => {
+  // Auto-select first exam name
+  const selectedExam = selectedExamName || (examNames.length > 0 ? examNames[0] : null);
+
+  // Group exams by exam_name to create exam-level views
+  const examGroups = useMemo(() => {
+    const groups: Record<string, { exams: ScreeningExamRow[]; name: string }> = {};
+    for (const exam of allExams) {
+      const name = exam.exam_name || 'Unnamed Exam';
+      if (!groups[name]) groups[name] = { exams: [], name };
+      groups[name].exams.push(exam);
+    }
+    return groups;
+  }, [allExams]);
+
+  const currentExamGroup = selectedExam ? examGroups[selectedExam] : null;
+  const examResults = currentExamGroup?.exams || [];
+
+  // Transform to UI-friendly result format
+  const transformedResults = examResults.map((e) => {
+    const appData = e.admission_applications;
+    const formData = appData?.form_data as Record<string, unknown> | null;
+    const personal = formData?.personal as Record<string, unknown> | undefined;
+    return {
+      id: appData?.application_number || e.id.slice(0, 12),
+      name: personal?.name ? String(personal.name) : (formData?.full_name ? String(formData.full_name) : 'Unknown'),
+      email: personal?.email ? String(personal.email) : '',
+      examId: e.exam_name || '',
+      status: e.status || 'scheduled',
+      totalScore: e.raw_score || 0,
+      maxScore: e.max_score || 100,
+      sectionScores: (e.score_breakdown || {}) as Record<string, number>,
+      qualified: e.cutoff_met || false,
+      percentile: e.percentile || 0,
+      rank: 0,
+      timeTaken: e.duration_minutes || 0,
+      proctoringFlags: 0,
+      submittedAt: e.completed_at || null,
+      rawExam: e,
+    };
+  });
+
+  const filteredResults = transformedResults.filter(result => {
     const matchesSearch = result.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
                           result.id.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesStatus = statusFilter === 'all' || result.status === statusFilter;
     return matchesSearch && matchesStatus;
   });
 
+  // Build currentExam-like object for the selected exam group
+  const completedExams = examResults.filter(e => e.status === 'completed');
+  const currentExam = {
+    id: selectedExam || '',
+    name: selectedExam || 'No Exam Selected',
+    program: '',
+    status: examResults.some(e => e.status === 'in_progress') ? 'active' : (examResults.some(e => e.status === 'scheduled') ? 'scheduled' : 'completed'),
+    scheduledDate: examResults[0]?.scheduled_at || '',
+    duration: examResults[0]?.duration_minutes || 0,
+    totalQuestions: 0,
+    sections: [] as { name: string; questions: number; marks: number; cutoff: number }[],
+    totalMarks: examResults[0]?.max_score || 100,
+    passingScore: examResults[0]?.cutoff_score || 0,
+    negativeMarking: false,
+    negativeMarkValue: 0,
+    registeredCandidates: examResults.length,
+    completedCandidates: completedExams.length,
+    qualifiedCandidates: examResults.filter(e => e.cutoff_met).length,
+  };
+
   // Stats
-  const completedCount = examResults.filter(r => r.status === 'completed').length;
-  const qualifiedCount = examResults.filter(r => r.qualified).length;
-  const inProgressCount = examResults.filter(r => r.status === 'in_progress').length;
-  const notStartedCount = examResults.filter(r => r.status === 'not_started').length;
-  const avgScore = examResults.filter(r => r.status === 'completed').reduce((acc, r) => acc + r.totalScore, 0) / (completedCount || 1);
+  const completedCount = examStats.completed;
+  const qualifiedCount = examStats.qualified;
+  const inProgressCount = examStats.inProgress;
+  const notStartedCount = examStats.total - examStats.completed - examStats.inProgress;
+  const avgScore = examStats.avgScore;
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -311,25 +244,27 @@ function ScreeningExamPageContent() {
       <Card>
         <CardContent className="pt-6">
           <div className="flex flex-col md:flex-row gap-4 items-start md:items-center justify-between">
-            <Select value={selectedExam || ''} onValueChange={setSelectedExam}>
+            <Select value={selectedExam || ''} onValueChange={(v) => setSelectedExamName(v)}>
               <SelectTrigger className="w-[350px]">
                 <SelectValue placeholder="Select an exam" />
               </SelectTrigger>
               <SelectContent>
-                {mockExams.map((exam) => (
-                  <SelectItem key={exam.id} value={exam.id}>
+                {examNames.map((name) => (
+                  <SelectItem key={name} value={name}>
                     <div className="flex items-center gap-2">
-                      <span>{exam.name}</span>
-                      {getExamStatusBadge(exam.status)}
+                      <span>{name}</span>
                     </div>
                   </SelectItem>
                 ))}
+                {examNames.length === 0 && (
+                  <SelectItem value="_none" disabled>No exams found</SelectItem>
+                )}
               </SelectContent>
             </Select>
             <div className="flex items-center gap-4 text-sm text-muted-foreground">
               <div className="flex items-center gap-2">
                 <Calendar className="h-4 w-4" />
-                <span>{format(new Date(currentExam.scheduledDate), 'MMM dd, yyyy')}</span>
+                <span>{currentExam.scheduledDate && !isNaN(new Date(currentExam.scheduledDate).getTime()) ? format(new Date(currentExam.scheduledDate), 'MMM dd, yyyy') : 'Not scheduled'}</span>
               </div>
               <div className="flex items-center gap-2">
                 <Timer className="h-4 w-4" />

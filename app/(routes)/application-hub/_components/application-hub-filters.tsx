@@ -43,7 +43,6 @@ export function ApplicationHubFilters({
   );
 
   const handleCategoryChange = (value: string) => {
-    console.log('Selected category:', value);
     onFilterChange({ category: value === 'all' ? undefined : value });
   };
 

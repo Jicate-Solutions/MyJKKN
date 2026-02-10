@@ -674,6 +674,31 @@ export const solutionsHubKeys = {
       [...solutionsHubKeys.accreditation.all, 'metrics', filters] as const
   },
 
+  // Products & TRL Tracking
+  products: {
+    all: ['solutions-hub', 'products'] as const,
+    list: (filters?: FilterObject) =>
+      [...solutionsHubKeys.products.all, 'list', filters] as const,
+    detail: (id: string) =>
+      [...solutionsHubKeys.products.all, 'detail', id] as const,
+    stats: () =>
+      [...solutionsHubKeys.products.all, 'stats'] as const,
+    retainedIP: () =>
+      [...solutionsHubKeys.products.all, 'retained-ip'] as const,
+    trlHistory: (productId: string) =>
+      [...solutionsHubKeys.products.all, 'trl-history', productId] as const,
+    validations: (productId: string) =>
+      [...solutionsHubKeys.products.all, 'validations', productId] as const,
+    rdifPrerequisites: () =>
+      [...solutionsHubKeys.products.all, 'rdif-prerequisites'] as const,
+    rdifScore: () =>
+      [...solutionsHubKeys.products.all, 'rdif-score'] as const,
+    bridgeStatus: () =>
+      [...solutionsHubKeys.products.all, 'bridge-status'] as const,
+    nextMilestones: () =>
+      [...solutionsHubKeys.products.all, 'next-milestones'] as const
+  },
+
   // Department Dashboard
   departmentDashboard: {
     all: ['solutions-hub', 'department-dashboard'] as const,

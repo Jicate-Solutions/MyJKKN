@@ -87,11 +87,6 @@ export class FacultyAttendanceService {
       const dayOfWeek = this.getDayOfWeekFromDate(targetDate).toUpperCase();
 
       // DEBUG: Log entry point
-      console.log('[FACULTY-ATTENDANCE] === START ===', {
-        staffId,
-        targetDate,
-        dayOfWeek
-      });
 
       // First get the staff member's details
       const { data: staffData, error: staffError } = (await this.supabase
@@ -106,11 +101,6 @@ export class FacultyAttendanceService {
       }
 
       // DEBUG: Log staff data
-      console.log('[FACULTY-ATTENDANCE] Staff found', {
-        staffId: staffData.id,
-        institutionId: staffData.institution_id,
-        departmentId: staffData.department_id
-      });
 
       // Get current academic year for the institution
       const { data: academicYears, error: yearError } = (await this.supabase
@@ -129,10 +119,6 @@ export class FacultyAttendanceService {
       const academicYear = academicYears[0];
 
       // DEBUG: Log academic year
-      console.log('[FACULTY-ATTENDANCE] Academic year found', {
-        academicYearId: academicYear.id,
-        academicYearName: academicYear.academic_year_name
-      });
 
       // OPTIMIZATION: Get timetables with all related data in a single query
       const { data: timetables, error: timetableError } = (await this.supabase
@@ -166,17 +152,6 @@ export class FacultyAttendanceService {
       }
 
       // DEBUG: Log timetables found
-      console.log('[FACULTY-ATTENDANCE] Timetables found', {
-        count: timetables.length,
-        timetables: timetables.map(t => ({
-          id: t.id,
-          format: t.timetable_format,
-          startDate: t.start_date,
-          endDate: t.end_date,
-          sectionId: t.section_id,
-          semesterId: t.semester_id
-        }))
-      });
 
       // OPTIMIZATION: Extract all unique course IDs first, then batch fetch
       const courseIds = new Set<string>();
@@ -186,13 +161,6 @@ export class FacultyAttendanceService {
 
       for (const timetable of timetables) {
         // DEBUG: Log timetable being processed
-        console.log('[FACULTY-ATTENDANCE] Processing timetable', {
-          timetableId: timetable.id,
-          format: timetable.timetable_format,
-          startDate: timetable.start_date,
-          endDate: timetable.end_date,
-          targetDate
-        });
 
         // Check if this date is valid for this timetable
         const isDateValid = this.isDateInTimetableRange(
@@ -204,11 +172,6 @@ export class FacultyAttendanceService {
         );
 
         // DEBUG: Log date validation result
-        console.log('[FACULTY-ATTENDANCE] Date validation result', {
-          timetableId: timetable.id,
-          isDateValid,
-          format: timetable.timetable_format
-        });
 
         if (!isDateValid) continue;
 
@@ -216,13 +179,6 @@ export class FacultyAttendanceService {
         const periodsDefinition = timetable.periods as Record<string, any> | null;
 
         // DEBUG: Log timetable data structure
-        console.log('[FACULTY-ATTENDANCE] Timetable data check', {
-          timetableId: timetable.id,
-          hasTimetableData: !!timetableData,
-          timetableDataKeys: timetableData ? Object.keys(timetableData) : [],
-          dayOfWeekExists: timetableData ? dayOfWeek in timetableData : false,
-          lookingForDay: dayOfWeek
-        });
 
         if (!timetableData) {
           console.warn('❌ No timetable_data for timetable:', timetable.id);
@@ -338,11 +294,6 @@ export class FacultyAttendanceService {
         }
 
         // DEBUG: Log day data
-        console.log('[FACULTY-ATTENDANCE] Day data found', {
-          timetableId: timetable.id,
-          dayOfWeek,
-          periodIds: Object.keys(dayData)
-        });
 
         // Extract periods for this day where staff is assigned
 
@@ -363,16 +314,6 @@ export class FacultyAttendanceService {
             );
 
           // DEBUG: Log staff assignment check
-          console.log('[FACULTY-ATTENDANCE] Checking staff assignment for period', {
-            timetableId: timetable.id,
-            periodId,
-            staffId,
-            slotPrimaryStaffId: slot.primary_staff_id,
-            slotStaffIds: slot.staff_ids,
-            isAssignedToSlot,
-            isAssignedToSubSlot,
-            hasSubSlots: !!slot.sub_slots
-          });
 
           if (!isAssignedToSlot && !isAssignedToSubSlot) continue;
 
@@ -484,12 +425,6 @@ export class FacultyAttendanceService {
       });
 
       // DEBUG: Log final period count
-      console.log('[FACULTY-ATTENDANCE] === END ===', {
-        totalPeriodsFound: facultyPeriods.length,
-        targetDate,
-        dayOfWeek,
-        timetablesProcessed: timetables.length
-      });
 
       if (facultyPeriods.length === 0) {
         logger.warn('academic/faculty-attendance', 'No periods found for faculty', {

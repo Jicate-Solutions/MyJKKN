@@ -69,7 +69,91 @@ export default function TemplatePage() {
   };
 
   const handleExport = () => {
-    // TODO: Implement template export functionality
+    if (!template) return;
+
+    const rows = [
+      {
+        Field: 'Template Name',
+        Value: template.template_name
+      },
+      {
+        Field: 'Description',
+        Value: template.template_description || ''
+      },
+      {
+        Field: 'Institution',
+        Value: template.institution?.name || 'N/A'
+      },
+      {
+        Field: 'Program',
+        Value: template.program?.program_name || 'N/A'
+      },
+      {
+        Field: 'Department',
+        Value: template.department?.department_name || 'N/A'
+      },
+      {
+        Field: 'Format',
+        Value: template.timetable_format || 'regular'
+      },
+      {
+        Field: 'Status',
+        Value: template.is_active ? 'Active' : 'Inactive'
+      },
+      {
+        Field: 'Category',
+        Value: template.template_category || ''
+      },
+      {
+        Field: 'Tags',
+        Value: template.template_tags?.join(', ') || ''
+      },
+      {
+        Field: 'Active Days',
+        Value: template.selected_days?.join(', ') || ''
+      },
+      {
+        Field: 'Periods Count',
+        Value: Array.isArray(template.periods)
+          ? String(template.periods.length)
+          : ''
+      },
+      {
+        Field: 'Usage Count',
+        Value: String(template.usage_count || 0)
+      },
+      {
+        Field: 'Created At',
+        Value: format(new Date(template.created_at), 'yyyy-MM-dd HH:mm')
+      },
+      {
+        Field: 'Updated At',
+        Value: format(new Date(template.updated_at), 'yyyy-MM-dd HH:mm')
+      }
+    ];
+
+    const headers = ['Field', 'Value'];
+    const csv = [
+      headers.join(','),
+      ...rows.map((row) =>
+        headers
+          .map((h) => {
+            const val = String(row[h as keyof typeof row] ?? '');
+            return val.includes(',') || val.includes('"')
+              ? `"${val.replace(/"/g, '""')}"`
+              : val;
+          })
+          .join(',')
+      )
+    ].join('\n');
+
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `template-${template.template_name.replace(/\s+/g, '-').toLowerCase()}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   if (isLoading) {

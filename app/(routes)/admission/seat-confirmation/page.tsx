@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { toast } from 'sonner';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -19,17 +19,13 @@ import {
   CheckCircle2,
   XCircle,
   Clock,
-  Users,
   Download,
   Mail,
   Eye,
   RefreshCw,
-  Calendar,
   AlertTriangle,
-  Timer,
   IndianRupee,
   Search,
-  Filter,
   TrendingUp,
   BarChart3,
   FileCheck,
@@ -37,135 +33,38 @@ import {
   Building2,
   GraduationCap,
   Receipt,
-  Ban,
   ArrowRightLeft,
-  Percent,
   Bell,
-  Send,
-  History,
-  Printer,
   Loader2
 } from 'lucide-react';
 import { format, differenceInDays } from 'date-fns';
 import { AdmissionErrorBoundary } from '@/components/admission';
+import { useAuth } from '@/hooks/use-auth';
+import {
+  useAdmissionPayments,
+  usePaymentStats,
+  useRecordPayment,
+  useProcessRefund,
+} from '@/hooks/admission/use-seat-confirmation';
+import type { AdmissionPaymentRow } from '@/lib/services/admission/seat-confirmation-service';
 
-// Mock data for seat confirmations
-const mockConfirmations = [
-  {
-    id: 'SEAT-2026-001',
-    offerId: 'OFF-2026-001',
-    candidateName: 'Priya Sharma',
-    email: 'priya.sharma@email.com',
-    phone: '+91 98765 43210',
-    program: 'B.Tech Computer Science',
-    status: 'confirmed',
-    tokenAmount: 25000,
-    tokenPaidDate: '2026-01-22',
-    paymentMethod: 'Online',
-    transactionId: 'TXN123456789',
-    documentsVerified: true,
-    seatAllotted: 'A-123',
-    deadline: '2026-01-25',
-    category: 'General'
-  },
-  {
-    id: 'SEAT-2026-002',
-    offerId: 'OFF-2026-002',
-    candidateName: 'Rahul Kumar',
-    email: 'rahul.kumar@email.com',
-    phone: '+91 98765 43211',
-    program: 'B.Tech Computer Science',
-    status: 'pending_payment',
-    tokenAmount: 25000,
-    tokenPaidDate: null,
-    paymentMethod: null,
-    transactionId: null,
-    documentsVerified: true,
-    seatAllotted: null,
-    deadline: '2026-01-28',
-    category: 'OBC'
-  },
-  {
-    id: 'SEAT-2026-003',
-    offerId: 'OFF-2026-003',
-    candidateName: 'Ananya Patel',
-    email: 'ananya.patel@email.com',
-    phone: '+91 98765 43212',
-    program: 'B.Tech Computer Science',
-    status: 'pending_docs',
-    tokenAmount: 25000,
-    tokenPaidDate: '2026-01-23',
-    paymentMethod: 'DD',
-    transactionId: 'DD987654',
-    documentsVerified: false,
-    seatAllotted: null,
-    deadline: '2026-01-29',
-    category: 'General'
-  },
-  {
-    id: 'SEAT-2026-004',
-    offerId: 'OFF-2026-004',
-    candidateName: 'Mohammed Arif',
-    email: 'mohammed.arif@email.com',
-    phone: '+91 98765 43213',
-    program: 'B.Tech Electronics',
-    status: 'cancelled',
-    tokenAmount: 25000,
-    tokenPaidDate: null,
-    paymentMethod: null,
-    transactionId: null,
-    documentsVerified: false,
-    seatAllotted: null,
-    deadline: '2026-01-27',
-    cancelReason: 'Offer declined',
-    category: 'Minority'
-  },
-  {
-    id: 'SEAT-2026-005',
-    offerId: 'OFF-2026-005',
-    candidateName: 'Sneha Reddy',
-    email: 'sneha.reddy@email.com',
-    phone: '+91 98765 43214',
-    program: 'MBA',
-    status: 'expired',
-    tokenAmount: 50000,
-    tokenPaidDate: null,
-    paymentMethod: null,
-    transactionId: null,
-    documentsVerified: false,
-    seatAllotted: null,
-    deadline: '2026-01-20',
-    category: 'SC'
-  },
-  {
-    id: 'SEAT-2026-006',
-    offerId: 'OFF-2026-006',
-    candidateName: 'Vikram Singh',
-    email: 'vikram.singh@email.com',
-    phone: '+91 98765 43215',
-    program: 'B.Tech Mechanical',
-    status: 'refund_pending',
-    tokenAmount: 25000,
-    tokenPaidDate: '2026-01-18',
-    paymentMethod: 'Online',
-    transactionId: 'TXN111222333',
-    documentsVerified: true,
-    seatAllotted: 'M-045',
-    deadline: '2026-01-25',
-    refundReason: 'Withdrew admission',
-    category: 'EWS'
-  }
-];
+function getPaymentCandidateName(payment: AdmissionPaymentRow): string {
+  const lead = payment.application?.admission_lead;
+  if (lead?.full_name) return lead.full_name;
+  const formData = payment.application?.form_data as Record<string, unknown> | null;
+  const personal = formData?.personal as Record<string, unknown> | undefined;
+  if (personal?.name) return String(personal.name);
+  return payment.receipt_number || 'Unknown';
+}
 
-// Seat capacity by program
-const seatCapacity = [
-  { program: 'B.Tech Computer Science', total: 120, filled: 78, reserved: 15 },
-  { program: 'B.Tech Electronics', total: 60, filled: 42, reserved: 8 },
-  { program: 'B.Tech Mechanical', total: 60, filled: 35, reserved: 5 },
-  { program: 'MBA', total: 60, filled: 28, reserved: 12 }
-];
+function getPaymentCandidateEmail(payment: AdmissionPaymentRow): string {
+  return payment.application?.admission_lead?.email || '';
+}
 
 function SeatConfirmationPageContent() {
+  const { profile, isLoading: authLoading } = useAuth();
+  const institutionId = profile?.institution_id || '';
+
   const [activeTab, setActiveTab] = useState('confirmations');
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -173,55 +72,62 @@ function SeatConfirmationPageContent() {
   const [selectedItems, setSelectedItems] = useState<string[]>([]);
   const [isPaymentDialogOpen, setIsPaymentDialogOpen] = useState(false);
   const [isRefundDialogOpen, setIsRefundDialogOpen] = useState(false);
-  const [selectedItem, setSelectedItem] = useState<typeof mockConfirmations[0] | null>(null);
+  const [selectedItem, setSelectedItem] = useState<AdmissionPaymentRow | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
   const [isSendingReminders, setIsSendingReminders] = useState(false);
   const [isSendingBulkReminders, setIsSendingBulkReminders] = useState(false);
   const [isSendingBulkEmails, setIsSendingBulkEmails] = useState(false);
-  const [isRecordingPayment, setIsRecordingPayment] = useState(false);
-  const [isProcessingRefund, setIsProcessingRefund] = useState(false);
 
-  // Stats
-  const totalSeats = seatCapacity.reduce((acc, p) => acc + p.total, 0);
-  const filledSeats = seatCapacity.reduce((acc, p) => acc + p.filled, 0);
-  const reservedSeats = seatCapacity.reduce((acc, p) => acc + p.reserved, 0);
-  const confirmedCount = mockConfirmations.filter(c => c.status === 'confirmed').length;
-  const pendingPaymentCount = mockConfirmations.filter(c => c.status === 'pending_payment').length;
-  const pendingDocsCount = mockConfirmations.filter(c => c.status === 'pending_docs').length;
-  const totalCollected = mockConfirmations
-    .filter(c => c.tokenPaidDate && c.status !== 'refund_pending')
-    .reduce((acc, c) => acc + c.tokenAmount, 0);
-
-  // Filter confirmations
-  const filteredConfirmations = mockConfirmations.filter(conf => {
-    const matchesSearch = conf.candidateName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                          conf.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                          conf.offerId.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesStatus = statusFilter === 'all' || conf.status === statusFilter;
-    const matchesProgram = programFilter === 'all' || conf.program === programFilter;
-    return matchesSearch && matchesStatus && matchesProgram;
+  // Real data hooks
+  const { payments, isLoading: paymentsLoading, refetch } = useAdmissionPayments({
+    institutionId,
+    status: statusFilter !== 'all' ? statusFilter : undefined,
+    search: searchTerm || undefined,
   });
+
+  const { stats, isLoading: statsLoading } = usePaymentStats(institutionId);
+  const recordPaymentMutation = useRecordPayment();
+  const processRefundMutation = useProcessRefund();
+
+  const isLoading = authLoading || paymentsLoading;
+
+  // Client-side filtering for search on candidate name
+  const filteredPayments = useMemo(() => {
+    return payments.filter((p) => {
+      const name = getPaymentCandidateName(p).toLowerCase();
+      const receipt = (p.receipt_number || '').toLowerCase();
+      const term = searchTerm.toLowerCase();
+      const matchesSearch = !searchTerm || name.includes(term) || receipt.includes(term) || p.id.includes(term);
+      return matchesSearch;
+    });
+  }, [payments, searchTerm]);
+
+  // Stats from real data
+  const totalCollected = stats?.totalCollected ?? 0;
+  const pendingAmount = stats?.pendingAmount ?? 0;
+  const refundPending = stats?.refundPending ?? 0;
+  const confirmedCount = stats?.confirmedCount ?? 0;
+  const pendingPaymentCount = stats?.pendingPaymentCount ?? 0;
 
   const getStatusBadge = (status: string) => {
     switch (status) {
-      case 'confirmed':
-        return <Badge className="bg-green-100 text-green-700 border-green-200">Confirmed</Badge>;
-      case 'pending_payment':
+      case 'paid':
+        return <Badge className="bg-green-100 text-green-700 border-green-200">Paid</Badge>;
+      case 'pending':
         return <Badge className="bg-yellow-100 text-yellow-700 border-yellow-200">Payment Pending</Badge>;
-      case 'pending_docs':
-        return <Badge className="bg-blue-100 text-blue-700 border-blue-200">Docs Pending</Badge>;
-      case 'cancelled':
-        return <Badge className="bg-gray-100 text-gray-700 border-gray-200">Cancelled</Badge>;
-      case 'expired':
-        return <Badge className="bg-red-100 text-red-700 border-red-200">Expired</Badge>;
+      case 'failed':
+        return <Badge className="bg-red-100 text-red-700 border-red-200">Failed</Badge>;
       case 'refund_pending':
         return <Badge className="bg-orange-100 text-orange-700 border-orange-200">Refund Pending</Badge>;
+      case 'refunded':
+        return <Badge className="bg-gray-100 text-gray-700 border-gray-200">Refunded</Badge>;
       default:
         return <Badge variant="outline">{status}</Badge>;
     }
   };
 
-  const getDaysRemaining = (deadline: string) => {
+  const getDaysRemaining = (deadline: string | null) => {
+    if (!deadline) return null;
     const days = differenceInDays(new Date(deadline), new Date());
     if (days < 0) return <span className="text-red-600 font-medium">Expired</span>;
     if (days === 0) return <span className="text-red-600 font-medium">Today</span>;
@@ -230,10 +136,10 @@ function SeatConfirmationPageContent() {
   };
 
   const handleSelectAll = () => {
-    if (selectedItems.length === filteredConfirmations.length) {
+    if (selectedItems.length === filteredPayments.length) {
       setSelectedItems([]);
     } else {
-      setSelectedItems(filteredConfirmations.map(c => c.id));
+      setSelectedItems(filteredPayments.map(c => c.id));
     }
   };
 
@@ -244,6 +150,14 @@ function SeatConfirmationPageContent() {
       setSelectedItems([...selectedItems, id]);
     }
   };
+
+  if (isLoading) {
+    return (
+      <div className="container mx-auto p-6 flex items-center justify-center min-h-[400px]">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   return (
     <div className="container mx-auto p-6 space-y-6">
@@ -264,7 +178,7 @@ function SeatConfirmationPageContent() {
             disabled={isSyncing}
             onClick={async () => {
               setIsSyncing(true);
-              await new Promise(resolve => setTimeout(resolve, 1000));
+              await refetch();
               toast.success('Payment data synced successfully');
               setIsSyncing(false);
             }}
@@ -276,7 +190,7 @@ function SeatConfirmationPageContent() {
             )}
             Sync Payments
           </Button>
-          <Button onClick={() => toast.success('Payment recording form opened')}>
+          <Button onClick={() => setIsPaymentDialogOpen(true)}>
             <Receipt className="mr-2 h-4 w-4" />
             Record Payment
           </Button>
@@ -289,12 +203,11 @@ function SeatConfirmationPageContent() {
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Total Seats</p>
-                <p className="text-2xl font-bold">{totalSeats}</p>
+                <p className="text-sm text-muted-foreground">Total Payments</p>
+                <p className="text-2xl font-bold">{payments.length}</p>
               </div>
               <Building2 className="h-8 w-8 text-blue-500 opacity-80" />
             </div>
-            <Progress value={totalSeats > 0 ? (filledSeats / totalSeats) * 100 : 0} className="mt-2 h-1.5" />
           </CardContent>
         </Card>
         <Card>
@@ -323,10 +236,12 @@ function SeatConfirmationPageContent() {
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Pending Docs</p>
-                <p className="text-2xl font-bold text-blue-600">{pendingDocsCount}</p>
+                <p className="text-sm text-muted-foreground">Refund Pending</p>
+                <p className="text-2xl font-bold text-orange-600">
+                  {payments.filter(p => p.status === 'refund_pending').length}
+                </p>
               </div>
-              <FileCheck className="h-8 w-8 text-blue-500 opacity-80" />
+              <ArrowRightLeft className="h-8 w-8 text-orange-500 opacity-80" />
             </div>
           </CardContent>
         </Card>
@@ -335,7 +250,9 @@ function SeatConfirmationPageContent() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">Collected</p>
-                <p className="text-2xl font-bold text-primary">₹{(totalCollected / 100000).toFixed(1)}L</p>
+                <p className="text-2xl font-bold text-primary">
+                  {totalCollected >= 100000 ? `₹${(totalCollected / 100000).toFixed(1)}L` : `₹${totalCollected.toLocaleString()}`}
+                </p>
               </div>
               <IndianRupee className="h-8 w-8 text-primary opacity-80" />
             </div>
@@ -345,8 +262,10 @@ function SeatConfirmationPageContent() {
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground">Fill Rate</p>
-                <p className="text-2xl font-bold text-purple-600">{totalSeats > 0 ? ((filledSeats / totalSeats) * 100).toFixed(0) : '0'}%</p>
+                <p className="text-sm text-muted-foreground">Pending Amt</p>
+                <p className="text-2xl font-bold text-purple-600">
+                  {pendingAmount >= 100000 ? `₹${(pendingAmount / 100000).toFixed(1)}L` : `₹${pendingAmount.toLocaleString()}`}
+                </p>
               </div>
               <TrendingUp className="h-8 w-8 text-purple-500 opacity-80" />
             </div>
@@ -356,18 +275,14 @@ function SeatConfirmationPageContent() {
 
       {/* Main Content */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-4 lg:w-auto lg:inline-flex">
+        <TabsList className="grid w-full grid-cols-3 lg:w-auto lg:inline-flex">
           <TabsTrigger value="confirmations">
             <UserCheck className="mr-2 h-4 w-4" />
-            Confirmations
-          </TabsTrigger>
-          <TabsTrigger value="seats">
-            <GraduationCap className="mr-2 h-4 w-4" />
-            Seat Matrix
+            Payments
           </TabsTrigger>
           <TabsTrigger value="payments">
             <CreditCard className="mr-2 h-4 w-4" />
-            Payments
+            Transactions
           </TabsTrigger>
           <TabsTrigger value="analytics">
             <BarChart3 className="mr-2 h-4 w-4" />
@@ -375,17 +290,17 @@ function SeatConfirmationPageContent() {
           </TabsTrigger>
         </TabsList>
 
-        {/* Confirmations Tab */}
+        {/* Payments Tab */}
         <TabsContent value="confirmations" className="mt-6">
           <Card>
             <CardHeader className="pb-4">
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
-                  <CardTitle>Seat Confirmations</CardTitle>
+                  <CardTitle>Admission Payments</CardTitle>
                   <CardDescription>Track payment and document status</CardDescription>
                 </div>
                 <div className="flex items-center gap-2">
-                  <Button variant="outline" size="sm" onClick={() => toast.success('Exporting seat confirmation data...')}>
+                  <Button variant="outline" size="sm" onClick={() => toast.success('Exporting payment data...')}>
                     <Download className="mr-2 h-4 w-4" />
                     Export
                   </Button>
@@ -416,7 +331,7 @@ function SeatConfirmationPageContent() {
                 <div className="relative flex-1">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                   <Input
-                    placeholder="Search by name or ID..."
+                    placeholder="Search by name or receipt number..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     className="pl-10"
@@ -428,23 +343,11 @@ function SeatConfirmationPageContent() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Status</SelectItem>
-                    <SelectItem value="confirmed">Confirmed</SelectItem>
-                    <SelectItem value="pending_payment">Payment Pending</SelectItem>
-                    <SelectItem value="pending_docs">Docs Pending</SelectItem>
-                    <SelectItem value="cancelled">Cancelled</SelectItem>
-                    <SelectItem value="expired">Expired</SelectItem>
+                    <SelectItem value="paid">Paid</SelectItem>
+                    <SelectItem value="pending">Pending</SelectItem>
+                    <SelectItem value="failed">Failed</SelectItem>
                     <SelectItem value="refund_pending">Refund Pending</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Select value={programFilter} onValueChange={setProgramFilter}>
-                  <SelectTrigger className="w-[200px]">
-                    <SelectValue placeholder="Program" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Programs</SelectItem>
-                    <SelectItem value="B.Tech Computer Science">B.Tech CS</SelectItem>
-                    <SelectItem value="B.Tech Electronics">B.Tech ECE</SelectItem>
-                    <SelectItem value="MBA">MBA</SelectItem>
+                    <SelectItem value="refunded">Refunded</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -505,97 +408,93 @@ function SeatConfirmationPageContent() {
                       <tr>
                         <th className="p-3 text-left">
                           <Checkbox
-                            checked={selectedItems.length === filteredConfirmations.length && filteredConfirmations.length > 0}
+                            checked={selectedItems.length === filteredPayments.length && filteredPayments.length > 0}
                             onCheckedChange={handleSelectAll}
                           />
                         </th>
                         <th className="p-3 text-left text-sm font-medium">Candidate</th>
-                        <th className="p-3 text-left text-sm font-medium">Program</th>
+                        <th className="p-3 text-left text-sm font-medium">Type</th>
                         <th className="p-3 text-center text-sm font-medium">Status</th>
-                        <th className="p-3 text-center text-sm font-medium">Token Fee</th>
-                        <th className="p-3 text-center text-sm font-medium">Payment</th>
-                        <th className="p-3 text-center text-sm font-medium">Docs</th>
-                        <th className="p-3 text-center text-sm font-medium">Seat</th>
-                        <th className="p-3 text-center text-sm font-medium">Deadline</th>
+                        <th className="p-3 text-center text-sm font-medium">Amount</th>
+                        <th className="p-3 text-center text-sm font-medium">Method</th>
+                        <th className="p-3 text-center text-sm font-medium">Paid At</th>
+                        <th className="p-3 text-center text-sm font-medium">Receipt</th>
                         <th className="p-3 text-center text-sm font-medium">Actions</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {filteredConfirmations.map((conf) => (
-                        <tr key={conf.id} className="border-t hover:bg-muted/30">
+                      {filteredPayments.length === 0 && (
+                        <tr>
+                          <td colSpan={9} className="p-8 text-center text-muted-foreground">
+                            {paymentsLoading ? 'Loading...' : 'No payments found'}
+                          </td>
+                        </tr>
+                      )}
+                      {filteredPayments.map((payment) => (
+                        <tr key={payment.id} className="border-t hover:bg-muted/30">
                           <td className="p-3">
                             <Checkbox
-                              checked={selectedItems.includes(conf.id)}
-                              onCheckedChange={() => handleSelectItem(conf.id)}
+                              checked={selectedItems.includes(payment.id)}
+                              onCheckedChange={() => handleSelectItem(payment.id)}
                             />
                           </td>
                           <td className="p-3">
                             <div>
-                              <p className="font-medium">{conf.candidateName}</p>
-                              <p className="text-xs text-muted-foreground">{conf.id}</p>
+                              <p className="font-medium">{getPaymentCandidateName(payment)}</p>
+                              <p className="text-xs text-muted-foreground">{payment.application?.application_number || payment.id.slice(0, 8)}</p>
                             </div>
                           </td>
                           <td className="p-3">
-                            <span className="text-sm">{conf.program}</span>
+                            <Badge variant="outline" className="capitalize">
+                              {(payment.payment_type || '').replace(/_/g, ' ')}
+                            </Badge>
                           </td>
-                          <td className="p-3 text-center">{getStatusBadge(conf.status)}</td>
+                          <td className="p-3 text-center">{getStatusBadge(payment.status)}</td>
                           <td className="p-3 text-center">
-                            <span className="font-medium">₹{conf.tokenAmount.toLocaleString()}</span>
-                          </td>
-                          <td className="p-3 text-center">
-                            {conf.tokenPaidDate ? (
-                              <div>
-                                <CheckCircle2 className="h-5 w-5 text-green-500 mx-auto" />
-                                <p className="text-xs text-muted-foreground mt-1">
-                                  {format(new Date(conf.tokenPaidDate), 'MMM dd')}
-                                </p>
-                              </div>
-                            ) : (
-                              <XCircle className="h-5 w-5 text-gray-300 mx-auto" />
-                            )}
+                            <span className="font-medium">₹{payment.amount.toLocaleString()}</span>
                           </td>
                           <td className="p-3 text-center">
-                            {conf.documentsVerified ? (
-                              <CheckCircle2 className="h-5 w-5 text-green-500 mx-auto" />
-                            ) : (
-                              <XCircle className="h-5 w-5 text-gray-300 mx-auto" />
-                            )}
+                            <span className="text-sm capitalize">{(payment.payment_method || '-').replace(/_/g, ' ')}</span>
                           </td>
                           <td className="p-3 text-center">
-                            {conf.seatAllotted ? (
-                              <Badge variant="outline">{conf.seatAllotted}</Badge>
+                            {payment.paid_at ? (
+                              <span className="text-sm">{format(new Date(payment.paid_at), 'MMM dd, yyyy')}</span>
                             ) : (
                               <span className="text-muted-foreground">-</span>
                             )}
                           </td>
                           <td className="p-3 text-center">
-                            {getDaysRemaining(conf.deadline)}
+                            {payment.receipt_number ? (
+                              <Badge variant="outline">{payment.receipt_number}</Badge>
+                            ) : (
+                              <span className="text-muted-foreground">-</span>
+                            )}
                           </td>
                           <td className="p-3 text-center">
                             <div className="flex items-center justify-center gap-1">
                               <Button variant="ghost" size="icon" className="h-8 w-8">
                                 <Eye className="h-4 w-4" />
                               </Button>
-                              {conf.status === 'pending_payment' && (
+                              {payment.status === 'pending' && (
                                 <Button
                                   variant="ghost"
                                   size="icon"
                                   className="h-8 w-8"
                                   onClick={() => {
-                                    setSelectedItem(conf);
+                                    setSelectedItem(payment);
                                     setIsPaymentDialogOpen(true);
                                   }}
                                 >
                                   <CreditCard className="h-4 w-4" />
                                 </Button>
                               )}
-                              {(conf.status === 'confirmed' || conf.status === 'refund_pending') && (
+                              {(payment.status === 'paid' || payment.status === 'refund_pending') && (
                                 <Button
                                   variant="ghost"
                                   size="icon"
                                   className="h-8 w-8"
                                   onClick={() => {
-                                    setSelectedItem(conf);
+                                    setSelectedItem(payment);
                                     setIsRefundDialogOpen(true);
                                   }}
                                 >
@@ -614,133 +513,60 @@ function SeatConfirmationPageContent() {
           </Card>
         </TabsContent>
 
-        {/* Seat Matrix Tab */}
-        <TabsContent value="seats" className="mt-6">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Overall Summary */}
-            <Card className="lg:col-span-2">
-              <CardHeader>
-                <CardTitle>Seat Availability Overview</CardTitle>
-                <CardDescription>Current seat status across all programs</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-4 gap-4">
-                  <div className="text-center p-4 bg-blue-50 rounded-lg">
-                    <p className="text-3xl font-bold text-blue-600">{totalSeats}</p>
-                    <p className="text-sm text-blue-700">Total Seats</p>
-                  </div>
-                  <div className="text-center p-4 bg-green-50 rounded-lg">
-                    <p className="text-3xl font-bold text-green-600">{filledSeats}</p>
-                    <p className="text-sm text-green-700">Filled</p>
-                  </div>
-                  <div className="text-center p-4 bg-yellow-50 rounded-lg">
-                    <p className="text-3xl font-bold text-yellow-600">{reservedSeats}</p>
-                    <p className="text-sm text-yellow-700">Reserved</p>
-                  </div>
-                  <div className="text-center p-4 bg-gray-50 rounded-lg">
-                    <p className="text-3xl font-bold text-gray-600">{totalSeats - filledSeats - reservedSeats}</p>
-                    <p className="text-sm text-gray-700">Available</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Program-wise Seats */}
-            {seatCapacity.map((program) => (
-              <Card key={program.program}>
-                <CardHeader>
-                  <CardTitle className="text-lg">{program.program}</CardTitle>
-                  <CardDescription>
-                    {program.filled + program.reserved}/{program.total} seats allocated
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm">Fill Progress</span>
-                      <span className="font-medium">{program.total > 0 ? ((program.filled / program.total) * 100).toFixed(0) : '0'}%</span>
-                    </div>
-                    <div className="h-4 bg-muted rounded overflow-hidden flex">
-                      <div
-                        className="bg-green-500 h-full"
-                        style={{ width: `${program.total > 0 ? (program.filled / program.total) * 100 : 0}%` }}
-                      />
-                      <div
-                        className="bg-yellow-500 h-full"
-                        style={{ width: `${program.total > 0 ? (program.reserved / program.total) * 100 : 0}%` }}
-                      />
-                    </div>
-                    <div className="grid grid-cols-3 gap-2 text-center text-sm">
-                      <div className="p-2 bg-green-50 rounded">
-                        <p className="font-bold text-green-600">{program.filled}</p>
-                        <p className="text-xs text-green-700">Filled</p>
-                      </div>
-                      <div className="p-2 bg-yellow-50 rounded">
-                        <p className="font-bold text-yellow-600">{program.reserved}</p>
-                        <p className="text-xs text-yellow-700">Reserved</p>
-                      </div>
-                      <div className="p-2 bg-gray-50 rounded">
-                        <p className="font-bold text-gray-600">{program.total - program.filled - program.reserved}</p>
-                        <p className="text-xs text-gray-700">Available</p>
-                      </div>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        </TabsContent>
-
-        {/* Payments Tab */}
+        {/* Transactions Tab */}
         <TabsContent value="payments" className="mt-6">
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Payment Summary */}
             <Card className="lg:col-span-2">
               <CardHeader>
                 <CardTitle>Payment Transactions</CardTitle>
-                <CardDescription>Recent token fee payments</CardDescription>
+                <CardDescription>Recent admission payments</CardDescription>
               </CardHeader>
               <CardContent>
                 <ScrollArea className="h-[400px]">
                   <div className="space-y-3">
-                    {mockConfirmations
-                      .filter(c => c.tokenPaidDate)
-                      .sort((a, b) => new Date(b.tokenPaidDate!).getTime() - new Date(a.tokenPaidDate!).getTime())
-                      .map((conf) => (
-                        <div key={conf.id} className="p-4 border rounded-lg">
+                    {payments
+                      .filter(c => c.paid_at)
+                      .sort((a, b) => new Date(b.paid_at!).getTime() - new Date(a.paid_at!).getTime())
+                      .map((payment) => (
+                        <div key={payment.id} className="p-4 border rounded-lg">
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-3">
                               <div className={`p-2 rounded-full ${
-                                conf.status === 'refund_pending' ? 'bg-orange-100' : 'bg-green-100'
+                                payment.status === 'refund_pending' ? 'bg-orange-100' : 'bg-green-100'
                               }`}>
-                                {conf.status === 'refund_pending' ? (
+                                {payment.status === 'refund_pending' ? (
                                   <ArrowRightLeft className="h-4 w-4 text-orange-600" />
                                 ) : (
                                   <CheckCircle2 className="h-4 w-4 text-green-600" />
                                 )}
                               </div>
                               <div>
-                                <p className="font-medium">{conf.candidateName}</p>
-                                <p className="text-xs text-muted-foreground">{conf.transactionId}</p>
+                                <p className="font-medium">{getPaymentCandidateName(payment)}</p>
+                                <p className="text-xs text-muted-foreground">{payment.receipt_number || payment.gateway_payment_id || payment.id.slice(0, 8)}</p>
                               </div>
                             </div>
                             <div className="text-right">
                               <p className={`font-bold ${
-                                conf.status === 'refund_pending' ? 'text-orange-600' : 'text-green-600'
+                                payment.status === 'refund_pending' ? 'text-orange-600' : 'text-green-600'
                               }`}>
-                                {conf.status === 'refund_pending' ? '-' : '+'}₹{conf.tokenAmount.toLocaleString()}
+                                {payment.status === 'refund_pending' ? '-' : '+'}₹{payment.amount.toLocaleString()}
                               </p>
                               <p className="text-xs text-muted-foreground">
-                                {format(new Date(conf.tokenPaidDate!), 'MMM dd, yyyy')}
+                                {format(new Date(payment.paid_at!), 'MMM dd, yyyy')}
                               </p>
                             </div>
                           </div>
                           <div className="flex items-center gap-2 mt-2">
-                            <Badge variant="outline">{conf.paymentMethod}</Badge>
-                            <Badge variant="outline">{conf.program}</Badge>
+                            <Badge variant="outline" className="capitalize">{(payment.payment_method || 'unknown').replace(/_/g, ' ')}</Badge>
+                            <Badge variant="outline" className="capitalize">{(payment.payment_type || '').replace(/_/g, ' ')}</Badge>
                           </div>
                         </div>
                       ))}
+                    {payments.filter(c => c.paid_at).length === 0 && (
+                      <div className="text-center py-8 text-muted-foreground">
+                        <p>No payment transactions yet</p>
+                      </div>
+                    )}
                   </div>
                 </ScrollArea>
               </CardContent>
@@ -758,16 +584,16 @@ function SeatConfirmationPageContent() {
                       <p className="text-sm text-green-700">Total Collected</p>
                       <p className="text-3xl font-bold text-green-600">₹{totalCollected.toLocaleString()}</p>
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="p-3 border rounded-lg text-center">
-                        <p className="text-sm text-muted-foreground">Online</p>
-                        <p className="font-bold">₹50,000</p>
+                    {stats?.paymentsByMethod && stats.paymentsByMethod.length > 0 && (
+                      <div className="grid grid-cols-2 gap-3">
+                        {stats.paymentsByMethod.map((m) => (
+                          <div key={m.method} className="p-3 border rounded-lg text-center">
+                            <p className="text-sm text-muted-foreground capitalize">{m.method.replace(/_/g, ' ')}</p>
+                            <p className="font-bold">₹{m.amount.toLocaleString()}</p>
+                          </div>
+                        ))}
                       </div>
-                      <div className="p-3 border rounded-lg text-center">
-                        <p className="text-sm text-muted-foreground">DD/Cheque</p>
-                        <p className="font-bold">₹25,000</p>
-                      </div>
-                    </div>
+                    )}
                   </div>
                 </CardContent>
               </Card>
@@ -779,7 +605,7 @@ function SeatConfirmationPageContent() {
                 <CardContent>
                   <div className="p-4 bg-yellow-50 rounded-lg text-center">
                     <p className="text-sm text-yellow-700">Expected from Pending</p>
-                    <p className="text-2xl font-bold text-yellow-600">₹25,000</p>
+                    <p className="text-2xl font-bold text-yellow-600">₹{pendingAmount.toLocaleString()}</p>
                     <p className="text-xs text-yellow-600 mt-1">{pendingPaymentCount} candidates</p>
                   </div>
                 </CardContent>
@@ -792,8 +618,10 @@ function SeatConfirmationPageContent() {
                 <CardContent>
                   <div className="p-4 bg-orange-50 rounded-lg text-center">
                     <p className="text-sm text-orange-700">Pending Refunds</p>
-                    <p className="text-2xl font-bold text-orange-600">₹25,000</p>
-                    <p className="text-xs text-orange-600 mt-1">1 request</p>
+                    <p className="text-2xl font-bold text-orange-600">₹{refundPending.toLocaleString()}</p>
+                    <p className="text-xs text-orange-600 mt-1">
+                      {payments.filter(p => p.status === 'refund_pending').length} requests
+                    </p>
                   </div>
                 </CardContent>
               </Card>
@@ -804,118 +632,68 @@ function SeatConfirmationPageContent() {
         {/* Analytics Tab */}
         <TabsContent value="analytics" className="mt-6">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Conversion Funnel */}
+            {/* Payment Status Breakdown */}
             <Card>
               <CardHeader>
-                <CardTitle>Enrollment Funnel</CardTitle>
-                <CardDescription>From offer to enrollment conversion</CardDescription>
+                <CardTitle>Payment Status Breakdown</CardTitle>
+                <CardDescription>Overview of all payment statuses</CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
                   {[
-                    { stage: 'Offers Accepted', count: 28, percent: 100, color: 'bg-blue-500' },
-                    { stage: 'Token Paid', count: 22, percent: 79, color: 'bg-purple-500' },
-                    { stage: 'Documents Verified', count: 20, percent: 71, color: 'bg-teal-500' },
-                    { stage: 'Seat Confirmed', count: 18, percent: 64, color: 'bg-green-500' }
-                  ].map((stage) => (
-                    <div key={stage.stage} className="space-y-1">
+                    { status: 'Paid', count: confirmedCount, color: 'bg-green-500' },
+                    { status: 'Pending', count: pendingPaymentCount, color: 'bg-yellow-500' },
+                    { status: 'Refund Pending', count: payments.filter(p => p.status === 'refund_pending').length, color: 'bg-orange-500' },
+                    { status: 'Refunded', count: payments.filter(p => p.status === 'refunded').length, color: 'bg-gray-500' },
+                    { status: 'Failed', count: payments.filter(p => p.status === 'failed').length, color: 'bg-red-500' },
+                  ].filter(s => s.count > 0).map((stage) => (
+                    <div key={stage.status} className="space-y-1">
                       <div className="flex items-center justify-between text-sm">
-                        <span>{stage.stage}</span>
-                        <span className="font-medium">{stage.count} ({stage.percent}%)</span>
+                        <span>{stage.status}</span>
+                        <span className="font-medium">{stage.count} ({payments.length > 0 ? ((stage.count / payments.length) * 100).toFixed(0) : 0}%)</span>
                       </div>
                       <div className="h-8 bg-muted rounded overflow-hidden">
                         <div
                           className={`h-full ${stage.color}`}
-                          style={{ width: `${stage.percent}%` }}
+                          style={{ width: `${payments.length > 0 ? Math.max((stage.count / payments.length) * 100, 2) : 0}%` }}
                         />
                       </div>
                     </div>
                   ))}
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Category-wise Fill */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Category-wise Seat Fill</CardTitle>
-                <CardDescription>Seats filled by reservation category</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {[
-                    { category: 'General', filled: 45, total: 60, color: 'bg-blue-500' },
-                    { category: 'OBC', filled: 28, total: 32, color: 'bg-purple-500' },
-                    { category: 'SC', filled: 12, total: 18, color: 'bg-orange-500' },
-                    { category: 'ST', filled: 5, total: 9, color: 'bg-teal-500' },
-                    { category: 'EWS', filled: 8, total: 12, color: 'bg-pink-500' }
-                  ].map((cat) => (
-                    <div key={cat.category} className="space-y-1">
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm font-medium">{cat.category}</span>
-                        <span className="text-sm">{cat.filled}/{cat.total} ({cat.total > 0 ? ((cat.filled / cat.total) * 100).toFixed(0) : '0'}%)</span>
-                      </div>
-                      <Progress value={cat.total > 0 ? (cat.filled / cat.total) * 100 : 0} className="h-2" />
+                  {payments.length === 0 && (
+                    <div className="text-center py-8 text-muted-foreground">
+                      <p>No payment data to analyze</p>
                     </div>
-                  ))}
+                  )}
                 </div>
               </CardContent>
             </Card>
 
-            {/* Daily Collections */}
+            {/* Payment Type Breakdown */}
             <Card>
               <CardHeader>
-                <CardTitle>Daily Collections (Last 7 Days)</CardTitle>
-                <CardDescription>Token fee collection trend</CardDescription>
+                <CardTitle>Payment Types</CardTitle>
+                <CardDescription>Breakdown by fee type</CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="space-y-3">
-                  {[
-                    { date: 'Jan 16', amount: 25000 },
-                    { date: 'Jan 17', amount: 0 },
-                    { date: 'Jan 18', amount: 50000 },
-                    { date: 'Jan 19', amount: 25000 },
-                    { date: 'Jan 20', amount: 75000 },
-                    { date: 'Jan 21', amount: 25000 },
-                    { date: 'Jan 22', amount: 50000 }
-                  ].map((day) => (
-                    <div key={day.date} className="flex items-center gap-4">
-                      <span className="w-16 text-sm">{day.date}</span>
-                      <div className="flex-1 h-6 bg-muted rounded overflow-hidden">
-                        <div
-                          className="h-full bg-green-500"
-                          style={{ width: `${(day.amount / 75000) * 100}%` }}
-                        />
-                      </div>
-                      <span className="w-20 text-sm text-right font-medium">₹{(day.amount / 1000).toFixed(0)}K</span>
+                  {Object.entries(
+                    payments.reduce((acc, p) => {
+                      const type = (p.payment_type || 'unknown').replace(/_/g, ' ');
+                      acc[type] = (acc[type] || 0) + 1;
+                      return acc;
+                    }, {} as Record<string, number>)
+                  ).map(([type, count]) => (
+                    <div key={type} className="flex items-center justify-between p-3 border rounded-lg">
+                      <span className="text-sm capitalize">{type}</span>
+                      <Badge variant="outline">{count}</Badge>
                     </div>
                   ))}
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Drop-off Analysis */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Drop-off Analysis</CardTitle>
-                <CardDescription>Reasons for non-confirmation</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3">
-                  {[
-                    { reason: 'Payment deadline expired', count: 5, percent: 45 },
-                    { reason: 'Offer declined', count: 3, percent: 27 },
-                    { reason: 'Documents not submitted', count: 2, percent: 18 },
-                    { reason: 'Withdrew application', count: 1, percent: 9 }
-                  ].map((item) => (
-                    <div key={item.reason} className="flex items-center justify-between p-3 border rounded-lg">
-                      <span className="text-sm">{item.reason}</span>
-                      <div className="flex items-center gap-2">
-                        <span className="text-muted-foreground">{item.count}</span>
-                        <Badge variant="outline">{item.percent}%</Badge>
-                      </div>
+                  {payments.length === 0 && (
+                    <div className="text-center py-8 text-muted-foreground">
+                      <p>No data available</p>
                     </div>
-                  ))}
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -929,59 +707,73 @@ function SeatConfirmationPageContent() {
           <DialogHeader>
             <DialogTitle>Record Payment</DialogTitle>
             <DialogDescription>
-              {selectedItem?.candidateName} - Token Fee: ₹{selectedItem?.tokenAmount.toLocaleString()}
+              {selectedItem ? `${getPaymentCandidateName(selectedItem)} - ₹${selectedItem.amount.toLocaleString()}` : 'Record a new admission payment'}
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label>Payment Method</Label>
-              <Select defaultValue="online">
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="online">Online Payment</SelectItem>
-                  <SelectItem value="dd">Demand Draft</SelectItem>
-                  <SelectItem value="cheque">Cheque</SelectItem>
-                  <SelectItem value="cash">Cash</SelectItem>
-                </SelectContent>
-              </Select>
+          <form
+            onSubmit={async (e) => {
+              e.preventDefault();
+              const formData = new FormData(e.currentTarget);
+              const applicationId = selectedItem?.application_id || formData.get('applicationId') as string;
+              const paymentMethod = formData.get('paymentMethod') as string;
+              const transactionId = formData.get('transactionId') as string;
+              const amount = Number(formData.get('amount') || selectedItem?.amount || 0);
+
+              if (!applicationId) {
+                toast.error('Application ID is required');
+                return;
+              }
+
+              recordPaymentMutation.mutate({
+                institution_id: institutionId,
+                application_id: applicationId,
+                payment_type: 'token_fee',
+                amount,
+                payment_method: paymentMethod || 'online_upi',
+                gateway_payment_id: transactionId || undefined,
+              }, {
+                onSuccess: () => setIsPaymentDialogOpen(false),
+              });
+            }}
+          >
+            <div className="space-y-4 py-4">
+              <div className="space-y-2">
+                <Label>Payment Method</Label>
+                <Select name="paymentMethod" defaultValue="online_upi">
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="online_upi">Online / UPI</SelectItem>
+                    <SelectItem value="dd">Demand Draft</SelectItem>
+                    <SelectItem value="cheque">Cheque</SelectItem>
+                    <SelectItem value="cash">Cash</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Transaction ID / DD Number</Label>
+                <Input name="transactionId" placeholder="Enter transaction reference" />
+              </div>
+              <div className="space-y-2">
+                <Label>Amount</Label>
+                <Input name="amount" type="number" defaultValue={selectedItem?.amount || ''} />
+              </div>
             </div>
-            <div className="space-y-2">
-              <Label>Transaction ID / DD Number</Label>
-              <Input placeholder="Enter transaction reference" />
-            </div>
-            <div className="space-y-2">
-              <Label>Payment Date</Label>
-              <Input type="date" defaultValue={format(new Date(), 'yyyy-MM-dd')} />
-            </div>
-            <div className="space-y-2">
-              <Label>Amount</Label>
-              <Input type="number" defaultValue={selectedItem?.tokenAmount} />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsPaymentDialogOpen(false)} disabled={isRecordingPayment}>
-              Cancel
-            </Button>
-            <Button
-              disabled={isRecordingPayment}
-              onClick={async () => {
-                setIsRecordingPayment(true);
-                await new Promise(resolve => setTimeout(resolve, 1500));
-                toast.success('Payment recorded successfully');
-                setIsRecordingPayment(false);
-                setIsPaymentDialogOpen(false);
-              }}
-            >
-              {isRecordingPayment ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <CheckCircle2 className="mr-2 h-4 w-4" />
-              )}
-              Record Payment
-            </Button>
-          </DialogFooter>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setIsPaymentDialogOpen(false)} disabled={recordPaymentMutation.isPending}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={recordPaymentMutation.isPending}>
+                {recordPaymentMutation.isPending ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <CheckCircle2 className="mr-2 h-4 w-4" />
+                )}
+                Record Payment
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
 
@@ -991,58 +783,66 @@ function SeatConfirmationPageContent() {
           <DialogHeader>
             <DialogTitle>Process Refund</DialogTitle>
             <DialogDescription>
-              {selectedItem?.candidateName} - Amount: ₹{selectedItem?.tokenAmount.toLocaleString()}
+              {selectedItem && `${getPaymentCandidateName(selectedItem)} - Amount: ₹${selectedItem.amount.toLocaleString()}`}
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label>Refund Reason</Label>
-              <Select>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select reason" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="withdrawal">Withdrawal of admission</SelectItem>
-                  <SelectItem value="duplicate">Duplicate payment</SelectItem>
-                  <SelectItem value="error">Payment error</SelectItem>
-                  <SelectItem value="other">Other</SelectItem>
-                </SelectContent>
-              </Select>
+          <form
+            onSubmit={async (e) => {
+              e.preventDefault();
+              if (!selectedItem) return;
+              const formData = new FormData(e.currentTarget);
+              const refundAmount = Number(formData.get('refundAmount') || selectedItem.amount);
+              const refundReason = formData.get('refundReason') as string;
+              const bankAccount = formData.get('bankAccount') as string;
+
+              processRefundMutation.mutate({
+                id: selectedItem.id,
+                refund_amount: refundAmount,
+                refund_reason: refundReason || 'Withdrawal of admission',
+                refund_reference: bankAccount || undefined,
+              }, {
+                onSuccess: () => setIsRefundDialogOpen(false),
+              });
+            }}
+          >
+            <div className="space-y-4 py-4">
+              <div className="space-y-2">
+                <Label>Refund Reason</Label>
+                <Select name="refundReason" defaultValue="withdrawal">
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select reason" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="withdrawal">Withdrawal of admission</SelectItem>
+                    <SelectItem value="duplicate">Duplicate payment</SelectItem>
+                    <SelectItem value="error">Payment error</SelectItem>
+                    <SelectItem value="other">Other</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Refund Amount</Label>
+                <Input name="refundAmount" type="number" defaultValue={selectedItem?.amount} />
+              </div>
+              <div className="space-y-2">
+                <Label>Bank Account / Reference</Label>
+                <Input name="bankAccount" placeholder="Account number or reference" />
+              </div>
             </div>
-            <div className="space-y-2">
-              <Label>Refund Amount</Label>
-              <Input type="number" defaultValue={selectedItem?.tokenAmount} />
-            </div>
-            <div className="space-y-2">
-              <Label>Bank Account Details</Label>
-              <Input placeholder="Account number" />
-            </div>
-            <div className="space-y-2">
-              <Input placeholder="IFSC Code" />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsRefundDialogOpen(false)} disabled={isProcessingRefund}>
-              Cancel
-            </Button>
-            <Button
-              disabled={isProcessingRefund}
-              onClick={async () => {
-                setIsProcessingRefund(true);
-                await new Promise(resolve => setTimeout(resolve, 1500));
-                toast.success('Refund request initiated successfully');
-                setIsProcessingRefund(false);
-                setIsRefundDialogOpen(false);
-              }}
-            >
-              {isProcessingRefund ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <ArrowRightLeft className="mr-2 h-4 w-4" />
-              )}
-              Process Refund
-            </Button>
-          </DialogFooter>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setIsRefundDialogOpen(false)} disabled={processRefundMutation.isPending}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={processRefundMutation.isPending}>
+                {processRefundMutation.isPending ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <ArrowRightLeft className="mr-2 h-4 w-4" />
+                )}
+                Process Refund
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
     </div>

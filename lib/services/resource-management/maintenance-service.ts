@@ -105,7 +105,6 @@ class MaintenanceService {
       throw new Error('Maintenance log not found');
     }
 
-    console.log('[MaintenanceService] Successfully fetched log:', (data as any).id, (data as any).title);
     return data as MaintenanceLog;
   }
 

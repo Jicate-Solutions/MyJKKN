@@ -115,7 +115,6 @@ export class StaffService {
         (error.code === '42501' ||
           error.message?.includes('row-level security'))
       ) {
-        console.log('RLS error detected, attempting API route creation...');
 
         try {
           // Use fetch to call our API route which has proper service role access
@@ -145,9 +144,6 @@ export class StaffService {
       // Profile auto-creation is handled by the database trigger (sync_staff_to_profiles)
       // The trigger creates/updates a profile when staff with institution_email is created
       if (staff?.institution_email) {
-        console.log(
-          `✓ Staff created successfully. Profile will be auto-created by database trigger for ${staff.institution_email}`
-        );
 
         if (!suppressToast) {
           toast.success(
@@ -155,9 +151,6 @@ export class StaffService {
           );
         }
       } else {
-        console.log(
-          'No institution_email provided, profile will not be created'
-        );
         if (!suppressToast) {
           toast.success(`Staff created successfully`);
         }
@@ -217,9 +210,6 @@ export class StaffService {
               'Staff updated but failed to sync user profile institution'
             );
           } else {
-            console.log(
-              `Updated institution_id in profile for ${(currentStaff as any).institution_email}`
-            );
           }
         } catch (profileError) {
           console.warn('Error updating profile institution_id:', profileError);
@@ -235,7 +225,6 @@ export class StaffService {
 
   static async deleteStaff(id: string): Promise<void> {
     try {
-      console.log(`Deleting staff ${id}. Profile will be auto-deleted by database trigger.`);
 
       // Delete the staff record
       // The database trigger (trg_delete_staff_profile) will automatically delete
@@ -244,7 +233,6 @@ export class StaffService {
 
       if (error) throw error;
 
-      console.log(`✓ Staff ${id} deleted successfully. Profile auto-deleted by trigger.`);
     } catch (error) {
       console.error('Error deleting staff:', error);
       throw error;
@@ -307,7 +295,6 @@ export class StaffService {
       // This reduces the dataset before applying other filters, dramatically improving performance
       if (filters.institution_id) {
         query = query.eq('institution_id', filters.institution_id);
-        console.log('[staff-service] Applied institution filter first:', filters.institution_id);
       }
 
       // Apply other filters AFTER institution filter
@@ -355,7 +342,6 @@ export class StaffService {
       const queryTime = endTime - startTime;
 
       // Log performance metrics
-      console.log(`[staff-service] Query completed in ${queryTime.toFixed(2)}ms | Returned ${staff?.length || 0} records | Estimated total: ${count || 0}`);
 
       // Warn if query is slow
       if (queryTime > 5000) {
@@ -395,10 +381,6 @@ export class StaffService {
         !userProfile.is_super_admin
       ) {
         filters.institution_id = userProfile.institution_id;
-        console.log(
-          'Applied HOD institution filter:',
-          userProfile.institution_id
-        );
 
         // For HOD users, use optimized query with explicit institution filtering
         return await this.getStaffOptimizedForHOD(
@@ -422,7 +404,6 @@ export class StaffService {
   ): Promise<StaffListResponse> {
     try {
       const startTime = performance.now();
-      console.log('[staff-service] Using optimized HOD query for institution:', institutionId);
 
       // OPTIMIZATION: Use 'estimated' count instead of 'exact' for better performance
       let query = (this.supabase as any).from('staff').select(
@@ -499,7 +480,6 @@ export class StaffService {
       const queryTime = endTime - startTime;
 
       // Log performance metrics
-      console.log(`[staff-service] HOD query completed in ${queryTime.toFixed(2)}ms | Returned ${staff?.length || 0} records | Estimated total: ${count || 0}`);
 
       return {
         data: staff || [],

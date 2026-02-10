@@ -100,7 +100,6 @@ export function EnquiriesDataTable({
     sort_order: string;
   }) => {
     // Include refetchTrigger in closure to force refetch when it changes
-    console.log('[enquiries-data-table] Fetching data (trigger:', refetchTrigger, ')');
 
     try {
       const filters = {

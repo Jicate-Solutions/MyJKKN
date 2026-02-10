@@ -110,11 +110,9 @@ export default function NewUserPage() {
         const result = await OrganizationService.getInstitutions({
           limit: 1000
         });
-        console.log('Institutions loaded:', result.data?.length || 0);
         setInstitutions(result.data);
       } catch (error) {
         console.error('Error fetching institutions:', error);
-        console.log('Institutions loading failed');
         toast.error('Failed to load institutions');
       } finally {
         setInstitutionsLoading(false);
@@ -138,11 +136,9 @@ export default function NewUserPage() {
 
       try {
         setDepartmentsLoading(true);
-        console.log('Fetching departments for institution:', selectedInstitutionId);
         const response = await fetch(`/api/departments?institution_id=${selectedInstitutionId}`);
         if (response.ok) {
           const data = await response.json();
-          console.log('Departments loaded:', data?.length || 0, data);
           setDepartments(data || []);
           // Reset department selection when institution changes
           form.setValue('department_id', 'none');

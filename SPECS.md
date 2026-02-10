@@ -233,11 +233,11 @@ Transform MyJKKN from input-focused (attendance, fees) to outcome-focused (capab
 
 | ID | Requirement | Status |
 |----|-------------|--------|
-| 5.1.1 | Add `ai_solution_cleared` BOOLEAN to `learners_profiles` (default false) | PENDING |
-| 5.1.2 | Add `ai_solution_cleared_at` TIMESTAMPTZ to `learners_profiles` | PENDING |
-| 5.1.3 | Add `ai_solution_cleared_by` UUID to `learners_profiles` | PENDING |
-| 5.1.4 | Create `check_ai_solution_clearance(learner_id)` database function | PENDING |
-| 5.1.5 | Create trigger on `sh_builder_assignments` — auto-check clearance when status → completed | PENDING |
+| 5.1.1 | Add `ai_solution_cleared` BOOLEAN to `learners_profiles` (default false) | DONE |
+| 5.1.2 | Add `ai_solution_cleared_at` TIMESTAMPTZ to `learners_profiles` | DONE |
+| 5.1.3 | Add `ai_solution_cleared_by` UUID to `learners_profiles` | DONE |
+| 5.1.4 | Create `check_ai_solution_clearance(learner_id)` database function | DONE |
+| 5.1.5 | Create trigger on `sh_builder_assignments` — auto-check clearance when status → completed | DONE |
 
 #### Database Migration
 
@@ -306,18 +306,18 @@ CREATE TRIGGER trg_builder_assignment_clearance
 
 | ID | Requirement | Status |
 |----|-------------|--------|
-| 5.2.1 | TypeScript types: `types/compliance.ts` | PENDING |
-| 5.2.2 | Service: `lib/services/solutions/compliance-service.ts` | PENDING |
-| 5.2.3 | React Query hook: `hooks/solutions/use-compliance-dashboard.ts` | PENDING |
-| 5.2.4 | Page: `/solutions/compliance/page.tsx` with 4 tabs | PENDING |
-| 5.2.5 | Component: Overview tab — stats cards + progress ring | PENDING |
-| 5.2.6 | Component: Department breakdown tab — department-level table | PENDING |
-| 5.2.7 | Component: Individual learners tab — searchable/filterable table | PENDING |
-| 5.2.8 | Component: Solutions tab — solutions with team composition | PENDING |
-| 5.2.9 | Sidebar: Add "Compliance" under Solutions Hub (icon: ShieldCheck) | PENDING |
-| 5.2.10 | Permissions: `solutions.compliance.view`, `solutions.compliance.manage` | PENDING |
-| 5.2.11 | Build passes with zero TypeScript errors | PENDING |
-| 5.2.12 | Browser test: All 4 tabs verified with real data | PENDING |
+| 5.2.1 | TypeScript types: `types/compliance.ts` | DONE |
+| 5.2.2 | Service: `lib/services/solutions/compliance-service.ts` | DONE |
+| 5.2.3 | React Query hook: `hooks/solutions/use-compliance-dashboard.ts` | DONE |
+| 5.2.4 | Page: `/solutions/compliance/page.tsx` with 4 tabs | DONE |
+| 5.2.5 | Component: Overview tab — stats cards + progress ring | DONE |
+| 5.2.6 | Component: Department breakdown tab — department-level table | DONE |
+| 5.2.7 | Component: Individual learners tab — searchable/filterable table | DONE |
+| 5.2.8 | Component: Solutions tab — solutions with team composition | DONE |
+| 5.2.9 | Sidebar: Add "Compliance" under Solutions Hub (icon: ShieldCheck) | DONE |
+| 5.2.10 | Permissions: `solutions.compliance.view`, `solutions.compliance.manage` | DONE |
+| 5.2.11 | Build passes with zero TypeScript errors | DONE |
+| 5.2.12 | Browser test: All 4 tabs verified with real data | DONE |
 
 #### File Structure
 

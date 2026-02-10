@@ -149,14 +149,6 @@ export async function POST(request: NextRequest) {
       Buffer.from(jwtParts[1], 'base64url').toString()
     );
 
-    console.log('[LTI Callback] Received id_token:', {
-      sub: payload.sub,
-      iss: payload.iss,
-      aud: payload.aud,
-      exp: payload.exp,
-      state
-    });
-
     // Success response - show success page
     return new NextResponse(
       `

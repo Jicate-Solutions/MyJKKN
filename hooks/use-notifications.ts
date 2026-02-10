@@ -157,7 +157,6 @@ export function useNotifications() {
               filter: `user_id=eq.${user.id}`
             },
             (payload: any) => {
-              console.log('New notification received:', payload);
 
               // Fetch the complete notification data
               const fetchNewNotification = async () => {

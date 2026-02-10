@@ -73,7 +73,6 @@ export function createAdminClient() {
 
     // Log which key is being used (redacted) for debugging
     if (process.env.NODE_ENV === 'development') {
-      console.log('[Supabase Admin Client] Using:', canUseServiceKey ? 'SERVICE_ROLE (server)' : 'ANON_KEY (client/edge)');
     }
 
     adminInstance = createClient<Database>(

@@ -415,15 +415,12 @@ async function sendToChannels(notification: Notification): Promise<void> {
     switch (channel) {
       case NotificationChannel.EMAIL:
         // await sendEmail(notification);
-        console.log('Email notification sent:', notification.id);
         break;
       case NotificationChannel.SMS:
         // await sendSMS(notification);
-        console.log('SMS notification sent:', notification.id);
         break;
       case NotificationChannel.PUSH:
         // await sendPush(notification);
-        console.log('Push notification sent:', notification.id);
         break;
       case NotificationChannel.IN_APP:
         // Already stored in database
@@ -461,8 +458,9 @@ async function renderTemplate(
   variables: Record<string, string>,
   dto: SendNotificationDto
 ): Promise<{ title: string; message: string }> {
-  // TODO: Fetch template from database and render with variables
-  // For now, just use the provided title/message
+  // Template database (notification_templates table) not yet created.
+  // When available, fetch template by templateName and merge variables into its body.
+  // Current approach: use the caller-provided title/message with simple {{var}} replacement.
   let title = dto.title;
   let message = dto.message;
 

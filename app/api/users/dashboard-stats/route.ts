@@ -146,8 +146,6 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    console.log(`[dashboard-stats] Fetched ${allUsers.length} total users`);
-
     const usersError = null; // No error if we got here
 
     // Get all institutions for percentage calculations
@@ -386,8 +384,40 @@ export async function GET(request: NextRequest) {
       twoFactorEnabled: 0 // Not implemented yet
     };
 
-    // Status transitions (mock data - would need audit log)
-    const statusTransitions: any[] = [];
+    // Status transitions from user_activity_logs (user activation/deactivation events)
+    let statusTransitions: any[] = [];
+    try {
+      let activityQuery = (supabase as any)
+        .from('user_activity_logs')
+        .select('id, user_id, action_type, resource_type, resource_id, description, metadata, created_at')
+        .in('action_type', ['status_change', 'user_activated', 'user_deactivated', 'role_change', 'user_updated'])
+        .order('created_at', { ascending: false })
+        .limit(50);
+
+      if (targetInstitutionId) {
+        activityQuery = activityQuery.eq('institution_id', targetInstitutionId);
+      }
+
+      if (filters.dateRange?.from) {
+        activityQuery = activityQuery.gte('created_at', filters.dateRange.from.toISOString());
+      }
+
+      const { data: activityData, error: activityError } = await activityQuery;
+
+      if (!activityError && activityData) {
+        statusTransitions = activityData.map((log: any) => ({
+          id: log.id,
+          userId: log.user_id || log.resource_id,
+          actionType: log.action_type,
+          description: log.description,
+          metadata: log.metadata,
+          timestamp: log.created_at
+        }));
+      }
+    } catch {
+      // If activity log query fails, continue with empty transitions
+      statusTransitions = [];
+    }
 
     // Top users
     const mostActiveUsers = filteredUsers

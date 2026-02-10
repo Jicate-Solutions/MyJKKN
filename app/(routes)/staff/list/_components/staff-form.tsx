@@ -166,7 +166,6 @@ export function StaffForm({ staff, isEditing }: StaffFormProps) {
   // Reset form when staff data changes (for edit mode)
   useEffect(() => {
     if (isEditing && staff) {
-      console.log('Resetting form with staff data:', staff);
       form.reset({
         first_name: staff.first_name || '',
         last_name: staff.last_name || '',

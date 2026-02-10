@@ -85,13 +85,6 @@ export async function GET(request: NextRequest) {
 
     const isSuperAdmin = userProfile?.is_super_admin || userProfile?.role === 'super_admin';
 
-    console.log('[/api/staff] User access check:', {
-      userId: session.user.id,
-      email: session.user.email,
-      isSuperAdmin,
-      profileInstitutionId: userProfile?.institution_id
-    });
-
     // Get accessible institution IDs (skip if super admin)
     let accessibleInstitutionIds: string[] = [];
 
@@ -99,7 +92,6 @@ export async function GET(request: NextRequest) {
       // Primary access: User's own institution (from profiles.institution_id)
       if (userProfile?.institution_id) {
         accessibleInstitutionIds.push(userProfile.institution_id);
-        console.log('[/api/staff] Added primary institution:', userProfile.institution_id);
       }
 
       // Additional access: Institutions granted via user_institution_access (for billing module)
@@ -113,10 +105,7 @@ export async function GET(request: NextRequest) {
         // Add additional institutions (avoiding duplicates)
         const additionalIds = additionalAccess.map((a) => a.institution_id);
         accessibleInstitutionIds = [...new Set([...accessibleInstitutionIds, ...additionalIds])];
-        console.log('[/api/staff] Added additional institutions from user_institution_access:', additionalIds.length);
       }
-
-      console.log('[/api/staff] Total accessible institutions:', accessibleInstitutionIds.length);
 
       // User must have at least their primary institution
       if (accessibleInstitutionIds.length === 0) {
@@ -127,7 +116,6 @@ export async function GET(request: NextRequest) {
         );
       }
     } else {
-      console.log('[/api/staff] Super admin - skipping institution filtering');
     }
 
     // Get query parameters
@@ -296,8 +284,6 @@ export async function POST(request: Request) {
       );
     }
 
-    console.log('Creating staff via API route for user:', currentUser.role);
-
     // Check if staff_id already exists if provided
     if (json.staff_id) {
       const { data: existing } = await supabaseAdmin
@@ -337,8 +323,6 @@ export async function POST(request: Request) {
         { status: 500 }
       );
     }
-
-    console.log('Staff created successfully via API route:', staff.id);
 
     return NextResponse.json(staff);
   } catch (error) {

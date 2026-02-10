@@ -407,15 +407,6 @@ export class BulkLearnerEditService {
     semesterId?: string,
     sectionId?: string
   ): Promise<any[]> {
-    console.log('[bulk-edit] Export parameters:', {
-      institutionId,
-      includeComplete,
-      degreeId,
-      departmentId,
-      programId,
-      semesterId,
-      sectionId
-    });
 
     // Build base query
     const buildQuery = () => {
@@ -479,8 +470,6 @@ export class BulkLearnerEditService {
     let offset = 0;
     let hasMore = true;
 
-    console.log('[bulk-edit] Starting paginated fetch with batch size:', BATCH_SIZE);
-
     while (hasMore) {
       const query = buildQuery()
         .range(offset, offset + BATCH_SIZE - 1)
@@ -495,7 +484,6 @@ export class BulkLearnerEditService {
 
       if (batch && batch.length > 0) {
         allLearners = allLearners.concat(batch);
-        console.log(`[bulk-edit] Fetched batch: ${batch.length} records (total so far: ${allLearners.length})`);
 
         // Check if there are more records
         if (batch.length < BATCH_SIZE) {
@@ -507,8 +495,6 @@ export class BulkLearnerEditService {
         hasMore = false;
       }
     }
-
-    console.log('[bulk-edit] Export complete. Total learners fetched:', allLearners.length);
 
     return allLearners;
   }

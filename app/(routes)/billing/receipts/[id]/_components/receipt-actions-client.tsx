@@ -64,7 +64,12 @@ export function ReceiptActionsClient({
       setSendLoading(false);
 
       if (result.success) {
-        toast.success('Receipt sent successfully');
+        const responseData = result.data as { action?: string; message?: string } | undefined;
+        if (responseData?.action === 'email_unavailable') {
+          toast(responseData.message || 'Email sending will be available soon. You can use the Print option to save as PDF.', { duration: 4000 });
+        } else {
+          toast.success('Receipt sent successfully');
+        }
       } else {
         toast.error(result.error || 'Failed to send receipt');
       }
@@ -78,7 +83,8 @@ export function ReceiptActionsClient({
       setDownloadLoading(false);
 
       if (result.success) {
-        toast.success('PDF download started');
+        toast.success('Opening print dialog - select "Save as PDF" to download.');
+        window.print();
       } else {
         toast.error(result.error || 'Failed to download PDF');
       }

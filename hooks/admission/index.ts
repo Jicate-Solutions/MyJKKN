@@ -5,10 +5,48 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { LeadService } from '@/lib/services/admission/lead-service';
 import { ApplicationService } from '@/lib/services/admission/application-service';
+import { CommunicationTemplatesService } from '@/lib/services/admission/communication-templates-service';
+import { SMSCampaignService } from '@/lib/services/admission/sms-campaign-service';
+import { WhatsAppCampaignService } from '@/lib/services/admission/whatsapp-campaign-service';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 import type { LeadFilters, CreateLeadInput, UpdateLeadInput, FunnelStage, LeadPriority, CreateApplicationInput, UpdateApplicationInput, ApplicationStatus } from '@/types/admission';
 
 // Re-export from use-consultants for convenience
 export { useSourcePerformance } from './use-consultants';
+
+// Re-export parent communication hooks
+export {
+  useLeadsWithParents,
+  useParentCommLogs,
+  useParentCommStats,
+  useUpdateParentInfo,
+  parentCommKeys,
+} from './use-parent-communication';
+
+// Re-export re-engagement hooks
+export {
+  useColdLeads,
+  useReEngagementCampaigns,
+  useReEngagementStats,
+  useMarkLeadAsHot,
+  reEngagementKeys,
+} from './use-re-engagement';
+
+// Re-export feedback hooks
+export {
+  useFeedbackCandidates,
+  useFeedbackStats,
+  useUpdateFeedback,
+  feedbackKeys,
+} from './use-feedback';
+
+// Re-export status tracking hooks
+export {
+  useApplicationsStatus,
+  usePipelineStats,
+  useRecentActivity,
+  statusTrackingKeys,
+} from './use-status-tracking';
 
 // Re-export AI response hooks
 export {
@@ -519,8 +557,17 @@ export function useCommunicationChannels(institutionId?: string) {
   const query = useQuery({
     queryKey: ['communication-channels', institutionId],
     queryFn: async () => {
-      // TODO: Implement
-      return [];
+      if (!institutionId) return [];
+      const supabase = createClientSupabaseClient();
+      const { data, error } = await (supabase as any)
+        .from('admission_communication_templates')
+        .select('channel')
+        .eq('institution_id', institutionId)
+        .eq('is_active', true);
+      if (error) throw new Error(error.message);
+      // Extract distinct channels
+      const channelSet = new Set<string>((data || []).map((d: any) => d.channel));
+      return Array.from(channelSet).map(ch => ({ id: ch, name: ch, value: ch }));
     },
     enabled: !!institutionId
   });
@@ -535,9 +582,17 @@ export function useMessageTemplates(filters?: any) {
   const query = useQuery({
     queryKey: ['message-templates', filters],
     queryFn: async () => {
-      // TODO: Implement
-      return { data: [], total: 0 };
-    }
+      if (!filters?.institutionId && !filters?.institution_id) return { data: [], total: 0 };
+      const institutionId = filters.institutionId || filters.institution_id;
+      const templates = await CommunicationTemplatesService.getTemplates({
+        institutionId,
+        channel: filters?.channel || filters?.type,
+        isActive: filters?.isActive,
+        search: filters?.search,
+      });
+      return { data: templates, total: templates.length };
+    },
+    enabled: !!(filters?.institutionId || filters?.institution_id)
   });
 
   return {
@@ -552,9 +607,27 @@ export function useCommunicationMutations() {
   const queryClient = useQueryClient();
 
   const sendMessage = useMutation({
-    mutationFn: async (_data: any) => {
-      // TODO: Implement actual message sending via communication service
-      throw new Error('Message sending is not yet implemented');
+    mutationFn: async (data: any) => {
+      const channel = data.channel || 'sms';
+      if (channel === 'whatsapp') {
+        return WhatsAppCampaignService.sendCampaignMessage({
+          institution_id: data.institutionId || data.institution_id,
+          lead_id: data.leadId || data.lead_id,
+          template_id: data.templateId || data.template_id,
+          recipient_phone: data.phone || data.recipient_phone,
+          message_content: data.message || data.content,
+          variables: data.variables,
+        });
+      }
+      // Default: SMS
+      return SMSCampaignService.sendCampaignSMS({
+        institutionId: data.institutionId || data.institution_id,
+        leadId: data.leadId || data.lead_id,
+        phoneNumber: data.phone || data.phoneNumber,
+        templateId: data.templateId || data.template_id,
+        messageContent: data.message || data.content,
+        variables: data.variables,
+      });
     },
     onSuccess: () => {
       toast.success('Message sent successfully');
@@ -566,9 +639,44 @@ export function useCommunicationMutations() {
   });
 
   const scheduleMessage = useMutation({
-    mutationFn: async (_data: any) => {
-      // TODO: Implement actual message scheduling via communication service
-      throw new Error('Message scheduling is not yet implemented');
+    mutationFn: async (data: any) => {
+      // Create a scheduled log entry - the campaign processor will pick it up
+      const supabase = createClientSupabaseClient();
+      const channel = data.channel || 'sms';
+      if (channel === 'whatsapp') {
+        const { data: log, error } = await (supabase as any)
+          .from('admission_whatsapp_logs')
+          .insert({
+            institution_id: data.institutionId || data.institution_id,
+            lead_id: data.leadId || data.lead_id,
+            template_id: data.templateId || data.template_id || null,
+            recipient_phone: data.phone || data.recipient_phone,
+            message_content: data.message || data.content || '',
+            delivery_status: 'pending',
+            metadata: { scheduled_at: data.scheduledAt || data.scheduled_at },
+          })
+          .select()
+          .single();
+        if (error) throw new Error(error.message);
+        return log;
+      }
+      // SMS scheduling
+      const { data: log, error } = await (supabase as any)
+        .from('admission_sms_logs')
+        .insert({
+          institution_id: data.institutionId || data.institution_id,
+          lead_id: data.leadId || data.lead_id,
+          template_id: data.templateId || data.template_id || null,
+          phone_number: data.phone || data.phoneNumber,
+          message_content: data.message || data.content || '',
+          provider: 'msg91',
+          status: 'pending',
+          segments: Math.ceil((data.message || data.content || '').length / 160) || 1,
+        })
+        .select()
+        .single();
+      if (error) throw new Error(error.message);
+      return log;
     },
     onSuccess: () => {
       toast.success('Message scheduled successfully');
@@ -590,8 +698,53 @@ export function useCounselorPerformance(institutionId?: string, dateRange?: any)
   const query = useQuery({
     queryKey: ['counselor-performance', institutionId, dateRange],
     queryFn: async () => {
-      // TODO: Implement
-      return [];
+      if (!institutionId) return [];
+      const supabase = createClientSupabaseClient();
+      // Get leads grouped by counselor
+      let leadsQuery = (supabase as any)
+        .from('admission_leads')
+        .select('counselor_id, funnel_stage, score, is_hot_lead, total_messages_sent, created_at, counselor:admission_counselors(id, name, email)')
+        .eq('institution_id', institutionId)
+        .not('counselor_id', 'is', null);
+      if (dateRange?.from) leadsQuery = leadsQuery.gte('created_at', dateRange.from);
+      if (dateRange?.to) leadsQuery = leadsQuery.lte('created_at', dateRange.to);
+      const { data: leads, error } = await leadsQuery;
+      if (error) throw new Error(error.message);
+      // Aggregate by counselor
+      const counselorMap: Record<string, any> = {};
+      (leads || []).forEach((lead: any) => {
+        const cId = lead.counselor_id;
+        if (!counselorMap[cId]) {
+          counselorMap[cId] = {
+            counselorId: cId,
+            counselorName: lead.counselor?.name || 'Unknown',
+            counselorEmail: lead.counselor?.email || '',
+            totalLeads: 0,
+            convertedLeads: 0,
+            hotLeads: 0,
+            scoreSum: 0,
+            messagesSent: 0,
+          };
+        }
+        const c = counselorMap[cId];
+        c.totalLeads++;
+        if (lead.funnel_stage === 'enrolled') c.convertedLeads++;
+        if (lead.is_hot_lead) c.hotLeads++;
+        c.scoreSum += lead.score || 0;
+        c.messagesSent += lead.total_messages_sent || 0;
+      });
+      return Object.values(counselorMap).map((c: any) => ({
+        counselorId: c.counselorId,
+        counselorName: c.counselorName,
+        counselorEmail: c.counselorEmail,
+        leadsAssigned: c.totalLeads,
+        conversions: c.convertedLeads,
+        conversionRate: c.totalLeads > 0 ? Math.round((c.convertedLeads / c.totalLeads) * 100 * 10) / 10 : 0,
+        messagesSent: c.messagesSent,
+        hotLeads: c.hotLeads,
+        averageScore: c.totalLeads > 0 ? Math.round(c.scoreSum / c.totalLeads) : 0,
+        avgResponseTime: 0,
+      }));
     },
     enabled: !!institutionId
   });
@@ -612,9 +765,31 @@ export function useSourceROI(filters?: any) {
   return useQuery({
     queryKey: ['source-roi', filters],
     queryFn: async () => {
-      // TODO: Implement
-      return [];
-    }
+      const institutionId = filters?.institution_id || filters?.institutionId;
+      if (!institutionId) return [];
+      const supabase = createClientSupabaseClient();
+      let query = (supabase as any)
+        .from('admission_leads')
+        .select('source, funnel_stage')
+        .eq('institution_id', institutionId);
+      if (filters?.dateFrom) query = query.gte('created_at', filters.dateFrom);
+      if (filters?.dateTo) query = query.lte('created_at', filters.dateTo);
+      const { data, error } = await query;
+      if (error) throw new Error(error.message);
+      // Aggregate by source
+      const sourceMap: Record<string, { source: string; totalLeads: number; converted: number }> = {};
+      (data || []).forEach((lead: any) => {
+        const src = lead.source || 'unknown';
+        if (!sourceMap[src]) sourceMap[src] = { source: src, totalLeads: 0, converted: 0 };
+        sourceMap[src].totalLeads++;
+        if (lead.funnel_stage === 'enrolled') sourceMap[src].converted++;
+      });
+      return Object.values(sourceMap).map(s => ({
+        ...s,
+        conversionRate: s.totalLeads > 0 ? Math.round((s.converted / s.totalLeads) * 100 * 10) / 10 : 0,
+      }));
+    },
+    enabled: !!(filters?.institution_id || filters?.institutionId)
   });
 }
 
@@ -622,11 +797,16 @@ export function useSourceROI(filters?: any) {
 // DASHBOARD HOOKS
 // ============================================
 
-export function useAdmissionDashboard(filters?: any) {
+export function useAdmissionDashboard(filtersOrId?: string | any) {
+  // Support both string (institutionId) and object ({ institution_id }) arguments
+  const institutionId = typeof filtersOrId === 'string'
+    ? filtersOrId
+    : filtersOrId?.institution_id;
+
   const query = useQuery({
-    queryKey: ['admission-dashboard', filters],
+    queryKey: ['admission-dashboard', institutionId],
     queryFn: async () => {
-      if (!filters?.institution_id) {
+      if (!institutionId) {
         return {
           summary: {
             totalLeads: 0,
@@ -641,13 +821,13 @@ export function useAdmissionDashboard(filters?: any) {
       }
 
       const [summary, funnel] = await Promise.all([
-        LeadService.getDashboardSummary(filters.institution_id),
-        LeadService.getFunnelSummary(filters.institution_id)
+        LeadService.getDashboardSummary(institutionId),
+        LeadService.getFunnelSummary(institutionId)
       ]);
 
       return { summary, funnel: funnel.stages };
     },
-    enabled: !!filters?.institution_id
+    enabled: !!institutionId
   });
 
   return {
@@ -729,18 +909,120 @@ export function useFunnelSummary(institutionId?: string) {
   };
 }
 
-export function useFunnelAnalyticsDashboard(filters?: any) {
+export function useFunnelAnalyticsDashboard(filtersOrId?: string | any) {
+  const institutionId = typeof filtersOrId === 'string'
+    ? filtersOrId
+    : filtersOrId?.institution_id || filtersOrId?.institutionId;
+
+  const supabase = createClientSupabaseClient();
+
   const query = useQuery({
-    queryKey: ['funnel-analytics-dashboard', filters],
+    queryKey: ['funnel-analytics-dashboard', institutionId],
     queryFn: async () => {
-      // TODO: Implement
-      return {
-        enhanced: [],
-        dropOff: [],
-        stuckLeads: [],
-        bottlenecks: []
-      };
-    }
+      if (!institutionId) return { enhanced: [], dropOff: [], stuckLeads: [], bottlenecks: [] };
+
+      const STAGES = ['new', 'contacted', 'engaged', 'qualified', 'applied', 'interviewed', 'offered', 'enrolled'];
+
+      // Fetch leads with stage info
+      const { data: leads } = await (supabase as any)
+        .from('admission_leads')
+        .select('id, stage, funnel_stage, stage_changed_at, created_at, is_hot_lead, combined_score, counselor_id')
+        .eq('institution_id', institutionId);
+
+      // Fetch stuck leads from the view
+      const { data: stuckData } = await (supabase as any)
+        .from('v_stuck_leads')
+        .select('*')
+        .eq('institution_id', institutionId)
+        .order('days_in_stage', { ascending: false });
+
+      const allLeads = leads || [];
+      const totalLeads = allLeads.length || 1;
+
+      // One week ago for WoW comparison
+      const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+      // Build enhanced funnel data per stage
+      const enhanced = STAGES.map(stageKey => {
+        const stageLeads = allLeads.filter((l: any) => (l.stage || l.funnel_stage) === stageKey);
+        const leadCount = stageLeads.length;
+
+        // Avg days in stage
+        const now = Date.now();
+        let totalDays = 0;
+        stageLeads.forEach((l: any) => {
+          const entered = l.stage_changed_at ? new Date(l.stage_changed_at).getTime() : new Date(l.created_at).getTime();
+          totalDays += (now - entered) / (1000 * 60 * 60 * 24);
+        });
+        const avgDaysInStage = leadCount > 0 ? totalDays / leadCount : 0;
+
+        // Stuck count (in stage > 14 days)
+        const stuckCount = stageLeads.filter((l: any) => {
+          const entered = l.stage_changed_at ? new Date(l.stage_changed_at).getTime() : new Date(l.created_at).getTime();
+          return (now - entered) > 14 * 24 * 60 * 60 * 1000;
+        }).length;
+
+        // WoW: leads that entered this stage in the last week
+        const recentLeads = stageLeads.filter((l: any) => {
+          const changed = l.stage_changed_at ? new Date(l.stage_changed_at) : new Date(l.created_at);
+          return changed >= oneWeekAgo;
+        }).length;
+        const wowChangePercent = leadCount > 0 ? ((recentLeads / leadCount) * 100) - 50 : 0;
+
+        // Alert level
+        const alertLevel: 'normal' | 'warning' | 'critical' =
+          avgDaysInStage > 21 || stuckCount > leadCount * 0.3 ? 'critical' :
+          avgDaysInStage > 14 || stuckCount > leadCount * 0.15 ? 'warning' : 'normal';
+
+        return {
+          stage: stageKey,
+          leadCount,
+          avgDaysInStage,
+          stuckCount,
+          percentageOfTotal: (leadCount / totalLeads) * 100,
+          wowChangePercent: Math.round(wowChangePercent),
+          alertLevel,
+        };
+      });
+
+      // Build drop-off data
+      const dropOff = STAGES.map((stageKey, idx) => {
+        const current = enhanced[idx]?.leadCount || 0;
+        const previous = idx > 0 ? (enhanced[idx - 1]?.leadCount || 1) : totalLeads;
+        const conversionRate = previous > 0 ? (current / previous) * 100 : 0;
+        const dropOffRate = previous > 0 ? ((previous - current) / previous) * 100 : 0;
+        const percentageReached = (current / totalLeads) * 100;
+        return { stage: stageKey, conversionRate, dropOffRate, percentageReached };
+      });
+
+      // Map stuck leads from the view to expected format
+      const stuckLeads = (stuckData || []).map((s: any) => ({
+        leadId: s.lead_id,
+        currentStage: s.current_stage,
+        counselorName: s.counselor_name || null,
+        daysInStage: s.days_in_stage || 0,
+        combinedScore: s.combined_score || 0,
+        isHotLead: s.is_hot_lead || false,
+        urgencyLevel: s.urgency_level || 'low',
+        suggestedAction: s.suggested_action || 'Follow up',
+      }));
+
+      // Build bottleneck alerts
+      const bottlenecks = enhanced
+        .filter(s => s.alertLevel !== 'normal')
+        .map(s => ({
+          stage: s.stage,
+          issue: s.avgDaysInStage > 21 ? 'high_dwell_time' : 'high_stuck_rate',
+          severity: s.alertLevel as 'warning' | 'critical',
+          metric: s.avgDaysInStage > 21 ? s.avgDaysInStage : s.stuckCount,
+          recommendation: s.avgDaysInStage > 21
+            ? `Leads spend ${s.avgDaysInStage.toFixed(0)} days avg in ${s.stage}. Review follow-up cadence.`
+            : `${s.stuckCount} leads stuck in ${s.stage}. Consider re-engagement or reassignment.`,
+        }));
+
+      return { enhanced, dropOff, stuckLeads, bottlenecks };
+    },
+    enabled: !!institutionId
   });
 
   return {
@@ -758,14 +1040,19 @@ export function useFunnelAnalyticsDashboard(filters?: any) {
 // SINGLE LEAD HOOKS
 // ============================================
 
+// UUID format check to avoid querying with PPR/DRP placeholders
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export function useAdmissionLead(id: string) {
+  const isValidId = !!id && UUID_REGEX.test(id);
+
   const query = useQuery({
     queryKey: ['admission-lead', id],
     queryFn: async () => {
       if (!id) return null;
       return LeadService.getLead(id);
     },
-    enabled: !!id
+    enabled: isValidId
   });
 
   return {
@@ -783,7 +1070,7 @@ export function useLeadTimeline(leadId: string) {
       if (!leadId) return [];
       return LeadService.getTimeline(leadId);
     },
-    enabled: !!leadId
+    enabled: !!leadId && UUID_REGEX.test(leadId)
   });
 
   return {
@@ -796,10 +1083,36 @@ export function useLeadCommunicationHistory(leadId: string) {
   const query = useQuery({
     queryKey: ['lead-communication-history', leadId],
     queryFn: async () => {
-      // TODO: Implement with CommunicationService
-      return [];
+      if (!leadId) return [];
+      const supabase = createClientSupabaseClient();
+      // Fetch SMS logs
+      const { data: smsLogs } = await (supabase as any)
+        .from('admission_sms_logs')
+        .select('id, phone_number, message_content, status, sent_at, delivered_at, created_at')
+        .eq('lead_id', leadId)
+        .order('created_at', { ascending: false })
+        .limit(50);
+      // Fetch WhatsApp logs
+      const { data: waLogs } = await (supabase as any)
+        .from('admission_whatsapp_logs')
+        .select('id, recipient_phone, message_content, delivery_status, sent_at, delivered_at, read_at, created_at')
+        .eq('lead_id', leadId)
+        .order('created_at', { ascending: false })
+        .limit(50);
+      // Merge and sort by created_at
+      const combined = [
+        ...(smsLogs || []).map((s: any) => ({
+          id: s.id, channel: 'sms' as const, phone: s.phone_number, content: s.message_content,
+          status: s.status, sentAt: s.sent_at, deliveredAt: s.delivered_at, createdAt: s.created_at,
+        })),
+        ...(waLogs || []).map((w: any) => ({
+          id: w.id, channel: 'whatsapp' as const, phone: w.recipient_phone, content: w.message_content,
+          status: w.delivery_status, sentAt: w.sent_at, deliveredAt: w.delivered_at, readAt: w.read_at, createdAt: w.created_at,
+        })),
+      ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      return combined;
     },
-    enabled: !!leadId
+    enabled: !!leadId && UUID_REGEX.test(leadId)
   });
 
   return {
@@ -814,8 +1127,24 @@ export function useFunnelHistory(filters?: any) {
   return useQuery({
     queryKey: ['funnel-history', filters],
     queryFn: async () => {
-      // TODO: Implement
-      return [];
-    }
+      const institutionId = filters?.institution_id || filters?.institutionId;
+      const leadId = filters?.lead_id || filters?.leadId;
+      if (!institutionId && !leadId) return [];
+      const supabase = createClientSupabaseClient();
+      let query = (supabase as any)
+        .from('admission_lead_stage_history')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(filters?.limit || 100);
+      if (leadId) query = query.eq('lead_id', leadId);
+      if (filters?.from_stage) query = query.eq('from_stage', filters.from_stage);
+      if (filters?.to_stage) query = query.eq('to_stage', filters.to_stage);
+      if (filters?.dateFrom) query = query.gte('created_at', filters.dateFrom);
+      if (filters?.dateTo) query = query.lte('created_at', filters.dateTo);
+      const { data, error } = await query;
+      if (error) throw new Error(error.message);
+      return data || [];
+    },
+    enabled: !!(filters?.institution_id || filters?.institutionId || filters?.lead_id || filters?.leadId)
   });
 }

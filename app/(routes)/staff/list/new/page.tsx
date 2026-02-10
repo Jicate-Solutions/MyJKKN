@@ -29,12 +29,6 @@ export default function NewStaffPage() {
 
   useEffect(() => {
     // Debug permissions
-    console.log('Permission debug:', {
-      isSuperAdmin,
-      canCreateStaff: canAccess('staff', 'create'),
-      organizations: canAccess('organizations.institutions', 'create'),
-      rawPermissions: can('staff.create')
-    });
 
     setLoading(false);
   }, [canAccess, isSuperAdmin, can]);

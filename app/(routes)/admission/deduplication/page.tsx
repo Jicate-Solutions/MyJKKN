@@ -48,60 +48,8 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { AdmissionErrorBoundary } from "@/components/admission";
-
-// Mock data for deduplication
-const dedupeStats = {
-  totalLeads: 3712,
-  duplicateGroups: 89,
-  totalDuplicates: 189,
-  autoMergeable: 45,
-  requiresReview: 44,
-  duplicatePercentage: 5.1,
-};
-
-const duplicateGroups = [
-  {
-    id: 1,
-    primaryName: "Rajesh Kumar",
-    matchType: "Phone + Email",
-    confidence: 98,
-    records: [
-      { id: 101, name: "Rajesh Kumar", phone: "9876543210", email: "rajesh@gmail.com", source: "Website", date: "2026-01-10", interactions: 5 },
-      { id: 102, name: "Rajesh K", phone: "9876543210", email: "rajesh@gmail.com", source: "Walk-in", date: "2026-01-12", interactions: 2 },
-    ],
-  },
-  {
-    id: 2,
-    primaryName: "Priya Sharma",
-    matchType: "Email",
-    confidence: 95,
-    records: [
-      { id: 201, name: "Priya Sharma", phone: "8765432109", email: "priya.sharma@email.com", source: "Website", date: "2026-01-08", interactions: 8 },
-      { id: 202, name: "Priya S", phone: "8765432100", email: "priya.sharma@email.com", source: "Referral", date: "2026-01-14", interactions: 1 },
-    ],
-  },
-  {
-    id: 3,
-    primaryName: "Amit Patel",
-    matchType: "Phone",
-    confidence: 90,
-    records: [
-      { id: 301, name: "Amit Patel", phone: "7654321098", email: "amit@email.com", source: "Social Media", date: "2026-01-05", interactions: 12 },
-      { id: 302, name: "Amit P", phone: "7654321098", email: "amitp@email.com", source: "Website", date: "2026-01-11", interactions: 3 },
-      { id: 303, name: "A Patel", phone: "7654321098", email: "", source: "Walk-in", date: "2026-01-15", interactions: 0 },
-    ],
-  },
-  {
-    id: 4,
-    primaryName: "Sneha Reddy",
-    matchType: "Name + DOB",
-    confidence: 85,
-    records: [
-      { id: 401, name: "Sneha Reddy", phone: "6543210987", email: "sneha@email.com", source: "Website", date: "2026-01-02", interactions: 15 },
-      { id: 402, name: "Sneha Reddy", phone: "6543210900", email: "snehareddy@email.com", source: "Email Campaign", date: "2026-01-13", interactions: 2 },
-    ],
-  },
-];
+import { useDeduplicationStats, useDuplicateGroups } from "@/hooks/admission/use-data-quality";
+import type { DuplicateGroup } from "@/lib/services/admission/data-quality-service";
 
 const matchingRules = [
   { field: "Email", weight: 40, enabled: true },
@@ -116,16 +64,25 @@ function DeduplicationPageContent() {
   const [selectedGroups, setSelectedGroups] = useState<number[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [showMergeDialog, setShowMergeDialog] = useState(false);
-  const [selectedMergeGroup, setSelectedMergeGroup] = useState<typeof duplicateGroups[0] | null>(null);
-  const [selectedPrimary, setSelectedPrimary] = useState<number | null>(null);
+  const [selectedMergeGroup, setSelectedMergeGroup] = useState<DuplicateGroup | null>(null);
+  const [selectedPrimary, setSelectedPrimary] = useState<string | null>(null);
   const [isMerging, setIsMerging] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+
+  const { data: stats, isLoading: statsLoading, refetch: refetchStats } = useDeduplicationStats();
+  const { data: groups, isLoading: groupsLoading, refetch: refetchGroups } = useDuplicateGroups();
+
+  const dedupeStats = stats || { totalLeads: 0, duplicateGroups: 0, totalDuplicates: 0, duplicatePercentage: 0 };
+  const duplicateGroups = groups || [];
+
+  const autoMergeable = duplicateGroups.filter(g => g.confidence >= 95).length;
+  const requiresReview = dedupeStats.duplicateGroups - autoMergeable;
 
   const handleScan = async () => {
     setIsScanning(true);
     try {
-      await new Promise((resolve) => setTimeout(resolve, 3000));
-      toast.success("Duplicate scan completed - found 89 groups");
+      await Promise.all([refetchStats(), refetchGroups()]);
+      toast.success(`Duplicate scan completed - found ${dedupeStats.duplicateGroups} groups`);
     } catch {
       toast.error("Failed to scan for duplicates");
     } finally {
@@ -136,7 +93,27 @@ function DeduplicationPageContent() {
   const handleExportReport = async () => {
     setIsExporting(true);
     try {
-      await new Promise((resolve) => setTimeout(resolve, 1500));
+      const rows = duplicateGroups.flatMap((g, gi) =>
+        g.records.map((r, ri) => [
+          `Group ${gi + 1}`,
+          g.matchType,
+          g.confidence,
+          ri === 0 ? "Primary" : "Duplicate",
+          r.full_name,
+          r.phone || "",
+          r.email || "",
+          r.source || "",
+          r.created_at,
+        ].join(","))
+      );
+      const csv = ["Group,Match Type,Confidence,Role,Name,Phone,Email,Source,Date", ...rows].join("\n");
+      const blob = new Blob([csv], { type: "text/csv" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "duplicate-leads-report.csv";
+      a.click();
+      URL.revokeObjectURL(url);
       toast.success("Report exported successfully");
     } catch {
       toast.error("Failed to export report");
@@ -158,7 +135,7 @@ function DeduplicationPageContent() {
     }
   };
 
-  const openMergeDialog = (group: typeof duplicateGroups[0]) => {
+  const openMergeDialog = (group: DuplicateGroup) => {
     setSelectedMergeGroup(group);
     setSelectedPrimary(group.records[0].id);
     setShowMergeDialog(true);
@@ -173,6 +150,18 @@ function DeduplicationPageContent() {
       return <Badge className="bg-orange-100 text-orange-800">Low ({confidence}%)</Badge>;
     }
   };
+
+  const filteredGroups = searchTerm
+    ? duplicateGroups.filter(g =>
+        g.records.some(r =>
+          r.full_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          (r.email || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+          (r.phone || "").includes(searchTerm)
+        )
+      )
+    : duplicateGroups;
+
+  const isLoading = statsLoading || groupsLoading;
 
   return (
     <div className="container mx-auto py-6 space-y-6">
@@ -226,7 +215,7 @@ function DeduplicationPageContent() {
               </div>
               <div>
                 <p className="text-xs text-gray-600">Total Leads</p>
-                <p className="text-xl font-bold">{dedupeStats.totalLeads.toLocaleString()}</p>
+                <p className="text-xl font-bold">{isLoading ? '...' : dedupeStats.totalLeads.toLocaleString()}</p>
               </div>
             </div>
           </CardContent>
@@ -240,7 +229,7 @@ function DeduplicationPageContent() {
               </div>
               <div>
                 <p className="text-xs text-gray-600">Duplicate Groups</p>
-                <p className="text-xl font-bold text-yellow-600">{dedupeStats.duplicateGroups}</p>
+                <p className="text-xl font-bold text-yellow-600">{isLoading ? '...' : dedupeStats.duplicateGroups}</p>
               </div>
             </div>
           </CardContent>
@@ -254,7 +243,7 @@ function DeduplicationPageContent() {
               </div>
               <div>
                 <p className="text-xs text-gray-600">Total Duplicates</p>
-                <p className="text-xl font-bold text-red-600">{dedupeStats.totalDuplicates}</p>
+                <p className="text-xl font-bold text-red-600">{isLoading ? '...' : dedupeStats.totalDuplicates}</p>
               </div>
             </div>
           </CardContent>
@@ -268,7 +257,7 @@ function DeduplicationPageContent() {
               </div>
               <div>
                 <p className="text-xs text-gray-600">Auto-Mergeable</p>
-                <p className="text-xl font-bold text-green-600">{dedupeStats.autoMergeable}</p>
+                <p className="text-xl font-bold text-green-600">{isLoading ? '...' : autoMergeable}</p>
               </div>
             </div>
           </CardContent>
@@ -282,7 +271,7 @@ function DeduplicationPageContent() {
               </div>
               <div>
                 <p className="text-xs text-gray-600">Needs Review</p>
-                <p className="text-xl font-bold text-orange-600">{dedupeStats.requiresReview}</p>
+                <p className="text-xl font-bold text-orange-600">{isLoading ? '...' : requiresReview}</p>
               </div>
             </div>
           </CardContent>
@@ -292,7 +281,7 @@ function DeduplicationPageContent() {
           <CardContent className="pt-6">
             <div>
               <p className="text-xs text-gray-600">Duplicate Rate</p>
-              <p className="text-xl font-bold text-[#0b6d41]">{dedupeStats.duplicatePercentage}%</p>
+              <p className="text-xl font-bold text-[#0b6d41]">{isLoading ? '...' : `${dedupeStats.duplicatePercentage}%`}</p>
               <Progress value={dedupeStats.duplicatePercentage} className="mt-2 h-1.5" />
             </div>
           </CardContent>
@@ -304,7 +293,7 @@ function DeduplicationPageContent() {
         <TabsList>
           <TabsTrigger value="duplicates" className="gap-2">
             <Copy className="h-4 w-4" />
-            Duplicate Groups ({dedupeStats.duplicateGroups})
+            Duplicate Groups ({isLoading ? '...' : dedupeStats.duplicateGroups})
           </TabsTrigger>
           <TabsTrigger value="rules" className="gap-2">
             <Settings className="h-4 w-4" />
@@ -347,105 +336,119 @@ function DeduplicationPageContent() {
           </Card>
 
           {/* Duplicate Groups */}
-          <div className="space-y-4">
-            {duplicateGroups.map((group) => (
-              <Card key={group.id} className="border-l-4 border-l-yellow-400">
-                <CardHeader className="pb-2">
-                  <div className="flex justify-between items-start">
-                    <div className="flex items-center gap-3">
-                      <Checkbox
-                        checked={selectedGroups.includes(group.id)}
-                        onCheckedChange={(checked) => {
-                          if (checked) {
-                            setSelectedGroups([...selectedGroups, group.id]);
-                          } else {
-                            setSelectedGroups(selectedGroups.filter((id) => id !== group.id));
-                          }
-                        }}
-                      />
-                      <div>
-                        <CardTitle className="text-lg">{group.primaryName}</CardTitle>
-                        <CardDescription>
-                          {group.records.length} duplicate records found
-                        </CardDescription>
+          {groupsLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
+            </div>
+          ) : filteredGroups.length === 0 ? (
+            <Card>
+              <CardContent className="py-12 text-center text-gray-500">
+                <CheckCircle2 className="h-12 w-12 mx-auto mb-4 text-green-400" />
+                <p className="text-lg font-medium">No duplicates found</p>
+                <p className="text-sm">All leads appear to be unique</p>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="space-y-4">
+              {filteredGroups.map((group, groupIndex) => (
+                <Card key={groupIndex} className="border-l-4 border-l-yellow-400">
+                  <CardHeader className="pb-2">
+                    <div className="flex justify-between items-start">
+                      <div className="flex items-center gap-3">
+                        <Checkbox
+                          checked={selectedGroups.includes(groupIndex)}
+                          onCheckedChange={(checked) => {
+                            if (checked) {
+                              setSelectedGroups([...selectedGroups, groupIndex]);
+                            } else {
+                              setSelectedGroups(selectedGroups.filter((id) => id !== groupIndex));
+                            }
+                          }}
+                        />
+                        <div>
+                          <CardTitle className="text-lg">{group.records[0]?.full_name || 'Unknown'}</CardTitle>
+                          <CardDescription>
+                            {group.records.length} duplicate records found via {group.matchType} ({group.matchValue})
+                          </CardDescription>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Badge variant="outline">{group.matchType}</Badge>
+                        {getConfidenceBadge(group.confidence)}
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <Badge variant="outline">{group.matchType}</Badge>
-                      {getConfidenceBadge(group.confidence)}
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead className="w-[50px]"></TableHead>
-                        <TableHead>Name</TableHead>
-                        <TableHead>Phone</TableHead>
-                        <TableHead>Email</TableHead>
-                        <TableHead>Source</TableHead>
-                        <TableHead>Date Added</TableHead>
-                        <TableHead>Interactions</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {group.records.map((record, index) => (
-                        <TableRow key={record.id} className={index === 0 ? "bg-green-50" : ""}>
-                          <TableCell>
-                            {index === 0 && (
-                              <Badge className="bg-green-100 text-green-800 text-xs">Primary</Badge>
-                            )}
-                          </TableCell>
-                          <TableCell className="font-medium">{record.name}</TableCell>
-                          <TableCell>
-                            <div className="flex items-center gap-1">
-                              <Phone className="h-3 w-3 text-gray-400" />
-                              {record.phone}
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex items-center gap-1">
-                              <Mail className="h-3 w-3 text-gray-400" />
-                              {record.email || "(empty)"}
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant="outline">{record.source}</Badge>
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex items-center gap-1 text-sm text-gray-600">
-                              <Calendar className="h-3 w-3" />
-                              {record.date}
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <span className={record.interactions > 5 ? "font-bold text-green-600" : ""}>
-                              {record.interactions}
-                            </span>
-                          </TableCell>
+                  </CardHeader>
+                  <CardContent>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="w-[50px]"></TableHead>
+                          <TableHead>Name</TableHead>
+                          <TableHead>Phone</TableHead>
+                          <TableHead>Email</TableHead>
+                          <TableHead>Source</TableHead>
+                          <TableHead>Date Added</TableHead>
+                          <TableHead>Score</TableHead>
                         </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                  <div className="flex justify-end gap-2 mt-4">
-                    <Button variant="outline" size="sm">
-                      <Eye className="h-4 w-4 mr-2" />
-                      View Details
-                    </Button>
-                    <Button
-                      size="sm"
-                      className="bg-[#0b6d41] hover:bg-[#095232]"
-                      onClick={() => openMergeDialog(group)}
-                    >
-                      <Merge className="h-4 w-4 mr-2" />
-                      Merge Records
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
+                      </TableHeader>
+                      <TableBody>
+                        {group.records.map((record, index) => (
+                          <TableRow key={record.id} className={index === 0 ? "bg-green-50" : ""}>
+                            <TableCell>
+                              {index === 0 && (
+                                <Badge className="bg-green-100 text-green-800 text-xs">Primary</Badge>
+                              )}
+                            </TableCell>
+                            <TableCell className="font-medium">{record.full_name}</TableCell>
+                            <TableCell>
+                              <div className="flex items-center gap-1">
+                                <Phone className="h-3 w-3 text-gray-400" />
+                                {record.phone || '(empty)'}
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex items-center gap-1">
+                                <Mail className="h-3 w-3 text-gray-400" />
+                                {record.email || "(empty)"}
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant="outline">{record.source || 'Unknown'}</Badge>
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex items-center gap-1 text-sm text-gray-600">
+                                <Calendar className="h-3 w-3" />
+                                {new Date(record.created_at).toLocaleDateString()}
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <span className={(record.score || 0) > 50 ? "font-bold text-green-600" : ""}>
+                                {record.score || 0}
+                              </span>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                    <div className="flex justify-end gap-2 mt-4">
+                      <Button variant="outline" size="sm">
+                        <Eye className="h-4 w-4 mr-2" />
+                        View Details
+                      </Button>
+                      <Button
+                        size="sm"
+                        className="bg-[#0b6d41] hover:bg-[#095232]"
+                        onClick={() => openMergeDialog(group)}
+                      >
+                        <Merge className="h-4 w-4 mr-2" />
+                        Merge Records
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
         </TabsContent>
 
         <TabsContent value="rules" className="space-y-4">
@@ -516,54 +519,11 @@ function DeduplicationPageContent() {
               <CardDescription>History of merged duplicate records</CardDescription>
             </CardHeader>
             <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Date</TableHead>
-                    <TableHead>Primary Record</TableHead>
-                    <TableHead>Merged Records</TableHead>
-                    <TableHead>Match Type</TableHead>
-                    <TableHead>Confidence</TableHead>
-                    <TableHead>Merged By</TableHead>
-                    <TableHead>Action</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  <TableRow>
-                    <TableCell>2026-01-15</TableCell>
-                    <TableCell className="font-medium">Vikram Singh</TableCell>
-                    <TableCell>2 records</TableCell>
-                    <TableCell><Badge variant="outline">Phone + Email</Badge></TableCell>
-                    <TableCell>98%</TableCell>
-                    <TableCell>System (Auto)</TableCell>
-                    <TableCell>
-                      <Button variant="ghost" size="sm">Undo</Button>
-                    </TableCell>
-                  </TableRow>
-                  <TableRow>
-                    <TableCell>2026-01-14</TableCell>
-                    <TableCell className="font-medium">Meera Iyer</TableCell>
-                    <TableCell>3 records</TableCell>
-                    <TableCell><Badge variant="outline">Email</Badge></TableCell>
-                    <TableCell>92%</TableCell>
-                    <TableCell>Admin User</TableCell>
-                    <TableCell>
-                      <Button variant="ghost" size="sm">Undo</Button>
-                    </TableCell>
-                  </TableRow>
-                  <TableRow>
-                    <TableCell>2026-01-13</TableCell>
-                    <TableCell className="font-medium">Deepa M</TableCell>
-                    <TableCell>2 records</TableCell>
-                    <TableCell><Badge variant="outline">Name + DOB</Badge></TableCell>
-                    <TableCell>88%</TableCell>
-                    <TableCell>Admin User</TableCell>
-                    <TableCell>
-                      <Button variant="ghost" size="sm">Undo</Button>
-                    </TableCell>
-                  </TableRow>
-                </TableBody>
-              </Table>
+              <div className="py-8 text-center text-gray-500">
+                <FileText className="h-12 w-12 mx-auto mb-4 text-gray-300" />
+                <p>No merge history available yet</p>
+                <p className="text-sm">Merge operations will be tracked here</p>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
@@ -581,8 +541,8 @@ function DeduplicationPageContent() {
           {selectedMergeGroup && (
             <div className="space-y-4">
               <RadioGroup
-                value={selectedPrimary?.toString()}
-                onValueChange={(value) => setSelectedPrimary(parseInt(value))}
+                value={selectedPrimary || undefined}
+                onValueChange={(value) => setSelectedPrimary(value)}
               >
                 {selectedMergeGroup.records.map((record) => (
                   <div
@@ -591,17 +551,17 @@ function DeduplicationPageContent() {
                       selectedPrimary === record.id ? "border-[#0b6d41] bg-green-50" : ""
                     }`}
                   >
-                    <RadioGroupItem value={record.id.toString()} id={record.id.toString()} />
-                    <Label htmlFor={record.id.toString()} className="flex-1 cursor-pointer">
+                    <RadioGroupItem value={record.id} id={record.id} />
+                    <Label htmlFor={record.id} className="flex-1 cursor-pointer">
                       <div className="flex justify-between items-center">
                         <div>
-                          <p className="font-medium">{record.name}</p>
-                          <p className="text-sm text-gray-600">{record.email}</p>
-                          <p className="text-sm text-gray-600">{record.phone}</p>
+                          <p className="font-medium">{record.full_name}</p>
+                          <p className="text-sm text-gray-600">{record.email || '(no email)'}</p>
+                          <p className="text-sm text-gray-600">{record.phone || '(no phone)'}</p>
                         </div>
                         <div className="text-right">
-                          <Badge variant="outline">{record.source}</Badge>
-                          <p className="text-sm text-gray-600 mt-1">{record.interactions} interactions</p>
+                          <Badge variant="outline">{record.source || 'Unknown'}</Badge>
+                          <p className="text-sm text-gray-600 mt-1">Score: {record.score || 0}</p>
                         </div>
                       </div>
                     </Label>

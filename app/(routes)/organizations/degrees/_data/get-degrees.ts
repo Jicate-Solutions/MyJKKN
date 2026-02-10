@@ -1,9 +1,10 @@
 /**
  * Server-side data fetching for Degrees
  *
- * Note: Caching disabled because createClient() uses cookies() internally,
- * which cannot be used inside 'use cache' scopes in Next.js 16.
- * TODO: Implement caching with proper cookie handling outside cache scope.
+ * Note: Server-side caching via 'use cache' is not possible because
+ * createClient() uses cookies() internally, which is incompatible with
+ * Next.js 16 cache scopes. Client-side caching is handled by React Query
+ * with staleTime configured where this function is consumed.
  */
 
 import { createClient } from '@/lib/supabase/server';

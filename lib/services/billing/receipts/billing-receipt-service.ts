@@ -382,12 +382,15 @@ export class BillingReceiptService {
 
   static async printReceipt(id: string): Promise<void> {
     try {
-      // Implementation for printing receipt
-      // This would typically generate a PDF and trigger print dialog
+      // Print integration pending: Requires PDF generation (e.g., @react-pdf/renderer, jsPDF).
+      // When ready, generate PDF from receipt HTML and trigger window.print() dialog.
+      // See: https://react-pdf.org/ for recommended approach in Next.js.
       const receipt = await this.getBillingReceipt(id);
 
-      // TODO: Implement actual printing logic
-      console.log('Printing receipt:', receipt);
+      console.info('[billing/receipts] Receipt print not available — PDF generator not configured', {
+        receiptId: id,
+        receiptNumber: receipt.receipt_number,
+      });
     } catch (error) {
       console.error('Error printing receipt:', error);
       throw new Error(
@@ -398,12 +401,16 @@ export class BillingReceiptService {
 
   static async emailReceipt(id: string, email: string): Promise<void> {
     try {
-      // Implementation for emailing receipt
-      // This would typically send an email with the receipt PDF
+      // Email integration pending: Requires email provider (e.g., Resend, SendGrid).
+      // When ready, call EmailService.sendReceipt(receipt) here.
+      // See: https://resend.com/docs for recommended provider.
       const receipt = await this.getBillingReceipt(id);
 
-      // TODO: Implement actual email sending logic
-      console.log('Emailing receipt to:', email, receipt);
+      console.info('[billing/receipts] Receipt email not sent — email provider not configured', {
+        receiptId: id,
+        receiptNumber: receipt.receipt_number,
+        recipientEmail: email,
+      });
     } catch (error) {
       console.error('Error emailing receipt:', error);
       throw new Error(
@@ -436,10 +443,6 @@ export class BillingReceiptService {
       // Clean up the URL
       window.URL.revokeObjectURL(url);
 
-      console.log(
-        'Receipt PDF download initiated for:',
-        receipt.receipt_number
-      );
     } catch (error) {
       console.error('Error downloading receipt PDF:', error);
       throw new Error(

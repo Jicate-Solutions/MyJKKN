@@ -67,11 +67,9 @@ export function useCompetencies(
   const queryFn = useCallback(async () => {
     try {
       if (process.env.NODE_ENV === 'development') {
-        console.log('[useCompetencies] Fetching with filters:', filters);
       }
       const result = await CompetencyCatalogService.getCompetencies(filters as CompetencyFilters);
       if (process.env.NODE_ENV === 'development') {
-        console.log('[useCompetencies] Fetch success:', result?.data?.length || 0, 'items');
       }
       return result;
     } catch (error) {

@@ -91,7 +91,6 @@ export function AIQueryContainer({ className }: AIQueryContainerProps) {
 
   const handleActionClick = async (action: ActionDefinition, messageId: string) => {
     // Handle action execution
-    console.log('Action clicked:', action, messageId);
   };
 
   return (

@@ -243,6 +243,50 @@ export type {
 } from './notifications-service';
 
 // ============================================
+// PRODUCTS & TRL MODULE SERVICES
+// ============================================
+export {
+  productsService,
+  ProductsService,
+  PRODUCT_STATUSES,
+  TRL_LEVELS,
+  DOMAIN_LABELS,
+  PATENT_STATUS_LABELS,
+  VALIDATION_TYPE_LABELS,
+} from './products-service';
+export type {
+  ProductDomain,
+  RDIFSector,
+  PatentStatus,
+  ProductStatus,
+  ValidationStatus,
+  ValidationType,
+  SHProduct,
+  SHProductValidation,
+  SHRDIFPrerequisite,
+  ProductWithValidations,
+  ProductFilters,
+  CreateProductInput,
+  UpdateProductInput,
+  CreateValidationInput,
+  UpdateValidationInput,
+  UpdatePrerequisiteInput,
+  ProductStats,
+} from './products-service';
+
+export {
+  rdifService,
+  RDIFService,
+  RDIF_PREREQUISITE_KEYS,
+  BRIDGE_YEAR_THRESHOLDS,
+} from './rdif-service';
+export type {
+  RDIFReadinessResult,
+  ThreeYearBridgeStatus,
+  RDIFMilestone,
+} from './rdif-service';
+
+// ============================================
 // COMPLIANCE / GRADUATION GATE
 // ============================================
 export { ComplianceService } from './compliance-service';

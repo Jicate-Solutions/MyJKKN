@@ -113,7 +113,6 @@ export async function GET(
     // If user has a department_id, fetch department data separately
     let departmentData = null;
     if (userData.department_id) {
-      console.log('Fetching department for user:', userData.email, 'department_id:', userData.department_id);
       const { data: dept, error: deptError } = await supabase
         .from('departments')
         .select('id, department_name, department_code')
@@ -123,13 +122,10 @@ export async function GET(
       if (deptError) {
         console.error('Department fetch error:', deptError);
       } else if (dept) {
-        console.log('Department fetched successfully:', dept);
         departmentData = dept;
       } else {
-        console.log('No department data returned');
       }
     } else {
-      console.log('User has no department_id:', userData.email);
     }
 
     // Combine the data
@@ -137,10 +133,6 @@ export async function GET(
       ...userData,
       departments: departmentData
     };
-
-    console.log('Final API response for user:', userData.email);
-    console.log('Has departments data:', !!departmentData);
-    console.log('Department data:', departmentData);
 
     return NextResponse.json(
       {
@@ -208,8 +200,6 @@ export async function PATCH(
       );
     }
 
-    console.log('PATCH Authenticated user:', user.id, 'editing user:', userId);
-
     // Get current user's profile to check permissions
     const { data: currentProfile, error: profileError } = await supabase
       .from('profiles')
@@ -225,21 +215,10 @@ export async function PATCH(
       );
     }
 
-    console.log('PATCH Current user role:', currentProfile.role);
-
     // Check permissions: users can edit their own profile, or admins can edit any profile
     const canEdit =
       user.id === userId || // User editing their own profile
       ['super_admin', 'administrator'].includes(currentProfile.role); // Admin roles
-
-    console.log(
-      'PATCH Can edit:',
-      canEdit,
-      'self-edit:',
-      user.id === userId,
-      'admin role:',
-      ['super_admin', 'administrator'].includes(currentProfile.role)
-    );
 
     if (!canEdit) {
       return NextResponse.json(
@@ -331,7 +310,6 @@ export async function PATCH(
             console.error('Error updating user roles:', roleAssignError);
           } else {
             updatedRoleIds = body.role_ids;
-            console.log(`Updated roles for user ${userId}: ${body.role_ids.length} roles assigned`);
           }
         }
       } catch (roleError) {
@@ -512,7 +490,6 @@ export async function DELETE(
       .single();
 
     if (!profileFetchError && profileData?.email) {
-      console.log(`Looking for staff records with institution_email: ${profileData.email}`);
 
       const { data: staffData, error: staffQueryError } = await supabaseAdmin
         .from('staff')
@@ -524,17 +501,14 @@ export async function DELETE(
       if (staffQueryError) {
         console.error('Error checking for staff records:', staffQueryError);
       } else {
-        console.log(`Found ${staffData?.length || 0} staff records matching email ${profileData.email}`);
       }
     } else {
-      console.log('Could not fetch profile email or profile not found');
       if (profileFetchError) {
         console.error('Profile fetch error:', profileFetchError);
       }
     }
 
     if (staffRecords && staffRecords.length > 0) {
-      console.log(`Found ${staffRecords.length} staff record(s) referencing this profile, deleting them first`);
 
       // Delete staff records that reference this profile
       for (const staffRecord of staffRecords) {
@@ -553,7 +527,6 @@ export async function DELETE(
             { status: 500 }
           );
         } else {
-          console.log(`Successfully deleted staff record ${staffRecord.id}`);
         }
       }
     }
@@ -566,7 +539,6 @@ export async function DELETE(
       console.error('Error deleting auth user:', authDeleteError);
       // Check if the user doesn't exist in auth (might already be deleted)
       if (authDeleteError.message.includes('User not found')) {
-        console.log('User not found in auth system, continuing with profile deletion');
       } else {
         return NextResponse.json(
           {

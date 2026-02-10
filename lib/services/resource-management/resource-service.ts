@@ -195,7 +195,6 @@ export class ResourceService {
 
       // Use resource_code from resourceData if not provided as parameter
       const resourceCode = customResourceCode || resourceData.resource_code;
-      console.log('Resource code being used:', resourceCode);
 
       // Check if resource code already exists (if provided)
       if (resourceCode) {
@@ -266,14 +265,11 @@ export class ResourceService {
       const { caretaker_user_ids, ...otherData } = resourceData;
 
       // Debug logging
-      console.log('Raw caretaker_user_ids from form:', caretaker_user_ids);
 
       // Filter out empty/invalid caretaker IDs
       const validCaretakerIds = caretaker_user_ids?.filter(
         (id) => id && typeof id === 'string' && id.trim() !== ''
       ) || [];
-
-      console.log('Filtered validCaretakerIds:', validCaretakerIds);
 
       // Use initial_stock_quantity or default to 1
       const initialStock = resourceData.initial_stock_quantity ?? 1;
@@ -289,11 +285,6 @@ export class ResourceService {
         created_by: userId,
         updated_by: userId
       };
-
-      console.log('Final caretaker values:', {
-        caretaker_user_id: dbData.caretaker_user_id,
-        caretaker_user_ids: dbData.caretaker_user_ids
-      });
 
       const { data: resource, error } = await (this.supabase as any)
         .from('resources')
@@ -443,9 +434,6 @@ export class ResourceService {
           for (const imageUrl of resource.image_urls) {
             await StorageService.deleteResourceImageByUrl(imageUrl);
           }
-          console.log(
-            `Successfully deleted ${resource.image_urls.length} images for resource ${id}`
-          );
         } catch (imageError) {
           console.error(
             `Failed to delete images for resource ${id}:`,
@@ -454,10 +442,6 @@ export class ResourceService {
           // Don't fail the entire operation for image cleanup errors
         }
       }
-
-      console.log(
-        `Successfully deleted resource "${resource.name}" and all related data (reservations, usage logs, approvals)`
-      );
 
       return true;
     } catch (error) {
@@ -480,13 +464,10 @@ export class ResourceService {
       errors: []
     };
 
-    console.log(`Starting bulk delete of ${ids.length} resources with cleanup`);
-
     for (const id of ids) {
       try {
         await this.deleteResource(id);
         result.processedCount++;
-        console.log(`Successfully deleted resource ${id}`);
       } catch (error) {
         result.success = false;
         result.errors.push({
@@ -497,9 +478,6 @@ export class ResourceService {
       }
     }
 
-    console.log(
-      `Bulk delete completed: ${result.processedCount}/${ids.length} resources processed`
-    );
     return result;
   }
 

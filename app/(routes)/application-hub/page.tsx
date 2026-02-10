@@ -56,9 +56,6 @@ export default function ApplicationHubPage() {
   useEffect(() => {
     if (loading || isLoadingUser) return; // Don't filter while still loading
 
-    console.log('[application-hub] Filtering applications based on user:', profile);
-    console.log('[application-hub] Applications available:', applications.length);
-
     // If no user, don't show any applications
     if (!profile) {
       console.warn('[application-hub] No user found, showing no applications');
@@ -67,20 +64,16 @@ export default function ApplicationHubPage() {
     }
 
     if (!applications.length) {
-      console.log('[application-hub] No applications to filter');
       setFilteredApplications([]);
       return;
     }
 
     const userRole = profile.role;
-    console.log('[application-hub] User role:', userRole);
-    console.log('[application-hub] Is super admin:', isSuperAdmin);
 
     // Filter for active applications with role-based access
     const filtered = applications.filter((app) => {
       // Safety check: Ensure application is active (should already be filtered by API)
       if (!app.is_active) {
-        console.log(`[application-hub] Skipping inactive app: ${app.name}`);
         return false;
       }
 
@@ -100,21 +93,14 @@ export default function ApplicationHubPage() {
 
       // Empty roles_access array means application is public for all authenticated users
       if (app.roles_access.length === 0) {
-        console.log(
-          `[application-hub] Application ${app.name} has public access (empty roles_access)`
-        );
         return true;
       }
 
       // Check if user's role is in the roles_access array
       const hasAccess = app.roles_access.includes(userRole);
-      console.log(
-        `[application-hub] User role ${userRole} access to ${app.name}: ${hasAccess}`
-      );
       return hasAccess;
     });
 
-    console.log('[application-hub] Filtered applications count:', filtered.length);
     setFilteredApplications(filtered);
   }, [applications, profile, loading, isLoadingUser, isSuperAdmin]);
 

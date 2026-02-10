@@ -10,7 +10,6 @@ import { Progress } from '@/components/ui/progress';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
-import { Checkbox } from '@/components/ui/checkbox';
 import { Textarea } from '@/components/ui/textarea';
 import {
   ArrowRightLeft,
@@ -43,124 +42,59 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { AdmissionErrorBoundary } from '@/components/admission';
-
-// Mock data for lateral entry applications
-const mockApplications = [
-  {
-    id: 'LE-2026-001',
-    studentName: 'Amit Kumar',
-    email: 'amit.kumar@email.com',
-    phone: '+91 98765 43210',
-    currentInstitution: 'Polytechnic College, Chennai',
-    currentProgram: 'Diploma in Computer Science',
-    currentYear: '3rd Year',
-    appliedProgram: 'B.Tech Computer Science (2nd Year)',
-    eligibilityStatus: 'eligible',
-    academicScore: 78,
-    documentsUploaded: true,
-    applicationDate: '2026-01-10',
-    status: 'under_review',
-    type: 'lateral_entry'
-  },
-  {
-    id: 'LE-2026-002',
-    studentName: 'Sneha Reddy',
-    email: 'sneha.reddy@email.com',
-    phone: '+91 98765 43211',
-    currentInstitution: 'ABC Engineering College',
-    currentProgram: 'B.Tech ECE (1st Year)',
-    currentYear: '1st Year',
-    appliedProgram: 'B.Tech CSE (1st Year)',
-    eligibilityStatus: 'eligible',
-    academicScore: 85,
-    documentsUploaded: true,
-    applicationDate: '2026-01-12',
-    status: 'approved',
-    type: 'branch_transfer'
-  },
-  {
-    id: 'LE-2026-003',
-    studentName: 'Vikram Singh',
-    email: 'vikram.singh@email.com',
-    phone: '+91 98765 43212',
-    currentInstitution: 'ITI, Coimbatore',
-    currentProgram: 'ITI Electrician',
-    currentYear: 'Completed',
-    appliedProgram: 'B.Tech Electrical (2nd Year)',
-    eligibilityStatus: 'pending_verification',
-    academicScore: 72,
-    documentsUploaded: false,
-    applicationDate: '2026-01-14',
-    status: 'documents_pending',
-    type: 'lateral_entry'
-  },
-  {
-    id: 'BT-2026-001',
-    studentName: 'Priya Sharma',
-    email: 'priya.sharma@email.com',
-    phone: '+91 98765 43213',
-    currentInstitution: 'JKKN College of Engineering',
-    currentProgram: 'B.Tech Mechanical (2nd Year)',
-    currentYear: '2nd Year',
-    appliedProgram: 'B.Tech Mechatronics (2nd Year)',
-    eligibilityStatus: 'eligible',
-    academicScore: 82,
-    documentsUploaded: true,
-    applicationDate: '2026-01-08',
-    status: 'under_review',
-    type: 'branch_transfer'
-  }
-];
-
-const eligibilityRules = [
-  {
-    type: 'lateral_entry',
-    title: 'Lateral Entry (Diploma Holders)',
-    requirements: [
-      'Diploma in relevant branch with 60%+',
-      'No backlog at time of admission',
-      'State-level entrance exam clearance (if applicable)',
-      'Transfer Certificate from previous institution'
-    ],
-    targetYear: '2nd Year B.Tech'
-  },
-  {
-    type: 'branch_transfer',
-    title: 'Branch Transfer (Within Institution)',
-    requirements: [
-      'Completed 1st year with 70%+ CGPA',
-      'No disciplinary issues',
-      'Vacancy in target branch',
-      'NOC from current department'
-    ],
-    targetYear: 'Same year, different branch'
-  },
-  {
-    type: 'iti_lateral',
-    title: 'ITI Lateral Entry',
-    requirements: [
-      'ITI with 2 years National/State Trade Certificate',
-      'Passed 10th with Science and Math',
-      'Relevant trade for engineering branch',
-      'Age limit: Below 25 years'
-    ],
-    targetYear: '2nd Year B.Tech'
-  }
-];
+import { useAuth } from '@/hooks/use-auth';
+import {
+  useLateralEntryApplications,
+  useEligibilityRules,
+  useLateralEntryVacancies,
+  useLateralEntryStats,
+  useCreateLateralEntry,
+  useUpdateLateralEntryStatus,
+} from '@/hooks/admission/use-lateral-entry';
+import type { LateralEntryApplication, EligibilityRule, LateralEntryVacancy } from '@/lib/services/admission/lateral-entry-service';
 
 function LateralEntryPageContent() {
+  const { profile, isLoading: authLoading } = useAuth();
+  const institutionId = profile?.institution_id;
+
   const [activeTab, setActiveTab] = useState('applications');
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState('all');
   const [isNewApplicationOpen, setIsNewApplicationOpen] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const [processingAppId, setProcessingAppId] = useState<string | null>(null);
 
-  const totalApplications = mockApplications.length;
-  const lateralCount = mockApplications.filter(a => a.type === 'lateral_entry').length;
-  const branchTransferCount = mockApplications.filter(a => a.type === 'branch_transfer').length;
-  const approvedCount = mockApplications.filter(a => a.status === 'approved').length;
-  const pendingCount = mockApplications.filter(a => a.status === 'under_review' || a.status === 'documents_pending').length;
+  // Form state
+  const [formData, setFormData] = useState({
+    application_type: '',
+    student_name: '',
+    email: '',
+    phone: '',
+    current_institution: '',
+    current_program: '',
+    applied_program_name: '',
+    academic_score: '',
+  });
+
+  // Real data hooks
+  const { applications, isLoading: appsLoading, refetch: refetchApps } = useLateralEntryApplications({
+    institutionId: institutionId || '',
+    type: filterType !== 'all' ? filterType : undefined,
+    search: searchTerm || undefined,
+  });
+
+  const { rules, isLoading: rulesLoading } = useEligibilityRules(institutionId || '');
+  const { vacancies, isLoading: vacanciesLoading } = useLateralEntryVacancies(institutionId || '');
+  const { stats, isLoading: statsLoading } = useLateralEntryStats(institutionId || '');
+
+  const createMutation = useCreateLateralEntry();
+  const updateStatusMutation = useUpdateLateralEntryStatus();
+
+  // Stats from real data
+  const totalApplications = stats?.total ?? 0;
+  const lateralCount = stats?.lateralCount ?? 0;
+  const branchTransferCount = stats?.branchTransferCount ?? 0;
+  const approvedCount = stats?.approved ?? 0;
+  const pendingCount = stats?.pending ?? 0;
 
   const getStatusBadge = (status: string) => {
     const styles: Record<string, string> = {
@@ -183,6 +117,112 @@ function LateralEntryPageContent() {
     }
   };
 
+  const handleCreateApplication = async () => {
+    if (!institutionId) return;
+    if (!formData.application_type || !formData.student_name || !formData.email) {
+      toast.error('Please fill in required fields (type, name, email)');
+      return;
+    }
+
+    createMutation.mutate(
+      {
+        institution_id: institutionId,
+        application_type: formData.application_type,
+        student_name: formData.student_name,
+        email: formData.email,
+        phone: formData.phone,
+        current_institution: formData.current_institution,
+        current_program: formData.current_program,
+        applied_program_name: formData.applied_program_name,
+        academic_score: formData.academic_score ? parseFloat(formData.academic_score) : undefined,
+      },
+      {
+        onSuccess: () => {
+          setIsNewApplicationOpen(false);
+          setFormData({
+            application_type: '',
+            student_name: '',
+            email: '',
+            phone: '',
+            current_institution: '',
+            current_program: '',
+            applied_program_name: '',
+            academic_score: '',
+          });
+        },
+      }
+    );
+  };
+
+  const handleApprove = (appId: string) => {
+    setProcessingAppId(appId);
+    updateStatusMutation.mutate(
+      { id: appId, status: 'approved' },
+      { onSettled: () => setProcessingAppId(null) }
+    );
+  };
+
+  const handleReject = (appId: string) => {
+    setProcessingAppId(appId);
+    updateStatusMutation.mutate(
+      { id: appId, status: 'rejected' },
+      { onSettled: () => setProcessingAppId(null) }
+    );
+  };
+
+  const handleExport = () => {
+    if (!applications.length) {
+      toast.error('No applications to export');
+      return;
+    }
+    const headers = ['Application #', 'Type', 'Student Name', 'Email', 'Phone', 'Current Institution', 'Current Program', 'Applied Program', 'Academic Score', 'Eligibility', 'Status', 'Applied Date'];
+    const rows = applications.map((app: LateralEntryApplication) => [
+      app.application_number,
+      app.application_type,
+      app.student_name,
+      app.email,
+      app.phone,
+      app.current_institution,
+      app.current_program,
+      app.applied_program_name || '',
+      app.academic_score ?? '',
+      app.eligibility_status,
+      app.application_status,
+      app.created_at ? new Date(app.created_at).toLocaleDateString() : '',
+    ]);
+    const csvContent = [headers, ...rows].map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `lateral-entry-applications-${new Date().toISOString().split('T')[0]}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    toast.success('Applications exported successfully');
+  };
+
+  if (authLoading) {
+    return (
+      <div className="container mx-auto p-6 flex items-center justify-center min-h-[400px]">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (!institutionId) {
+    return (
+      <div className="container mx-auto p-6">
+        <Card>
+          <CardContent className="p-6 text-center text-muted-foreground">
+            No institution access found.
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="container mx-auto p-6 space-y-6">
       {/* Header */}
@@ -195,7 +235,7 @@ function LateralEntryPageContent() {
           <p className="text-muted-foreground">Manage non-fresh admissions and internal transfers</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={() => toast.success('Applications exported successfully')}>
+          <Button variant="outline" size="sm" onClick={handleExport}>
             <Download className="h-4 w-4 mr-2" />
             Export
           </Button>
@@ -214,7 +254,7 @@ function LateralEntryPageContent() {
               <div className="grid gap-4 py-4">
                 <div className="space-y-2">
                   <Label>Application Type</Label>
-                  <Select>
+                  <Select value={formData.application_type} onValueChange={(v) => setFormData(prev => ({ ...prev, application_type: v }))}>
                     <SelectTrigger>
                       <SelectValue placeholder="Select type" />
                     </SelectTrigger>
@@ -227,62 +267,55 @@ function LateralEntryPageContent() {
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label>Student Name</Label>
-                    <Input placeholder="Full name" />
+                    <Input placeholder="Full name" value={formData.student_name} onChange={(e) => setFormData(prev => ({ ...prev, student_name: e.target.value }))} />
                   </div>
                   <div className="space-y-2">
                     <Label>Email</Label>
-                    <Input type="email" placeholder="email@example.com" />
+                    <Input type="email" placeholder="email@example.com" value={formData.email} onChange={(e) => setFormData(prev => ({ ...prev, email: e.target.value }))} />
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label>Phone</Label>
-                    <Input placeholder="+91 98765 43210" />
+                    <Input placeholder="+91 98765 43210" value={formData.phone} onChange={(e) => setFormData(prev => ({ ...prev, phone: e.target.value }))} />
                   </div>
                   <div className="space-y-2">
                     <Label>Current Institution</Label>
-                    <Input placeholder="Institution name" />
+                    <Input placeholder="Institution name" value={formData.current_institution} onChange={(e) => setFormData(prev => ({ ...prev, current_institution: e.target.value }))} />
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label>Current Program</Label>
-                    <Input placeholder="e.g., Diploma in CS" />
+                    <Input placeholder="e.g., Diploma in CS" value={formData.current_program} onChange={(e) => setFormData(prev => ({ ...prev, current_program: e.target.value }))} />
                   </div>
                   <div className="space-y-2">
                     <Label>Target Program</Label>
-                    <Select>
+                    <Select value={formData.applied_program_name} onValueChange={(v) => setFormData(prev => ({ ...prev, applied_program_name: v }))}>
                       <SelectTrigger>
                         <SelectValue placeholder="Select program" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="btech_cse">B.Tech Computer Science (2nd Year)</SelectItem>
-                        <SelectItem value="btech_ece">B.Tech Electronics (2nd Year)</SelectItem>
-                        <SelectItem value="btech_mech">B.Tech Mechanical (2nd Year)</SelectItem>
-                        <SelectItem value="btech_eee">B.Tech Electrical (2nd Year)</SelectItem>
+                        <SelectItem value="B.Tech Computer Science (2nd Year)">B.Tech Computer Science (2nd Year)</SelectItem>
+                        <SelectItem value="B.Tech Electronics (2nd Year)">B.Tech Electronics (2nd Year)</SelectItem>
+                        <SelectItem value="B.Tech Mechanical (2nd Year)">B.Tech Mechanical (2nd Year)</SelectItem>
+                        <SelectItem value="B.Tech Electrical (2nd Year)">B.Tech Electrical (2nd Year)</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
                 </div>
                 <div className="space-y-2">
                   <Label>Academic Score (%)</Label>
-                  <Input type="number" placeholder="e.g., 75" />
+                  <Input type="number" placeholder="e.g., 75" value={formData.academic_score} onChange={(e) => setFormData(prev => ({ ...prev, academic_score: e.target.value }))} />
                 </div>
               </div>
               <DialogFooter>
-                <Button variant="outline" onClick={() => setIsNewApplicationOpen(false)} disabled={isSubmitting}>Cancel</Button>
+                <Button variant="outline" onClick={() => setIsNewApplicationOpen(false)} disabled={createMutation.isPending}>Cancel</Button>
                 <Button
-                  onClick={async () => {
-                    setIsSubmitting(true);
-                    // Simulate async operation
-                    await new Promise(resolve => setTimeout(resolve, 1000));
-                    toast.success('Application submitted successfully');
-                    setIsSubmitting(false);
-                    setIsNewApplicationOpen(false);
-                  }}
-                  disabled={isSubmitting}
+                  onClick={handleCreateApplication}
+                  disabled={createMutation.isPending}
                 >
-                  {isSubmitting ? (
+                  {createMutation.isPending ? (
                     <>
                       <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                       Submitting...
@@ -308,7 +341,7 @@ function LateralEntryPageContent() {
             <FileText className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{totalApplications}</div>
+            <div className="text-2xl font-bold">{statsLoading ? '...' : totalApplications}</div>
             <p className="text-xs text-muted-foreground">
               This admission cycle
             </p>
@@ -321,7 +354,7 @@ function LateralEntryPageContent() {
             <ArrowRightLeft className="h-4 w-4 text-blue-500" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{lateralCount}</div>
+            <div className="text-2xl font-bold">{statsLoading ? '...' : lateralCount}</div>
             <p className="text-xs text-muted-foreground">
               Diploma/ITI candidates
             </p>
@@ -334,7 +367,7 @@ function LateralEntryPageContent() {
             <GitBranch className="h-4 w-4 text-purple-500" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{branchTransferCount}</div>
+            <div className="text-2xl font-bold">{statsLoading ? '...' : branchTransferCount}</div>
             <p className="text-xs text-muted-foreground">
               Internal transfers
             </p>
@@ -347,7 +380,7 @@ function LateralEntryPageContent() {
             <Clock className="h-4 w-4 text-yellow-500" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-yellow-600">{pendingCount}</div>
+            <div className="text-2xl font-bold text-yellow-600">{statsLoading ? '...' : pendingCount}</div>
             <p className="text-xs text-muted-foreground">
               Awaiting decision
             </p>
@@ -391,166 +424,201 @@ function LateralEntryPageContent() {
           {/* Applications List */}
           <Card>
             <CardContent className="p-0">
-              <div className="divide-y">
-                {mockApplications.map((app) => (
-                  <div key={app.id} className="flex items-center justify-between p-4 hover:bg-muted/50">
-                    <div className="flex items-center gap-4">
-                      <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
-                        {getTypeIcon(app.type)}
-                      </div>
-                      <div>
-                        <div className="font-medium flex items-center gap-2">
-                          {app.studentName}
-                          <Badge variant="outline" className="text-xs">
-                            {app.id}
-                          </Badge>
+              {appsLoading ? (
+                <div className="flex items-center justify-center p-8">
+                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                </div>
+              ) : applications.length === 0 ? (
+                <div className="p-8 text-center text-muted-foreground">
+                  <FileText className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                  <p>No applications found</p>
+                  <p className="text-sm">Create a new application to get started</p>
+                </div>
+              ) : (
+                <div className="divide-y">
+                  {applications.map((app: LateralEntryApplication) => (
+                    <div key={app.id} className="flex items-center justify-between p-4 hover:bg-muted/50">
+                      <div className="flex items-center gap-4">
+                        <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+                          {getTypeIcon(app.application_type)}
                         </div>
-                        <p className="text-sm text-muted-foreground">
-                          {app.currentProgram} → {app.appliedProgram}
-                        </p>
-                        <p className="text-xs text-muted-foreground flex items-center gap-2 mt-1">
-                          <Building2 className="h-3 w-3" />
-                          {app.currentInstitution}
-                        </p>
+                        <div>
+                          <div className="font-medium flex items-center gap-2">
+                            {app.student_name}
+                            <Badge variant="outline" className="text-xs">
+                              {app.application_number}
+                            </Badge>
+                          </div>
+                          <p className="text-sm text-muted-foreground">
+                            {app.current_program} → {app.applied_program_name || 'Not specified'}
+                          </p>
+                          <p className="text-xs text-muted-foreground flex items-center gap-2 mt-1">
+                            <Building2 className="h-3 w-3" />
+                            {app.current_institution}
+                          </p>
+                        </div>
                       </div>
-                    </div>
-                    <div className="flex items-center gap-4">
-                      <div className="text-right">
-                        <p className="text-sm">Score: {app.academicScore}%</p>
-                        <p className="text-xs text-muted-foreground">
-                          Applied: {app.applicationDate}
-                        </p>
-                      </div>
-                      <div className="flex flex-col gap-1">
-                        <Badge className={getStatusBadge(app.status)}>
-                          {app.status.replace('_', ' ')}
-                        </Badge>
-                        {!app.documentsUploaded && (
-                          <Badge variant="outline" className="text-xs text-yellow-600">
-                            <AlertCircle className="h-3 w-3 mr-1" />
-                            Docs missing
+                      <div className="flex items-center gap-4">
+                        <div className="text-right">
+                          <p className="text-sm">Score: {app.academic_score ?? 'N/A'}%</p>
+                          <p className="text-xs text-muted-foreground">
+                            Applied: {app.created_at ? new Date(app.created_at).toLocaleDateString() : 'N/A'}
+                          </p>
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          <Badge className={getStatusBadge(app.application_status)}>
+                            {app.application_status.replace(/_/g, ' ')}
                           </Badge>
-                        )}
-                      </div>
-                      <div className="flex gap-1">
-                        <Button variant="ghost" size="sm" onClick={() => toast.success('Loading application details')}>
-                          <Eye className="h-4 w-4" />
-                        </Button>
-                        {app.status === 'under_review' && (
-                          <>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="text-green-600"
-                              disabled={processingAppId === app.id}
-                              onClick={async () => {
-                                setProcessingAppId(app.id);
-                                await new Promise(resolve => setTimeout(resolve, 1000));
-                                toast.success('Application approved successfully');
-                                setProcessingAppId(null);
-                              }}
-                            >
-                              {processingAppId === app.id ? (
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                              ) : (
-                                <CheckCircle2 className="h-4 w-4" />
-                              )}
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="text-red-600"
-                              disabled={processingAppId === app.id}
-                              onClick={async () => {
-                                setProcessingAppId(app.id);
-                                await new Promise(resolve => setTimeout(resolve, 1000));
-                                toast.error('Application rejected');
-                                setProcessingAppId(null);
-                              }}
-                            >
-                              {processingAppId === app.id ? (
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                              ) : (
-                                <XCircle className="h-4 w-4" />
-                              )}
-                            </Button>
-                          </>
-                        )}
+                          {!app.documents_uploaded && (
+                            <Badge variant="outline" className="text-xs text-yellow-600">
+                              <AlertCircle className="h-3 w-3 mr-1" />
+                              Docs missing
+                            </Badge>
+                          )}
+                        </div>
+                        <div className="flex gap-1">
+                          <Button variant="ghost" size="sm" onClick={() => toast.info(`Application: ${app.application_number}`)}>
+                            <Eye className="h-4 w-4" />
+                          </Button>
+                          {app.application_status === 'under_review' && (
+                            <>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="text-green-600"
+                                disabled={processingAppId === app.id}
+                                onClick={() => handleApprove(app.id)}
+                              >
+                                {processingAppId === app.id ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <CheckCircle2 className="h-4 w-4" />
+                                )}
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="text-red-600"
+                                disabled={processingAppId === app.id}
+                                onClick={() => handleReject(app.id)}
+                              >
+                                {processingAppId === app.id ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <XCircle className="h-4 w-4" />
+                                )}
+                              </Button>
+                            </>
+                          )}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
 
         <TabsContent value="eligibility" className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {eligibilityRules.map((rule, index) => (
-              <Card key={index}>
-                <CardHeader>
-                  <div className="flex items-center gap-2">
-                    {rule.type === 'lateral_entry' && <ArrowRightLeft className="h-5 w-5 text-blue-500" />}
-                    {rule.type === 'branch_transfer' && <GitBranch className="h-5 w-5 text-purple-500" />}
-                    {rule.type === 'iti_lateral' && <GraduationCap className="h-5 w-5 text-green-500" />}
-                    <CardTitle className="text-lg">{rule.title}</CardTitle>
-                  </div>
-                  <CardDescription>Target: {rule.targetYear}</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <ul className="space-y-2">
-                    {rule.requirements.map((req, idx) => (
-                      <li key={idx} className="flex items-start gap-2 text-sm">
-                        <CheckCircle2 className="h-4 w-4 text-green-500 mt-0.5 flex-shrink-0" />
-                        <span>{req}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
+          {rulesLoading ? (
+            <div className="flex items-center justify-center p-8">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : rules.length === 0 ? (
+            <Card>
+              <CardContent className="p-8 text-center text-muted-foreground">
+                <BookOpen className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                <p>No eligibility rules configured</p>
+                <p className="text-sm">Configure rules to auto-verify applicant eligibility</p>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {rules.map((rule: EligibilityRule) => (
+                <Card key={rule.id}>
+                  <CardHeader>
+                    <div className="flex items-center gap-2">
+                      {rule.rule_type === 'lateral_entry' && <ArrowRightLeft className="h-5 w-5 text-blue-500" />}
+                      {rule.rule_type === 'branch_transfer' && <GitBranch className="h-5 w-5 text-purple-500" />}
+                      {rule.rule_type === 'iti_lateral' && <GraduationCap className="h-5 w-5 text-green-500" />}
+                      {!['lateral_entry', 'branch_transfer', 'iti_lateral'].includes(rule.rule_type) && <GraduationCap className="h-5 w-5 text-gray-500" />}
+                      <CardTitle className="text-lg">{rule.title}</CardTitle>
+                    </div>
+                    <CardDescription>Target: {rule.target_year}</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <ul className="space-y-2">
+                      {(rule.requirements || []).map((req: { field: string; value: string }, idx: number) => (
+                        <li key={idx} className="flex items-start gap-2 text-sm">
+                          <CheckCircle2 className="h-4 w-4 text-green-500 mt-0.5 flex-shrink-0" />
+                          <span>{req.value || req.field}</span>
+                        </li>
+                      ))}
+                      {rule.required_documents && rule.required_documents.length > 0 && (
+                        <li className="flex items-start gap-2 text-sm">
+                          <FileText className="h-4 w-4 text-blue-500 mt-0.5 flex-shrink-0" />
+                          <span>Documents: {rule.required_documents.join(', ')}</span>
+                        </li>
+                      )}
+                      {rule.min_score != null && (
+                        <li className="flex items-start gap-2 text-sm">
+                          <BarChart3 className="h-4 w-4 text-orange-500 mt-0.5 flex-shrink-0" />
+                          <span>Minimum score: {rule.min_score}%</span>
+                        </li>
+                      )}
+                    </ul>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
         </TabsContent>
 
         <TabsContent value="vacancies" className="space-y-4">
           <Card>
             <CardHeader>
               <CardTitle>Available Seats for Lateral Entry</CardTitle>
-              <CardDescription>Branch-wise vacancy for 2nd year admission</CardDescription>
+              <CardDescription>Branch-wise vacancy for lateral admission</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="space-y-4">
-                {[
-                  { branch: 'B.Tech Computer Science', total: 120, filled: 108, lateral: 10 },
-                  { branch: 'B.Tech Electronics', total: 60, filled: 52, lateral: 6 },
-                  { branch: 'B.Tech Mechanical', total: 60, filled: 48, lateral: 6 },
-                  { branch: 'B.Tech Electrical', total: 60, filled: 55, lateral: 4 },
-                  { branch: 'B.Tech Civil', total: 60, filled: 42, lateral: 6 }
-                ].map((branch, index) => {
-                  const vacancyPercent = ((branch.lateral) / branch.total) * 100;
-                  return (
-                    <div key={index} className="flex items-center justify-between p-4 border rounded-lg">
-                      <div className="flex items-center gap-4">
-                        <BookOpen className="h-5 w-5 text-primary" />
-                        <div>
-                          <p className="font-medium">{branch.branch}</p>
-                          <p className="text-sm text-muted-foreground">
-                            {branch.filled}/{branch.total} regular seats filled
-                          </p>
+              {vacanciesLoading ? (
+                <div className="flex items-center justify-center p-8">
+                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                </div>
+              ) : vacancies.length === 0 ? (
+                <div className="p-8 text-center text-muted-foreground">
+                  <Building2 className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                  <p>No vacancy data available</p>
+                  <p className="text-sm">Configure seat vacancies for lateral entry programs</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {vacancies.map((v: LateralEntryVacancy) => {
+                    const vacancyPercent = v.total_intake > 0 ? (v.lateral_entry_seats / v.total_intake) * 100 : 0;
+                    return (
+                      <div key={v.id} className="flex items-center justify-between p-4 border rounded-lg">
+                        <div className="flex items-center gap-4">
+                          <BookOpen className="h-5 w-5 text-primary" />
+                          <div>
+                            <p className="font-medium">{v.program_name}</p>
+                            <p className="text-sm text-muted-foreground">
+                              {v.regular_filled}/{v.regular_seats} regular seats filled
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-4">
+                          <div className="text-right">
+                            <p className="text-lg font-bold text-green-600">{v.available_lateral}</p>
+                            <p className="text-xs text-muted-foreground">Available lateral</p>
+                          </div>
+                          <Progress value={vacancyPercent} className="w-24" />
                         </div>
                       </div>
-                      <div className="flex items-center gap-4">
-                        <div className="text-right">
-                          <p className="text-lg font-bold text-green-600">{branch.lateral}</p>
-                          <p className="text-xs text-muted-foreground">Lateral seats</p>
-                        </div>
-                        <Progress value={vacancyPercent} className="w-24" />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+                    );
+                  })}
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>

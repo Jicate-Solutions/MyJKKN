@@ -5,24 +5,20 @@ import { RoleService } from '@/lib/services/roles/role-service';
 import type { Profile } from '@/types/auth';
 
 export async function GET(request: Request) {
-  console.log('--- Inside /api/organizations/dashboard GET (Server) ---');
   const supabase = await createServerSupabaseClient();
   const { searchParams } = new URL(request.url);
   const institutionId = searchParams.get('institutionId');
 
   try {
-    console.log('Attempting to get user session...');
     const {
       data: { user }
     } = await supabase.auth.getUser();
-    console.log('Session retrieved. User ID:', user?.id);
 
     if (!user) {
       console.error('Unauthorized: No user found in session.');
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    console.log('Fetching user profile...');
     const { data: profiles, error: profileError } = await supabase
       .from('profiles')
       .select('*')
@@ -51,31 +47,22 @@ export async function GET(request: Request) {
     }
 
     const profile = profiles[0];
-    console.log('Successfully fetched profile.');
 
-    console.log('Checking for permission: organizations.dashboard.view');
     const role = await RoleService.getRoleByKey(profile.role);
     const canViewDashboard =
       profile.role === 'super_admin' ||
       (role?.permissions && role.permissions['organizations.dashboard.view']);
-
-    console.log('Permission check result:', canViewDashboard);
 
     if (!canViewDashboard) {
       console.error('Forbidden: User does not have the required permission.');
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    console.log(
-      'Attempting to get organization stats for institution:',
-      institutionId
-    );
     const stats = await DashboardService.getOrganizationStats(
       supabase,
       profile as Profile,
       institutionId
     );
-    console.log('Successfully fetched organization stats.');
 
     return NextResponse.json(stats);
   } catch (error) {

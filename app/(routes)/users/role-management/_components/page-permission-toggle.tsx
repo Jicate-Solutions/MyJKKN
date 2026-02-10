@@ -97,9 +97,6 @@ export function PagePermissionToggle({
         cleaned[legacyKey] !== undefined &&
         cleaned[modernKey] !== undefined
       ) {
-        console.log(
-          `Cleaning up duplicate permission: ${legacyKey} -> ${modernKey}`
-        );
         // Delete the legacy key and keep the modern one
         delete cleaned[legacyKey];
       }
@@ -116,12 +113,6 @@ export function PagePermissionToggle({
 
       // If we found and cleaned any duplicate permissions, update the state
       if (JSON.stringify(cleanedPermissions) !== JSON.stringify(permissions)) {
-        console.log(
-          'Cleaned up legacy permissions:',
-          Object.keys(permissions).length -
-            Object.keys(cleanedPermissions).length,
-          'duplicates removed'
-        );
         onChange(cleanedPermissions);
       }
     }
@@ -233,7 +224,6 @@ export function PagePermissionToggle({
       if (Object.keys(permissions).includes(entityKey)) {
         // If there's a legacy version, update it too
         newPermissions[entityKey] = newValue;
-        console.log(`Updated legacy permission ${entityKey} to ${newValue}`);
       }
     }
 
@@ -251,10 +241,6 @@ export function PagePermissionToggle({
 
     // Special debugging for courses
     if (page.permissionKey === 'organizations.courses.view') {
-      console.log('Attempting to toggle courses page permission', {
-        'organizations.courses.view': newValue,
-        'organizations.courses': newPermissions['organizations.courses']
-      });
     }
 
     // Clean up any duplicate legacy/modern permissions
@@ -284,7 +270,6 @@ export function PagePermissionToggle({
       // If enabling a view permission and legacy permission exists, also update it
       if (actionKey.endsWith('.view')) {
         newPermissions[entityKey] = newValue;
-        console.log(`Updated legacy permission ${entityKey} to ${newValue}`);
       }
     }
 
@@ -308,10 +293,6 @@ export function PagePermissionToggle({
 
     // Special debugging for courses
     if (actionKey === 'organizations.courses.view') {
-      console.log('Attempting to toggle courses view permission', {
-        'organizations.courses.view': newValue,
-        'organizations.courses': newPermissions['organizations.courses']
-      });
     }
 
     // Clean up any duplicate legacy/modern permissions
@@ -398,13 +379,6 @@ export function PagePermissionToggle({
     });
 
     // Log what's happening for transparency
-    console.log('Reset permissions:', {
-      total: Object.keys(resetPermissions).length,
-      enabled: Object.values(resetPermissions).filter(Boolean).length,
-      preservedDefaults: Object.entries(resetPermissions)
-        .filter(([_, v]) => v === true)
-        .map(([k]) => k)
-    });
 
     // Call the onChange handler with the reset permissions
     onChange(resetPermissions);

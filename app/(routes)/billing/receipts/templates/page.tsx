@@ -1,9 +1,9 @@
 'use client';
 
-import { ArrowLeft, FileText, Settings } from 'lucide-react';
+import { ArrowLeft, FileText, Inbox } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { usePermissions } from '@/hooks/use-permissions';
 import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
 import { useRouter } from 'next/navigation';
@@ -70,36 +70,24 @@ export default function ReceiptTemplatesPage() {
           </div>
         </div>
 
-        {/* Coming Soon Card */}
+        {/* Empty State */}
         <Card>
-          <CardHeader>
-            <CardTitle className='flex items-center gap-2'>
-              <FileText className='h-5 w-5' />
-              Template Management
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className='text-center py-12'>
-              <Settings className='mx-auto h-12 w-12 text-muted-foreground' />
-              <h3 className='mt-4 text-lg font-semibold'>
-                Templates Coming Soon
-              </h3>
-              <p className='mt-2 text-muted-foreground max-w-md mx-auto'>
-                Receipt template management functionality will be available in a
-                future update. This will allow you to customize receipt formats,
-                branding, and layout options.
-              </p>
-              <div className='mt-6 space-y-2 text-sm text-muted-foreground'>
-                <p>Planned features:</p>
-                <ul className='list-disc list-inside space-y-1'>
-                  <li>Custom receipt layouts</li>
-                  <li>Institution branding</li>
-                  <li>Multiple template formats</li>
-                  <li>Print settings configuration</li>
-                  <li>Email template customization</li>
-                </ul>
-              </div>
+          <CardContent className='flex flex-col items-center justify-center py-16 text-center'>
+            <div className='rounded-full bg-muted p-4 mb-4'>
+              <Inbox className='h-10 w-10 text-muted-foreground' />
             </div>
+            <h3 className='text-lg font-semibold text-foreground mb-2'>
+              No Receipt Templates
+            </h3>
+            <p className='text-sm text-muted-foreground max-w-md mb-1'>
+              Receipt templates allow you to customize layouts, add institution
+              branding, and configure print and email formatting for your
+              billing receipts.
+            </p>
+            <p className='text-sm text-muted-foreground max-w-md'>
+              No templates have been created yet. The default receipt format is
+              being used for all receipts.
+            </p>
           </CardContent>
         </Card>
       </div>

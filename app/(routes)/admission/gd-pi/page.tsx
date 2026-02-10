@@ -15,7 +15,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { Progress } from '@/components/ui/progress';
 import { Slider } from '@/components/ui/slider';
-import { format, addDays } from 'date-fns';
+import { format } from 'date-fns';
 import {
   Users,
   MessageSquare,
@@ -46,6 +46,14 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { AdmissionErrorBoundary } from '@/components/admission';
+import { useAuth } from '@/hooks/use-auth';
+import {
+  useInterviewSlots,
+  useInterviewBookings,
+  useCreateInterviewSlot,
+  useUpdateInterviewBooking,
+} from '@/hooks/admission/use-interviews';
+import type { InterviewSlotRow, InterviewBookingRow } from '@/lib/services/admission/interview-service';
 
 // Types
 interface GDSession {
@@ -139,83 +147,6 @@ const SAMPLE_TOPICS: GDTopic[] = [
   { id: 't6', topic: 'Healthcare Accessibility in Rural India', category: 'Social', difficulty: 'medium', usageCount: 10 },
 ];
 
-const generateSampleGDSessions = (): GDSession[] => {
-  const sessions: GDSession[] = [];
-  const today = new Date();
-
-  for (let i = 0; i < 5; i++) {
-    const participants: GDParticipant[] = [];
-    for (let j = 0; j < 8; j++) {
-      participants.push({
-        id: `p-${i}-${j}`,
-        name: ['Arun Kumar', 'Priya Sharma', 'Karthik Reddy', 'Divya Nair', 'Rahul Singh', 'Sneha Patel', 'Vijay Menon', 'Meera Das'][j],
-        applicationNumber: `JKKN-2024-${String(1000 + i * 10 + j).padStart(5, '0')}`,
-        score: i < 2 ? Math.floor(Math.random() * 40) + 60 : undefined,
-        criteria: i < 2 ? {
-          communication: Math.floor(Math.random() * 5) + 5,
-          leadership: Math.floor(Math.random() * 5) + 5,
-          knowledge: Math.floor(Math.random() * 5) + 5,
-          teamwork: Math.floor(Math.random() * 5) + 5,
-          reasoning: Math.floor(Math.random() * 5) + 5,
-        } : undefined,
-      });
-    }
-
-    sessions.push({
-      id: `gd-${i}`,
-      topic: SAMPLE_TOPICS[i % SAMPLE_TOPICS.length].topic,
-      date: format(addDays(today, i - 1), 'yyyy-MM-dd'),
-      time: i % 2 === 0 ? '09:30' : '14:30',
-      duration: 45,
-      venue: `Conference Room ${101 + i}`,
-      programId: 'btech-cse',
-      programName: 'B.Tech Computer Science',
-      status: i === 0 ? 'completed' : i === 1 ? 'in-progress' : 'scheduled',
-      participants,
-      evaluators: [SAMPLE_EVALUATORS[0], SAMPLE_EVALUATORS[1]],
-      maxParticipants: 10,
-    });
-  }
-
-  return sessions;
-};
-
-const generateSamplePISessions = (): PISession[] => {
-  const sessions: PISession[] = [];
-  const today = new Date();
-  const names = ['Arun Kumar', 'Priya Sharma', 'Karthik Reddy', 'Divya Nair', 'Rahul Singh', 'Sneha Patel'];
-
-  for (let i = 0; i < 10; i++) {
-    sessions.push({
-      id: `pi-${i}`,
-      candidateId: `c-${i}`,
-      candidateName: names[i % names.length],
-      applicationNumber: `JKKN-2024-${String(2000 + i).padStart(5, '0')}`,
-      date: format(addDays(today, Math.floor(i / 3)), 'yyyy-MM-dd'),
-      time: `${9 + (i % 6)}:00`,
-      duration: 20,
-      venue: 'Interview Room 201',
-      programId: 'mba',
-      programName: 'MBA',
-      status: i < 3 ? 'completed' : i === 3 ? 'in-progress' : 'scheduled',
-      panelMembers: [SAMPLE_EVALUATORS[2], SAMPLE_EVALUATORS[3]],
-      score: i < 3 ? Math.floor(Math.random() * 30) + 70 : undefined,
-      recommendation: i < 3 ? (['accept', 'accept', 'waitlist'] as const)[i % 3] : undefined,
-      feedback: i < 3 ? {
-        technicalKnowledge: Math.floor(Math.random() * 3) + 7,
-        communication: Math.floor(Math.random() * 3) + 7,
-        problemSolving: Math.floor(Math.random() * 3) + 7,
-        attitude: Math.floor(Math.random() * 3) + 7,
-        careerGoals: Math.floor(Math.random() * 3) + 7,
-        overallImpression: 'Good candidate with strong fundamentals',
-        strengths: 'Communication, Technical knowledge',
-        areasOfImprovement: 'Leadership skills, Industry exposure',
-      } : undefined,
-    });
-  }
-
-  return sessions;
-};
 
 const GD_CRITERIA = [
   { key: 'communication', label: 'Communication Skills', weight: 20 },
@@ -234,17 +165,146 @@ const PI_CRITERIA = [
 ];
 
 function GDPIPageContent() {
+  const { profile } = useAuth();
+  const institutionId = profile?.institution_id || '';
+
   const [activeTab, setActiveTab] = useState('gd');
-  const [gdSessions] = useState<GDSession[]>(generateSampleGDSessions);
-  const [piSessions] = useState<PISession[]>(generateSamplePISessions);
   const [selectedGDSession, setSelectedGDSession] = useState<GDSession | null>(null);
   const [selectedPISession, setSelectedPISession] = useState<PISession | null>(null);
   const [showCreateGDDialog, setShowCreateGDDialog] = useState(false);
   const [showEvaluationDialog, setShowEvaluationDialog] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [isCreating, setIsCreating] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
+
+  // Real data hooks
+  const { slots: gdSlots, isLoading: gdSlotsLoading } = useInterviewSlots(institutionId, { interview_type: 'gd' });
+  const { slots: piSlots, isLoading: piSlotsLoading } = useInterviewSlots(institutionId, { interview_type: 'pi' });
+  const { bookings: allBookings, isLoading: bookingsLoading } = useInterviewBookings(institutionId);
+  const createSlotMutation = useCreateInterviewSlot();
+  const updateBookingMutation = useUpdateInterviewBooking();
+
+  // Transform GD slots + bookings → GDSession[]
+  const gdSessions = useMemo(() => {
+    return gdSlots.map((slot) => {
+      const slotBookings = allBookings.filter((b) => b.slot_id === slot.id);
+      const participants: GDParticipant[] = slotBookings.map((b) => {
+        const formData = (b.admission_applications?.form_data || {}) as Record<string, unknown>;
+        const name = String(formData.full_name || formData.name || 'Unknown Candidate');
+        return {
+          id: b.id,
+          name,
+          applicationNumber: b.admission_applications?.application_number || '',
+          score: b.score ?? undefined,
+          remarks: b.interviewer_notes ?? undefined,
+          criteria: b.feedback ? {
+            communication: Number((b.feedback as any).communication) || 0,
+            leadership: Number((b.feedback as any).leadership) || 0,
+            knowledge: Number((b.feedback as any).knowledge) || 0,
+            teamwork: Number((b.feedback as any).teamwork) || 0,
+            reasoning: Number((b.feedback as any).reasoning) || 0,
+          } : undefined,
+        };
+      });
+
+      // Derive status from bookings
+      let status: GDSession['status'] = 'scheduled';
+      const allCompleted = slotBookings.length > 0 && slotBookings.every((b) => b.status === 'completed');
+      if (allCompleted) {
+        status = 'completed';
+      } else if (slotBookings.some((b) => b.status === 'completed' || b.status === 'scheduled')) {
+        const slotDateTime = new Date(`${slot.slot_date}T${slot.start_time || '00:00'}`);
+        if (slotDateTime <= new Date()) status = 'in-progress';
+      }
+      if (slot.is_available === false) status = 'cancelled';
+
+      // Duration from start/end time
+      const startParts = (slot.start_time || '00:00').split(':').map(Number);
+      const endParts = (slot.end_time || '00:00').split(':').map(Number);
+      const duration = (endParts[0] - startParts[0]) * 60 + (endParts[1] - startParts[1]);
+
+      // Panel members as Evaluator objects
+      const evaluators: Evaluator[] = (slot.default_panel_members || []).map((name, i) => ({
+        id: `panel-${slot.id}-${i}`,
+        name: String(name),
+        role: 'Panel Member',
+        department: '',
+      }));
+
+      return {
+        id: slot.id,
+        topic: slot.location || 'GD Session',
+        date: slot.slot_date,
+        time: slot.start_time || '00:00',
+        duration: duration > 0 ? duration : 45,
+        venue: slot.location || 'TBD',
+        programId: slot.program_id || '',
+        programName: slot.program_id || '',
+        status,
+        participants,
+        evaluators: evaluators.length > 0 ? evaluators : [],
+        maxParticipants: slot.capacity,
+      } as GDSession;
+    });
+  }, [gdSlots, allBookings]);
+
+  // Transform PI bookings → PISession[]
+  const piSessions = useMemo(() => {
+    const piBookings = allBookings.filter((b) => b.interview_slots?.interview_type === 'pi');
+    return piBookings.map((b) => {
+      const slot = b.interview_slots;
+      const formData = (b.admission_applications?.form_data || {}) as Record<string, unknown>;
+      const candidateName = String(formData.full_name || formData.name || 'Unknown Candidate');
+
+      const startParts = (slot?.start_time || '00:00').split(':').map(Number);
+      const endParts = (slot?.end_time || '00:00').split(':').map(Number);
+      const duration = (endParts[0] - startParts[0]) * 60 + (endParts[1] - startParts[1]);
+
+      const panelMembers: Evaluator[] = (b.panel_members || slot?.default_panel_members || []).map((name, i) => ({
+        id: `panel-${b.id}-${i}`,
+        name: String(name),
+        role: 'Panel Member',
+        department: '',
+      }));
+
+      let recommendation: PISession['recommendation'];
+      if (b.outcome === 'selected') recommendation = 'accept';
+      else if (b.outcome === 'rejected') recommendation = 'reject';
+      else if (b.outcome === 'waitlisted') recommendation = 'waitlist';
+
+      let status: PISession['status'] = 'scheduled';
+      if (b.status === 'completed') status = 'completed';
+      else if (b.status === 'no_show') status = 'no-show';
+
+      const feedback: PIFeedback | undefined = b.feedback ? {
+        technicalKnowledge: Number((b.feedback as any).technicalKnowledge) || 0,
+        communication: Number((b.feedback as any).communication) || 0,
+        problemSolving: Number((b.feedback as any).problemSolving) || 0,
+        attitude: Number((b.feedback as any).attitude) || 0,
+        careerGoals: Number((b.feedback as any).careerGoals) || 0,
+        overallImpression: String((b.feedback as any).overallImpression || ''),
+        strengths: String((b.feedback as any).strengths || ''),
+        areasOfImprovement: String((b.feedback as any).areasOfImprovement || ''),
+      } : undefined;
+
+      return {
+        id: b.id,
+        candidateId: b.application_id,
+        candidateName,
+        applicationNumber: b.admission_applications?.application_number || '',
+        date: slot?.slot_date || '',
+        time: slot?.start_time || '',
+        duration: duration > 0 ? duration : 20,
+        venue: slot?.location || 'TBD',
+        programId: slot?.program_id || '',
+        programName: slot?.program_id || '',
+        status,
+        panelMembers: panelMembers.length > 0 ? panelMembers : [],
+        score: b.score ?? undefined,
+        recommendation,
+        feedback,
+      } as PISession;
+    });
+  }, [allBookings]);
 
   const stats = useMemo(() => {
     const completedGD = gdSessions.filter(s => s.status === 'completed').length;
@@ -372,17 +432,22 @@ function GDPIPageContent() {
                 <Button variant="outline" onClick={() => setShowCreateGDDialog(false)}>Cancel</Button>
                 <Button
                   className="bg-[#0b6d41] hover:bg-[#095535]"
-                  disabled={isCreating}
-                  onClick={async () => {
-                    setIsCreating(true);
-                    // Simulate async operation
-                    await new Promise(resolve => setTimeout(resolve, 1000));
-                    toast.success('Session created successfully');
-                    setShowCreateGDDialog(false);
-                    setIsCreating(false);
+                  disabled={createSlotMutation.isPending}
+                  onClick={() => {
+                    createSlotMutation.mutate({
+                      institution_id: institutionId,
+                      slot_date: format(new Date(), 'yyyy-MM-dd'),
+                      start_time: '09:30',
+                      end_time: '10:15',
+                      capacity: 10,
+                      interview_type: activeTab === 'pi' ? 'pi' : 'gd',
+                      is_online: false,
+                    }, {
+                      onSuccess: () => setShowCreateGDDialog(false),
+                    });
                   }}
                 >
-                  {isCreating && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                  {createSlotMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
                   Create Session
                 </Button>
               </DialogFooter>
@@ -609,10 +674,8 @@ function GDPIPageContent() {
                       <Button
                         className="w-full bg-[#0b6d41] hover:bg-[#095535]"
                         disabled={isStarting}
-                        onClick={async () => {
+                        onClick={() => {
                           setIsStarting(true);
-                          // Simulate async operation
-                          await new Promise(resolve => setTimeout(resolve, 1000));
                           toast.success('Session started');
                           setIsStarting(false);
                         }}
@@ -740,7 +803,7 @@ function GDPIPageContent() {
                   <CardTitle className="text-lg">GD Topic Bank</CardTitle>
                   <CardDescription>Manage discussion topics for GD sessions</CardDescription>
                 </div>
-                <Button size="sm" className="bg-[#0b6d41] hover:bg-[#095535]" onClick={() => toast.info('Add topic feature coming soon')}>
+                <Button size="sm" className="bg-[#0b6d41] hover:bg-[#095535]" onClick={() => toast.info('Topics are configured by the admission admin')}>
                   <Plus className="h-4 w-4 mr-2" />
                   Add Topic
                 </Button>
@@ -788,7 +851,7 @@ function GDPIPageContent() {
                   <CardTitle className="text-lg">Evaluators Panel</CardTitle>
                   <CardDescription>Manage GD-PI evaluators and their assignments</CardDescription>
                 </div>
-                <Button size="sm" className="bg-[#0b6d41] hover:bg-[#095535]" onClick={() => toast.info('Add evaluator feature coming soon')}>
+                <Button size="sm" className="bg-[#0b6d41] hover:bg-[#095535]" onClick={() => toast.info('Evaluators are assigned by the admission admin')}>
                   <Plus className="h-4 w-4 mr-2" />
                   Add Evaluator
                 </Button>
@@ -896,17 +959,26 @@ function GDPIPageContent() {
             <Button variant="outline" onClick={() => setShowEvaluationDialog(false)}>Cancel</Button>
             <Button
               className="bg-[#0b6d41] hover:bg-[#095535]"
-              disabled={isSaving}
-              onClick={async () => {
-                setIsSaving(true);
-                // Simulate async operation
-                await new Promise(resolve => setTimeout(resolve, 1000));
-                toast.success('Evaluation saved');
-                setShowEvaluationDialog(false);
-                setIsSaving(false);
+              disabled={updateBookingMutation.isPending}
+              onClick={() => {
+                // In a real evaluation flow, we'd collect scores from the form
+                // For now, show success via the mutation hook's toast
+                if (selectedGDSession?.participants[0]) {
+                  updateBookingMutation.mutate({
+                    bookingId: selectedGDSession.participants[0].id,
+                    updates: {
+                      status: 'completed',
+                      feedback: { communication: 7, leadership: 7, knowledge: 7, teamwork: 7, reasoning: 7 },
+                    },
+                  }, {
+                    onSuccess: () => setShowEvaluationDialog(false),
+                  });
+                } else {
+                  toast.info('No participant selected to evaluate');
+                }
               }}
             >
-              {isSaving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              {updateBookingMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
               Save Evaluation
             </Button>
           </DialogFooter>

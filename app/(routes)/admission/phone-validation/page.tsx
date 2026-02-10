@@ -37,63 +37,29 @@ import {
   PhoneOff,
   PhoneCall,
   MessageSquare,
-  Shield,
   Clock,
   Users,
   Loader2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { AdmissionErrorBoundary } from "@/components/admission";
-
-// Mock data for phone validation
-const phoneStats = {
-  total: 3712,
-  valid: 2890,
-  invalid: 456,
-  pending: 366,
-  validPercentage: 77.8,
-};
-
-const invalidPhones = [
-  { id: 1, name: "Rajesh Kumar", phone: "9876543", email: "rajesh@email.com", issue: "Too short", source: "Website", date: "2026-01-15" },
-  { id: 2, name: "Priya Sharma", phone: "12345678901234", email: "priya@email.com", issue: "Too long", source: "Walk-in", date: "2026-01-15" },
-  { id: 3, name: "Amit Patel", phone: "abc1234567", email: "amit@email.com", issue: "Contains letters", source: "Referral", date: "2026-01-14" },
-  { id: 4, name: "Sneha Reddy", phone: "0000000000", email: "sneha@email.com", issue: "Invalid pattern", source: "Website", date: "2026-01-14" },
-  { id: 5, name: "Vikram Singh", phone: "+1-555-1234", email: "vikram@email.com", issue: "Non-Indian number", source: "Social Media", date: "2026-01-13" },
-  { id: 6, name: "Meera Iyer", phone: "9999999999", email: "meera@email.com", issue: "Repeated digits", source: "Website", date: "2026-01-13" },
-  { id: 7, name: "Karthik N", phone: "", email: "karthik@email.com", issue: "Missing phone", source: "Email Campaign", date: "2026-01-12" },
-  { id: 8, name: "Deepa M", phone: "landline-0422", email: "deepa@email.com", issue: "Landline format", source: "Walk-in", date: "2026-01-12" },
-];
-
-const validationRules = [
-  { rule: "10-digit Indian mobile", description: "Must be exactly 10 digits starting with 6-9", enabled: true },
-  { rule: "No repeated digits", description: "Block numbers like 9999999999", enabled: true },
-  { rule: "Valid area code", description: "First 4 digits must be valid operator code", enabled: false },
-  { rule: "No landlines", description: "Block landline number patterns", enabled: true },
-  { rule: "International format", description: "Allow +91 prefix for Indian numbers", enabled: true },
-];
-
-const issueBreakdown = [
-  { issue: "Too short", count: 89, percentage: 19.5 },
-  { issue: "Too long", count: 45, percentage: 9.9 },
-  { issue: "Contains letters", count: 67, percentage: 14.7 },
-  { issue: "Invalid pattern", count: 123, percentage: 27.0 },
-  { issue: "Non-Indian number", count: 34, percentage: 7.5 },
-  { issue: "Missing phone", count: 98, percentage: 21.5 },
-];
+import { usePhoneValidationStats, useInvalidPhones, usePhoneIssueBreakdown } from "@/hooks/admission/use-data-quality";
 
 function PhoneValidationPageContent() {
   const [isValidating, setIsValidating] = useState(false);
-  const [selectedPhones, setSelectedPhones] = useState<number[]>([]);
+  const [selectedPhones, setSelectedPhones] = useState<string[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [filterIssue, setFilterIssue] = useState("all");
   const [isExporting, setIsExporting] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
+
+  const { data: phoneStats, isLoading: statsLoading, refetch: refetchStats } = usePhoneValidationStats();
+  const { data: invalidPhones, isLoading: phonesLoading, refetch: refetchPhones } = useInvalidPhones({ search: searchTerm, issueFilter: filterIssue });
+  const { data: issueBreakdown, isLoading: breakdownLoading, refetch: refetchBreakdown } = usePhoneIssueBreakdown();
 
   const handleValidateAll = async () => {
     setIsValidating(true);
     try {
-      await new Promise((resolve) => setTimeout(resolve, 3000));
+      await Promise.all([refetchStats(), refetchPhones(), refetchBreakdown()]);
       toast.success("Phone validation completed successfully");
     } catch {
       toast.error("Failed to validate phones");
@@ -105,7 +71,23 @@ function PhoneValidationPageContent() {
   const handleExportInvalid = async () => {
     setIsExporting(true);
     try {
-      await new Promise((resolve) => setTimeout(resolve, 1500));
+      if (!invalidPhones || invalidPhones.length === 0) {
+        toast.info("No invalid phones to export");
+        return;
+      }
+      const csv = [
+        ['Name', 'Phone', 'Email', 'Issue', 'Source', 'Date'].join(','),
+        ...invalidPhones.map(p =>
+          [p.full_name, p.phone || '', p.email || '', p.issue, p.source || '', p.created_at?.split('T')[0] || ''].join(',')
+        ),
+      ].join('\n');
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'invalid-phones.csv';
+      a.click();
+      URL.revokeObjectURL(url);
       toast.success("Invalid phones exported successfully");
     } catch {
       toast.error("Failed to export");
@@ -114,25 +96,14 @@ function PhoneValidationPageContent() {
     }
   };
 
-  const handleSaveRules = async () => {
-    setIsSaving(true);
-    try {
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-      toast.success("Validation rules saved successfully");
-    } catch {
-      toast.error("Failed to save rules");
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  const toggleSelect = (id: number) => {
+  const toggleSelect = (id: string) => {
     setSelectedPhones((prev) =>
       prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id]
     );
   };
 
   const toggleSelectAll = () => {
+    if (!invalidPhones) return;
     if (selectedPhones.length === invalidPhones.length) {
       setSelectedPhones([]);
     } else {
@@ -140,14 +111,8 @@ function PhoneValidationPageContent() {
     }
   };
 
-  const filteredPhones = invalidPhones.filter((phone) => {
-    const matchesSearch =
-      phone.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      phone.phone.includes(searchTerm) ||
-      phone.email.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesFilter = filterIssue === "all" || phone.issue === filterIssue;
-    return matchesSearch && matchesFilter;
-  });
+  const stats = phoneStats || { total: 0, valid: 0, invalid: 0, missing: 0, validPercentage: 0 };
+  const pendingCount = stats.missing;
 
   return (
     <div className="container mx-auto py-6 space-y-6">
@@ -201,7 +166,7 @@ function PhoneValidationPageContent() {
               </div>
               <div>
                 <p className="text-xs text-gray-600">Total Leads</p>
-                <p className="text-xl font-bold">{phoneStats.total.toLocaleString()}</p>
+                <p className="text-xl font-bold">{statsLoading ? '...' : stats.total.toLocaleString()}</p>
               </div>
             </div>
           </CardContent>
@@ -215,7 +180,7 @@ function PhoneValidationPageContent() {
               </div>
               <div>
                 <p className="text-xs text-gray-600">Valid Phones</p>
-                <p className="text-xl font-bold text-green-600">{phoneStats.valid.toLocaleString()}</p>
+                <p className="text-xl font-bold text-green-600">{statsLoading ? '...' : stats.valid.toLocaleString()}</p>
               </div>
             </div>
           </CardContent>
@@ -229,7 +194,7 @@ function PhoneValidationPageContent() {
               </div>
               <div>
                 <p className="text-xs text-gray-600">Invalid Phones</p>
-                <p className="text-xl font-bold text-red-600">{phoneStats.invalid.toLocaleString()}</p>
+                <p className="text-xl font-bold text-red-600">{statsLoading ? '...' : stats.invalid.toLocaleString()}</p>
               </div>
             </div>
           </CardContent>
@@ -242,8 +207,8 @@ function PhoneValidationPageContent() {
                 <Clock className="h-5 w-5 text-yellow-600" />
               </div>
               <div>
-                <p className="text-xs text-gray-600">Pending Review</p>
-                <p className="text-xl font-bold text-yellow-600">{phoneStats.pending.toLocaleString()}</p>
+                <p className="text-xs text-gray-600">Missing Phone</p>
+                <p className="text-xl font-bold text-yellow-600">{statsLoading ? '...' : pendingCount.toLocaleString()}</p>
               </div>
             </div>
           </CardContent>
@@ -253,8 +218,8 @@ function PhoneValidationPageContent() {
           <CardContent className="pt-6">
             <div>
               <p className="text-xs text-gray-600">Validation Rate</p>
-              <p className="text-xl font-bold text-[#0b6d41]">{phoneStats.validPercentage}%</p>
-              <Progress value={phoneStats.validPercentage} className="mt-2 h-1.5" />
+              <p className="text-xl font-bold text-[#0b6d41]">{statsLoading ? '...' : `${stats.validPercentage}%`}</p>
+              <Progress value={stats.validPercentage} className="mt-2 h-1.5" />
             </div>
           </CardContent>
         </Card>
@@ -265,11 +230,7 @@ function PhoneValidationPageContent() {
         <TabsList>
           <TabsTrigger value="invalid" className="gap-2">
             <PhoneOff className="h-4 w-4" />
-            Invalid Numbers ({phoneStats.invalid})
-          </TabsTrigger>
-          <TabsTrigger value="rules" className="gap-2">
-            <Shield className="h-4 w-4" />
-            Validation Rules
+            Invalid Numbers ({stats.invalid + stats.missing})
           </TabsTrigger>
           <TabsTrigger value="breakdown" className="gap-2">
             <AlertTriangle className="h-4 w-4" />
@@ -302,7 +263,7 @@ function PhoneValidationPageContent() {
                     <SelectItem value="Too long">Too long</SelectItem>
                     <SelectItem value="Contains letters">Contains letters</SelectItem>
                     <SelectItem value="Invalid pattern">Invalid pattern</SelectItem>
-                    <SelectItem value="Non-Indian number">Non-Indian number</SelectItem>
+                    <SelectItem value="Repeated digits">Repeated digits</SelectItem>
                     <SelectItem value="Missing phone">Missing phone</SelectItem>
                   </SelectContent>
                 </Select>
@@ -325,111 +286,79 @@ function PhoneValidationPageContent() {
           {/* Invalid Numbers Table */}
           <Card>
             <CardContent className="pt-4">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="w-[50px]">
-                      <Checkbox
-                        checked={selectedPhones.length === invalidPhones.length}
-                        onCheckedChange={toggleSelectAll}
-                      />
-                    </TableHead>
-                    <TableHead>Name</TableHead>
-                    <TableHead>Phone Number</TableHead>
-                    <TableHead>Email</TableHead>
-                    <TableHead>Issue</TableHead>
-                    <TableHead>Source</TableHead>
-                    <TableHead>Date Added</TableHead>
-                    <TableHead>Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredPhones.map((phone) => (
-                    <TableRow key={phone.id}>
-                      <TableCell>
+              {phonesLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-[50px]">
                         <Checkbox
-                          checked={selectedPhones.includes(phone.id)}
-                          onCheckedChange={() => toggleSelect(phone.id)}
+                          checked={invalidPhones && invalidPhones.length > 0 && selectedPhones.length === invalidPhones.length}
+                          onCheckedChange={toggleSelectAll}
                         />
-                      </TableCell>
-                      <TableCell className="font-medium">{phone.name}</TableCell>
-                      <TableCell>
-                        <code className="bg-red-50 text-red-700 px-2 py-1 rounded text-sm">
-                          {phone.phone || "(empty)"}
-                        </code>
-                      </TableCell>
-                      <TableCell className="text-sm text-gray-600">{phone.email}</TableCell>
-                      <TableCell>
-                        <Badge variant="destructive" className="font-normal">
-                          {phone.issue}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="outline">{phone.source}</Badge>
-                      </TableCell>
-                      <TableCell className="text-sm text-gray-600">{phone.date}</TableCell>
-                      <TableCell>
-                        <div className="flex gap-1">
-                          <Button variant="ghost" size="icon" title="Edit">
-                            <Edit className="h-4 w-4" />
-                          </Button>
-                          <Button variant="ghost" size="icon" title="Call to verify">
-                            <PhoneCall className="h-4 w-4" />
-                          </Button>
-                          <Button variant="ghost" size="icon" title="Send message">
-                            <MessageSquare className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </TableCell>
+                      </TableHead>
+                      <TableHead>Name</TableHead>
+                      <TableHead>Phone Number</TableHead>
+                      <TableHead>Email</TableHead>
+                      <TableHead>Issue</TableHead>
+                      <TableHead>Source</TableHead>
+                      <TableHead>Date Added</TableHead>
+                      <TableHead>Actions</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="rules" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Validation Rules</CardTitle>
-              <CardDescription>
-                Configure rules for phone number validation
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                {validationRules.map((rule, index) => (
-                  <div
-                    key={index}
-                    className="flex items-center justify-between p-4 border rounded-lg"
-                  >
-                    <div className="flex items-center gap-4">
-                      <Checkbox checked={rule.enabled} />
-                      <div>
-                        <p className="font-medium">{rule.rule}</p>
-                        <p className="text-sm text-gray-600">{rule.description}</p>
-                      </div>
-                    </div>
-                    <Badge variant={rule.enabled ? "default" : "outline"}>
-                      {rule.enabled ? "Active" : "Disabled"}
-                    </Badge>
-                  </div>
-                ))}
-              </div>
-              <div className="mt-6 flex gap-2">
-                <Button
-                  className="bg-[#0b6d41] hover:bg-[#095232]"
-                  onClick={handleSaveRules}
-                  disabled={isSaving}
-                >
-                  {isSaving ? (
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  ) : null}
-                  {isSaving ? "Saving..." : "Save Rules"}
-                </Button>
-                <Button variant="outline">Reset to Default</Button>
-              </div>
+                  </TableHeader>
+                  <TableBody>
+                    {(invalidPhones || []).slice(0, 50).map((phone) => (
+                      <TableRow key={phone.id}>
+                        <TableCell>
+                          <Checkbox
+                            checked={selectedPhones.includes(phone.id)}
+                            onCheckedChange={() => toggleSelect(phone.id)}
+                          />
+                        </TableCell>
+                        <TableCell className="font-medium">{phone.full_name}</TableCell>
+                        <TableCell>
+                          <code className="bg-red-50 text-red-700 px-2 py-1 rounded text-sm">
+                            {phone.phone || "(empty)"}
+                          </code>
+                        </TableCell>
+                        <TableCell className="text-sm text-gray-600">{phone.email || '-'}</TableCell>
+                        <TableCell>
+                          <Badge variant="destructive" className="font-normal">
+                            {phone.issue}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline">{phone.source || 'Unknown'}</Badge>
+                        </TableCell>
+                        <TableCell className="text-sm text-gray-600">{phone.created_at?.split('T')[0]}</TableCell>
+                        <TableCell>
+                          <div className="flex gap-1">
+                            <Button variant="ghost" size="icon" title="Edit">
+                              <Edit className="h-4 w-4" />
+                            </Button>
+                            <Button variant="ghost" size="icon" title="Call to verify">
+                              <PhoneCall className="h-4 w-4" />
+                            </Button>
+                            <Button variant="ghost" size="icon" title="Send message">
+                              <MessageSquare className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                    {invalidPhones && invalidPhones.length === 0 && (
+                      <TableRow>
+                        <TableCell colSpan={8} className="text-center py-8 text-gray-500">
+                          No invalid phone numbers found
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -443,19 +372,28 @@ function PhoneValidationPageContent() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="space-y-4">
-                {issueBreakdown.map((item, index) => (
-                  <div key={index} className="space-y-2">
-                    <div className="flex justify-between items-center">
-                      <span className="font-medium">{item.issue}</span>
-                      <span className="text-sm text-gray-600">
-                        {item.count} ({item.percentage}%)
-                      </span>
+              {breakdownLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {(issueBreakdown || []).map((item, index) => (
+                    <div key={index} className="space-y-2">
+                      <div className="flex justify-between items-center">
+                        <span className="font-medium">{item.issue}</span>
+                        <span className="text-sm text-gray-600">
+                          {item.count} ({item.percentage}%)
+                        </span>
+                      </div>
+                      <Progress value={item.percentage} className="h-2" />
                     </div>
-                    <Progress value={item.percentage} className="h-2" />
-                  </div>
-                ))}
-              </div>
+                  ))}
+                  {issueBreakdown && issueBreakdown.length === 0 && (
+                    <p className="text-center text-gray-500 py-4">No issues found - all phones are valid!</p>
+                  )}
+                </div>
+              )}
             </CardContent>
           </Card>
 
@@ -488,19 +426,19 @@ function PhoneValidationPageContent() {
                 <div className="space-y-3">
                   <div className="flex justify-between">
                     <span className="text-gray-600">Total invalid records</span>
-                    <span className="font-bold">{phoneStats.invalid}</span>
+                    <span className="font-bold">{stats.invalid + stats.missing}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-gray-600">Can be auto-fixed</span>
-                    <span className="font-bold text-green-600">89</span>
+                    <span className="text-gray-600">Invalid format</span>
+                    <span className="font-bold text-red-600">{stats.invalid}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-gray-600">Requires manual review</span>
-                    <span className="font-bold text-yellow-600">234</span>
+                    <span className="text-gray-600">Missing phone</span>
+                    <span className="font-bold text-yellow-600">{stats.missing}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-gray-600">Unreachable (remove)</span>
-                    <span className="font-bold text-red-600">133</span>
+                    <span className="text-gray-600">Valid phones</span>
+                    <span className="font-bold text-green-600">{stats.valid}</span>
                   </div>
                 </div>
               </CardContent>

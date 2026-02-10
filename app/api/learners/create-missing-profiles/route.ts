@@ -144,7 +144,6 @@ export async function POST() {
     if (syncError) {
       console.warn('[api/learners/create-missing-profiles] Warning: Failed to sync existing profiles:', syncError.message);
     } else if (syncResult && syncResult > 0) {
-      console.log(`[api/learners/create-missing-profiles] Synced ${syncResult} existing profile(s)`);
     }
 
     // 3. The function already returns the needed data (learner_id, email, names)

@@ -240,7 +240,6 @@ export abstract class BaseService {
     } catch (error) {
       console.error(`[${functionName}] Error in dashboard query:`, error);
       if (fallback) {
-        console.log(`[${functionName}] Using fallback calculation`);
         return fallback();
       }
       throw error;

@@ -488,9 +488,6 @@ const validateRow = async (
     } catch (error) {
       console.error('Error checking email existence:', error);
       // Don't fail the validation due to search errors - allow upload to proceed
-      console.log(
-        `Skipping email validation for ${row.email} due to search error`
-      );
     }
   }
 
@@ -533,9 +530,6 @@ const validateRow = async (
     } catch (error) {
       console.error('Error checking institution email existence:', error);
       // Don't fail the validation due to search errors - allow upload to proceed
-      console.log(
-        `Skipping institution email validation for ${row.institution_email} due to search error`
-      );
     }
   }
 

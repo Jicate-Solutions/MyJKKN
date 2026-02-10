@@ -10,14 +10,12 @@ import { Progress } from '@/components/ui/progress';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
-import { Switch } from '@/components/ui/switch';
 import {
   Building2,
   BedDouble,
   Users,
   Home,
   Search,
-  Filter,
   Plus,
   Download,
   Settings,
@@ -38,116 +36,35 @@ import {
   Eye,
   Edit,
   UserPlus,
-  AlertCircle,
   Loader2
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { AdmissionErrorBoundary } from '@/components/admission';
-
-// Mock data for hostels
-const mockHostels = [
-  {
-    id: 'HST-001',
-    name: 'Krishna Hostel (Boys)',
-    type: 'boys',
-    totalRooms: 100,
-    totalBeds: 300,
-    occupiedBeds: 245,
-    wardenName: 'Mr. Ramesh Kumar',
-    wardenPhone: '+91 98765 43210',
-    location: 'Block A, Main Campus',
-    amenities: ['WiFi', 'AC Rooms', 'Mess', 'Gym', 'Parking'],
-    feePerYear: 85000,
-    status: 'active'
-  },
-  {
-    id: 'HST-002',
-    name: 'Lakshmi Hostel (Girls)',
-    type: 'girls',
-    totalRooms: 80,
-    totalBeds: 240,
-    occupiedBeds: 220,
-    wardenName: 'Mrs. Lakshmi Devi',
-    wardenPhone: '+91 98765 43211',
-    location: 'Block B, Main Campus',
-    amenities: ['WiFi', 'AC Rooms', 'Mess', 'Common Room', '24/7 Security'],
-    feePerYear: 90000,
-    status: 'active'
-  },
-  {
-    id: 'HST-003',
-    name: 'Annexe Hostel (Boys)',
-    type: 'boys',
-    totalRooms: 50,
-    totalBeds: 150,
-    occupiedBeds: 120,
-    wardenName: 'Mr. Suresh Babu',
-    wardenPhone: '+91 98765 43212',
-    location: 'Near Sports Complex',
-    amenities: ['WiFi', 'Mess', 'Study Room'],
-    feePerYear: 65000,
-    status: 'active'
-  }
-];
-
-const mockAllocations = [
-  {
-    id: 'ALLOC-001',
-    studentName: 'Rahul Sharma',
-    studentId: 'STU-2026-001',
-    hostelName: 'Krishna Hostel (Boys)',
-    roomNumber: 'A-101',
-    bedNumber: 'B1',
-    allocatedDate: '2026-01-05',
-    status: 'confirmed',
-    paymentStatus: 'paid',
-    program: 'B.Tech CSE'
-  },
-  {
-    id: 'ALLOC-002',
-    studentName: 'Priya Patel',
-    studentId: 'STU-2026-002',
-    hostelName: 'Lakshmi Hostel (Girls)',
-    roomNumber: 'B-205',
-    bedNumber: 'B2',
-    allocatedDate: '2026-01-06',
-    status: 'confirmed',
-    paymentStatus: 'paid',
-    program: 'B.Tech ECE'
-  },
-  {
-    id: 'ALLOC-003',
-    studentName: 'Amit Kumar',
-    studentId: 'STU-2026-003',
-    hostelName: 'Krishna Hostel (Boys)',
-    roomNumber: null,
-    bedNumber: null,
-    allocatedDate: null,
-    status: 'waitlisted',
-    paymentStatus: 'pending',
-    program: 'MBA',
-    waitlistPosition: 5
-  }
-];
-
-const mockWaitlist = [
-  { id: 'WL-001', studentName: 'Amit Kumar', program: 'MBA', hostelPreference: 'Krishna Hostel', position: 1, appliedDate: '2026-01-10' },
-  { id: 'WL-002', studentName: 'Sneha Reddy', program: 'B.Tech', hostelPreference: 'Lakshmi Hostel', position: 2, appliedDate: '2026-01-11' },
-  { id: 'WL-003', studentName: 'Vikram Singh', program: 'M.Tech', hostelPreference: 'Krishna Hostel', position: 3, appliedDate: '2026-01-12' }
-];
+import { useHostels, useHostelAllocations, useHostelWaitlist, useAllocateHostelRoom, useUpdateWaitlistStatus } from '@/hooks/admission/use-data-quality';
 
 function HostelsPageContent() {
   const [activeTab, setActiveTab] = useState('overview');
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterType, setFilterType] = useState('all');
   const [isAllocateDialogOpen, setIsAllocateDialogOpen] = useState(false);
-  const [isAllocating, setIsAllocating] = useState(false);
   const [isProcessingQueue, setIsProcessingQueue] = useState(false);
-  const [allocatingWaitlistId, setAllocatingWaitlistId] = useState<string | null>(null);
+  const [allocFormStudentId, setAllocFormStudentId] = useState('');
+  const [allocFormHostelId, setAllocFormHostelId] = useState('');
+  const [allocFormRoom, setAllocFormRoom] = useState('');
+  const [allocFormBed, setAllocFormBed] = useState('');
 
-  const totalBeds = mockHostels.reduce((sum, h) => sum + h.totalBeds, 0);
-  const occupiedBeds = mockHostels.reduce((sum, h) => sum + h.occupiedBeds, 0);
-  const availableBeds = totalBeds - occupiedBeds;
+  const { data: hostels, isLoading: hostelsLoading } = useHostels();
+  const { data: allocations, isLoading: allocationsLoading } = useHostelAllocations();
+  const { data: waitlist, isLoading: waitlistLoading } = useHostelWaitlist();
+  const allocateRoom = useAllocateHostelRoom();
+  const updateWaitlistStatus = useUpdateWaitlistStatus();
+
+  const hostelList = hostels || [];
+  const allocationList = allocations || [];
+  const waitlistList = waitlist || [];
+
+  const totalBeds = hostelList.reduce((sum, h) => sum + (h.total_beds || 0), 0);
+  const occupiedBeds = hostelList.reduce((sum, h) => sum + (h.occupied_beds || 0), 0);
+  const availableBeds = hostelList.reduce((sum, h) => sum + (h.available_beds || 0), 0);
   const occupancyRate = totalBeds > 0 ? (occupiedBeds / totalBeds) * 100 : 0;
 
   const getStatusBadge = (status: string) => {
@@ -155,10 +72,11 @@ function HostelsPageContent() {
       active: 'bg-green-100 text-green-800',
       inactive: 'bg-gray-100 text-gray-800',
       confirmed: 'bg-green-100 text-green-800',
+      allocated: 'bg-green-100 text-green-800',
       waitlisted: 'bg-yellow-100 text-yellow-800',
+      pending: 'bg-yellow-100 text-yellow-800',
       cancelled: 'bg-red-100 text-red-800',
-      paid: 'bg-green-100 text-green-800',
-      pending: 'bg-yellow-100 text-yellow-800'
+      paid: 'bg-green-100 text-green-800'
     };
     return styles[status] || 'bg-gray-100 text-gray-800';
   };
@@ -185,7 +103,23 @@ function HostelsPageContent() {
           <p className="text-muted-foreground">Manage hostel rooms, allocations, and waitlists</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={() => toast.success('Hostel data exported successfully')}>
+          <Button variant="outline" size="sm" onClick={() => {
+            if (!hostelList.length) { toast.info('No hostel data to export'); return; }
+            const headers = ['Hostel Name','Code','Type','Total Rooms','Total Beds','Occupied','Available','Occupancy %','Active','Fee/Semester','Fee/Month'];
+            const rows = hostelList.map(h => [
+              h.hostel_name, h.hostel_code || '', h.hostel_type,
+              h.total_rooms, h.total_beds, h.occupied_beds, h.available_beds,
+              h.total_beds > 0 ? ((h.occupied_beds / h.total_beds) * 100).toFixed(1) : '0',
+              h.is_active ? 'Yes' : 'No',
+              h.base_fee_per_semester ?? '', h.base_fee_per_month ?? '',
+            ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(','));
+            const csv = [headers.join(','), ...rows].join('\n');
+            const blob = new Blob([csv], { type: 'text/csv' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a'); a.href = url; a.download = `hostels-${new Date().toISOString().slice(0,10)}.csv`; a.click();
+            URL.revokeObjectURL(url);
+            toast.success('Hostel data exported');
+          }}>
             <Download className="h-4 w-4 mr-2" />
             Export
           </Button>
@@ -203,26 +137,18 @@ function HostelsPageContent() {
               </DialogHeader>
               <div className="grid gap-4 py-4">
                 <div className="space-y-2">
-                  <Label>Student</Label>
-                  <Select>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select student" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="stu1">Rahul Sharma (B.Tech CSE)</SelectItem>
-                      <SelectItem value="stu2">Priya Patel (B.Tech ECE)</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  <Label>Student ID</Label>
+                  <Input placeholder="Enter student UUID..." value={allocFormStudentId} onChange={e => setAllocFormStudentId(e.target.value)} />
                 </div>
                 <div className="space-y-2">
                   <Label>Hostel</Label>
-                  <Select>
+                  <Select value={allocFormHostelId} onValueChange={setAllocFormHostelId}>
                     <SelectTrigger>
                       <SelectValue placeholder="Select hostel" />
                     </SelectTrigger>
                     <SelectContent>
-                      {mockHostels.map(h => (
-                        <SelectItem key={h.id} value={h.id}>{h.name}</SelectItem>
+                      {hostelList.map(h => (
+                        <SelectItem key={h.id} value={h.id}>{h.hostel_name}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -230,27 +156,40 @@ function HostelsPageContent() {
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label>Room Number</Label>
-                    <Input placeholder="e.g., A-101" />
+                    <Input placeholder="e.g., A-101" value={allocFormRoom} onChange={e => setAllocFormRoom(e.target.value)} />
                   </div>
                   <div className="space-y-2">
                     <Label>Bed Number</Label>
-                    <Input placeholder="e.g., B1" />
+                    <Input placeholder="e.g., B1" value={allocFormBed} onChange={e => setAllocFormBed(e.target.value)} />
                   </div>
                 </div>
               </div>
               <DialogFooter>
-                <Button variant="outline" onClick={() => setIsAllocateDialogOpen(false)} disabled={isAllocating}>Cancel</Button>
+                <Button variant="outline" onClick={() => setIsAllocateDialogOpen(false)} disabled={allocateRoom.isPending}>Cancel</Button>
                 <Button
                   onClick={async () => {
-                    setIsAllocating(true);
-                    await new Promise(resolve => setTimeout(resolve, 1000));
-                    setIsAllocating(false);
-                    setIsAllocateDialogOpen(false);
-                    toast.success('Room allocated successfully');
+                    if (!allocFormStudentId || !allocFormHostelId) {
+                      toast.error('Student and hostel are required');
+                      return;
+                    }
+                    try {
+                      await allocateRoom.mutateAsync({
+                        student_id: allocFormStudentId,
+                        hostel_id: allocFormHostelId,
+                      });
+                      setIsAllocateDialogOpen(false);
+                      setAllocFormStudentId('');
+                      setAllocFormHostelId('');
+                      setAllocFormRoom('');
+                      setAllocFormBed('');
+                      toast.success('Room allocated successfully');
+                    } catch {
+                      toast.error('Failed to allocate room');
+                    }
                   }}
-                  disabled={isAllocating}
+                  disabled={allocateRoom.isPending}
                 >
-                  {isAllocating && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                  {allocateRoom.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
                   Allocate
                 </Button>
               </DialogFooter>
@@ -267,9 +206,9 @@ function HostelsPageContent() {
             <BedDouble className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{totalBeds} beds</div>
+            <div className="text-2xl font-bold">{hostelsLoading ? '...' : `${totalBeds} beds`}</div>
             <p className="text-xs text-muted-foreground">
-              Across {mockHostels.length} hostels
+              Across {hostelList.length} hostels
             </p>
           </CardContent>
         </Card>
@@ -280,10 +219,10 @@ function HostelsPageContent() {
             <BarChart3 className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{occupancyRate.toFixed(0)}%</div>
+            <div className="text-2xl font-bold">{hostelsLoading ? '...' : `${occupancyRate.toFixed(0)}%`}</div>
             <Progress value={occupancyRate} className="mt-2" />
             <p className="text-xs text-muted-foreground mt-1">
-              {occupiedBeds} occupied / {availableBeds} available
+              {hostelsLoading ? '' : `${occupiedBeds} occupied / ${availableBeds} available`}
             </p>
           </CardContent>
         </Card>
@@ -294,7 +233,7 @@ function HostelsPageContent() {
             <Home className="h-4 w-4 text-green-500" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-green-600">{availableBeds}</div>
+            <div className="text-2xl font-bold text-green-600">{hostelsLoading ? '...' : availableBeds}</div>
             <p className="text-xs text-muted-foreground">
               Ready for allocation
             </p>
@@ -307,7 +246,7 @@ function HostelsPageContent() {
             <Clock className="h-4 w-4 text-yellow-500" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-yellow-600">{mockWaitlist.length}</div>
+            <div className="text-2xl font-bold text-yellow-600">{waitlistLoading ? '...' : waitlistList.length}</div>
             <p className="text-xs text-muted-foreground">
               Students waiting
             </p>
@@ -325,84 +264,107 @@ function HostelsPageContent() {
         </TabsList>
 
         <TabsContent value="overview" className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {mockHostels.map((hostel) => {
-              const availableInHostel = hostel.totalBeds - hostel.occupiedBeds;
-              const hostelOccupancy = hostel.totalBeds > 0 ? (hostel.occupiedBeds / hostel.totalBeds) * 100 : 0;
+          {hostelsLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {hostelList.map((hostel) => {
+                const hostelOccupancy = hostel.total_beds > 0 ? (hostel.occupied_beds / hostel.total_beds) * 100 : 0;
 
-              return (
-                <Card key={hostel.id} className="hover:shadow-md transition-shadow">
-                  <CardHeader className="pb-2">
-                    <div className="flex items-start justify-between">
-                      <div className="flex items-center gap-2">
-                        <Building2 className={`h-5 w-5 ${hostel.type === 'boys' ? 'text-blue-500' : 'text-pink-500'}`} />
-                        <div>
-                          <CardTitle className="text-lg">{hostel.name}</CardTitle>
-                          <CardDescription className="flex items-center gap-1">
-                            <MapPin className="h-3 w-3" />
-                            {hostel.location}
-                          </CardDescription>
+                return (
+                  <Card key={hostel.id} className="hover:shadow-md transition-shadow">
+                    <CardHeader className="pb-2">
+                      <div className="flex items-start justify-between">
+                        <div className="flex items-center gap-2">
+                          <Building2 className={`h-5 w-5 ${hostel.hostel_type === 'boys' ? 'text-blue-500' : 'text-pink-500'}`} />
+                          <div>
+                            <CardTitle className="text-lg">{hostel.hostel_name}</CardTitle>
+                            <CardDescription className="flex items-center gap-1">
+                              <MapPin className="h-3 w-3" />
+                              {hostel.address || hostel.hostel_type}
+                            </CardDescription>
+                          </div>
+                        </div>
+                        <Badge className={getStatusBadge(hostel.is_active ? 'active' : 'inactive')}>
+                          {hostel.is_active ? 'active' : 'inactive'}
+                        </Badge>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      {hostel.warden_name && (
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                          <User className="h-4 w-4" />
+                          <span>{hostel.warden_name}</span>
+                          {hostel.warden_phone && (
+                            <>
+                              <Phone className="h-4 w-4 ml-2" />
+                              <span>{hostel.warden_phone}</span>
+                            </>
+                          )}
+                        </div>
+                      )}
+
+                      <div className="space-y-2">
+                        <div className="flex justify-between text-sm">
+                          <span>Occupancy</span>
+                          <span className="font-medium">{hostelOccupancy.toFixed(0)}%</span>
+                        </div>
+                        <Progress value={hostelOccupancy} className="h-2" />
+                        <div className="flex justify-between text-xs text-muted-foreground">
+                          <span>{hostel.occupied_beds} occupied</span>
+                          <span className="text-green-600">{hostel.available_beds} available</span>
                         </div>
                       </div>
-                      <Badge className={getStatusBadge(hostel.status)}>
-                        {hostel.status}
-                      </Badge>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                      <User className="h-4 w-4" />
-                      <span>{hostel.wardenName}</span>
-                      <Phone className="h-4 w-4 ml-2" />
-                      <span>{hostel.wardenPhone}</span>
-                    </div>
 
-                    <div className="space-y-2">
-                      <div className="flex justify-between text-sm">
-                        <span>Occupancy</span>
-                        <span className="font-medium">{hostelOccupancy.toFixed(0)}%</span>
-                      </div>
-                      <Progress value={hostelOccupancy} className="h-2" />
-                      <div className="flex justify-between text-xs text-muted-foreground">
-                        <span>{hostel.occupiedBeds} occupied</span>
-                        <span className="text-green-600">{availableInHostel} available</span>
-                      </div>
-                    </div>
-
-                    <div className="flex flex-wrap gap-1">
-                      {hostel.amenities.slice(0, 4).map((amenity, idx) => (
-                        <Badge key={idx} variant="outline" className="text-xs flex items-center gap-1">
-                          {getAmenityIcon(amenity)}
-                          {amenity}
-                        </Badge>
-                      ))}
-                      {hostel.amenities.length > 4 && (
-                        <Badge variant="outline" className="text-xs">
-                          +{hostel.amenities.length - 4}
-                        </Badge>
+                      {hostel.amenities && hostel.amenities.length > 0 && (
+                        <div className="flex flex-wrap gap-1">
+                          {hostel.amenities.slice(0, 4).map((amenity, idx) => (
+                            <Badge key={idx} variant="outline" className="text-xs flex items-center gap-1">
+                              {getAmenityIcon(amenity)}
+                              {amenity}
+                            </Badge>
+                          ))}
+                          {hostel.amenities.length > 4 && (
+                            <Badge variant="outline" className="text-xs">
+                              +{hostel.amenities.length - 4}
+                            </Badge>
+                          )}
+                        </div>
                       )}
-                    </div>
 
-                    <div className="flex items-center justify-between pt-2 border-t">
-                      <div className="flex items-center gap-1 text-sm">
-                        <IndianRupee className="h-4 w-4" />
-                        <span className="font-semibold">{(hostel.feePerYear / 1000).toFixed(0)}K</span>
-                        <span className="text-muted-foreground">/year</span>
+                      <div className="flex items-center justify-between pt-2 border-t">
+                        <div className="flex items-center gap-1 text-sm">
+                          <IndianRupee className="h-4 w-4" />
+                          <span className="font-semibold">
+                            {hostel.base_fee_per_semester
+                              ? `${(hostel.base_fee_per_semester / 1000).toFixed(0)}K/sem`
+                              : hostel.base_fee_per_month
+                              ? `${(hostel.base_fee_per_month / 1000).toFixed(0)}K/mo`
+                              : 'N/A'}
+                          </span>
+                        </div>
+                        <div className="flex gap-1">
+                          <Button variant="outline" size="sm" onClick={() => toast.info(`Viewing ${hostel.hostel_name} details`)}>
+                            <Eye className="h-4 w-4" />
+                          </Button>
+                          <Button variant="outline" size="sm" onClick={() => toast.info(`Editing ${hostel.hostel_name}`)}>
+                            <Edit className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </div>
-                      <div className="flex gap-1">
-                        <Button variant="outline" size="sm" onClick={() => toast.info(`Viewing ${hostel.name} details`)}>
-                          <Eye className="h-4 w-4" />
-                        </Button>
-                        <Button variant="outline" size="sm" onClick={() => toast.info(`Editing ${hostel.name}`)}>
-                          <Edit className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              );
-            })}
-          </div>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+              {hostelList.length === 0 && (
+                <div className="col-span-3 text-center py-12 text-gray-500">
+                  No hostels found
+                </div>
+              )}
+            </div>
+          )}
         </TabsContent>
 
         <TabsContent value="allocations" className="space-y-4">
@@ -412,40 +374,45 @@ function HostelsPageContent() {
               <CardDescription>Current hostel room assignments</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="space-y-4">
-                {mockAllocations.map((alloc) => (
-                  <div key={alloc.id} className="flex items-center justify-between p-4 border rounded-lg">
-                    <div className="flex items-center gap-4">
-                      <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
-                        <User className="h-5 w-5 text-primary" />
+              {allocationsLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {allocationList.map((alloc) => (
+                    <div key={alloc.id} className="flex items-center justify-between p-4 border rounded-lg">
+                      <div className="flex items-center gap-4">
+                        <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+                          <User className="h-5 w-5 text-primary" />
+                        </div>
+                        <div>
+                          <p className="font-medium">{alloc.student_id}</p>
+                          <p className="text-sm text-muted-foreground">{alloc.academic_year || ''} {alloc.semester || ''}</p>
+                        </div>
                       </div>
-                      <div>
-                        <p className="font-medium">{alloc.studentName}</p>
-                        <p className="text-sm text-muted-foreground">{alloc.program}</p>
+                      <div className="flex items-center gap-4">
+                        <div className="text-right">
+                          <p className="text-sm font-medium">{alloc.hostel_name || 'Unknown Hostel'}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {alloc.room_number ? `Room ${alloc.room_number}` : 'Not assigned'}
+                            {alloc.bed_number ? `, Bed ${alloc.bed_number}` : ''}
+                          </p>
+                        </div>
+                        <Badge className={getStatusBadge(alloc.allocation_status)}>
+                          {alloc.allocation_status}
+                        </Badge>
+                        <Button variant="ghost" size="sm" onClick={() => toast.info('Viewing allocation details')}>
+                          <Eye className="h-4 w-4" />
+                        </Button>
                       </div>
                     </div>
-                    <div className="flex items-center gap-4">
-                      <div className="text-right">
-                        <p className="text-sm font-medium">{alloc.hostelName}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {alloc.roomNumber ? `Room ${alloc.roomNumber}, Bed ${alloc.bedNumber}` : 'Not assigned'}
-                        </p>
-                      </div>
-                      <div className="flex flex-col gap-1">
-                        <Badge className={getStatusBadge(alloc.status)}>
-                          {alloc.status}
-                        </Badge>
-                        <Badge className={getStatusBadge(alloc.paymentStatus)}>
-                          {alloc.paymentStatus}
-                        </Badge>
-                      </div>
-                      <Button variant="ghost" size="sm" onClick={() => toast.info(`Viewing allocation for ${alloc.studentName}`)}>
-                        <Eye className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                  {allocationList.length === 0 && (
+                    <div className="text-center py-8 text-gray-500">No allocations found</div>
+                  )}
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -462,10 +429,17 @@ function HostelsPageContent() {
                   variant="outline"
                   size="sm"
                   onClick={async () => {
+                    if (!waitlistList.length) { toast.info('No entries in waitlist'); return; }
                     setIsProcessingQueue(true);
-                    await new Promise(resolve => setTimeout(resolve, 1500));
+                    let processed = 0;
+                    for (const entry of waitlistList.filter(w => w.request_status === 'pending')) {
+                      try {
+                        await updateWaitlistStatus.mutateAsync({ id: entry.id, status: 'waitlisted' });
+                        processed++;
+                      } catch { /* skip failed entries */ }
+                    }
                     setIsProcessingQueue(false);
-                    toast.success('Processing waitlist queue');
+                    toast.success(`Processed ${processed} waitlist entries`);
                   }}
                   disabled={isProcessingQueue}
                 >
@@ -479,44 +453,64 @@ function HostelsPageContent() {
               </div>
             </CardHeader>
             <CardContent>
-              <div className="space-y-4">
-                {mockWaitlist.map((item, index) => (
-                  <div key={item.id} className="flex items-center justify-between p-4 border rounded-lg">
-                    <div className="flex items-center gap-4">
-                      <div className="w-10 h-10 rounded-full bg-yellow-100 flex items-center justify-center font-bold text-yellow-600">
-                        #{item.position}
+              {waitlistLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {waitlistList.map((item) => (
+                    <div key={item.id} className="flex items-center justify-between p-4 border rounded-lg">
+                      <div className="flex items-center gap-4">
+                        <div className="w-10 h-10 rounded-full bg-yellow-100 flex items-center justify-center font-bold text-yellow-600">
+                          #{item.waitlist_position || '-'}
+                        </div>
+                        <div>
+                          <p className="font-medium">{item.student_id}</p>
+                          <p className="text-sm text-muted-foreground">
+                            {item.preferred_room_type || ''} {item.prefer_ac ? '(AC)' : ''}
+                          </p>
+                        </div>
                       </div>
-                      <div>
-                        <p className="font-medium">{item.studentName}</p>
-                        <p className="text-sm text-muted-foreground">{item.program}</p>
+                      <div className="flex items-center gap-4">
+                        <div className="text-right">
+                          <p className="text-sm">
+                            Preference: {item.preferred_hostel_name || item.preferred_hostel_type || 'Any'}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            Applied: {new Date(item.created_at).toLocaleDateString()}
+                          </p>
+                        </div>
+                        <Badge className={getStatusBadge(item.request_status)}>
+                          {item.request_status}
+                        </Badge>
+                        <Button
+                          size="sm"
+                          onClick={async () => {
+                            try {
+                              await updateWaitlistStatus.mutateAsync({ id: item.id, status: 'allocated' });
+                              toast.success('Student allocated from waitlist');
+                            } catch {
+                              toast.error('Failed to allocate student');
+                            }
+                          }}
+                          disabled={updateWaitlistStatus.isPending}
+                        >
+                          {updateWaitlistStatus.isPending ? (
+                            <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                          ) : (
+                            <UserPlus className="h-4 w-4 mr-1" />
+                          )}
+                          Allocate
+                        </Button>
                       </div>
                     </div>
-                    <div className="flex items-center gap-4">
-                      <div className="text-right">
-                        <p className="text-sm">Preference: {item.hostelPreference}</p>
-                        <p className="text-xs text-muted-foreground">Applied: {item.appliedDate}</p>
-                      </div>
-                      <Button
-                        size="sm"
-                        onClick={async () => {
-                          setAllocatingWaitlistId(item.id);
-                          await new Promise(resolve => setTimeout(resolve, 1000));
-                          setAllocatingWaitlistId(null);
-                          toast.success(`${item.studentName} allocated from waitlist`);
-                        }}
-                        disabled={allocatingWaitlistId === item.id}
-                      >
-                        {allocatingWaitlistId === item.id ? (
-                          <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-                        ) : (
-                          <UserPlus className="h-4 w-4 mr-1" />
-                        )}
-                        Allocate
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                  {waitlistList.length === 0 && (
+                    <div className="text-center py-8 text-gray-500">No students on waitlist</div>
+                  )}
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -528,42 +522,51 @@ function HostelsPageContent() {
               <CardDescription>Visual overview of room occupancy</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="space-y-6">
-                {mockHostels.map((hostel) => (
-                  <div key={hostel.id} className="space-y-2">
-                    <h4 className="font-medium flex items-center gap-2">
-                      <Building2 className={`h-4 w-4 ${hostel.type === 'boys' ? 'text-blue-500' : 'text-pink-500'}`} />
-                      {hostel.name}
-                    </h4>
-                    <div className="grid grid-cols-10 md:grid-cols-20 gap-1">
-                      {Array.from({ length: hostel.totalRooms }, (_, i) => {
-                        const isOccupied = i < Math.floor(hostel.occupiedBeds / 3);
-                        return (
-                          <div
-                            key={i}
-                            className={`w-6 h-6 rounded text-xs flex items-center justify-center ${
-                              isOccupied
-                                ? 'bg-red-100 text-red-600'
-                                : 'bg-green-100 text-green-600'
-                            }`}
-                            title={`Room ${i + 1}: ${isOccupied ? 'Occupied' : 'Available'}`}
-                          >
-                            {i + 1}
-                          </div>
-                        );
-                      })}
+              {hostelsLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  {hostelList.map((hostel) => (
+                    <div key={hostel.id} className="space-y-2">
+                      <h4 className="font-medium flex items-center gap-2">
+                        <Building2 className={`h-4 w-4 ${hostel.hostel_type === 'boys' ? 'text-blue-500' : 'text-pink-500'}`} />
+                        {hostel.hostel_name}
+                      </h4>
+                      <div className="grid grid-cols-10 md:grid-cols-20 gap-1">
+                        {Array.from({ length: hostel.total_rooms || 0 }, (_, i) => {
+                          const isOccupied = hostel.total_beds > 0 ? i < Math.floor(hostel.occupied_beds / Math.max(1, Math.ceil(hostel.total_beds / hostel.total_rooms))) : false;
+                          return (
+                            <div
+                              key={i}
+                              className={`w-6 h-6 rounded text-xs flex items-center justify-center ${
+                                isOccupied
+                                  ? 'bg-red-100 text-red-600'
+                                  : 'bg-green-100 text-green-600'
+                              }`}
+                              title={`Room ${i + 1}: ${isOccupied ? 'Occupied' : 'Available'}`}
+                            >
+                              {i + 1}
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <div className="flex gap-4 text-xs text-muted-foreground">
+                        <span className="flex items-center gap-1">
+                          <div className="w-3 h-3 rounded bg-green-100" /> Available
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <div className="w-3 h-3 rounded bg-red-100" /> Occupied
+                        </span>
+                      </div>
                     </div>
-                    <div className="flex gap-4 text-xs text-muted-foreground">
-                      <span className="flex items-center gap-1">
-                        <div className="w-3 h-3 rounded bg-green-100" /> Available
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <div className="w-3 h-3 rounded bg-red-100" /> Occupied
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                  {hostelList.length === 0 && (
+                    <div className="text-center py-8 text-gray-500">No hostels found</div>
+                  )}
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>

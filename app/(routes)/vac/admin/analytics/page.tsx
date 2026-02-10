@@ -3,6 +3,7 @@
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
@@ -13,7 +14,8 @@ import {
   Award,
   BookOpen,
   DollarSign,
-  AlertCircle
+  AlertCircle,
+  Download
 } from 'lucide-react';
 import { useVACAnalytics } from '@/hooks/vac/use-vac';
 
@@ -76,6 +78,53 @@ function formatCurrency(amount: number): string {
   }).format(amount);
 }
 
+function exportAnalyticsCSV(analytics: NonNullable<ReturnType<typeof useVACAnalytics>['data']>) {
+  const lines: string[] = [];
+
+  // Summary
+  lines.push('VAC Analytics Report');
+  lines.push(`Generated,${new Date().toLocaleDateString('en-IN')}`);
+  lines.push('');
+  lines.push('Summary');
+  lines.push(`Total Enrollments,${analytics.totalEnrollments}`);
+  lines.push(`Active Students,${analytics.activeStudents}`);
+  lines.push(`Completed,${analytics.completedEnrollments}`);
+  lines.push(`Total Courses,${analytics.totalCourses}`);
+  lines.push(`Active Courses,${analytics.activeCourses}`);
+  lines.push(`Total Revenue,${analytics.totalRevenue}`);
+  lines.push('');
+
+  // Course breakdown
+  lines.push('Course Breakdown');
+  lines.push('Course Name,Course Code,Enrollments,Completion Rate,Revenue');
+  analytics.courseStats.forEach(c => {
+    lines.push(`"${c.courseName}","${c.courseCode}",${c.enrollmentCount},${c.completionRate}%,${c.revenue}`);
+  });
+  lines.push('');
+
+  // Track distribution
+  lines.push('Track Distribution');
+  lines.push('Track,Count,Percentage');
+  analytics.trackDistribution.forEach(t => {
+    lines.push(`"${t.track}",${t.count},${t.percentage}%`);
+  });
+  lines.push('');
+
+  // Payment breakdown
+  lines.push('Payment Status');
+  lines.push(`Paid,${analytics.paymentBreakdown.paid}`);
+  lines.push(`Pending,${analytics.paymentBreakdown.pending}`);
+  lines.push(`Waived,${analytics.paymentBreakdown.waived}`);
+  lines.push(`Refunded,${analytics.paymentBreakdown.refunded}`);
+
+  const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = `vac-analytics-report-${new Date().toISOString().split('T')[0]}.csv`;
+  link.click();
+  URL.revokeObjectURL(link.href);
+}
+
 export default function VACAnalyticsPage() {
   const { data: analytics, isLoading, isError, error } = useVACAnalytics();
 
@@ -97,11 +146,23 @@ export default function VACAnalyticsPage() {
       />
 
       <div className="space-y-6 mt-4">
-        <div>
-          <h1 className="text-2xl font-bold py-1">VAC Analytics</h1>
-          <p className="text-sm text-muted-foreground">
-            Track course performance, enrollments, and learner progress
-          </p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold py-1">VAC Analytics</h1>
+            <p className="text-sm text-muted-foreground">
+              Track course performance, enrollments, and learner progress
+            </p>
+          </div>
+          {analytics && analytics.totalEnrollments > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => exportAnalyticsCSV(analytics)}
+            >
+              <Download className="h-4 w-4 mr-2" />
+              Export Report
+            </Button>
+          )}
         </div>
 
         {/* Error State */}

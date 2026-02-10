@@ -147,18 +147,21 @@ function ConsultantDetailContent() {
   const consultantId = params.id as string;
   const { profile } = useAuth();
 
+  // UUID validation for Next.js PPR compatibility
+  const isValidId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(consultantId);
+
   // Fetch consultant details
   const { data: consultant, isLoading, error } = useQuery({
     queryKey: ['consultant', consultantId],
     queryFn: () => ConsultantService.getConsultantById(consultantId),
-    enabled: !!consultantId
+    enabled: !!consultantId && isValidId
   });
 
   // Fetch consultant portal dashboard (includes stats)
   const { data: stats } = useQuery({
     queryKey: ['consultant-stats', consultantId],
     queryFn: () => ConsultantService.getConsultantPortalDashboard(consultantId),
-    enabled: !!consultantId
+    enabled: !!consultantId && isValidId
   });
 
   // Fetch recent referrals (lead attributions)
@@ -168,7 +171,7 @@ function ConsultantDetailContent() {
       consultant_id: consultantId,
       limit: 5
     }),
-    enabled: !!consultantId
+    enabled: !!consultantId && isValidId
   });
 
   // Fetch recent commissions
@@ -178,14 +181,14 @@ function ConsultantDetailContent() {
       consultant_id: consultantId,
       limit: 5
     }),
-    enabled: !!consultantId
+    enabled: !!consultantId && isValidId
   });
 
   if (isLoading) {
     return <ConsultantDetailSkeleton />;
   }
 
-  if (error || !consultant) {
+  if (!isValidId || error || !consultant) {
     return (
       <div className="text-center py-12">
         <XCircle className="h-12 w-12 mx-auto text-red-500 mb-4" />

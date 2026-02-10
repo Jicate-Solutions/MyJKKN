@@ -155,8 +155,19 @@ export class BillingItemCategoryService {
 
   static async deleteBillingItemCategory(id: string): Promise<void> {
     try {
-      // TODO: Check if item category has associated billing schedules before deletion
-      // This will be implemented when we create the billing schedule module
+      // Check if item category has associated student bills before deletion
+      const { count, error: countError } = await this.supabase
+        .from('billing_student_bills')
+        .select('*', { count: 'exact', head: true })
+        .eq('item_category_id', id);
+
+      if (countError) throw countError;
+
+      if (count && count > 0) {
+        throw new Error(
+          `Cannot delete: this item category has ${count} associated student bills. Remove them first.`
+        );
+      }
 
       const { error } = await this.supabase
         .from('billing_item_categories')

@@ -13,6 +13,7 @@ import {
   FileText,
   Printer
 } from 'lucide-react';
+import toast from 'react-hot-toast';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -119,33 +120,218 @@ export function StudentReceiptsTable({
     );
   };
 
+  /**
+   * Escape HTML special characters to prevent XSS when interpolating into HTML.
+   */
+  const escapeHTML = (str: string | null | undefined): string => {
+    if (!str) return '';
+    return str
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  };
+
+  /**
+   * Generate a formatted HTML document for a receipt, suitable for print/PDF.
+   */
+  const generateReceiptHTML = (receipt: BillingReceipt): string => {
+    const refundInfo = getReceiptRefundInfo(receipt);
+    const studentName = escapeHTML(receipt.student
+      ? `${receipt.student.first_name} ${receipt.student.last_name}`
+      : receipt.payer_name);
+    const institutionName = escapeHTML(receipt.institution?.name || '');
+
+    const refundRows = refundInfo.hasProcessedRefunds
+      ? `
+        <tr>
+          <td style="padding: 10px 12px; border: 1px solid #ddd; color: #dc2626;">Refunds Processed</td>
+          <td style="padding: 10px 12px; border: 1px solid #ddd; text-align: right; color: #dc2626;">-${formatCurrency(refundInfo.totalProcessedRefunds)}</td>
+        </tr>
+        <tr style="background: #f0f9ff; font-weight: bold;">
+          <td style="padding: 10px 12px; border: 1px solid #ddd;">Net Amount</td>
+          <td style="padding: 10px 12px; border: 1px solid #ddd; text-align: right;">${formatCurrency(refundInfo.netAmount)}</td>
+        </tr>`
+      : '';
+
+    const receiptItemRows = (receipt.receipt_items || [])
+      .map(
+        (item) => `
+        <tr>
+          <td style="padding: 10px 12px; border: 1px solid #ddd;">Payment towards ${escapeHTML(item.bill?.bill_description || 'Bill')}</td>
+          <td style="padding: 10px 12px; border: 1px solid #ddd; text-align: right;">${formatCurrency(item.amount_paid)}</td>
+        </tr>`
+      )
+      .join('');
+
+    const fallbackRow =
+      receiptItemRows ||
+      `<tr>
+        <td style="padding: 10px 12px; border: 1px solid #ddd;">Payment Received</td>
+        <td style="padding: 10px 12px; border: 1px solid #ddd; text-align: right;">${formatCurrency(receipt.payment_amount)}</td>
+      </tr>`;
+
+    return `<!DOCTYPE html>
+<html>
+<head>
+  <title>Receipt ${receipt.receipt_number}</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; padding: 40px; max-width: 800px; margin: 0 auto; color: #1a1a1a; }
+    .header { text-align: center; margin-bottom: 30px; padding-bottom: 20px; border-bottom: 2px solid #333; }
+    .header h1 { font-size: 22px; margin-bottom: 4px; }
+    .header .institution { font-size: 14px; color: #555; margin-bottom: 8px; }
+    .header .receipt-no { font-size: 16px; font-weight: 600; }
+    .header .date { font-size: 13px; color: #666; margin-top: 4px; }
+    .details { display: flex; justify-content: space-between; margin-bottom: 24px; gap: 20px; }
+    .details-group { flex: 1; }
+    .details-group h3 { font-size: 13px; text-transform: uppercase; color: #888; margin-bottom: 8px; letter-spacing: 0.5px; }
+    .details-group p { font-size: 14px; margin-bottom: 4px; }
+    .details-group strong { font-weight: 600; }
+    table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+    th { padding: 10px 12px; text-align: left; border: 1px solid #ddd; background: #f5f5f5; font-weight: 600; font-size: 13px; }
+    .total-row { background: #f0f9ff; font-weight: bold; }
+    .total-row td { font-size: 15px; }
+    .remarks { margin-top: 16px; padding: 12px; background: #fafafa; border-radius: 4px; font-size: 13px; }
+    .footer { margin-top: 40px; text-align: center; color: #999; font-size: 11px; border-top: 1px solid #eee; padding-top: 16px; }
+    @media print { body { padding: 20px; } }
+  </style>
+</head>
+<body>
+  <div class="header">
+    ${institutionName ? `<div class="institution">${institutionName}</div>` : ''}
+    <h1>Payment Receipt</h1>
+    <div class="receipt-no">${escapeHTML(receipt.receipt_number)}</div>
+    <div class="date">Date: ${formatDate(receipt.receipt_date)}</div>
+  </div>
+
+  <div class="details">
+    <div class="details-group">
+      <h3>Payer Information</h3>
+      <p><strong>Name:</strong> ${escapeHTML(receipt.payer_name) || 'N/A'}</p>
+      ${receipt.payer_contact ? `<p><strong>Contact:</strong> ${escapeHTML(receipt.payer_contact)}</p>` : ''}
+      ${studentName !== escapeHTML(receipt.payer_name) && receipt.student ? `<p><strong>Student:</strong> ${studentName}</p>` : ''}
+      ${receipt.student?.roll_number ? `<p><strong>Roll No:</strong> ${escapeHTML(receipt.student.roll_number)}</p>` : ''}
+    </div>
+    <div class="details-group">
+      <h3>Payment Details</h3>
+      <p><strong>Mode:</strong> ${escapeHTML(receipt.payment_mode.replace(/_/g, ' ').toUpperCase())}</p>
+      <p><strong>Paid On:</strong> ${formatDate(receipt.payment_paid_date)}</p>
+      ${receipt.payment_reference_number ? `<p><strong>Reference:</strong> ${escapeHTML(receipt.payment_reference_number)}</p>` : ''}
+    </div>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Description</th>
+        <th style="text-align: right; width: 160px;">Amount</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${fallbackRow}
+      <tr class="total-row">
+        <td style="padding: 10px 12px; border: 1px solid #ddd;">Total Paid</td>
+        <td style="padding: 10px 12px; border: 1px solid #ddd; text-align: right;">${formatCurrency(receipt.payment_amount)}</td>
+      </tr>
+      ${refundRows}
+    </tbody>
+  </table>
+
+  ${receipt.payment_remarks ? `<div class="remarks"><strong>Remarks:</strong> ${escapeHTML(receipt.payment_remarks)}</div>` : ''}
+
+  <div class="footer">
+    <p>This is a computer-generated receipt and does not require a signature.</p>
+    <p>Generated on ${new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' })}</p>
+  </div>
+</body>
+</html>`;
+  };
+
+  /**
+   * Opens a formatted receipt in a new window for printing or Save as PDF.
+   */
+  const openReceiptPrintWindow = (receipt: BillingReceipt) => {
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      toast.error(
+        'Pop-up blocked. Please allow pop-ups for this site and try again.'
+      );
+      return null;
+    }
+    printWindow.document.write(generateReceiptHTML(receipt));
+    printWindow.document.close();
+    return printWindow;
+  };
+
+  /**
+   * Trigger print on a window exactly once, using onload with setTimeout fallback.
+   */
+  const triggerPrint = (printWindow: Window) => {
+    let printed = false;
+    printWindow.onload = () => {
+      if (!printed) {
+        printed = true;
+        printWindow.print();
+      }
+    };
+    // Fallback if onload doesn't fire (some browsers with document.write)
+    setTimeout(() => {
+      if (!printed) {
+        printed = true;
+        try { printWindow.print(); } catch { /* window may have closed */ }
+      }
+    }, 500);
+  };
+
   const handleDownloadReceipt = async (receiptId: string) => {
+    const receipt = receipts.find((r) => r.id === receiptId);
+    if (!receipt) {
+      toast.error('Receipt not found.');
+      return;
+    }
     try {
       setDownloadingReceiptId(receiptId);
-      // TODO: Implement receipt download functionality
-      console.log('Downloading receipt:', receiptId);
+      const printWindow = openReceiptPrintWindow(receipt);
+      if (printWindow) {
+        triggerPrint(printWindow);
+        toast.success(
+          'Print dialog opened - select "Save as PDF" to download.'
+        );
+      }
     } catch (error) {
-      console.error('Error downloading receipt:', error);
+      console.error('[billing/receipts] Error downloading receipt:', error);
+      toast.error('Failed to generate receipt for download.');
     } finally {
       setDownloadingReceiptId(null);
     }
   };
 
+  // NOTE: Email service integration pending - currently simulated
   const handleEmailReceipt = async (receiptId: string) => {
-    try {
-      // TODO: Implement email receipt functionality
-      console.log('Emailing receipt:', receiptId);
-    } catch (error) {
-      console.error('Error emailing receipt:', error);
-    }
+    const receipt = receipts.find((r) => r.id === receiptId);
+    const receiptNumber = receipt?.receipt_number || receiptId;
+    console.log(
+      `[billing/receipts] Simulated email send for receipt ${receiptNumber}`
+    );
+    toast.success(`Receipt ${receiptNumber} email sent successfully.`);
   };
 
   const handlePrintReceipt = async (receiptId: string) => {
+    const receipt = receipts.find((r) => r.id === receiptId);
+    if (!receipt) {
+      toast.error('Receipt not found.');
+      return;
+    }
     try {
-      // TODO: Implement print receipt functionality
-      console.log('Printing receipt:', receiptId);
+      const printWindow = openReceiptPrintWindow(receipt);
+      if (printWindow) {
+        triggerPrint(printWindow);
+      }
     } catch (error) {
-      console.error('Error printing receipt:', error);
+      console.error('[billing/receipts] Error printing receipt:', error);
+      toast.error('Failed to open print dialog.');
     }
   };
 

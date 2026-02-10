@@ -173,11 +173,6 @@ export function usePermissions(
               setPermissions(mergedPermissions);
             }
 
-            console.log(
-              '[permissions] Multi-role permissions loaded:',
-              roles.length,
-              'roles'
-            );
             return;
           }
         } catch (multiRoleError) {

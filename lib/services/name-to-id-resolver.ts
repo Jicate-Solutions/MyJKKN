@@ -152,7 +152,6 @@ export class NameToIdResolver {
     }
 
     try {
-      console.log(`[name-to-id] 🔍 Resolving Degree ID for: "${degreeName}"`);
 
       // Try EXACT match first
       let query = supabaseAdmin
@@ -168,7 +167,6 @@ export class NameToIdResolver {
 
       // If exact match fails, try PATTERN match or KEYWORD match
       if (error || !data) {
-        console.log(`[name-to-id] 🔄 Exact match failed, trying flexible match...`);
 
         // Map common degree keywords
         const degreeKeywords: Record<string, string[]> = {
@@ -204,7 +202,6 @@ export class NameToIdResolver {
           if (patternResult.data) {
             data = patternResult.data;
             error = null;
-            console.log(`[name-to-id] ✅ Found degree via pattern match with "${term}":`, data);
             break;
           }
         }
@@ -215,7 +212,6 @@ export class NameToIdResolver {
         return { id: null, found: false, error: `Degree "${degreeName}" not found` };
       }
 
-      console.log(`[name-to-id] ✅ Degree found:`, data);
       return { id: data.id, found: true };
     } catch (error) {
       console.error(`[name-to-id] ❌ Exception in resolveDegreeId:`, error);
@@ -234,8 +230,6 @@ export class NameToIdResolver {
     }
 
     try {
-      console.log(`[name-to-id] 🔍 Resolving Department ID for: "${departmentName}"`);
-      console.log(`[name-to-id] 📋 Query params:`, { departmentName: departmentName.trim(), institutionId });
 
       // Build query with institution filter
       let query = supabaseAdmin
@@ -255,7 +249,6 @@ export class NameToIdResolver {
 
       // If exact match with institution filter succeeds, return it
       if (data && !error) {
-        console.log(`[name-to-id] ✅ Department found:`, data);
         return { id: data.id, found: true };
       }
 
@@ -304,8 +297,6 @@ export class NameToIdResolver {
     }
 
     try {
-      console.log(`[name-to-id] 🔍 Resolving Program ID for: "${programName}"`);
-      console.log(`[name-to-id] 📋 Query params:`, { programName: programName.trim(), institutionId, departmentId });
 
       // Try EXACT match first
       let query = supabaseAdmin
@@ -325,7 +316,6 @@ export class NameToIdResolver {
 
       // If exact match fails, try PATTERN match (CONTAINS)
       if (error || !data) {
-        console.log(`[name-to-id] 🔄 Exact match failed, trying pattern match...`);
 
         let patternQuery = supabaseAdmin
           .from('programs')
@@ -365,7 +355,6 @@ export class NameToIdResolver {
         const programNames = allPrograms?.map(p => p.program_name) || [];
         const suggestions = findTopSuggestions(programName, programNames);
 
-        console.log(`[name-to-id] 📚 Suggestions:`, suggestions);
         return {
           id: null,
           found: false,
@@ -401,7 +390,6 @@ export class NameToIdResolver {
         };
       }
 
-      console.log(`[name-to-id] ✅ Program found:`, data);
       return { id: data.id, found: true };
     } catch (error) {
       console.error(`[name-to-id] ❌ Exception in resolveProgramId:`, error);
@@ -422,8 +410,6 @@ export class NameToIdResolver {
     }
 
     try {
-      console.log(`[name-to-id] 🔍 Resolving Semester ID for: "${semesterName}"`);
-      console.log(`[name-to-id] 📋 Query params:`, { semesterName: semesterName.trim(), institutionId, programId });
 
       // Try EXACT match first
       let query = supabaseAdmin
@@ -443,10 +429,8 @@ export class NameToIdResolver {
 
       // If exact match fails, try NUMBER-BASED match
       if (error || !data) {
-        console.log(`[name-to-id] 🔄 Exact match failed, trying number-based match...`);
 
         const semesterNum = extractSemesterNumber(semesterName);
-        console.log(`[name-to-id] 🔢 Extracted semester number: ${semesterNum}`);
 
         if (semesterNum) {
           // Try matching semester_name or semester_code containing the number
@@ -488,7 +472,6 @@ export class NameToIdResolver {
         const semesterNames = allSemesters?.map(s => s.semester_name) || [];
         const suggestions = findTopSuggestions(semesterName, semesterNames);
 
-        console.log(`[name-to-id] 📚 Suggestions:`, suggestions);
         return {
           id: null,
           found: false,
@@ -524,7 +507,6 @@ export class NameToIdResolver {
         };
       }
 
-      console.log(`[name-to-id] ✅ Semester found:`, data);
       return { id: data.id, found: true };
     } catch (error) {
       console.error(`[name-to-id] ❌ Exception in resolveSemesterId:`, error);
@@ -544,8 +526,6 @@ export class NameToIdResolver {
     }
 
     try {
-      console.log(`[name-to-id] 🔍 Resolving Section ID for: "${sectionName}"`);
-      console.log(`[name-to-id] 📋 Query params:`, { sectionName: sectionName.trim(), institutionId, semesterId });
 
       let query = supabaseAdmin
         .from('sections')
@@ -581,7 +561,6 @@ export class NameToIdResolver {
         const sectionNames = allSections?.map(s => s.section_name) || [];
         const suggestions = findTopSuggestions(sectionName, sectionNames);
 
-        console.log(`[name-to-id] 📚 Suggestions:`, suggestions);
         return {
           id: null,
           found: false,
@@ -617,7 +596,6 @@ export class NameToIdResolver {
         };
       }
 
-      console.log(`[name-to-id] ✅ Section found:`, data);
       return { id: data.id, found: true };
     } catch (error) {
       console.error(`[name-to-id] ❌ Exception in resolveSectionId:`, error);
@@ -637,7 +615,6 @@ export class NameToIdResolver {
     }
 
     try {
-      console.log(`[name-to-id] 🔍 Resolving Academic Year ID for: "${yearName}"`);
 
       // Try EXACT match first
       let query = supabaseAdmin
@@ -653,10 +630,8 @@ export class NameToIdResolver {
 
       // If exact match fails, try multiple FORMAT variations
       if (error || !data) {
-        console.log(`[name-to-id] 🔄 Exact match failed, trying format variations...`);
 
         const yearFormats = generateYearFormats(yearName);
-        console.log(`[name-to-id] 📅 Generated year formats:`, yearFormats);
 
         for (const format of yearFormats) {
           let formatQuery = supabaseAdmin
@@ -672,7 +647,6 @@ export class NameToIdResolver {
           if (formatResult.data) {
             data = formatResult.data;
             error = null;
-            console.log(`[name-to-id] ✅ Found academic year via format "${format}":`, data);
             break;
           }
         }
@@ -681,7 +655,6 @@ export class NameToIdResolver {
         if (!data) {
           const yearNumbers = yearName.match(/\d{4}/g);
           if (yearNumbers && yearNumbers.length > 0) {
-            console.log(`[name-to-id] 🔄 Trying pattern match with year: ${yearNumbers[0]}`);
 
             let patternQuery = supabaseAdmin
               .from('academic_years')
@@ -696,7 +669,6 @@ export class NameToIdResolver {
             if (patternResult.data) {
               data = patternResult.data;
               error = null;
-              console.log(`[name-to-id] ✅ Found academic year via pattern:`, data);
             }
           }
         }
@@ -707,7 +679,6 @@ export class NameToIdResolver {
         return { id: null, found: false, error: `Academic Year "${yearName}" not found` };
       }
 
-      console.log(`[name-to-id] ✅ Academic Year found:`, data);
       return { id: data.id, found: true };
     } catch (error) {
       console.error(`[name-to-id] ❌ Exception in resolveAcademicYearId:`, error);

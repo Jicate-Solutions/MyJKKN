@@ -154,31 +154,37 @@ export function FacultyQuickAttendance({
     }
   };
 
-  const getTimeStatus = (startTime: string) => {
-    // TEMPORARY: Remove time-based restrictions - faculty can mark attendance anytime
-    // TODO: Implement proper time restriction logic in future
-    // For now, always allow attendance marking regardless of time
-    return 'current';
+  const parseTimeString = (timeStr: string): Date | null => {
+    if (!timeStr) return null;
+    const parts = timeStr.trim().split(' ');
+    if (parts.length < 2) return null;
+    const [time, period] = parts;
+    const timeParts = time.split(':').map(Number);
+    if (timeParts.length < 2) return null;
+    const [hours, minutes] = timeParts;
+    const date = new Date(targetDate + 'T00:00:00');
+    let h = hours;
+    if (period?.toUpperCase() === 'PM' && hours !== 12) h += 12;
+    if (period?.toUpperCase() === 'AM' && hours === 12) h = 0;
+    date.setHours(h, minutes, 0, 0);
+    return date;
+  };
 
-    /* COMMENTED OUT - Original time-based logic for future implementation
-    if (!startTime) return 'upcoming';
-
+  const getTimeStatus = (startTime: string, endTime?: string): 'past' | 'current' | 'upcoming' => {
+    // Visual indicator only - faculty can still mark attendance for any period
+    if (!startTime) return 'current';
     const now = new Date();
-    const [time, period] = startTime.split(' ');
-    const [hours, minutes] = time.split(':').map(Number);
+    const periodStart = parseTimeString(startTime);
+    if (!periodStart) return 'current';
 
-    const periodTime = new Date();
-    periodTime.setHours(
-      period === 'PM' && hours !== 12 ? hours + 12 : hours,
-      minutes,
-      0,
-      0
-    );
+    if (now < periodStart) return 'upcoming';
 
-    if (now < periodTime) return 'upcoming';
-    if (now > periodTime) return 'past';
-    return 'current';
-    */
+    if (endTime) {
+      const periodEnd = parseTimeString(endTime);
+      if (periodEnd && now <= periodEnd) return 'current';
+    }
+
+    return 'past';
   };
 
   if (loading) {
@@ -237,7 +243,7 @@ export function FacultyQuickAttendance({
       <CardContent>
         <div className='grid gap-4'>
           {periods.map((period, index) => {
-            const timeStatus = getTimeStatus(period.start_time);
+            const timeStatus = getTimeStatus(period.start_time, period.end_time);
             const isMarked = markedPeriods.has(period.timetable_slot_id);
 
             return (
@@ -245,7 +251,7 @@ export function FacultyQuickAttendance({
                 key={`${period.timetable_slot_id}-${period.timetable_id}-${index}`}
                 className={cn(
                   'border-2 transition-all duration-200',
-                  // timeStatus === 'past' && !isMarked && 'opacity-75', // TEMPORARY: Removed past period styling
+                  timeStatus === 'past' && !isMarked && 'opacity-75',
                   isMarked && 'border-green-500 dark:border-green-600'
                 )}
               >
@@ -267,6 +273,16 @@ export function FacultyQuickAttendance({
                           >
                             {period.period_name}
                           </Badge>
+                          {timeStatus === 'past' && !isMarked && (
+                            <Badge variant='secondary' className='text-xs w-fit bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400'>
+                              Ended
+                            </Badge>
+                          )}
+                          {timeStatus === 'upcoming' && !isMarked && (
+                            <Badge variant='secondary' className='text-xs w-fit bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400'>
+                              Upcoming
+                            </Badge>
+                          )}
                         </div>
                         {isMarked && (
                           <div className='flex items-center gap-2 self-start sm:self-auto'>

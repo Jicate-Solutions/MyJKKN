@@ -279,7 +279,6 @@ export function BulkUploadLearnerImages({
    * 5. Auto-advance to preview step
    */
   const handleFilesSelected = useCallback((acceptedFiles: File[]) => {
-    console.log('[bulk-upload-images] Files selected:', acceptedFiles.length);
 
     if (acceptedFiles.length === 0) {
       toast.error('No files selected');
@@ -437,7 +436,6 @@ export function BulkUploadLearnerImages({
    * 6. Update validation statuses
    */
   const handleValidateLearners = useCallback(async () => {
-    console.log('[bulk-upload-images] Validating learners...');
 
     setIsValidating(true);
 
@@ -461,10 +459,6 @@ export function BulkUploadLearnerImages({
       for (let i = 0; i < rollNumbers.length; i += CHUNK_SIZE) {
         chunks.push(rollNumbers.slice(i, i + CHUNK_SIZE));
       }
-
-      console.log(`[bulk-upload-images] Validating ${rollNumbers.length} roll numbers in ${chunks.length} chunks`);
-      console.log('[bulk-upload-images] Extracted roll numbers:', rollNumbers);
-      console.log('[bulk-upload-images] Institution filter:', institutionId || 'None');
 
       // Fetch all learners in parallel chunks
       const allLearners: Array<{
@@ -527,9 +521,6 @@ export function BulkUploadLearnerImages({
         }
       }
 
-      console.log(`[bulk-upload-images] Found ${allLearners.length} learners in database`);
-      console.log('[bulk-upload-images] Database learners roll numbers:', allLearners.map(l => l.roll_number));
-
       // Create map for quick lookup (case-insensitive: use uppercase keys)
       const learnerMap = new Map(
         allLearners.map((l) => [l.roll_number.toUpperCase(), l])
@@ -590,7 +581,6 @@ export function BulkUploadLearnerImages({
         // Log match statistics
         const matched = filesWithDuplicates.filter(f => f.learnerId).length;
         const notMatched = filesWithDuplicates.filter(f => !f.learnerId && f.rollNumber).length;
-        console.log(`[bulk-upload-images] Match results: ${matched} matched, ${notMatched} not matched`);
 
         return filesWithDuplicates;
       });
@@ -618,7 +608,6 @@ export function BulkUploadLearnerImages({
    * 4. Display results (success/failed)
    */
   const handleUpload = useCallback(async () => {
-    console.log('[bulk-upload-images] Starting upload...');
 
     // Get selected files
     const selectedFiles = files.filter((f) => f.selected && f.learnerId);
@@ -656,8 +645,6 @@ export function BulkUploadLearnerImages({
           });
         }
       );
-
-      console.log('[bulk-upload-images] Upload complete:', uploadResult);
 
       // Set result
       setResult({

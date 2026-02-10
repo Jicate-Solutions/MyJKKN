@@ -16,7 +16,7 @@ import {
   Copy,
   Check
 } from 'lucide-react';
-import { toast } from 'react-hot-toast';
+import { toast } from 'sonner';
 import { Profile } from '@/types/auth';
 import { UserService } from '@/lib/services/users/user-service';
 import { ROLE_LABELS } from '@/lib/constants/permissions';
@@ -184,7 +184,7 @@ export function UserList({
   const handleRoleChange = (user: Profile) => {
     // You would typically show a dialog here to select a new role
     // This is just a placeholder - implement the actual role change dialog
-    toast.success('Role change feature coming soon');
+    toast.info('Use the Role Management page to change user roles');
   };
 
   // Handle status toggle

@@ -205,9 +205,6 @@ export default async function GradeSyncMonitoringPage({
     .eq('user_id', user.id)
     .single();
 
-  console.log('[LTI Grade Sync] User role data:', userRole);
-  console.log('[LTI Grade Sync] Role error:', roleError);
-
   // Extract custom_roles from array (Supabase joins return arrays)
   const customRole = Array.isArray(userRole?.custom_roles)
     ? userRole?.custom_roles[0]
@@ -216,18 +213,12 @@ export default async function GradeSyncMonitoringPage({
   const roleKey = customRole?.role_key;
   const permissions = customRole?.permissions || {};
 
-  console.log('[LTI Grade Sync] Role key:', roleKey);
-  console.log('[LTI Grade Sync] Permissions:', permissions);
-
   // Super admin has full access, otherwise check specific permissions
   if (roleKey !== 'super_admin') {
     if (!permissions['lti.grade_sync.view'] && !permissions['lti.monitor']) {
-      console.log('[LTI Grade Sync] Access denied - redirecting to dashboard');
       redirect('/dashboard');
     }
   }
-
-  console.log('[LTI Grade Sync] Access granted');
 
   // Await searchParams (Next.js 16 requirement)
   const params = await searchParams;
@@ -292,6 +283,7 @@ export default async function GradeSyncMonitoringPage({
             <GradeSyncFilters
               tools={filterOptions.tools}
               currentFilters={params}
+              exportData={grades}
             />
           </Suspense>
         </CardContent>

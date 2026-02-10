@@ -16,6 +16,8 @@ import {
   Plus,
   ArrowRight,
   AlertCircle,
+  Lightbulb,
+  Shield,
 } from 'lucide-react';
 import { useSolutionStats } from '@/hooks/solutions/use-solutions';
 import { useBuilderStats } from '@/hooks/solutions/use-builders';
@@ -154,7 +156,7 @@ export function SolutionsDashboard() {
       </div>
 
       {/* Module Cards */}
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         {/* Software Module */}
         <Card className="hover:border-blue-300 transition-colors">
           <CardHeader>
@@ -281,10 +283,51 @@ export function SolutionsDashboard() {
             </div>
           </CardContent>
         </Card>
+
+        {/* Products & TRL Module */}
+        <Card className="hover:border-orange-300 transition-colors">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Lightbulb className="h-5 w-5 text-orange-600" />
+              Products & TRL
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-2 gap-4 text-sm">
+              <div>
+                <p className="text-muted-foreground">Products</p>
+                <p className="text-lg font-semibold">0</p>
+              </div>
+              <div>
+                <p className="text-muted-foreground">Avg TRL</p>
+                <p className="text-lg font-semibold">—</p>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <div className="text-xs text-muted-foreground">
+                <span className="font-medium">RDIF Ready:</span> 2 of 9
+              </div>
+              <div className="w-full bg-muted rounded-full h-1.5">
+                <div className="bg-orange-600 h-1.5 rounded-full" style={{ width: '22%' }} />
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" asChild className="flex-1">
+                <Link href="/solutions/products">
+                  Products
+                  <ArrowRight className="ml-2 h-3 w-3" />
+                </Link>
+              </Button>
+              <Button variant="outline" size="sm" asChild className="flex-1">
+                <Link href="/solutions/products/rdif">RDIF</Link>
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       {/* Quick Links */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <Card className="cursor-pointer hover:bg-muted/50 transition-colors">
           <Link href="/solutions/list">
             <CardContent className="flex items-center gap-3 py-4">
@@ -328,6 +371,30 @@ export function SolutionsDashboard() {
               <div>
                 <p className="font-medium">Earnings</p>
                 <p className="text-sm text-muted-foreground">Revenue splits</p>
+              </div>
+            </CardContent>
+          </Link>
+        </Card>
+
+        <Card className="cursor-pointer hover:bg-muted/50 transition-colors">
+          <Link href="/solutions/products">
+            <CardContent className="flex items-center gap-3 py-4">
+              <Lightbulb className="h-8 w-8 text-orange-600" />
+              <div>
+                <p className="font-medium">Products & TRL</p>
+                <p className="text-sm text-muted-foreground">Track R&D portfolio</p>
+              </div>
+            </CardContent>
+          </Link>
+        </Card>
+
+        <Card className="cursor-pointer hover:bg-muted/50 transition-colors">
+          <Link href="/solutions/products/rdif">
+            <CardContent className="flex items-center gap-3 py-4">
+              <Shield className="h-8 w-8 text-orange-600" />
+              <div>
+                <p className="font-medium">RDIF Readiness</p>
+                <p className="text-sm text-muted-foreground">2 of 9 criteria met</p>
               </div>
             </CardContent>
           </Link>

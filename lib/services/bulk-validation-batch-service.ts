@@ -128,8 +128,6 @@ export class BulkValidationBatchService {
         const institutionResult = result.institutions.get(ctx.institution);
         const institutionId = institutionResult?.id || undefined;
 
-        console.log(`[batch-validation] Validating department "${ctx.department}" with institution "${ctx.institution}" (id: ${institutionId})`);
-
         const validationResult = await NameToIdResolver.resolveDepartmentId(
           ctx.department,
           institutionId // Pass institutionId from Excel data, not user profile!
@@ -164,7 +162,6 @@ export class BulkValidationBatchService {
       });
     } else if (input.uniqueValues.departments && input.uniqueValues.departments.length > 0) {
       // Fallback: validate departments without institution context (legacy support)
-      console.log(`[batch-validation] Warning: Validating departments without institution context - may be less accurate`);
       const deptPromises = input.uniqueValues.departments.map(async (deptName) => {
         const validationResult = await NameToIdResolver.resolveDepartmentId(
           deptName,
@@ -204,8 +201,6 @@ export class BulkValidationBatchService {
 
         const departmentId = departmentResult?.id || undefined;
 
-        console.log(`[batch-validation] Validating program "${ctx.program}" with department "${ctx.department}" (id: ${departmentId})`);
-
         const validationResult = await NameToIdResolver.resolveProgramId(
           ctx.program,
           input.institutionId,
@@ -241,7 +236,6 @@ export class BulkValidationBatchService {
       });
     } else if (input.uniqueValues.programs && input.uniqueValues.programs.length > 0) {
       // Fallback: validate programs without department context (legacy support)
-      console.log(`[batch-validation] Warning: Validating programs without department context - may be less accurate`);
       const programPromises = input.uniqueValues.programs.map(async (progName) => {
         const validationResult = await NameToIdResolver.resolveProgramId(
           progName,

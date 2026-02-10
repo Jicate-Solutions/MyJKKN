@@ -159,6 +159,8 @@ export interface SHSolution {
   tags: string[] | null
   notes: string | null
   metadata: Record<string, unknown> | null
+  retained_ip: boolean
+  ip_retention_notes: string | null
   created_by: string | null
   created_at: string
   updated_at: string

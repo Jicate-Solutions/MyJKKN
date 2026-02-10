@@ -95,11 +95,14 @@ function EditConsultantForm() {
   const consultantId = params.id as string;
   const { profile } = useAuth();
 
+  // UUID validation for Next.js PPR compatibility
+  const isValidId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(consultantId);
+
   // Fetch consultant data
   const { data: consultant, isLoading, error } = useQuery({
     queryKey: ['consultant', consultantId],
     queryFn: () => ConsultantService.getConsultantById(consultantId),
-    enabled: !!consultantId
+    enabled: !!consultantId && isValidId
   });
 
   const form = useForm<UpdateConsultantInput>({
@@ -189,7 +192,7 @@ function EditConsultantForm() {
     return <EditConsultantSkeleton />;
   }
 
-  if (error || !consultant) {
+  if (!isValidId || error || !consultant) {
     return (
       <div className="text-center py-12">
         <XCircle className="h-12 w-12 mx-auto text-red-500 mb-4" />

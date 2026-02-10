@@ -119,7 +119,6 @@ export default function PaymentSuccessPage() {
     if (verifiedStatus && !isVerifying) {
       // If database status is not success/processing/initiated, redirect to failed page
       if (!['success', 'processing', 'initiated'].includes(verifiedStatus.status)) {
-        console.log('[billing/payment-success] Redirecting to failed page - DB status:', verifiedStatus.status);
         router.push(`/billing/payment/failed?transaction_id=${transactionId}`);
         return;
       }

@@ -249,12 +249,10 @@ function getLocationIdByName(
   stateId?: string
 ): string | undefined {
   if (!name) {
-    console.log(`[enquiry-form] No ${type} name provided`);
     return '';
   }
 
   try {
-    console.log(`[enquiry-form] Converting ${type} name "${name}" to ID`);
 
     // Normalize name for case-insensitive comparison
     const normalizedName = name.trim().toLowerCase();
@@ -262,7 +260,6 @@ function getLocationIdByName(
     if (type === 'state') {
       const state = indianStates.find((s) => s.name.toLowerCase() === normalizedName);
       if (state) {
-        console.log(`[enquiry-form] Found state ID: ${state.id} for name: ${name}`);
         return state.id;
       } else {
         console.warn(`[enquiry-form] State "${name}" not found in indianStates`);
@@ -276,7 +273,6 @@ function getLocationIdByName(
         const districts = getDistrictsByState(state.id);
         const district = districts.find((d) => d.name.toLowerCase() === normalizedName);
         if (district) {
-          console.log(`[enquiry-form] Found district ID: ${district.id} for name: ${name}`);
           return district.id;
         }
       }
@@ -287,26 +283,22 @@ function getLocationIdByName(
     if (type === 'taluk') {
       // If we have stateId, search more efficiently
       if (stateId) {
-        console.log(`[enquiry-form] Searching taluk in state: ${stateId}`);
         const districts = getDistrictsByState(stateId);
         for (const district of districts) {
           const taluks = getTaluksByDistrict(stateId, district.id);
           const taluk = taluks.find((t) => t.name.toLowerCase() === normalizedName);
           if (taluk) {
-            console.log(`[enquiry-form] Found taluk ID: ${taluk.id} for name: ${name}`);
             return taluk.id;
           }
         }
       } else {
         // Search all states if no stateId provided
-        console.log(`[enquiry-form] Searching taluk across all states`);
         for (const state of indianStates) {
           const districts = getDistrictsByState(state.id);
           for (const district of districts) {
             const taluks = getTaluksByDistrict(state.id, district.id);
             const taluk = taluks.find((t) => t.name.toLowerCase() === normalizedName);
             if (taluk) {
-              console.log(`[enquiry-form] Found taluk ID: ${taluk.id} for name: ${name}`);
               return taluk.id;
             }
           }
@@ -438,20 +430,6 @@ export function EnquiryForm({
     resolver: zodResolver(enquiryFormSchema),
     defaultValues: learner
       ? (() => {
-          console.log('[enquiry-form] Loading learner data:', {
-            id: learner.id,
-            name: `${learner.first_name} ${learner.last_name}`,
-            lifecycle_status: learner.lifecycle_status,
-            institution_id: learner.institution_id,
-            degree_id: learner.degree_id,
-            department_id: learner.department_id,
-            program_id: learner.program_id,
-            academic_year_id: learner.academic_year_id,
-            semester_id: learner.semester_id,
-            section_id: learner.section_id,
-            tenth_marks: learner.tenth_marks,
-            twelfth_marks: learner.twelfth_marks,
-          });
           return {
           // Basic Details
           enquiry_date: learner.enquiry_date || new Date().toISOString().split('T')[0],
@@ -519,37 +497,30 @@ export function EnquiryForm({
           // Course Selection
           institution_id: (() => {
             const id = learner.institution_id || '';
-            console.log('[enquiry-form] Institution ID:', id);
             return id;
           })(),
           degree_id: (() => {
             const id = learner.degree_id || '';
-            console.log('[enquiry-form] Degree ID:', id);
             return id;
           })(),
           department_id: (() => {
             const id = learner.department_id || '';
-            console.log('[enquiry-form] Department ID:', id);
             return id;
           })(),
           program_id: (() => {
             const id = learner.program_id || '';
-            console.log('[enquiry-form] Program ID:', id);
             return id;
           })(),
           academic_year_id: (() => {
             const id = learner.academic_year_id || '';
-            console.log('[enquiry-form] Academic Year ID:', id);
             return id;
           })(),
           semester_id: (() => {
             const id = learner.semester_id || '';
-            console.log('[enquiry-form] Semester ID:', id);
             return id;
           })(),
           section_id: (() => {
             const id = learner.section_id || '';
-            console.log('[enquiry-form] Section ID:', id);
             return id;
           })(),
           roll_number: learner.roll_number || '',
@@ -973,7 +944,6 @@ export function EnquiryForm({
           { duration: 4000 }
         );
         
-        console.log('[enquiry-form] Form validation failed:', errors);
       } else {
         toast.error('Please check the form for errors.');
       }
@@ -1070,11 +1040,9 @@ export function EnquiryForm({
     try {
       // Upload pending image file first (if exists)
       if (pendingImageFile) {
-        console.log('[enquiry-form] Uploading pending image file...');
         try {
           const imageUrl = await uploadProfileImage(pendingImageFile);
           values.student_photo_url = imageUrl; // Update form value with uploaded URL
-          console.log('[enquiry-form] Image uploaded successfully:', imageUrl);
           toast.success('Image uploaded successfully');
         } catch (error) {
           console.error('[enquiry-form] Image upload failed:', error);
@@ -1088,7 +1056,6 @@ export function EnquiryForm({
 
       // Allow overriding submission logic (e.g. for change requests)
       if (onSubmitProp) {
-        console.log('[enquiry-form] Using custom onSubmit handler');
         await onSubmitProp(data);
         setIsSubmitting(false);
         return;

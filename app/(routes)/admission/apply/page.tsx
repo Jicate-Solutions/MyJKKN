@@ -251,7 +251,6 @@ function ApplicationPortalPageContent() {
     const token = searchParams.get('token');
     if (token) {
       // In production, fetch application by token from API
-      console.log('Resume token:', token);
     }
   }, [searchParams]);
 

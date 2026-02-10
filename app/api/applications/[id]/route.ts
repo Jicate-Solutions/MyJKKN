@@ -62,20 +62,10 @@ export async function GET(
     }
 
     // Log the application data before fetching category
-    console.log('Application data before category fetch:', {
-      id: data.id,
-      name: data.name,
-      category_id: data.category_id,
-      subcategory_id: data.subcategory_id
-    });
 
     // Fetch category and subcategory data
     if (data.category_id) {
       try {
-        console.log(
-          'Attempting direct database query for category with ID:',
-          data.category_id
-        );
 
         // Direct database query
         const { data: categoryData, error: categoryError } = await supabase
@@ -92,10 +82,6 @@ export async function GET(
             description: null
           };
         } else if (categoryData) {
-          console.log(
-            'Found category directly from database:',
-            categoryData.name
-          );
           data.category = {
             id: categoryData.id,
             name: categoryData.name,
@@ -116,10 +102,6 @@ export async function GET(
                 console.error('Error fetching subcategory:', subcategoryError);
                 data.subcategory = null;
               } else if (subcategoryData) {
-                console.log(
-                  'Found subcategory from database:',
-                  subcategoryData.name
-                );
                 data.subcategory = {
                   id: subcategoryData.id,
                   name: subcategoryData.name
@@ -135,10 +117,6 @@ export async function GET(
             data.subcategory = null;
           }
         } else {
-          console.log(
-            'No category found in database with ID:',
-            data.category_id
-          );
           data.category = {
             id: data.category_id,
             name: 'Unknown Category',
@@ -165,33 +143,8 @@ export async function GET(
     }
 
     // Log the final application data with category info
-    console.log('Final application data with category:', {
-      id: data.id,
-      name: data.name,
-      category: data.category,
-      subcategory: data.subcategory
-    });
 
     // Before returning data
-    console.log(
-      'Final application data to be returned:',
-      JSON.stringify(
-        {
-          id: data.id,
-          name: data.name,
-          category_id: data.category_id,
-          category: data.category
-            ? {
-                id: data.category.id,
-                name: data.category.name,
-                description: data.category.description
-              }
-            : 'undefined'
-        },
-        null,
-        2
-      )
-    );
 
     return NextResponse.json(data);
   } catch (error) {

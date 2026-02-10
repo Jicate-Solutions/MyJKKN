@@ -98,7 +98,35 @@ export function TemplateRowActions({ template }: TemplateRowActionsProps) {
 
   const handleExport = () => {
     setDropdownOpen(false);
-    toast.success('Export functionality coming soon');
+    try {
+      const rows: string[][] = [
+        ['Field', 'Value'],
+        ['Template Name', template.template_name || ''],
+        ['Timetable Name', template.timetable_name || ''],
+        ['Description', template.template_description || ''],
+        ['Category', template.template_category || ''],
+        ['Tags', (template.template_tags || []).join(', ')],
+        ['Type', template.timetable_type || ''],
+        ['Days', (template.selected_days || []).join(', ')],
+        ['Usage Count', String(template.usage_count ?? 0)],
+        ['Created At', template.created_at ? new Date(template.created_at).toLocaleDateString() : ''],
+      ];
+      const csvContent = rows
+        .map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+        .join('\n');
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `template-${template.template_name || template.id}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      toast.success('Template exported as CSV');
+    } catch {
+      toast.error('Failed to export template');
+    }
   };
 
   return (

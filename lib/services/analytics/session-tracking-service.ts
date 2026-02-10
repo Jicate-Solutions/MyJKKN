@@ -132,10 +132,6 @@ export class SessionTrackingService {
         return null;
       }
 
-      console.log(
-        `[SessionTracking] ✅ Session created: ${sessionId} for user ${sessionData.userId}`
-      );
-
       return {
         sessionId: data.session_id,
         userId: data.user_id,
@@ -165,7 +161,6 @@ export class SessionTrackingService {
         return false;
       }
 
-      console.log(`[SessionTracking] ✅ Session closed: ${sessionId}`);
       return true;
     } catch (error) {
       console.error('[SessionTracking] Unexpected error closing session:', error);

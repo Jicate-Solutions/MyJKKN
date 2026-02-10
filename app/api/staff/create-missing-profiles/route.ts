@@ -204,20 +204,7 @@ export async function POST(request: Request) {
         (s) => selectedIdsSet.has(s.id)
       );
 
-      console.log(
-        `Processing only ${selectedStaffIds.length} selected staff members`
-      );
     }
-
-    console.log(
-      `Found ${filteredStaffNeedingNewProfiles.length} staff members needing NEW profiles`
-    );
-    console.log(
-      `Found ${filteredStaffNeedingProfileUpdates.length} staff members needing profile UPDATES`
-    );
-    console.log(
-      `Total profiles to process: ${filteredStaffNeedingNewProfiles.length + filteredStaffNeedingProfileUpdates.length}`
-    );
 
     const results = [];
     const errors = [];
@@ -228,12 +215,6 @@ export async function POST(request: Request) {
     for (const staff of filteredStaffNeedingProfileUpdates) {
       try {
         const fullName = `${staff.first_name} ${staff.last_name}`.trim();
-
-        console.log(
-          `Updating profile for: ${fullName} (${staff.institution_email})`
-        );
-        console.log(`Profile ID to update: ${staff.profile_id}`);
-        console.log(`Staff ID: ${staff.id}`);
 
         // Type assertion to ensure profile_id exists
         const profileId = (staff as any).profile_id;
@@ -257,17 +238,6 @@ export async function POST(request: Request) {
         const currentRole = (staff as any).current_role;
         const hasValidRole = (staff as any).has_valid_role;
         const roleToSet = hasValidRole ? currentRole : 'faculty';
-
-        console.log(`Attempting update with values:`, {
-          role: roleToSet,
-          current_role: currentRole,
-          preserve_role: hasValidRole,
-          institution_id: staff.institution_id,
-          department_id: staff.department_id,
-          gender: staff.gender,
-          designation: staff.designation,
-          profile_id: profileId
-        });
 
         // Build update object - only include role if it needs to be changed
         const updateData: any = {
@@ -293,8 +263,6 @@ export async function POST(request: Request) {
           .select()
           .single();
 
-        console.log(`Update result:`, { updatedProfile, updateError });
-
         if (updateError) {
           console.error(
             `Profile update error for ${staff.institution_email}:`,
@@ -303,7 +271,6 @@ export async function POST(request: Request) {
           throw updateError;
         }
 
-        console.log(`Successfully updated profile for: ${fullName}`);
         updatedCount++;
 
         results.push({
@@ -335,8 +302,6 @@ export async function POST(request: Request) {
     for (const staff of filteredStaffNeedingNewProfiles) {
       try {
         const fullName = `${staff.first_name} ${staff.last_name}`.trim();
-
-        console.log(`Creating profile for: ${fullName} (${staff.institution_email})`);
 
         // Double-check if profile already exists (real-time check)
         const { data: existingProfileCheck } = await supabaseAdmin
@@ -395,7 +360,6 @@ export async function POST(request: Request) {
 
             if (updateError) throw updateError;
 
-            console.log(`Updated existing profile for ${staff.institution_email}`);
             updatedCount++;
 
             results.push({
@@ -408,9 +372,6 @@ export async function POST(request: Request) {
               success: true
             });
           } else {
-            console.log(
-              `Profile already correct for ${staff.institution_email}, skipping`
-            );
             results.push({
               staff_id: staff.id,
               email: staff.institution_email,
@@ -426,7 +387,6 @@ export async function POST(request: Request) {
 
         // Generate a placeholder UUID for profile creation
         const profileId = crypto.randomUUID();
-        console.log(`Creating new profile with ID: ${profileId}`);
 
         // Create new profile
         const { data: profileData, error: profileError } = await supabaseAdmin
@@ -456,7 +416,6 @@ export async function POST(request: Request) {
           throw profileError;
         }
 
-        console.log(`Successfully created profile for: ${fullName}`);
         createdCount++;
 
         results.push({

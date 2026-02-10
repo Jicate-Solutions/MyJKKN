@@ -273,6 +273,9 @@ function LeadDetailPageContent() {
   // Create application form state
   const [selectedProgramId, setSelectedProgramId] = useState('');
 
+  // Validate UUID to handle Next.js PPR/DRP placeholders during prerender
+  const isValidId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(leadId);
+
   const { lead, isLoading: leadLoading, refetch } = useAdmissionLead(leadId);
   const { timeline, isLoading: timelineLoading } = useEnhancedTimeline(leadId);
   const { history: communicationHistory, isLoading: commLoading } = useLeadCommunicationHistory(leadId);
@@ -306,7 +309,8 @@ function LeadDetailPageContent() {
     }
   }, [showCreateAppDialog, lead?.institution_id]);
 
-  const isLoading = leadLoading;
+  // Show loading skeleton if UUID hasn't resolved yet (PPR) or data is still fetching
+  const isLoading = leadLoading || !isValidId;
 
   if (isLoading) {
     return (

@@ -48,10 +48,6 @@ export class AdmissionService {
   static async createAdmission(data: CreateAdmissionDto): Promise<Admission> {
     try {
       // Database trigger will auto-generate application_id in JKKN-{counselling_code}-number format
-      console.log('Creating admission with data:', {
-        institution_id: data.institution_id,
-        first_name: data.first_name
-      });
 
       const { data: admission, error } = await (this.supabase as any)
         .from('admissions')
@@ -118,10 +114,6 @@ export class AdmissionService {
   ): Promise<Admission> {
     try {
       // Database trigger will auto-generate application_id in JKKN-{counselling_code}-number format
-      console.log('Saving draft admission with data:', {
-        institution_id: data.institution_id,
-        first_name: data.first_name
-      });
 
       const { data: admission, error } = await (this.supabase as any)
         .from('admissions')
@@ -224,7 +216,6 @@ export class AdmissionService {
             .maybeSingle();
 
           if (existingStudent) {
-            console.log('Student record already exists for this admission');
             toast.success('Student record already exists in onboarding module');
           } else {
             // Fetch the admission to ensure we have all data
@@ -254,11 +245,9 @@ export class AdmissionService {
                 }
               );
               if (student) {
-                console.log('Student created successfully:', student.id);
 
                 // Manually trigger an event to refresh all related data
                 // This is a no-op in the code, but helps document the intention
-                console.log('Student onboarding data refreshed');
               } else {
                 console.error('Failed to create student record from admission');
                 toast.error('Student creation failed - please try again');
@@ -452,9 +441,6 @@ export class AdmissionService {
         updatedAdmissions &&
         updatedAdmissions.length > 0
       ) {
-        console.log(
-          `Creating student records for ${updatedAdmissions.length} approved admissions...`
-        );
 
         // Check which admissions already have student records
         const { data: existingStudents } = await (this.supabase as any)
@@ -469,10 +455,6 @@ export class AdmissionService {
           existingStudents?.map((s) => s.admission_id) || [];
         const admissionsNeedingStudents = updatedAdmissions.filter(
           (a) => !existingAdmissionIds.includes(a.id)
-        );
-
-        console.log(
-          `${admissionsNeedingStudents.length} admissions need student records`
         );
 
         // Create student records for admissions that don't have one
@@ -497,7 +479,6 @@ export class AdmissionService {
             );
             if (student) {
               results.studentsCreated++;
-              console.log(`Student created for admission ${admission.id}`);
             }
           } catch (studentError) {
             console.error(
@@ -559,10 +540,6 @@ export class AdmissionService {
     filters: AdmissionFilters = {}
   ): Promise<AdmissionListResponse> {
     try {
-      console.log(
-        'AdmissionService.getAdmissions called with filters:',
-        filters
-      );
 
       // Use Supabase's built-in join capabilities
       let query = (this.supabase as any).from('admissions').select(
@@ -633,12 +610,6 @@ export class AdmissionService {
         console.error('Supabase query error:', error);
         throw error;
       }
-
-      console.log('Query returned data:', {
-        count,
-        dataLength: admissions?.length || 0,
-        firstRecord: admissions?.[0] || null
-      });
 
       return {
         data: admissions || [],
@@ -756,10 +727,6 @@ export class AdmissionService {
     }
   ): Promise<AdmissionDashboardAnalytics> {
     try {
-      console.log(
-        '[admissions/analytics] Fetching dashboard analytics with filters:',
-        filters
-      );
 
       // Use provided client or default to class instance
       const supabase = supabaseClient || this.supabase;
@@ -770,10 +737,6 @@ export class AdmissionService {
       if (userContext) {
         if (!userContext.isSuperAdmin && userContext.institutionId) {
           effectiveFilters.institution_id = userContext.institutionId;
-          console.log(
-            '[admissions/analytics] Non-super-admin user, filtering to institution:',
-            userContext.institutionId
-          );
         }
       } else {
         // Otherwise, get current user from client-side auth
@@ -793,10 +756,6 @@ export class AdmissionService {
           profile?.is_super_admin || profile?.role === 'super_admin';
         if (!isSuperAdmin && profile?.institution_id) {
           effectiveFilters.institution_id = profile.institution_id;
-          console.log(
-            '[admissions/analytics] Non-super-admin user, filtering to institution:',
-            profile.institution_id
-          );
         }
       }
 
@@ -823,11 +782,6 @@ export class AdmissionService {
 
       // Extract overview from database function result
       const combinedOverview = combinedData?.overview || null;
-
-      console.log(
-        '[admissions/analytics] Combined overview from database:',
-        combinedOverview
-      );
 
       // Fetch admissions using pagination to bypass Supabase 1000 row limit
       let allAdmissionsData: Admission[] = [];
@@ -903,8 +857,6 @@ export class AdmissionService {
       const admissions = allAdmissionsData;
 
       const total = admissions?.length || 0;
-
-      console.log('[admissions/analytics] Processing', total, 'admissions');
 
       // Calculate overview stats
       const statusCounts = {
@@ -1010,8 +962,6 @@ export class AdmissionService {
 
       const studentsData = allStudentsData;
       const studentsError = null;
-
-      console.log('[admissions/analytics] Total students fetched with pagination:', studentsData.length, 'pages:', studentPage);
 
       // Calculate student status counts
       const studentStatusCounts: Record<string, number> = {

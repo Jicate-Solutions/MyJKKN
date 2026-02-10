@@ -263,9 +263,6 @@ export default async function LaunchDebugPage({ searchParams }: PageProps) {
     .eq('user_id', user.id)
     .single();
 
-  console.log('[LTI Launches] User role data:', userRole);
-  console.log('[LTI Launches] Role error:', roleError);
-
   // Extract custom_roles from array (Supabase joins return arrays)
   const customRole = Array.isArray(userRole?.custom_roles)
     ? userRole?.custom_roles[0]
@@ -274,18 +271,12 @@ export default async function LaunchDebugPage({ searchParams }: PageProps) {
   const roleKey = customRole?.role_key;
   const permissions = customRole?.permissions || {};
 
-  console.log('[LTI Launches] Role key:', roleKey);
-  console.log('[LTI Launches] Permissions:', permissions);
-
   // Super admin has full access, otherwise check specific permissions
   if (roleKey !== 'super_admin') {
     if (!permissions['lti.launches.view'] && !permissions['lti.monitor']) {
-      console.log('[LTI Launches] Access denied - redirecting to dashboard');
       redirect('/dashboard');
     }
   }
-
-  console.log('[LTI Launches] Access granted');
 
   // Await searchParams (Next.js 16 requirement)
   const params = await searchParams;

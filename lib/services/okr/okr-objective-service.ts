@@ -217,7 +217,6 @@ export class OKRObjectiveService {
       if (!user) throw new Error('User not authenticated');
 
       // Log input for debugging
-      console.log('[OKR] Creating objective with input:', JSON.stringify(input, null, 2));
 
       const insertData = {
         ...input,
@@ -226,8 +225,6 @@ export class OKRObjectiveService {
         status: 'draft',
         overall_progress: 0
       };
-
-      console.log('[OKR] Insert data:', JSON.stringify(insertData, null, 2));
 
       const { data, error } = await (this.getSupabase() as any)
         .from('okr_objectives')
@@ -279,7 +276,6 @@ export class OKRObjectiveService {
         console.error('[OKR] Auth error or no user for update:', authError?.message || 'No user session');
         throw new Error('Authentication required. Please log in again.');
       }
-      console.log('[OKR] Updating objective. User:', user.id, 'Objective ID:', id);
 
       const { data, error } = await (this.getSupabase() as any)
         .from('okr_objectives')

@@ -329,13 +329,8 @@ export async function proxy(request: NextRequest) {
 
     // Student Role Access Control
     if (profile.role === 'student') {
-      console.log('[Proxy] 🎓 Student detected:', user.id, 'path:', currentPath);
-      console.log('[Proxy] Feature flag ENABLE_STUDENT_PORTAL:', FEATURE_FLAGS.ENABLE_STUDENT_PORTAL);
-
       // Check feature flag first
       if (!FEATURE_FLAGS.ENABLE_STUDENT_PORTAL) {
-        // Feature disabled - block all students (original behavior)
-        console.log('[Proxy] ❌ Student portal DISABLED - blocking student');
 
         if (currentPath === '/auth/login') {
           const response = NextResponse.next();
@@ -351,21 +346,9 @@ export async function proxy(request: NextRequest) {
         await supabase.auth.signOut();
         return studentBlockedResponse;
       } else {
-        // Feature enabled - validate student lifecycle status
-        console.log('[Proxy] ✅ Student portal ENABLED - validating access...');
-
         const validation = await StudentValidationService.validateStudentAccess(user.id);
 
-        console.log('[Proxy] Validation result:', {
-          allowed: validation.allowed,
-          reason: validation.reason,
-          status: validation.status,
-          isGraduated: validation.isGraduated
-        });
-
         if (!validation.allowed) {
-          // Student blocked due to lifecycle status
-          console.log('[Proxy] ❌ Student BLOCKED - reason:', validation.reason);
 
           if (currentPath === '/auth/login') {
             const response = NextResponse.next();
@@ -382,7 +365,6 @@ export async function proxy(request: NextRequest) {
           return blockedResponse;
         } else {
           // Student allowed - continue to requested page
-          console.log('[Proxy] ✅ Student ALLOWED - continuing to:', currentPath);
           // Don't return here - let the middleware continue processing
         }
       }

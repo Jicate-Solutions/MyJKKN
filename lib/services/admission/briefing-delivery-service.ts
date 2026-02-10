@@ -207,17 +207,15 @@ export async function getTodaysBriefing(institutionId: string): Promise<Briefing
     .eq('institution_id', institutionId)
     .eq('briefing_date', today)
     .eq('status', 'published')
-    .single();
+    .order('created_at', { ascending: false })
+    .limit(1);
 
   if (error) {
-    if (error.code === 'PGRST116') {
-      return null;
-    }
     console.error('[admission/briefing-delivery] Error fetching today\'s briefing:', error);
     return null;
   }
 
-  return data as Briefing;
+  return (data?.[0] as Briefing) || null;
 }
 
 // ============================================
@@ -238,12 +236,14 @@ export async function deliverBriefing(input: DeliverBriefingInput): Promise<Brie
 
   for (const userId of input.user_ids) {
     // Check if notification already exists for this user and briefing
-    const { data: existing } = await (supabase as any)
+    const { data: existingRows } = await (supabase as any)
       .from('admission_briefing_notifications')
       .select('id')
       .eq('user_id', userId)
       .eq('briefing_id', input.briefing_id)
-      .single();
+      .limit(1);
+
+    const existing = existingRows?.[0];
 
     if (existing) {
       // Skip if already delivered

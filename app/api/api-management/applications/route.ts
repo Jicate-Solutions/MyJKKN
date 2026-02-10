@@ -106,7 +106,6 @@ export async function GET(request: NextRequest) {
     const userRole = keyData.metadata?.role || 'guest';
 
     // Debug log for role-based filtering
-    console.log('Using role for filtering:', userRole);
 
     // Get query parameters for filtering
     const url = new URL(request.url);
@@ -216,9 +215,6 @@ export async function GET(request: NextRequest) {
     );
 
     // Debug log the number of applications returned
-    console.log(
-      `Found ${processedApplications.length} applications after filtering by role: ${userRole}`
-    );
 
     return NextResponse.json(
       {

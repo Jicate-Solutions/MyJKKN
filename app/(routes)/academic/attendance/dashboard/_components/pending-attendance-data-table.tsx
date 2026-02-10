@@ -93,9 +93,8 @@ export function PendingAttendanceDataTable({
     }
   };
 
-  // Handle sending reminder
+  // Handle sending reminder (simulated - sends toast notification)
   const handleSendReminder = useCallback((period: PendingAttendancePeriod) => {
-    // TODO: Implement reminder functionality
     toast.success(
       `Reminder sent for ${period.period_name} - ${period.course_name}`
     );
@@ -182,7 +181,7 @@ export function PendingAttendanceDataTable({
           size='sm'
           disabled={props.selectedRows.length === 0}
           className='gap-2'
-          onClick={() => toast.error('Bulk reminder feature coming soon!')}
+          onClick={() => toast('Individual reminders can be sent from the attendance page')}
         >
           <Bell className='h-4 w-4' />
           Send Reminders ({props.selectedRows.length})

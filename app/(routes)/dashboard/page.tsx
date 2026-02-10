@@ -5,7 +5,6 @@ import { DashboardBentoGrid } from './_components/dashboard-bento-grid';
 import { LoadingSkeleton } from '@/components/loading-skeleton';
 
 export default async function DashboardPage() {
-  console.log('[Dashboard Page] 🏠 Dashboard page loaded');
 
   return (
     <ContentLayout title='Dashboard'>

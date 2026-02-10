@@ -373,7 +373,10 @@ export default function OKRCascadePage() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Cascades</SelectItem>
-                    {/* TODO: Add institution/department filters */}
+                    <SelectItem value="institution">Institution Level</SelectItem>
+                    <SelectItem value="department">Department Level</SelectItem>
+                    <SelectItem value="team">Team Level</SelectItem>
+                    <SelectItem value="individual">Individual Level</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

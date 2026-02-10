@@ -134,12 +134,6 @@ export function useAttendanceRoster() {
         isSuperAdmin?: boolean;
       } = {}
     ) => {
-      console.log(
-        'fetchAvailablePeriods called with context:',
-        context,
-        'options:',
-        options
-      );
 
       if (
         !context.institution_id ||
@@ -150,15 +144,6 @@ export function useAttendanceRoster() {
         !context.semester_id ||
         !context.attendance_date
       ) {
-        console.log('Missing required fields for period fetch:', {
-          institution_id: !!context.institution_id,
-          academic_year_id: !!context.academic_year_id,
-          degree_id: !!context.degree_id,
-          program_id: !!context.program_id,
-          department_id: !!context.department_id,
-          semester_id: !!context.semester_id,
-          attendance_date: !!context.attendance_date
-        });
         setAvailablePeriods([]);
         return;
       }
@@ -166,16 +151,6 @@ export function useAttendanceRoster() {
       try {
         setLoading(true);
         setError(null);
-
-        console.log('Fetching periods with filters:', {
-          institution_id: context.institution_id,
-          academic_year_id: context.academic_year_id,
-          degree_id: context.degree_id,
-          program_id: context.program_id,
-          department_id: context.department_id,
-          semester: context.semester_id,
-          section: context.section_id || undefined
-        });
 
         const periods = await AttendanceService.getAvailablePeriodsForDate(
           {
@@ -191,7 +166,6 @@ export function useAttendanceRoster() {
           options
         );
 
-        console.log('Fetched periods:', periods);
         setAvailablePeriods(periods);
       } catch (err) {
         console.error('Error fetching available periods:', err);
@@ -752,11 +726,6 @@ export function useAttendancePeriods(
 
   const fetchPeriods = useCallback(
     async (context: AttendanceSearchContext) => {
-      console.log(
-        '🔍 useAttendancePeriods fetchPeriods called with context:',
-        context
-      );
-      console.log('🔍 enabled:', enabled);
 
       // Check which fields are missing
       const missing = [];
@@ -769,7 +738,6 @@ export function useAttendancePeriods(
       if (!context.attendance_date) missing.push('attendance_date');
 
       if (missing.length > 0) {
-        console.log('❌ Missing required fields:', missing);
       }
 
       if (
@@ -782,15 +750,11 @@ export function useAttendancePeriods(
         !context.semester_id ||
         !context.attendance_date
       ) {
-        console.log(
-          '⚠️ Skipping periods fetch - missing required fields or disabled'
-        );
         setPeriods([]);
         return;
       }
 
       try {
-        console.log('✅ All required fields present, fetching periods...');
         setLoading(true);
         setError(null);
 
@@ -811,8 +775,6 @@ export function useAttendancePeriods(
           }
         );
 
-        console.log('🎯 Service returned periods:', periods);
-        console.log('🎯 Number of periods found:', periods?.length || 0);
         setPeriods(periods);
       } catch (err) {
         console.error('❌ Error fetching periods:', err);

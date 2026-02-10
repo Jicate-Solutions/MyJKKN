@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -12,7 +12,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
-import { format, addDays, startOfWeek, endOfWeek, eachDayOfInterval, isSameDay, isToday, isBefore, addMinutes, parse } from 'date-fns';
+import { Skeleton } from '@/components/ui/skeleton';
+import { format, addDays, startOfWeek, endOfWeek, eachDayOfInterval, isSameDay, isToday } from 'date-fns';
 import {
   Calendar,
   Clock,
@@ -23,16 +24,13 @@ import {
   MapPin,
   UserCheck,
   Plus,
-  Filter,
   Download,
   Mail,
   Phone,
-  Building2,
   GraduationCap,
   CalendarPlus,
   RefreshCw,
   CheckCircle2,
-  XCircle,
   AlertCircle,
   Search,
   Settings,
@@ -41,154 +39,44 @@ import {
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { AdmissionErrorBoundary } from '@/components/admission';
-
-// Types
-interface InterviewSlot {
-  id: string;
-  date: string;
-  startTime: string;
-  endTime: string;
-  type: 'online' | 'in-person';
-  venue?: string;
-  meetingLink?: string;
-  programId: string;
-  programName: string;
-  maxCapacity: number;
-  bookedCount: number;
-  panelMembers: PanelMember[];
-  status: 'available' | 'full' | 'cancelled';
-}
-
-interface PanelMember {
-  id: string;
-  name: string;
-  role: string;
-  email: string;
-  avatar?: string;
-}
-
-interface BookedInterview {
-  id: string;
-  slotId: string;
-  applicantId: string;
-  applicantName: string;
-  applicantEmail: string;
-  applicantPhone: string;
-  applicationNumber: string;
-  programApplied: string;
-  bookedAt: string;
-  status: 'scheduled' | 'completed' | 'no-show' | 'rescheduled' | 'cancelled';
-  remindersSent: number;
-  feedback?: {
-    rating: number;
-    notes: string;
-    recommendation: 'accept' | 'reject' | 'waitlist';
-  };
-}
-
-// Sample data
-const SAMPLE_PANEL_MEMBERS: PanelMember[] = [
-  { id: 'p1', name: 'Dr. Senthil Kumar', role: 'HOD - Computer Science', email: 'senthil@jkkn.edu.in' },
-  { id: 'p2', name: 'Prof. Lakshmi Priya', role: 'Associate Professor', email: 'lakshmi@jkkn.edu.in' },
-  { id: 'p3', name: 'Mr. Rajesh Kumar', role: 'Industry Expert', email: 'rajesh@techcorp.com' },
-  { id: 'p4', name: 'Dr. Anitha Devi', role: 'Dean - Admissions', email: 'anitha@jkkn.edu.in' },
-];
-
-const PROGRAMS = [
-  { id: 'btech-cse', name: 'B.Tech Computer Science' },
-  { id: 'btech-ece', name: 'B.Tech Electronics' },
-  { id: 'mba', name: 'MBA' },
-  { id: 'bpharm', name: 'B.Pharm' },
-  { id: 'mca', name: 'MCA' },
-];
-
-const generateSampleSlots = (): InterviewSlot[] => {
-  const slots: InterviewSlot[] = [];
-  const today = new Date();
-
-  for (let i = 1; i <= 14; i++) {
-    const date = addDays(today, i);
-    if (date.getDay() === 0) continue; // Skip Sundays
-
-    // Morning slots
-    slots.push({
-      id: `slot-${i}-1`,
-      date: format(date, 'yyyy-MM-dd'),
-      startTime: '09:00',
-      endTime: '10:00',
-      type: i % 3 === 0 ? 'online' : 'in-person',
-      venue: i % 3 !== 0 ? 'Interview Room 101, Main Building' : undefined,
-      meetingLink: i % 3 === 0 ? 'https://meet.jkkn.edu.in/interview-001' : undefined,
-      programId: PROGRAMS[i % PROGRAMS.length].id,
-      programName: PROGRAMS[i % PROGRAMS.length].name,
-      maxCapacity: 10,
-      bookedCount: Math.floor(Math.random() * 8),
-      panelMembers: [SAMPLE_PANEL_MEMBERS[0], SAMPLE_PANEL_MEMBERS[1]],
-      status: 'available',
-    });
-
-    // Afternoon slots
-    slots.push({
-      id: `slot-${i}-2`,
-      date: format(date, 'yyyy-MM-dd'),
-      startTime: '14:00',
-      endTime: '15:00',
-      type: 'online',
-      meetingLink: 'https://meet.jkkn.edu.in/interview-002',
-      programId: PROGRAMS[(i + 1) % PROGRAMS.length].id,
-      programName: PROGRAMS[(i + 1) % PROGRAMS.length].name,
-      maxCapacity: 8,
-      bookedCount: Math.floor(Math.random() * 6),
-      panelMembers: [SAMPLE_PANEL_MEMBERS[2], SAMPLE_PANEL_MEMBERS[3]],
-      status: 'available',
-    });
-  }
-
-  return slots;
-};
-
-const generateSampleBookings = (slots: InterviewSlot[]): BookedInterview[] => {
-  const bookings: BookedInterview[] = [];
-  const firstNames = ['Arun', 'Priya', 'Karthik', 'Divya', 'Rahul', 'Sneha', 'Vijay', 'Meera'];
-  const lastNames = ['Kumar', 'Sharma', 'Patel', 'Reddy', 'Nair', 'Singh', 'Menon', 'Das'];
-
-  slots.forEach((slot, idx) => {
-    for (let i = 0; i < slot.bookedCount; i++) {
-      const firstName = firstNames[Math.floor(Math.random() * firstNames.length)];
-      const lastName = lastNames[Math.floor(Math.random() * lastNames.length)];
-      bookings.push({
-        id: `booking-${slot.id}-${i}`,
-        slotId: slot.id,
-        applicantId: `app-${idx}-${i}`,
-        applicantName: `${firstName} ${lastName}`,
-        applicantEmail: `${firstName.toLowerCase()}.${lastName.toLowerCase()}@gmail.com`,
-        applicantPhone: `+91 ${9000000000 + Math.floor(Math.random() * 999999999)}`,
-        applicationNumber: `JKKN-2024-${String(1000 + idx * 10 + i).padStart(5, '0')}`,
-        programApplied: slot.programName,
-        bookedAt: format(addDays(new Date(), -Math.floor(Math.random() * 7)), 'yyyy-MM-dd'),
-        status: Math.random() > 0.2 ? 'scheduled' : 'completed',
-        remindersSent: Math.floor(Math.random() * 3),
-      });
-    }
-  });
-
-  return bookings;
-};
+import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
+import {
+  useInterviewSlots,
+  useInterviewBookings,
+  useInterviewStats,
+  useCreateInterviewSlot,
+  useBookingsForSlot,
+} from '@/hooks/admission/use-interviews';
 
 function InterviewSchedulingPageContent() {
+  const { selectedInstitutionId: institutionId, loading: institutionLoading } = useUserInstitutionAccess();
   const [currentWeekStart, setCurrentWeekStart] = useState(startOfWeek(new Date(), { weekStartsOn: 1 }));
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
-  const [selectedSlot, setSelectedSlot] = useState<InterviewSlot | null>(null);
+  const [selectedSlotId, setSelectedSlotId] = useState<string | null>(null);
   const [selectedProgram, setSelectedProgram] = useState<string>('all');
   const [selectedType, setSelectedType] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [showCreateSlotDialog, setShowCreateSlotDialog] = useState(false);
   const [activeTab, setActiveTab] = useState('calendar');
-  const [isCreatingSlot, setIsCreatingSlot] = useState(false);
   const [isSendingReminders, setIsSendingReminders] = useState(false);
 
-  const [slots] = useState<InterviewSlot[]>(generateSampleSlots);
-  const [bookings] = useState<BookedInterview[]>(() => generateSampleBookings(slots));
+  // Build filters
+  const slotFilters = useMemo(() => {
+    const filters: { program_id?: string; is_online?: boolean } = {};
+    if (selectedProgram !== 'all') filters.program_id = selectedProgram;
+    if (selectedType === 'online') filters.is_online = true;
+    if (selectedType === 'in-person') filters.is_online = false;
+    return filters;
+  }, [selectedProgram, selectedType]);
+
+  // Hooks for real data
+  const { slots, isLoading: slotsLoading } = useInterviewSlots(institutionId, slotFilters);
+  const { bookings, isLoading: bookingsLoading } = useInterviewBookings(institutionId);
+  const { stats, isLoading: statsLoading } = useInterviewStats(institutionId);
+  const { bookings: selectedSlotBookings } = useBookingsForSlot(selectedSlotId || undefined);
+  const createSlotMutation = useCreateInterviewSlot();
+
+  const selectedSlot = useMemo(() => slots.find(s => s.id === selectedSlotId) || null, [slots, selectedSlotId]);
 
   // New slot form state
   const [newSlot, setNewSlot] = useState({
@@ -200,7 +88,6 @@ function InterviewSchedulingPageContent() {
     meetingLink: '',
     programId: '',
     maxCapacity: 10,
-    panelMemberIds: [] as string[],
   });
 
   const weekDays = useMemo(() => {
@@ -210,42 +97,41 @@ function InterviewSchedulingPageContent() {
     });
   }, [currentWeekStart]);
 
-  const filteredSlots = useMemo(() => {
-    return slots.filter(slot => {
-      if (selectedProgram !== 'all' && slot.programId !== selectedProgram) return false;
-      if (selectedType !== 'all' && slot.type !== selectedType) return false;
-      return true;
-    });
-  }, [slots, selectedProgram, selectedType]);
-
   const getSlotsForDate = (date: Date) => {
     const dateStr = format(date, 'yyyy-MM-dd');
-    return filteredSlots.filter(slot => slot.date === dateStr);
+    return slots.filter(slot => slot.slot_date === dateStr);
   };
-
-  const getBookingsForSlot = (slotId: string) => {
-    return bookings.filter(b => b.slotId === slotId);
-  };
-
-  const stats = useMemo(() => {
-    const totalSlots = slots.length;
-    const totalCapacity = slots.reduce((acc, s) => acc + s.maxCapacity, 0);
-    const totalBooked = slots.reduce((acc, s) => acc + s.bookedCount, 0);
-    const todaySlots = slots.filter(s => s.date === format(new Date(), 'yyyy-MM-dd')).length;
-    const completedInterviews = bookings.filter(b => b.status === 'completed').length;
-
-    return { totalSlots, totalCapacity, totalBooked, todaySlots, completedInterviews };
-  }, [slots, bookings]);
 
   const filteredBookings = useMemo(() => {
     if (!searchQuery.trim()) return bookings;
     const query = searchQuery.toLowerCase();
-    return bookings.filter(b =>
-      b.applicantName.toLowerCase().includes(query) ||
-      b.applicationNumber.toLowerCase().includes(query) ||
-      b.applicantEmail.toLowerCase().includes(query)
-    );
+    return bookings.filter(b => {
+      const appNum = b.admission_applications?.application_number || '';
+      return appNum.toLowerCase().includes(query) ||
+        b.application_id.toLowerCase().includes(query);
+    });
   }, [bookings, searchQuery]);
+
+  // Get unique program IDs from slots for filter
+  const programIds = useMemo(() => {
+    return [...new Set(slots.map(s => s.program_id).filter(Boolean))] as string[];
+  }, [slots]);
+
+  const isLoading = institutionLoading || slotsLoading;
+
+  if (isLoading) {
+    return (
+      <div className="container mx-auto py-6 space-y-6">
+        <Skeleton className="h-8 w-64" />
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <Skeleton key={i} className="h-24" />
+          ))}
+        </div>
+        <Skeleton className="h-[400px]" />
+      </div>
+    );
+  }
 
   return (
     <div className="container mx-auto py-6 space-y-6">
@@ -291,17 +177,12 @@ function InterviewSchedulingPageContent() {
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label>Program</Label>
-                    <Select value={newSlot.programId} onValueChange={(v) => setNewSlot({ ...newSlot, programId: v })}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select program" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {PROGRAMS.map(p => (
-                          <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <Label>Program ID</Label>
+                    <Input
+                      placeholder="e.g., btech-cse"
+                      value={newSlot.programId}
+                      onChange={(e) => setNewSlot({ ...newSlot, programId: e.target.value })}
+                    />
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
@@ -365,37 +246,31 @@ function InterviewSchedulingPageContent() {
                     />
                   </div>
                 )}
-                <div className="space-y-2">
-                  <Label>Panel Members</Label>
-                  <Select>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Add panel members" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {SAMPLE_PANEL_MEMBERS.map(p => (
-                        <SelectItem key={p.id} value={p.id}>
-                          {p.name} - {p.role}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
               </div>
               <DialogFooter>
-                <Button variant="outline" onClick={() => setShowCreateSlotDialog(false)} disabled={isCreatingSlot}>Cancel</Button>
+                <Button variant="outline" onClick={() => setShowCreateSlotDialog(false)} disabled={createSlotMutation.isPending}>Cancel</Button>
                 <Button
                   className="bg-[#0b6d41] hover:bg-[#095535]"
-                  disabled={isCreatingSlot}
-                  onClick={async () => {
-                    setIsCreatingSlot(true);
-                    // Simulate async operation
-                    await new Promise(resolve => setTimeout(resolve, 1000));
-                    toast.success('Interview slot created successfully');
-                    setIsCreatingSlot(false);
-                    setShowCreateSlotDialog(false);
+                  disabled={createSlotMutation.isPending}
+                  onClick={() => {
+                    if (!institutionId) return;
+                    createSlotMutation.mutate({
+                      institution_id: institutionId,
+                      slot_date: newSlot.date,
+                      start_time: newSlot.startTime,
+                      end_time: newSlot.endTime,
+                      capacity: newSlot.maxCapacity,
+                      is_online: newSlot.type === 'online',
+                      interview_type: 'interview',
+                      location: newSlot.type === 'in-person' ? newSlot.venue : undefined,
+                      meeting_link: newSlot.type === 'online' ? newSlot.meetingLink : undefined,
+                      program_id: newSlot.programId || undefined,
+                    }, {
+                      onSuccess: () => setShowCreateSlotDialog(false),
+                    });
                   }}
                 >
-                  {isCreatingSlot ? (
+                  {createSlotMutation.isPending ? (
                     <>
                       <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                       Creating...
@@ -471,7 +346,7 @@ function InterviewSchedulingPageContent() {
                 <CheckCircle2 className="h-5 w-5 text-emerald-600" />
               </div>
               <div>
-                <p className="text-2xl font-bold">{stats.completedInterviews}</p>
+                <p className="text-2xl font-bold">{stats.completedBookings}</p>
                 <p className="text-xs text-gray-500">Completed</p>
               </div>
             </div>
@@ -496,8 +371,8 @@ function InterviewSchedulingPageContent() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Programs</SelectItem>
-                  {PROGRAMS.map(p => (
-                    <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                  {programIds.map(p => (
+                    <SelectItem key={p} value={p}>{p}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -590,12 +465,12 @@ function InterviewSchedulingPageContent() {
                               key={slot.id}
                               className={cn(
                                 "text-[10px] px-1 py-0.5 rounded truncate",
-                                slot.type === 'online'
+                                slot.is_online
                                   ? "bg-blue-100 text-blue-700"
                                   : "bg-orange-100 text-orange-700"
                               )}
                             >
-                              {slot.startTime}
+                              {slot.start_time}
                             </div>
                           ))}
                           {getSlotsForDate(day).length > 2 && (
@@ -644,41 +519,45 @@ function InterviewSchedulingPageContent() {
                             key={slot.id}
                             className={cn(
                               "p-3 border rounded-lg cursor-pointer transition-all",
-                              selectedSlot?.id === slot.id
+                              selectedSlotId === slot.id
                                 ? "border-[#0b6d41] bg-[#0b6d41]/5"
                                 : "border-gray-200 hover:border-gray-300"
                             )}
-                            onClick={() => setSelectedSlot(slot)}
+                            onClick={() => setSelectedSlotId(slot.id)}
                           >
                             <div className="flex items-center justify-between mb-2">
                               <div className="flex items-center gap-2">
                                 <Clock className="h-4 w-4 text-gray-400" />
                                 <span className="font-medium">
-                                  {slot.startTime} - {slot.endTime}
+                                  {slot.start_time} - {slot.end_time}
                                 </span>
                               </div>
-                              <Badge variant={slot.type === 'online' ? 'default' : 'secondary'}>
-                                {slot.type === 'online' ? (
+                              <Badge variant={slot.is_online ? 'default' : 'secondary'}>
+                                {slot.is_online ? (
                                   <><Video className="h-3 w-3 mr-1" /> Online</>
                                 ) : (
                                   <><MapPin className="h-3 w-3 mr-1" /> In-Person</>
                                 )}
                               </Badge>
                             </div>
-                            <div className="text-sm text-gray-600 mb-2">
-                              <GraduationCap className="h-3 w-3 inline mr-1" />
-                              {slot.programName}
-                            </div>
+                            {slot.program_id && (
+                              <div className="text-sm text-gray-600 mb-2">
+                                <GraduationCap className="h-3 w-3 inline mr-1" />
+                                {slot.program_id}
+                              </div>
+                            )}
                             <div className="flex items-center justify-between text-sm">
                               <span className={cn(
-                                slot.bookedCount >= slot.maxCapacity ? "text-red-600" : "text-gray-500"
+                                (slot.booked_count || 0) >= slot.capacity ? "text-red-600" : "text-gray-500"
                               )}>
                                 <Users className="h-3 w-3 inline mr-1" />
-                                {slot.bookedCount}/{slot.maxCapacity} booked
+                                {slot.booked_count || 0}/{slot.capacity} booked
                               </span>
-                              <span className="text-xs text-gray-400">
-                                {slot.panelMembers.length} panelists
-                              </span>
+                              {slot.default_panel_members && (
+                                <span className="text-xs text-gray-400">
+                                  {slot.default_panel_members.length} panelists
+                                </span>
+                              )}
                             </div>
                           </div>
                         ))
@@ -701,8 +580,10 @@ function InterviewSchedulingPageContent() {
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <div>
-                    <CardTitle>Slot Details: {selectedSlot.startTime} - {selectedSlot.endTime}</CardTitle>
-                    <CardDescription>{selectedSlot.programName} | {format(new Date(selectedSlot.date), 'EEEE, MMMM d, yyyy')}</CardDescription>
+                    <CardTitle>Slot Details: {selectedSlot.start_time} - {selectedSlot.end_time}</CardTitle>
+                    <CardDescription>
+                      {selectedSlot.program_id || 'All Programs'} | {format(new Date(selectedSlot.slot_date), 'EEEE, MMMM d, yyyy')}
+                    </CardDescription>
                   </div>
                   <div className="flex items-center gap-2">
                     <Button
@@ -711,7 +592,6 @@ function InterviewSchedulingPageContent() {
                       disabled={isSendingReminders}
                       onClick={async () => {
                         setIsSendingReminders(true);
-                        // Simulate async operation
                         await new Promise(resolve => setTimeout(resolve, 1500));
                         toast.success('Reminders sent to all booked applicants');
                         setIsSendingReminders(false);
@@ -743,7 +623,7 @@ function InterviewSchedulingPageContent() {
                     <h4 className="font-medium text-sm text-gray-500 uppercase">Slot Information</h4>
                     <div className="space-y-3">
                       <div className="flex items-center gap-2 text-sm">
-                        {selectedSlot.type === 'online' ? (
+                        {selectedSlot.is_online ? (
                           <>
                             <Video className="h-4 w-4 text-blue-500" />
                             <span>Online Interview</span>
@@ -751,21 +631,21 @@ function InterviewSchedulingPageContent() {
                         ) : (
                           <>
                             <MapPin className="h-4 w-4 text-orange-500" />
-                            <span>{selectedSlot.venue}</span>
+                            <span>{selectedSlot.location || 'No venue specified'}</span>
                           </>
                         )}
                       </div>
-                      {selectedSlot.meetingLink && (
+                      {selectedSlot.meeting_link && (
                         <div className="text-sm">
                           <span className="text-gray-500">Meeting Link:</span>
-                          <a href={selectedSlot.meetingLink} className="text-blue-600 hover:underline ml-1 break-all">
-                            {selectedSlot.meetingLink}
+                          <a href={selectedSlot.meeting_link} className="text-blue-600 hover:underline ml-1 break-all">
+                            {selectedSlot.meeting_link}
                           </a>
                         </div>
                       )}
                       <div className="flex items-center gap-2 text-sm">
                         <Users className="h-4 w-4 text-gray-400" />
-                        <span>{selectedSlot.bookedCount} of {selectedSlot.maxCapacity} seats booked</span>
+                        <span>{selectedSlot.booked_count || 0} of {selectedSlot.capacity} seats booked</span>
                       </div>
                     </div>
                   </div>
@@ -774,17 +654,21 @@ function InterviewSchedulingPageContent() {
                   <div className="space-y-4">
                     <h4 className="font-medium text-sm text-gray-500 uppercase">Panel Members</h4>
                     <div className="space-y-2">
-                      {selectedSlot.panelMembers.map(member => (
-                        <div key={member.id} className="flex items-center gap-3 p-2 bg-gray-50 rounded-lg">
-                          <div className="h-8 w-8 bg-[#0b6d41] rounded-full flex items-center justify-center text-white text-sm font-medium">
-                            {member.name.split(' ').map(n => n[0]).join('')}
+                      {(selectedSlot.default_panel_members || []).length > 0 ? (
+                        (selectedSlot.default_panel_members || []).map((memberId, idx) => (
+                          <div key={memberId} className="flex items-center gap-3 p-2 bg-gray-50 rounded-lg">
+                            <div className="h-8 w-8 bg-[#0b6d41] rounded-full flex items-center justify-center text-white text-sm font-medium">
+                              P{idx + 1}
+                            </div>
+                            <div>
+                              <p className="text-sm font-medium">{memberId.substring(0, 8)}...</p>
+                              <p className="text-xs text-gray-500">Panel Member</p>
+                            </div>
                           </div>
-                          <div>
-                            <p className="text-sm font-medium">{member.name}</p>
-                            <p className="text-xs text-gray-500">{member.role}</p>
-                          </div>
-                        </div>
-                      ))}
+                        ))
+                      ) : (
+                        <p className="text-sm text-gray-500">No panel members assigned</p>
+                      )}
                       <Button variant="outline" size="sm" className="w-full" onClick={() => toast.success('Panel member added to slot')}>
                         <Plus className="h-4 w-4 mr-2" />
                         Add Panel Member
@@ -794,13 +678,15 @@ function InterviewSchedulingPageContent() {
 
                   {/* Booked Applicants */}
                   <div className="space-y-4">
-                    <h4 className="font-medium text-sm text-gray-500 uppercase">Booked Applicants ({getBookingsForSlot(selectedSlot.id).length})</h4>
+                    <h4 className="font-medium text-sm text-gray-500 uppercase">Booked Applicants ({selectedSlotBookings.length})</h4>
                     <ScrollArea className="h-[200px]">
                       <div className="space-y-2">
-                        {getBookingsForSlot(selectedSlot.id).map(booking => (
+                        {selectedSlotBookings.map(booking => (
                           <div key={booking.id} className="p-2 bg-gray-50 rounded-lg">
                             <div className="flex items-center justify-between">
-                              <p className="text-sm font-medium">{booking.applicantName}</p>
+                              <p className="text-sm font-medium">
+                                {booking.admission_applications?.application_number || booking.application_id.substring(0, 8)}
+                              </p>
                               <Badge
                                 variant={booking.status === 'completed' ? 'default' : 'secondary'}
                                 className={cn(
@@ -810,14 +696,10 @@ function InterviewSchedulingPageContent() {
                                 {booking.status}
                               </Badge>
                             </div>
-                            <p className="text-xs text-gray-500">{booking.applicationNumber}</p>
-                            <div className="flex items-center gap-2 mt-1">
-                              <Phone className="h-3 w-3 text-gray-400" />
-                              <span className="text-xs text-gray-500">{booking.applicantPhone}</span>
-                            </div>
+                            <p className="text-xs text-gray-500">{booking.application_id.substring(0, 12)}...</p>
                           </div>
                         ))}
-                        {getBookingsForSlot(selectedSlot.id).length === 0 && (
+                        {selectedSlotBookings.length === 0 && (
                           <p className="text-sm text-gray-500 text-center py-4">No bookings yet</p>
                         )}
                       </div>
@@ -832,39 +714,50 @@ function InterviewSchedulingPageContent() {
         <TabsContent value="bookings" className="mt-4">
           <Card>
             <CardContent className="pt-6">
-              <div className="rounded-lg border">
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b bg-gray-50">
-                      <th className="text-left p-3 text-sm font-medium text-gray-500">Applicant</th>
-                      <th className="text-left p-3 text-sm font-medium text-gray-500">Application #</th>
-                      <th className="text-left p-3 text-sm font-medium text-gray-500">Program</th>
-                      <th className="text-left p-3 text-sm font-medium text-gray-500">Interview Date</th>
-                      <th className="text-left p-3 text-sm font-medium text-gray-500">Status</th>
-                      <th className="text-left p-3 text-sm font-medium text-gray-500">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredBookings.slice(0, 20).map(booking => {
-                      const slot = slots.find(s => s.id === booking.slotId);
-                      return (
+              {bookingsLoading ? (
+                <div className="space-y-3">
+                  {Array.from({ length: 5 }).map((_, i) => (
+                    <Skeleton key={i} className="h-16" />
+                  ))}
+                </div>
+              ) : (
+                <div className="rounded-lg border">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b bg-gray-50">
+                        <th className="text-left p-3 text-sm font-medium text-gray-500">Application</th>
+                        <th className="text-left p-3 text-sm font-medium text-gray-500">Slot</th>
+                        <th className="text-left p-3 text-sm font-medium text-gray-500">Interview Date</th>
+                        <th className="text-left p-3 text-sm font-medium text-gray-500">Status</th>
+                        <th className="text-left p-3 text-sm font-medium text-gray-500">Outcome</th>
+                        <th className="text-left p-3 text-sm font-medium text-gray-500">Score</th>
+                        <th className="text-left p-3 text-sm font-medium text-gray-500">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredBookings.slice(0, 20).map(booking => (
                         <tr key={booking.id} className="border-b last:border-0 hover:bg-gray-50">
                           <td className="p-3">
                             <div>
-                              <p className="font-medium text-sm">{booking.applicantName}</p>
-                              <p className="text-xs text-gray-500">{booking.applicantEmail}</p>
+                              <p className="font-medium text-sm">
+                                {booking.admission_applications?.application_number || 'N/A'}
+                              </p>
+                              <p className="text-xs text-gray-500">{booking.application_id.substring(0, 12)}</p>
                             </div>
                           </td>
                           <td className="p-3">
-                            <span className="text-sm font-mono">{booking.applicationNumber}</span>
-                          </td>
-                          <td className="p-3">
-                            <span className="text-sm">{booking.programApplied}</span>
+                            <span className="text-sm font-mono">{booking.slot_id.substring(0, 8)}</span>
                           </td>
                           <td className="p-3">
                             <div className="text-sm">
-                              <p>{slot ? format(new Date(slot.date), 'MMM d, yyyy') : '-'}</p>
-                              <p className="text-xs text-gray-500">{slot?.startTime} - {slot?.endTime}</p>
+                              {booking.interview_slots ? (
+                                <>
+                                  <p>{format(new Date(booking.interview_slots.slot_date), 'MMM d, yyyy')}</p>
+                                  <p className="text-xs text-gray-500">{booking.interview_slots.start_time} - {booking.interview_slots.end_time}</p>
+                                </>
+                              ) : (
+                                <span className="text-gray-400">-</span>
+                              )}
                             </div>
                           </td>
                           <td className="p-3">
@@ -873,7 +766,7 @@ function InterviewSchedulingPageContent() {
                               className={cn(
                                 booking.status === 'completed' && "bg-green-100 text-green-700",
                                 booking.status === 'scheduled' && "bg-blue-100 text-blue-700",
-                                booking.status === 'no-show' && "bg-red-100 text-red-700",
+                                booking.status === 'no_show' && "bg-red-100 text-red-700",
                                 booking.status === 'cancelled' && "bg-gray-100 text-gray-700"
                               )}
                             >
@@ -881,24 +774,52 @@ function InterviewSchedulingPageContent() {
                             </Badge>
                           </td>
                           <td className="p-3">
+                            {booking.outcome ? (
+                              <Badge
+                                variant="secondary"
+                                className={cn(
+                                  booking.outcome === 'selected' && "bg-green-100 text-green-700",
+                                  booking.outcome === 'rejected' && "bg-red-100 text-red-700",
+                                  booking.outcome === 'waitlisted' && "bg-yellow-100 text-yellow-700",
+                                  booking.outcome === 'pending' && "bg-gray-100 text-gray-700"
+                                )}
+                              >
+                                {booking.outcome}
+                              </Badge>
+                            ) : (
+                              <span className="text-gray-400">-</span>
+                            )}
+                          </td>
+                          <td className="p-3">
+                            {booking.score !== null ? (
+                              <span className="font-medium">{booking.score}</span>
+                            ) : (
+                              <span className="text-gray-400">-</span>
+                            )}
+                          </td>
+                          <td className="p-3">
                             <div className="flex items-center gap-1">
-                              <Button variant="ghost" size="sm" onClick={() => toast.success(`Email sent to ${booking.applicantName}`)}>
+                              <Button variant="ghost" size="sm" onClick={() => toast.success('Opening booking details...')}>
                                 <Mail className="h-4 w-4" />
                               </Button>
-                              <Button variant="ghost" size="sm" onClick={() => toast.success(`Calling ${booking.applicantName}...`)}>
-                                <Phone className="h-4 w-4" />
-                              </Button>
-                              <Button variant="ghost" size="sm" onClick={() => toast.success('Interview rescheduled successfully')}>
+                              <Button variant="ghost" size="sm" onClick={() => toast.success('Reschedule initiated')}>
                                 <RefreshCw className="h-4 w-4" />
                               </Button>
                             </div>
                           </td>
                         </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
+                      ))}
+                      {filteredBookings.length === 0 && (
+                        <tr>
+                          <td colSpan={7} className="p-8 text-center text-gray-500">
+                            No bookings found
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
               {filteredBookings.length > 20 && (
                 <div className="text-center mt-4 text-sm text-gray-500">
                   Showing 20 of {filteredBookings.length} bookings
@@ -910,43 +831,10 @@ function InterviewSchedulingPageContent() {
 
         <TabsContent value="panel" className="mt-4">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {SAMPLE_PANEL_MEMBERS.map(member => (
-              <Card key={member.id}>
-                <CardContent className="pt-6">
-                  <div className="flex items-start gap-4">
-                    <div className="h-12 w-12 bg-[#0b6d41] rounded-full flex items-center justify-center text-white text-lg font-medium">
-                      {member.name.split(' ').map(n => n[0]).join('')}
-                    </div>
-                    <div className="flex-1">
-                      <h3 className="font-semibold">{member.name}</h3>
-                      <p className="text-sm text-gray-500">{member.role}</p>
-                      <p className="text-sm text-gray-400 mt-1">{member.email}</p>
-                      <div className="mt-3 flex items-center gap-4 text-sm">
-                        <div>
-                          <span className="font-medium text-[#0b6d41]">12</span>
-                          <span className="text-gray-500 ml-1">interviews</span>
-                        </div>
-                        <div>
-                          <span className="font-medium text-blue-600">3</span>
-                          <span className="text-gray-500 ml-1">this week</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                  <Separator className="my-4" />
-                  <div className="flex items-center justify-between">
-                    <Button variant="outline" size="sm" onClick={() => toast.success('Opening panel member schedule...')}>View Schedule</Button>
-                    <Button variant="ghost" size="sm" onClick={() => toast.success('Opening panel member settings...')}>
-                      <Settings className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
             <Card className="border-dashed">
               <CardContent className="pt-6 flex flex-col items-center justify-center h-full min-h-[200px]">
                 <Plus className="h-8 w-8 text-gray-400 mb-2" />
-                <p className="text-gray-500 text-sm">Add Panel Member</p>
+                <p className="text-gray-500 text-sm">Panel member data will be loaded from profiles table</p>
               </CardContent>
             </Card>
           </div>

@@ -514,6 +514,11 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/solutions/publications': 'solutions.publications.view',
   '/solutions/publications/new': 'solutions.publications.create',
   '/solutions/compliance': 'solutions.view',
+  '/solutions/products': 'solutions.view',
+  '/solutions/products/new': 'solutions.create',
+  '/solutions/products/[id]': 'solutions.view',
+  '/solutions/products/[id]/edit': 'solutions.edit',
+  '/solutions/products/rdif': 'solutions.view',
 
   // Talent Portals (Role-specific)
   '/talent/builder': 'talent.builder.view',
@@ -1599,6 +1604,29 @@ export function GetPages(pathname: string): MenuGroup[] {
           ]
         },
         {
+          href: '/solutions/products',
+          label: 'Products & TRL',
+          active: pathname.startsWith('/solutions/products'),
+          icon: Lightbulb,
+          submenus: [
+            {
+              href: '/solutions/products',
+              label: 'All Products',
+              active: pathname === '/solutions/products'
+            },
+            {
+              href: '/solutions/products/new',
+              label: 'Add Product',
+              active: pathname === '/solutions/products/new'
+            },
+            {
+              href: '/solutions/products/rdif',
+              label: 'RDIF Readiness',
+              active: pathname === '/solutions/products/rdif'
+            }
+          ]
+        },
+        {
           href: '/solutions/compliance',
           label: 'Compliance',
           active: pathname.startsWith('/solutions/compliance'),
@@ -2360,7 +2388,6 @@ export function GetRoleBasedPages(
 
   // If all permissions are false, only show Dashboard
   if (!hasAnyPermission) {
-    console.log('All permissions are false - showing only Dashboard');
     return [
       {
         groupLabel: 'Overview',
@@ -2415,9 +2442,6 @@ export function GetRoleBasedPages(
 
           // If no specific permission is defined, hide by default (changed behavior)
           if (!requiredPermission) {
-            console.log(
-              `Menu ${menu.label} has no permission defined in MENU_PERMISSIONS`
-            );
             return false;
           }
 

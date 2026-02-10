@@ -85,11 +85,8 @@ export class LearnerProfileService {
     if (updatedProfile.lifecycle_status === 'approved') {
       // Check if profile is ready for auto-activation
       if (!isComplete || !hasValidEmail) {
-        console.log(`[learner-profile-service] Profile not ready for auto-activation: ${id}`);
         return { profile: updatedProfile };
       }
-
-      console.log(`[learner-profile-service] Auto-activating learner from approved: ${id}`);
 
       // Auto-transition to 'active'
       const supabase = createClientSupabaseClient();
@@ -124,10 +121,7 @@ export class LearnerProfileService {
     if (updatedProfile.lifecycle_status === 'active') {
       // Check if ready for user creation
       if (isComplete && hasValidEmail) {
-        console.log(`[learner-profile-service] Triggering user creation for active learner: ${id}`);
         userCreationResult = await this.triggerUserCreation(id, updatedProfile);
-      } else {
-        console.log(`[learner-profile-service] Active learner not ready for user creation: ${id}`);
       }
     }
 
@@ -165,11 +159,9 @@ export class LearnerProfileService {
 
       // If profile already exists, reactivate it instead of creating a new one
       if (existingProfile) {
-        console.log(`[learner-profile-service] User profile already exists for ${profile.college_email}`);
 
         // Check if it's already active
         if (existingProfile.is_active) {
-          console.log(`[learner-profile-service] User profile already active for ${profile.college_email}`);
           return {
             success: true,
             message: `User account already active for ${profile.first_name} ${profile.last_name || ''}`
@@ -187,7 +179,6 @@ export class LearnerProfileService {
           return { success: false, message: 'Failed to reactivate user account' };
         }
 
-        console.log(`[learner-profile-service] Reactivated user account for ${profile.college_email}`);
         return {
           success: true,
           message: `User account reactivated for ${profile.first_name} ${profile.last_name || ''} (${profile.college_email})`
@@ -195,7 +186,6 @@ export class LearnerProfileService {
       }
 
       // No existing profile - create a new user account
-      console.log(`[learner-profile-service] Creating new user account for ${profile.college_email}`);
       const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
       const response = await fetch(`${baseUrl}/api/learners/complete-onboarding`, {
         method: 'POST',
@@ -209,7 +199,6 @@ export class LearnerProfileService {
         return { success: false, message: errorData.error || 'User creation failed' };
       } else {
         const result = await response.json();
-        console.log(`[learner-profile-service] User account created for ${learnerId}`);
         return {
           success: true,
           message: `User account created successfully for ${profile.first_name} ${profile.last_name || ''} (${profile.college_email})`
@@ -232,7 +221,6 @@ export class LearnerProfileService {
   ): Promise<void> {
     // Only sync if learner has college_email (no email = no user profile)
     if (!learnerProfile.college_email) {
-      console.log(`[learner-profile-service] No college email for ${learnerId}, skipping profile sync`);
       return;
     }
 
@@ -252,7 +240,6 @@ export class LearnerProfileService {
       }
 
       if (!profile) {
-        console.log(`[learner-profile-service] No profile found for ${learnerProfile.college_email}, skipping sync`);
         return;
       }
 
@@ -268,15 +255,7 @@ export class LearnerProfileService {
 
         if (updateError) {
           console.error('[learner-profile-service] Error updating profile is_active:', updateError);
-        } else {
-          console.log(
-            `[learner-profile-service] Synced profile is_active to ${shouldBeActive} for ${learnerProfile.college_email} (lifecycle_status: ${learnerProfile.lifecycle_status})`
-          );
         }
-      } else {
-        console.log(
-          `[learner-profile-service] Profile is_active already ${shouldBeActive} for ${learnerProfile.college_email}, no update needed`
-        );
       }
     } catch (error) {
       console.error('[learner-profile-service] Error in syncProfileStatus:', error);
@@ -559,7 +538,6 @@ export class LearnerProfileService {
 
       // If learner doesn't exist, return early (already deleted)
       if (!learner) {
-        console.log(`[learner-profile-service] Learner ${id} not found - may already be deleted`);
         return;
       }
 
@@ -588,10 +566,6 @@ export class LearnerProfileService {
                 `[learner-profile-service] Failed to delete user profile for learner ${id}:`,
                 await response.text()
               );
-            } else {
-              console.log(
-                `[learner-profile-service] Successfully deleted user for learner with email ${learner.college_email}`
-              );
             }
           }
         } catch (profileError) {
@@ -611,7 +585,6 @@ export class LearnerProfileService {
 
       if (error) throw error;
 
-      console.log(`[learner-profile-service] Successfully deleted learner record: ${id}`);
     } catch (error) {
       console.error('[learner-profile-service] Error deleting learner record:', error);
       throw error; // Re-throw to let calling component handle the error toast
@@ -1115,8 +1088,6 @@ export class LearnerProfileService {
 
       if (countError) throw countError;
 
-      console.log('[learners/analytics] Total count from query:', totalCount);
-
       // Run all queries in parallel with error resilience
       // Each query wrapped in try-catch so one failure doesn't break the entire dashboard
       const safeQuery = async (fn: Promise<any>, defaultValue: any, name: string) => {
@@ -1185,9 +1156,6 @@ export class LearnerProfileService {
         safeQuery(this.getHierarchicalInstitutions(filters, supabase), [], 'getHierarchicalInstitutions')
       ]);
 
-      // DEBUG: Log counts by status
-      console.log('[learners/analytics] Total count:', totalCount);
-
       // Calculate overview counts from statusCounts query instead of limited profiles array
       // This fixes the issue where only 1000 profiles were being fetched
       const enquiriesCount = statusCounts.find(s => s.status === 'enquiry')?.count || 0;
@@ -1197,15 +1165,6 @@ export class LearnerProfileService {
       const inactiveCount = statusCounts.find(s => s.status === 'inactive')?.count || 0;
       const graduatedCount = statusCounts.find(s => s.status === 'graduated')?.count || 0;
       const exitedCount = statusCounts.find(s => s.status === 'exited')?.count || 0;
-
-      // DEBUG: Log status breakdown
-      console.log('[learners/analytics] Status breakdown from statusCounts:', {
-        enquiriesCount,
-        pendingCount,
-        approvedCount,
-        activeCount,
-        totalFromCounts: enquiriesCount + pendingCount + approvedCount + activeCount + inactiveCount + graduatedCount + exitedCount
-      });
 
       // Profile completion stats - Use server-side counts to avoid 1000-row limit
       // Get complete profiles count
@@ -1257,18 +1216,6 @@ export class LearnerProfileService {
       }
       missingSectionQuery = missingSectionQuery.is('section_id', null);
       const { count: missingSection } = await missingSectionQuery;
-
-      // DEBUG: Log profile completion counts
-      console.log('[learners/analytics] Profile completion stats:', {
-        totalCount,
-        completeProfilesCount: completeProfilesCount || 0,
-        incompleteProfilesCount: incompleteProfilesCount || 0,
-        completionRate: completionRate.toFixed(2) + '%',
-        missingCollegeEmail: missingCollegeEmail || 0,
-        missingAcademicYear: missingAcademicYear || 0,
-        missingSemester: missingSemester || 0,
-        missingSection: missingSection || 0
-      });
 
       // Trends (last 7 and 30 days) - Use server-side COUNT queries
       const now = new Date();
@@ -1683,8 +1630,6 @@ export class LearnerProfileService {
           percentage: found ? Number(found.percentage) : 0
         };
       });
-
-      console.log('[learners/analytics] Status counts (RPC optimized):', statusCounts);
 
       return statusCounts;
     } catch (error) {
@@ -2359,8 +2304,6 @@ export class LearnerProfileService {
   ): Promise<import('@/types/learner-dashboard').HierarchicalInstitution[]> {
     const supabase = supabaseClient || createClientSupabaseClient();
 
-    console.log('[learners/analytics] Fetching hierarchical institution data...');
-
     // Strategy: Fetch ALL learner profiles in chunks to build accurate counts
     // This is necessary because Supabase limits queries to 1000 rows by default
 
@@ -2415,10 +2358,7 @@ export class LearnerProfileService {
         }
       }
 
-      console.log(`[learners/analytics] Fetched ${allProfiles.length} profiles so far...`);
     }
-
-    console.log(`[learners/analytics] Total profiles fetched: ${allProfiles.length}`);
 
     // Build hierarchy from all fetched records
     return this.buildHierarchyFromRecords(allProfiles);

@@ -387,12 +387,10 @@ export function ReportGenerationForm({
           {showAdvanced && (
             <div className="space-y-4 p-4 border rounded-lg">
               <p className="text-sm text-muted-foreground">
-                Leave filters empty to include all programs, semesters, and sections
-              </p>
-              {/* TODO: Add program/semester/section multi-select components */}
-              <p className="text-sm text-yellow-600">
-                Advanced filters (program, semester, section selection) will be implemented
-                when multi-select components are added.
+                Leave filters empty to include all programs, semesters, and sections.
+                Specific program, semester, and section filtering is available through the
+                Group By option above -- select the appropriate grouping level to narrow
+                your report scope.
               </p>
             </div>
           )}

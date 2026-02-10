@@ -36,6 +36,7 @@ import { TopResourcesTable } from './_components/top-resources-table';
 import { InstitutionComparisonChart } from './_components/institution-comparison-chart';
 import { MaintenanceAnalyticsCard } from './_components/maintenance-analytics-card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { exportToCSV } from '@/lib/utils/export-utils';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 
 export default function AnalyticsDashboardPage() {
@@ -64,8 +65,56 @@ export default function AnalyticsDashboardPage() {
     useMaintenanceAnalytics(rbacFilters);
 
   const handleExport = () => {
-    // TODO: Implement export functionality
-    console.log('Exporting analytics data...');
+    if (!data) return;
+
+    // Export resource-level analytics (most useful tabular data)
+    const exportRows: Record<string, any>[] = [];
+
+    // Add resource reservation breakdown if available
+    if (data.reservations?.by_resource) {
+      data.reservations.by_resource.forEach((r) => {
+        exportRows.push({
+          resource_name: r.resource_name,
+          reservation_count: r.reservation_count,
+          total_hours: r.total_hours,
+          utilization_rate: r.utilization_rate,
+          revenue: r.revenue,
+        });
+      });
+    }
+
+    // Fallback to category breakdown if no resource data
+    if (exportRows.length === 0 && data.resources?.by_category) {
+      data.resources.by_category.forEach((c) => {
+        exportRows.push({
+          category_name: c.category_name,
+          resource_count: c.resource_count,
+          total_reservations: c.total_reservations,
+          utilization_rate: c.utilization_rate,
+          total_value: c.total_value,
+        });
+      });
+    }
+
+    if (exportRows.length === 0) return;
+
+    const columns = exportRows[0].resource_name != null
+      ? [
+          { key: 'resource_name', label: 'Resource' },
+          { key: 'reservation_count', label: 'Reservations' },
+          { key: 'total_hours', label: 'Total Hours' },
+          { key: 'utilization_rate', label: 'Utilization Rate (%)' },
+          { key: 'revenue', label: 'Revenue' },
+        ]
+      : [
+          { key: 'category_name', label: 'Category' },
+          { key: 'resource_count', label: 'Resources' },
+          { key: 'total_reservations', label: 'Reservations' },
+          { key: 'utilization_rate', label: 'Utilization Rate (%)' },
+          { key: 'total_value', label: 'Total Value' },
+        ];
+
+    exportToCSV(exportRows, `resource-analytics-${getPeriodLabel(period).toLowerCase().replace(/ /g, '-')}`, columns);
   };
 
   const getPeriodLabel = (period: AnalyticsPeriod) => {

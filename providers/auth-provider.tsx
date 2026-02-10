@@ -56,13 +56,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     // Debounce: Prevent rapid successive calls
     if (now - lastRefreshTimestamp.current < DEBOUNCE_TIME) {
-      console.log('[AuthProvider] Debounced refresh call');
       return;
     }
 
     // Prevent concurrent fetches
     if (isFetchingRef.current) {
-      console.log('[AuthProvider] Already fetching, skipping');
       return;
     }
 
@@ -71,7 +69,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       profileCache.current &&
       now - lastFetchTime.current < PROFILE_CACHE_TIME
     ) {
-      console.log('[AuthProvider] Using cached profile');
 
       // CRITICAL: Even with cached data, ALWAYS verify is_active status
       // This prevents deactivated users from accessing the system during cache window
@@ -223,7 +220,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       // Prevent concurrent auth change handling
       if (isHandlingAuthChangeRef.current) {
-        console.log('[AuthProvider] Already handling auth change, skipping event:', event);
         return;
       }
 
@@ -265,7 +261,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } else if (event === 'TOKEN_REFRESHED') {
         // Token refresh doesn't need profile refresh
         // Profile data hasn't changed, just the token
-        console.log('[AuthProvider] Token refreshed, no profile fetch needed');
       }
       } finally {
         isHandlingAuthChangeRef.current = false;

@@ -36,6 +36,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ArrowUpDown, Download, Search } from 'lucide-react';
 import { format } from 'date-fns';
+import { exportToCSV } from '@/lib/utils/export-utils';
 
 interface Grade {
   id: string;
@@ -248,8 +249,23 @@ export function CourseGradesTable({ grades }: CourseGradesTableProps) {
   });
 
   const handleExport = () => {
-    // TODO: Implement Excel export
-    alert('Export functionality coming soon!');
+    const filteredRows = table.getRowModel().rows.map((row) => row.original);
+    if (filteredRows.length === 0) return;
+    exportToCSV(filteredRows, 'course-grades', [
+      { key: 'learners_profiles.first_name', label: 'First Name' },
+      { key: 'learners_profiles.last_name', label: 'Last Name' },
+      { key: 'learners_profiles.roll_number', label: 'Roll Number' },
+      { key: 'learners_profiles.programs.name', label: 'Program' },
+      { key: 'learners_profiles.semesters.name', label: 'Semester' },
+      { key: 'learners_profiles.sections.name', label: 'Section' },
+      { key: 'resource_link_title', label: 'Assignment' },
+      { key: 'lti_tools.name', label: 'Tool' },
+      { key: 'score', label: 'Score' },
+      { key: 'score_maximum', label: 'Max Score' },
+      { key: 'score_percentage', label: 'Percentage', formatter: (v: number) => v != null ? v.toFixed(1) + '%' : '' },
+      { key: 'grading_progress', label: 'Status' },
+      { key: 'graded_at', label: 'Graded Date', formatter: (v: string) => v ? format(new Date(v), 'yyyy-MM-dd') : '' },
+    ]);
   };
 
   if (grades.length === 0) {

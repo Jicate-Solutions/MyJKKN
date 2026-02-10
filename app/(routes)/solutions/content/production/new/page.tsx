@@ -3,42 +3,83 @@
 import { useRouter } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { useState } from 'react';
 import {
   Save,
   ArrowLeft,
-  Video,
-  Building2,
-  Calendar
+  UserPlus,
+  Briefcase,
 } from 'lucide-react';
-import { format } from 'date-fns';
+import { useCreateProductionLearner } from '@/hooks/solutions';
+import type { ContentDivision, SkillLevel } from '@/lib/services/solutions/types';
+import { toast } from 'sonner';
+
+const DIVISIONS: { value: ContentDivision; label: string }[] = [
+  { value: 'video', label: 'Video Production' },
+  { value: 'design', label: 'Graphic Design' },
+  { value: 'writing', label: 'Content Writing' },
+  { value: 'animation', label: 'Animation' },
+  { value: 'social', label: 'Social Media' },
+  { value: 'other', label: 'Other' },
+];
+
+const SKILL_LEVELS: { value: SkillLevel; label: string }[] = [
+  { value: 'beginner', label: 'Beginner' },
+  { value: 'intermediate', label: 'Intermediate' },
+  { value: 'advanced', label: 'Advanced' },
+  { value: 'expert', label: 'Expert' },
+];
 
 export default function NewContentProductionPage() {
   const router = useRouter();
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const createLearner = useCreateProductionLearner();
+
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
+  const [division, setDivision] = useState<ContentDivision>('video');
+  const [skillLevel, setSkillLevel] = useState<SkillLevel>('beginner');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsSubmitting(true);
-    setTimeout(() => {
+
+    if (!name.trim()) {
+      toast.error('Name is required');
+      return;
+    }
+
+    try {
+      await createLearner.mutateAsync({
+        name: name.trim(),
+        email: email.trim() || undefined,
+        phone: phone.trim() || undefined,
+        division,
+        skill_level: skillLevel,
+      });
+      toast.success('Production learner created successfully');
       router.push('/solutions/content/production');
-    }, 1000);
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : 'Failed to create production learner'
+      );
+    }
   };
 
   return (
-    <ContentLayout title="New Production Order">
+    <ContentLayout title="Add Production Learner">
       <PageBreadcrumb
         items={[
           { label: 'Home', href: '/' },
           { label: 'Solutions Hub', href: '/solutions' },
           { label: 'Content', href: '/solutions/content' },
           { label: 'Production', href: '/solutions/content/production' },
-          { label: 'New Order' },
+          { label: 'Add Learner' },
         ]}
       />
 
@@ -49,200 +90,99 @@ export default function NewContentProductionPage() {
             Back
           </Button>
           <div>
-            <h1 className="text-2xl font-bold py-1">New Production Order</h1>
+            <h1 className="text-2xl font-bold py-1">Add Production Learner</h1>
             <p className="text-sm text-muted-foreground">
-              Create a new content production order
+              Register a new learner for content production assignments
             </p>
           </div>
         </div>
 
         <form onSubmit={handleSubmit}>
           <div className="grid gap-6 md:grid-cols-2">
-            {/* Client Details */}
+            {/* Personal Details */}
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  <Building2 className="h-5 w-5" />
-                  Client & Project
+                  <UserPlus className="h-5 w-5" />
+                  Personal Details
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="client">Client *</Label>
-                  <select id="client" className="w-full rounded-md border p-2" required>
-                    <option value="">Select client</option>
-                    <option value="1">ABC University</option>
-                    <option value="2">XYZ Corp</option>
-                    <option value="3">DEF Institute</option>
-                    <option value="internal">Internal Project</option>
-                  </select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="project_name">Project Name *</Label>
+                  <Label htmlFor="name">Full Name *</Label>
                   <Input
-                    id="project_name"
-                    placeholder="Enter project name"
+                    id="name"
+                    placeholder="Enter learner's full name"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
                     required
                   />
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="contact">Client Contact</Label>
+                  <Label htmlFor="email">Email</Label>
                   <Input
-                    id="contact"
-                    placeholder="Contact person name"
+                    id="email"
+                    type="email"
+                    placeholder="learner@example.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="phone">Phone</Label>
+                  <Input
+                    id="phone"
+                    placeholder="+91 9876543210"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
                   />
                 </div>
               </CardContent>
             </Card>
 
-            {/* Production Details */}
+            {/* Skills & Division */}
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  <Video className="h-5 w-5" />
-                  Production Details
+                  <Briefcase className="h-5 w-5" />
+                  Skills & Division
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="content_type">Content Type *</Label>
-                  <select id="content_type" className="w-full rounded-md border p-2" required>
-                    <option value="">Select type</option>
-                    <option value="video">Video Production</option>
-                    <option value="podcast">Podcast</option>
-                    <option value="animation">Animation</option>
-                    <option value="graphics">Graphics Design</option>
-                    <option value="photography">Photography</option>
-                    <option value="document">Document Design</option>
-                    <option value="social_media">Social Media Content</option>
-                  </select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="quantity">Quantity / Duration</Label>
-                  <Input
-                    id="quantity"
-                    placeholder="e.g., 5 videos, 30 minutes"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="priority">Priority</Label>
-                  <select id="priority" className="w-full rounded-md border p-2">
-                    <option value="normal">Normal</option>
-                    <option value="high">High</option>
-                    <option value="urgent">Urgent</option>
-                  </select>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Timeline */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Calendar className="h-5 w-5" />
-                  Timeline
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="start_date">Start Date</Label>
-                  <Input
-                    id="start_date"
-                    type="date"
-                    defaultValue={format(new Date(), 'yyyy-MM-dd')}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="deadline">Deadline *</Label>
-                  <Input
-                    id="deadline"
-                    type="date"
+                  <Label htmlFor="division">Content Division *</Label>
+                  <select
+                    id="division"
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    value={division}
+                    onChange={(e) => setDivision(e.target.value as ContentDivision)}
                     required
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="review_date">Internal Review Date</Label>
-                  <Input
-                    id="review_date"
-                    type="date"
-                  />
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Budget */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Budget & Resources</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="budget">Budget (₹)</Label>
-                  <Input
-                    id="budget"
-                    type="number"
-                    placeholder="Estimated budget"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="team_lead">Assigned Team Lead</Label>
-                  <select id="team_lead" className="w-full rounded-md border p-2">
-                    <option value="">Select team lead</option>
-                    <option value="1">John Doe</option>
-                    <option value="2">Jane Smith</option>
-                    <option value="3">Mike Johnson</option>
+                  >
+                    {DIVISIONS.map((d) => (
+                      <option key={d.value} value={d.value}>
+                        {d.label}
+                      </option>
+                    ))}
                   </select>
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="equipment">Equipment Required</Label>
-                  <Input
-                    id="equipment"
-                    placeholder="e.g., Studio, Camera, Green screen"
-                  />
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Requirements */}
-            <Card className="md:col-span-2">
-              <CardHeader>
-                <CardTitle>Requirements & Brief</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="description">Project Description *</Label>
-                  <Textarea
-                    id="description"
-                    placeholder="Detailed description of what needs to be produced"
-                    rows={4}
+                  <Label htmlFor="skill_level">Skill Level *</Label>
+                  <select
+                    id="skill_level"
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    value={skillLevel}
+                    onChange={(e) => setSkillLevel(e.target.value as SkillLevel)}
                     required
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="requirements">Specific Requirements</Label>
-                  <Textarea
-                    id="requirements"
-                    placeholder="Any specific requirements, branding guidelines, formats needed"
-                    rows={3}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="deliverables">Deliverables</Label>
-                  <Textarea
-                    id="deliverables"
-                    placeholder="List expected deliverables"
-                    rows={3}
-                  />
+                  >
+                    {SKILL_LEVELS.map((s) => (
+                      <option key={s.value} value={s.value}>
+                        {s.label}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </CardContent>
             </Card>
@@ -253,9 +193,9 @@ export default function NewContentProductionPage() {
             <Button type="button" variant="outline" onClick={() => router.back()}>
               Cancel
             </Button>
-            <Button type="submit" disabled={isSubmitting}>
+            <Button type="submit" disabled={createLearner.isPending}>
               <Save className="mr-2 h-4 w-4" />
-              {isSubmitting ? 'Creating...' : 'Create Order'}
+              {createLearner.isPending ? 'Creating...' : 'Add Learner'}
             </Button>
           </div>
         </form>

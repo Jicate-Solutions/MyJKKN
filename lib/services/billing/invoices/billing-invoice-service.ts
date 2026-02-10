@@ -404,41 +404,19 @@ export class BillingInvoiceService {
       // - SendGrid, Mailgun, AWS SES, etc.
       // - SMTP configuration
 
-      console.log('=== EMAIL SENDING SIMULATION ===');
-      console.log('To:', email);
-      console.log('Subject:', emailSubject);
-      console.log('Email content generated successfully');
-      console.log('Invoice HTML content included');
-
-      // Simulate email sending delay
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-
-      console.log(
-        `✓ Invoice ${invoice.invoice_number} email sent successfully to ${email}`
-      );
-
-      // TODO: Replace with actual email service integration
-      // Example integration:
-      /*
-      const { data, error } = await (this.supabase as any).functions.invoke('send-email', {
-        body: {
-          to: email,
-          subject: emailSubject,
-          html: emailBody,
-          attachments: [
-            {
-              filename: `invoice-${invoice.invoice_number}.html`,
-              content: invoiceHTML,
-              contentType: 'text/html'
-            }
-          ]
-        }
+      // Email integration pending: Requires email provider (e.g., Resend, SendGrid).
+      // When ready, call EmailService.sendInvoice(invoice) here.
+      // See: https://resend.com/docs for recommended provider.
+      //
+      // Example with Supabase Edge Functions:
+      //   const { error } = await supabase.functions.invoke('send-email', {
+      //     body: { to: email, subject: emailSubject, html: emailBody }
+      //   });
+      console.info('[billing/invoices] Invoice email not sent — email provider not configured', {
+        invoiceId: invoice.id,
+        invoiceNumber: invoice.invoice_number,
+        recipientEmail: email,
       });
-      
-      if (error) {
-        throw new Error(`Failed to send email: ${error.message}`);
-      }
-      */
     } catch (error) {
       console.error('Error sending invoice:', error);
       throw error;
@@ -468,9 +446,6 @@ export class BillingInvoiceService {
       // Clean up the URL
       window.URL.revokeObjectURL(url);
 
-      console.log(
-        `Invoice PDF download initiated for: ${invoice.invoice_number}`
-      );
     } catch (error) {
       console.error('Error downloading invoice PDF:', error);
       throw error;

@@ -26,7 +26,6 @@ export async function GET(request: NextRequest) {
     );
     // Get API key from Authorization header
     const authHeader = request.headers.get('authorization');
-    console.log('1. Auth header:', authHeader);
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return NextResponse.json(
         { error: 'API key is required in Authorization header' },
@@ -46,7 +45,6 @@ export async function GET(request: NextRequest) {
       .single();
 
     // Check RLS policies
-    console.log('4. Checking RLS policies');
 
     if (keyError || !keyData) {
       return NextResponse.json(

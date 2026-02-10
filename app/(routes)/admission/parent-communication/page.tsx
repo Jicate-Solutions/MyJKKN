@@ -45,6 +45,12 @@ import {
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { useAuth } from '@/hooks/use-auth';
 import {
+  useLeadsWithParents,
+  useParentCommLogs,
+  useParentCommStats,
+  useUpdateParentInfo,
+} from '@/hooks/admission/use-parent-communication';
+import {
   Users,
   UserPlus,
   Phone,
@@ -79,7 +85,7 @@ import { format, formatDistanceToNow } from 'date-fns';
 import { toast } from 'sonner';
 import { AdmissionErrorBoundary } from '@/components/admission';
 
-// Types
+// Types for UI display
 interface Parent {
   id: string;
   name: string;
@@ -90,7 +96,7 @@ interface Parent {
   isPrimary: boolean;
 }
 
-interface LeadWithParents {
+interface LeadWithParentsUI {
   id: string;
   studentName: string;
   studentPhone: string;
@@ -101,7 +107,7 @@ interface LeadWithParents {
   parentEngagementScore: number;
 }
 
-interface CommunicationLog {
+interface CommunicationLogUI {
   id: string;
   leadId: string;
   parentId: string;
@@ -115,100 +121,6 @@ interface CommunicationLog {
   timestamp: string;
   counselorName: string;
 }
-
-// Sample data
-const SAMPLE_LEADS: LeadWithParents[] = [
-  {
-    id: '1',
-    studentName: 'Rahul Sharma',
-    studentPhone: '+91 98765 43210',
-    stage: 'interested',
-    program: 'B.Tech Computer Science',
-    parents: [
-      { id: 'p1', name: 'Suresh Sharma', phone: '+91 98765 43211', email: 'suresh@email.com', relationship: 'father', occupation: 'Business Owner', isPrimary: true },
-      { id: 'p2', name: 'Sunita Sharma', phone: '+91 98765 43212', email: 'sunita@email.com', relationship: 'mother', occupation: 'Teacher', isPrimary: false }
-    ],
-    lastParentContact: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
-    parentEngagementScore: 85
-  },
-  {
-    id: '2',
-    studentName: 'Anita Patel',
-    studentPhone: '+91 87654 32109',
-    stage: 'applied',
-    program: 'MBA Finance',
-    parents: [
-      { id: 'p3', name: 'Ramesh Patel', phone: '+91 87654 32110', email: 'ramesh@email.com', relationship: 'father', occupation: 'Engineer', isPrimary: true }
-    ],
-    lastParentContact: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
-    parentEngagementScore: 60
-  },
-  {
-    id: '3',
-    studentName: 'Kumar Raj',
-    studentPhone: '+91 76543 21098',
-    stage: 'contacted',
-    program: 'B.Sc Nursing',
-    parents: [
-      { id: 'p4', name: 'Lakshmi Devi', phone: '+91 76543 21099', email: 'lakshmi@email.com', relationship: 'mother', isPrimary: true },
-      { id: 'p5', name: 'Rajesh Kumar', phone: '+91 76543 21100', email: 'rajesh@email.com', relationship: 'father', occupation: 'Farmer', isPrimary: false }
-    ],
-    parentEngagementScore: 40
-  },
-  {
-    id: '4',
-    studentName: 'Meera Singh',
-    studentPhone: '+91 65432 10987',
-    stage: 'new',
-    program: 'B.Pharm',
-    parents: [],
-    parentEngagementScore: 0
-  }
-];
-
-const SAMPLE_LOGS: CommunicationLog[] = [
-  {
-    id: '1',
-    leadId: '1',
-    parentId: 'p1',
-    parentName: 'Suresh Sharma',
-    studentName: 'Rahul Sharma',
-    channel: 'call',
-    direction: 'outbound',
-    status: 'completed',
-    summary: 'Discussed course curriculum and placement opportunities. Father is supportive.',
-    duration: 480,
-    timestamp: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
-    counselorName: 'Priya Counselor'
-  },
-  {
-    id: '2',
-    leadId: '2',
-    parentId: 'p3',
-    parentName: 'Ramesh Patel',
-    studentName: 'Anita Patel',
-    channel: 'whatsapp',
-    direction: 'outbound',
-    status: 'completed',
-    summary: 'Sent fee structure and scholarship information',
-    timestamp: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
-    counselorName: 'Raj Counselor'
-  },
-  {
-    id: '3',
-    leadId: '1',
-    parentId: 'p2',
-    parentName: 'Sunita Sharma',
-    studentName: 'Rahul Sharma',
-    channel: 'call',
-    direction: 'inbound',
-    status: 'completed',
-    summary: 'Mother called to enquire about hostel facilities',
-    duration: 300,
-    timestamp: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
-    counselorName: 'Priya Counselor'
-  }
-];
 
 function getRelationshipIcon(relationship: string) {
   switch (relationship) {
@@ -291,7 +203,7 @@ function ParentCard({ parent, onCall, onMessage, onEmail }: {
   );
 }
 
-function SendMessageDialog({ lead, parent }: { lead: LeadWithParents; parent?: Parent }) {
+function SendMessageDialog({ lead, parent }: { lead: LeadWithParentsUI; parent?: Parent }) {
   const [channel, setChannel] = useState<string>('whatsapp');
   const [message, setMessage] = useState('');
   const [isSending, setIsSending] = useState(false);
@@ -381,18 +293,26 @@ function SendMessageDialog({ lead, parent }: { lead: LeadWithParents; parent?: P
   );
 }
 
-function AddParentInfoDialog({ lead }: { lead: LeadWithParents }) {
-  const [isSaving, setIsSaving] = useState(false);
+function AddParentInfoDialog({ lead }: { lead: LeadWithParentsUI }) {
+  const [parentName, setParentName] = useState('');
+  const [parentPhone, setParentPhone] = useState('');
+  const [parentEmail, setParentEmail] = useState('');
+  const updateParentInfo = useUpdateParentInfo();
 
   const handleSave = async () => {
-    setIsSaving(true);
-    try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      toast.success('Parent information saved successfully');
-    } finally {
-      setIsSaving(false);
+    if (!parentName || !parentPhone) {
+      toast.error('Name and phone are required');
+      return;
     }
+    updateParentInfo.mutate({
+      leadId: lead.id,
+      parentData: {
+        parent_name: parentName,
+        parent_phone: parentPhone,
+        parent_email: parentEmail || undefined,
+        parent_opted_in: true,
+      },
+    });
   };
 
   return (
@@ -414,7 +334,7 @@ function AddParentInfoDialog({ lead }: { lead: LeadWithParents }) {
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>Parent Name</Label>
-              <Input placeholder="Full name" />
+              <Input placeholder="Full name" value={parentName} onChange={(e) => setParentName(e.target.value)} />
             </div>
             <div className="space-y-2">
               <Label>Relationship</Label>
@@ -432,11 +352,11 @@ function AddParentInfoDialog({ lead }: { lead: LeadWithParents }) {
           </div>
           <div className="space-y-2">
             <Label>Phone Number</Label>
-            <Input placeholder="+91 00000 00000" />
+            <Input placeholder="+91 00000 00000" value={parentPhone} onChange={(e) => setParentPhone(e.target.value)} />
           </div>
           <div className="space-y-2">
             <Label>Email (Optional)</Label>
-            <Input type="email" placeholder="email@example.com" />
+            <Input type="email" placeholder="email@example.com" value={parentEmail} onChange={(e) => setParentEmail(e.target.value)} />
           </div>
           <div className="space-y-2">
             <Label>Occupation (Optional)</Label>
@@ -444,9 +364,9 @@ function AddParentInfoDialog({ lead }: { lead: LeadWithParents }) {
           </div>
         </div>
         <DialogFooter>
-          <Button variant="outline" disabled={isSaving}>Cancel</Button>
-          <Button onClick={handleSave} disabled={isSaving}>
-            {isSaving ? (
+          <Button variant="outline" disabled={updateParentInfo.isPending}>Cancel</Button>
+          <Button onClick={handleSave} disabled={updateParentInfo.isPending}>
+            {updateParentInfo.isPending ? (
               <>
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                 Saving...
@@ -463,24 +383,70 @@ function AddParentInfoDialog({ lead }: { lead: LeadWithParents }) {
 
 function ParentCommunicationPageContent() {
   const { profile, isLoading: accessLoading } = useAuth();
-  const [leads, setLeads] = useState<LeadWithParents[]>(SAMPLE_LEADS);
-  const [logs, setLogs] = useState<CommunicationLog[]>(SAMPLE_LOGS);
+  const institutionId = profile?.institution_id || '';
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedLead, setSelectedLead] = useState<LeadWithParents | null>(null);
+  const [selectedLead, setSelectedLead] = useState<LeadWithParentsUI | null>(null);
+
+  // Real data hooks
+  const { leads: rawLeads, total, isLoading: leadsLoading, refetch: refetchLeads } = useLeadsWithParents({
+    institutionId,
+    search: searchTerm || undefined,
+  });
+  const { logs: rawLogs, isLoading: logsLoading, refetch: refetchLogs } = useParentCommLogs(institutionId);
+  const { stats, isLoading: statsLoading, refetch: refetchStats } = useParentCommStats(institutionId);
+
+  // Transform DB leads to UI format
+  const leads: LeadWithParentsUI[] = (rawLeads || []).map((lead: any) => ({
+    id: lead.id,
+    studentName: lead.full_name || 'Unknown',
+    studentPhone: lead.phone || '',
+    stage: lead.stage || lead.funnel_stage || 'new',
+    program: Array.isArray(lead.interested_programs) ? lead.interested_programs.join(', ') : (lead.interested_programs || ''),
+    parents: lead.parent_name ? [{
+      id: `p-${lead.id}`,
+      name: lead.parent_name,
+      phone: lead.parent_phone || '',
+      email: lead.parent_email || '',
+      relationship: 'guardian' as const,
+      isPrimary: true,
+    }] : [],
+    lastParentContact: lead.last_contact_at || undefined,
+    parentEngagementScore: lead.engagement_score || 0,
+  }));
+
+  // Transform logs to UI format
+  const logs: CommunicationLogUI[] = (rawLogs || []).map((log: any) => ({
+    id: log.id,
+    leadId: log.lead_id || '',
+    parentId: '',
+    parentName: log.lead_name || 'Unknown',
+    studentName: log.lead_name || 'Unknown',
+    channel: log.channel as any || 'sms',
+    direction: 'outbound' as const,
+    status: log.status === 'delivered' || log.status === 'sent' ? 'completed' as const : 'pending' as const,
+    summary: log.content || '',
+    timestamp: log.sent_at || log.created_at || new Date().toISOString(),
+    counselorName: '',
+  }));
 
   const leadsWithParents = leads.filter(l => l.parents.length > 0);
   const leadsWithoutParents = leads.filter(l => l.parents.length === 0);
 
-  const totalParents = leads.reduce((acc, l) => acc + l.parents.length, 0);
-  const avgEngagement = leads.length > 0
-    ? Math.round(leads.reduce((acc, l) => acc + l.parentEngagementScore, 0) / leads.length)
-    : 0;
+  const totalParents = stats.totalParentContacts;
+  const avgEngagement = stats.avgEngagement;
 
   const filteredLeads = leads.filter(lead =>
     !searchTerm ||
     lead.studentName.toLowerCase().includes(searchTerm.toLowerCase()) ||
     lead.parents.some(p => p.name.toLowerCase().includes(searchTerm.toLowerCase()))
   );
+
+  const handleRefresh = () => {
+    refetchLeads();
+    refetchLogs();
+    refetchStats();
+    toast.success('Data refreshed successfully');
+  };
 
   return (
     <PermissionGuard module="admission" action="view">
@@ -501,7 +467,7 @@ function ParentCommunicationPageContent() {
             </Breadcrumb>
 
             <div className="flex gap-2">
-              <Button variant="outline" onClick={() => toast.success('Data refreshed successfully')}>
+              <Button variant="outline" onClick={handleRefresh}>
                 <RefreshCw className="h-4 w-4 mr-2" />
                 Refresh
               </Button>
@@ -530,7 +496,7 @@ function ParentCommunicationPageContent() {
                   <div>
                     <p className="text-sm text-muted-foreground">Total Parents</p>
                     <p className="text-2xl font-bold">{totalParents}</p>
-                    <p className="text-xs text-muted-foreground">across {leadsWithParents.length} leads</p>
+                    <p className="text-xs text-muted-foreground">across {stats.totalLeadsWithParentInfo} leads</p>
                   </div>
                 </div>
               </CardContent>
@@ -557,7 +523,7 @@ function ParentCommunicationPageContent() {
                   </div>
                   <div>
                     <p className="text-sm text-muted-foreground">Missing Parents</p>
-                    <p className="text-2xl font-bold">{leadsWithoutParents.length}</p>
+                    <p className="text-2xl font-bold">{stats.totalLeadsWithoutParentInfo}</p>
                     <p className="text-xs text-muted-foreground">leads without parent info</p>
                   </div>
                 </div>
@@ -571,7 +537,7 @@ function ParentCommunicationPageContent() {
                   </div>
                   <div>
                     <p className="text-sm text-muted-foreground">Recent Contacts</p>
-                    <p className="text-2xl font-bold">{logs.length}</p>
+                    <p className="text-2xl font-bold">{stats.recentCommunications}</p>
                     <p className="text-xs text-muted-foreground">in last 7 days</p>
                   </div>
                 </div>
@@ -603,58 +569,69 @@ function ParentCommunicationPageContent() {
                 </div>
               </div>
 
-              <div className="space-y-4">
-                {filteredLeads.filter(l => l.parents.length > 0).map((lead) => (
-                  <Card key={lead.id}>
-                    <CardHeader className="pb-3">
-                      <div className="flex items-start justify-between">
-                        <div className="flex items-center gap-3">
-                          <Avatar className="h-12 w-12">
-                            <AvatarFallback className="bg-primary/10">
-                              <GraduationCap className="h-6 w-6" />
-                            </AvatarFallback>
-                          </Avatar>
-                          <div>
-                            <CardTitle className="text-lg">{lead.studentName}</CardTitle>
-                            <div className="text-sm text-muted-foreground flex items-center gap-2">
-                              <Badge variant="outline">{lead.stage}</Badge>
-                              <span>{lead.program}</span>
+              {leadsLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {filteredLeads.filter(l => l.parents.length > 0).map((lead) => (
+                    <Card key={lead.id}>
+                      <CardHeader className="pb-3">
+                        <div className="flex items-start justify-between">
+                          <div className="flex items-center gap-3">
+                            <Avatar className="h-12 w-12">
+                              <AvatarFallback className="bg-primary/10">
+                                <GraduationCap className="h-6 w-6" />
+                              </AvatarFallback>
+                            </Avatar>
+                            <div>
+                              <CardTitle className="text-lg">{lead.studentName}</CardTitle>
+                              <div className="text-sm text-muted-foreground flex items-center gap-2">
+                                <Badge variant="outline">{lead.stage}</Badge>
+                                <span>{lead.program}</span>
+                              </div>
                             </div>
                           </div>
+                          <div className="flex items-center gap-2">
+                            <Badge className={cn("text-xs", getEngagementColor(lead.parentEngagementScore))}>
+                              {lead.parentEngagementScore}% engagement
+                            </Badge>
+                            <SendMessageDialog lead={lead} />
+                          </div>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <Badge className={cn("text-xs", getEngagementColor(lead.parentEngagementScore))}>
-                            {lead.parentEngagementScore}% engagement
-                          </Badge>
-                          <SendMessageDialog lead={lead} />
+                      </CardHeader>
+                      <CardContent className="space-y-3">
+                        <div className="flex items-center justify-between text-sm text-muted-foreground">
+                          <span>{lead.parents.length} parent contact(s)</span>
+                          {lead.lastParentContact && (
+                            <span className="flex items-center gap-1">
+                              <Clock className="h-3 w-3" />
+                              Last contact: {formatDistanceToNow(new Date(lead.lastParentContact), { addSuffix: true })}
+                            </span>
+                          )}
                         </div>
-                      </div>
-                    </CardHeader>
-                    <CardContent className="space-y-3">
-                      <div className="flex items-center justify-between text-sm text-muted-foreground">
-                        <span>{lead.parents.length} parent contact(s)</span>
-                        {lead.lastParentContact && (
-                          <span className="flex items-center gap-1">
-                            <Clock className="h-3 w-3" />
-                            Last contact: {formatDistanceToNow(new Date(lead.lastParentContact), { addSuffix: true })}
-                          </span>
-                        )}
-                      </div>
-                      <div className="space-y-2">
-                        {lead.parents.map((parent) => (
-                          <ParentCard
-                            key={parent.id}
-                            parent={parent}
-                            onCall={() => toast.success(`Call initiated to ${parent.name}`)}
-                            onMessage={() => toast.success(`Message opened for ${parent.name}`)}
-                            onEmail={() => toast.success(`Email client opened for ${parent.name}`)}
-                          />
-                        ))}
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
+                        <div className="space-y-2">
+                          {lead.parents.map((parent) => (
+                            <ParentCard
+                              key={parent.id}
+                              parent={parent}
+                              onCall={() => toast.success(`Call initiated to ${parent.name}`)}
+                              onMessage={() => toast.success(`Message opened for ${parent.name}`)}
+                              onEmail={() => toast.success(`Email client opened for ${parent.name}`)}
+                            />
+                          ))}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                  {filteredLeads.filter(l => l.parents.length > 0).length === 0 && (
+                    <div className="text-center py-8 text-muted-foreground">
+                      No leads with parent information found.
+                    </div>
+                  )}
+                </div>
+              )}
             </TabsContent>
 
             {/* Communication Log Tab */}
@@ -665,43 +642,56 @@ function ParentCommunicationPageContent() {
                   <CardDescription>All communication with parents in the last 30 days</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Parent</TableHead>
-                        <TableHead>Student</TableHead>
-                        <TableHead>Channel</TableHead>
-                        <TableHead>Direction</TableHead>
-                        <TableHead>Summary</TableHead>
-                        <TableHead>Counselor</TableHead>
-                        <TableHead>Time</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {logs.map((log) => (
-                        <TableRow key={log.id}>
-                          <TableCell className="font-medium">{log.parentName}</TableCell>
-                          <TableCell>{log.studentName}</TableCell>
-                          <TableCell>
-                            <div className="flex items-center gap-2">
-                              {getChannelIcon(log.channel)}
-                              <span className="capitalize">{log.channel}</span>
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant={log.direction === 'inbound' ? 'secondary' : 'outline'}>
-                              {log.direction}
-                            </Badge>
-                          </TableCell>
-                          <TableCell className="max-w-[200px] truncate">{log.summary}</TableCell>
-                          <TableCell>{log.counselorName}</TableCell>
-                          <TableCell className="text-muted-foreground">
-                            {formatDistanceToNow(new Date(log.timestamp), { addSuffix: true })}
-                          </TableCell>
+                  {logsLoading ? (
+                    <div className="flex items-center justify-center py-12">
+                      <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                    </div>
+                  ) : (
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Parent</TableHead>
+                          <TableHead>Student</TableHead>
+                          <TableHead>Channel</TableHead>
+                          <TableHead>Direction</TableHead>
+                          <TableHead>Summary</TableHead>
+                          <TableHead>Counselor</TableHead>
+                          <TableHead>Time</TableHead>
                         </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
+                      </TableHeader>
+                      <TableBody>
+                        {logs.map((log) => (
+                          <TableRow key={log.id}>
+                            <TableCell className="font-medium">{log.parentName}</TableCell>
+                            <TableCell>{log.studentName}</TableCell>
+                            <TableCell>
+                              <div className="flex items-center gap-2">
+                                {getChannelIcon(log.channel)}
+                                <span className="capitalize">{log.channel}</span>
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant={log.direction === 'inbound' ? 'secondary' : 'outline'}>
+                                {log.direction}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="max-w-[200px] truncate">{log.summary}</TableCell>
+                            <TableCell>{log.counselorName || '-'}</TableCell>
+                            <TableCell className="text-muted-foreground">
+                              {formatDistanceToNow(new Date(log.timestamp), { addSuffix: true })}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                        {logs.length === 0 && (
+                          <TableRow>
+                            <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                              No communication logs found.
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </TableBody>
+                    </Table>
+                  )}
                 </CardContent>
               </Card>
             </TabsContent>
@@ -716,7 +706,11 @@ function ParentCommunicationPageContent() {
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
-                  {leadsWithoutParents.length === 0 ? (
+                  {leadsLoading ? (
+                    <div className="flex items-center justify-center py-12">
+                      <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                    </div>
+                  ) : leadsWithoutParents.length === 0 ? (
                     <div className="text-center py-8 text-muted-foreground">
                       <CheckCircle className="h-12 w-12 mx-auto mb-4 text-green-500 opacity-50" />
                       <p>All leads have parent information!</p>
