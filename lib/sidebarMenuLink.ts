@@ -190,6 +190,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/staff/category': 'staff.categories.view',
   '/staff/list': 'staff.view',
   '/staff/dashboard': 'staff.dashboard.view',
+  '/facilitator-impact': 'staff.dashboard.view',
 
   // Competency Catalog
   '/competency-catalog': 'competency.catalog.view',
