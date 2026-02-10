@@ -59,7 +59,7 @@ export default function LessonDetailPage({
   const { courseId, lessonId } = use(params);
   const { data, isLoading, isError, error } = useVACLesson(lessonId);
   const { toast } = useToast();
-  const { user } = useAuth();
+  const { profile: user } = useAuth();
 
   // Enrollment check
   const { data: enrollmentCheck, refetch: refetchEnrollment } = useIsEnrolled(user?.id, courseId);
