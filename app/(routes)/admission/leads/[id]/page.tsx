@@ -352,11 +352,9 @@ function LeadDetailPageContent() {
         { leadId, tag: newTag.trim() },
         {
           onSuccess: () => {
-            toast.success('Tag added successfully');
             setNewTag('');
             setShowTagDialog(false);
           },
-          onError: () => toast.error('Failed to add tag')
         }
       );
     }
