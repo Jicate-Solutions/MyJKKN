@@ -5,7 +5,7 @@
 import { useMemo, useCallback, useState, memo } from 'react';
 import Link from 'next/link';
 import { format } from 'date-fns';
-import { MoreVertical, Edit, Trash2, FileText, Plus, Copy } from 'lucide-react';
+import { MoreVertical, Edit, Trash2, FileText, Plus, Copy, ToggleLeft, ToggleRight } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { Staff } from '@/types/staff';
 import { StaffService } from '@/lib/services/staff/staff-service';
@@ -62,10 +62,15 @@ const StaffListComponent = ({
   const canViewStaff = isSuperAdmin || canAccess('staff', 'view');
   const canEditStaff = isSuperAdmin || canAccess('staff', 'edit') || canEdit;
   const canDeleteStaff = isSuperAdmin || canAccess('staff', 'delete');
+  const canUpdateStatus = isSuperAdmin || canAccess('staff', 'status_update');
 
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
   const [selectedStaffForDelete, setSelectedStaffForDelete] =
     useState<Staff | null>(null);
+  const [isStatusConfirmOpen, setIsStatusConfirmOpen] = useState(false);
+  const [selectedStaffForStatus, setSelectedStaffForStatus] =
+    useState<Staff | null>(null);
+  const [isStatusUpdating, setIsStatusUpdating] = useState(false);
 
   // Handle bulk delete
   const handleBulkDelete = async (selectedRows: Staff[]) => {
@@ -129,6 +134,34 @@ const StaffListComponent = ({
     setSelectedStaffForDelete(staffMember);
     setIsDeleteConfirmOpen(true);
   }, []);
+
+  // Handle status toggle
+  const handleStatusToggle = useCallback((staffMember: Staff) => {
+    setSelectedStaffForStatus(staffMember);
+    setIsStatusConfirmOpen(true);
+  }, []);
+
+  const performStatusToggle = async () => {
+    if (!selectedStaffForStatus) return;
+    setIsStatusUpdating(true);
+    try {
+      await StaffService.updateStaff(selectedStaffForStatus.id, {
+        is_active: !selectedStaffForStatus.is_active
+      });
+      toast.success(
+        `Staff member ${selectedStaffForStatus.is_active ? 'deactivated' : 'activated'} successfully`
+      );
+      onRefresh();
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : 'Failed to update staff status'
+      );
+    } finally {
+      setIsStatusUpdating(false);
+      setIsStatusConfirmOpen(false);
+      setSelectedStaffForStatus(null);
+    }
+  };
 
   const getInitials = (firstName: string, lastName: string) => {
     return `${firstName.charAt(0)}${lastName.charAt(0)}`.toUpperCase();
@@ -353,6 +386,22 @@ const StaffListComponent = ({
                   )}
                 </DropdownMenuItem>
 
+                <DropdownMenuItem
+                  onClick={
+                    canUpdateStatus ? () => handleStatusToggle(staff) : undefined
+                  }
+                  disabled={!canUpdateStatus}
+                  className={canUpdateStatus ? 'cursor-pointer' : 'cursor-not-allowed'}
+                  style={{ opacity: canUpdateStatus ? 1 : 0.5 }}
+                >
+                  {staff.is_active ? (
+                    <ToggleRight className='mr-2 h-4 w-4' />
+                  ) : (
+                    <ToggleLeft className='mr-2 h-4 w-4' />
+                  )}
+                  {staff.is_active ? 'Deactivate' : 'Activate'}
+                </DropdownMenuItem>
+
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   onClick={
@@ -381,7 +430,9 @@ const StaffListComponent = ({
       canViewStaff,
       canEditStaff,
       canDeleteStaff,
+      canUpdateStatus,
       handleSingleDelete,
+      handleStatusToggle,
       EmailWithCopy
     ]
   );
@@ -487,6 +538,65 @@ const StaffListComponent = ({
               className='bg-destructive text-destructive-foreground hover:bg-destructive/90'
             >
               Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={isStatusConfirmOpen}
+        onOpenChange={setIsStatusConfirmOpen}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {selectedStaffForStatus?.is_active
+                ? 'Deactivate Staff Member?'
+                : 'Activate Staff Member?'}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {selectedStaffForStatus && (
+                <>
+                  {selectedStaffForStatus.is_active ? (
+                    <>
+                      This will deactivate{' '}
+                      <strong>
+                        &ldquo;{selectedStaffForStatus.first_name}{' '}
+                        {selectedStaffForStatus.last_name}&rdquo;
+                      </strong>
+                      . They will no longer appear in active staff lists and their
+                      access may be restricted.
+                    </>
+                  ) : (
+                    <>
+                      This will activate{' '}
+                      <strong>
+                        &ldquo;{selectedStaffForStatus.first_name}{' '}
+                        {selectedStaffForStatus.last_name}&rdquo;
+                      </strong>
+                      . They will be restored to active status and regain access.
+                    </>
+                  )}
+                </>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              onClick={() => setIsStatusConfirmOpen(false)}
+              disabled={isStatusUpdating}
+            >
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={performStatusToggle}
+              disabled={isStatusUpdating}
+            >
+              {isStatusUpdating
+                ? 'Updating...'
+                : selectedStaffForStatus?.is_active
+                  ? 'Deactivate'
+                  : 'Activate'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

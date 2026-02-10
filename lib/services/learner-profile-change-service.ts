@@ -7,6 +7,7 @@ import {
   RejectRequestDto,
   ChangeRequestFilters,
 } from '@/types/learner-profile-change';
+import type { ChangeRequestAnalytics, InstitutionChangeRequestStats } from '@/types/learner-dashboard';
 import { LearnerProfileAuditService } from './learner-profile-audit-service';
 
 export class LearnerProfileChangeService {
@@ -549,6 +550,164 @@ export class LearnerProfileChangeService {
     });
 
     return updatedRequest;
+  }
+
+  /**
+   * Get change request analytics for the dashboard
+   * Fetches all requests with institution data and computes stats client-side.
+   * Change request volume is small enough (hundreds) to aggregate in-memory.
+   */
+  static async getChangeRequestAnalytics(
+    filters?: { institutionId?: string }
+  ): Promise<ChangeRequestAnalytics> {
+    const supabase = createServiceRoleClient();
+
+    let query = supabase
+      .from('profile_change_requests')
+      .select(`
+        id,
+        request_status,
+        changed_fields,
+        fields_summary,
+        submitted_at,
+        reviewed_at,
+        learner:learners_profiles!inner(
+          institution_id,
+          institution:institutions(name)
+        )
+      `)
+      .order('submitted_at', { ascending: false });
+
+    if (filters?.institutionId) {
+      query = query.eq('learner.institution_id', filters.institutionId);
+    }
+
+    const { data: requests, error } = await query;
+
+    if (error) {
+      console.error('[learner-profile-change-service] Analytics query failed:', error);
+      throw new Error(`Failed to fetch change request analytics: ${error.message}`);
+    }
+
+    const all = requests || [];
+    const total = all.length;
+
+    // --- Status counts ---
+    const pending = all.filter((r) => r.request_status === 'pending').length;
+    const approved = all.filter((r) => r.request_status === 'approved').length;
+    const rejected = all.filter((r) => r.request_status === 'rejected').length;
+    const cancelled = all.filter((r) => r.request_status === 'cancelled').length;
+    const decided = approved + rejected;
+    const approvalRate = decided > 0 ? Math.round((approved / decided) * 100) : 0;
+
+    // --- Average review time ---
+    const reviewedRequests = all.filter((r) => r.submitted_at && r.reviewed_at);
+    let averageReviewTimeHours = 0;
+    if (reviewedRequests.length > 0) {
+      const totalHours = reviewedRequests.reduce((sum, r) => {
+        const submitted = new Date(r.submitted_at).getTime();
+        const reviewed = new Date(r.reviewed_at!).getTime();
+        return sum + (reviewed - submitted) / (1000 * 60 * 60);
+      }, 0);
+      averageReviewTimeHours = Math.round((totalHours / reviewedRequests.length) * 10) / 10;
+    }
+
+    // --- Institution breakdown ---
+    const institutionMap = new Map<string, InstitutionChangeRequestStats>();
+    for (const r of all) {
+      const learner = r.learner as any;
+      const instId = learner?.institution_id;
+      const instName = learner?.institution?.name || 'Unknown';
+      if (!instId) continue;
+
+      if (!institutionMap.has(instId)) {
+        institutionMap.set(instId, {
+          institution_id: instId,
+          institution_name: instName,
+          total: 0,
+          pending: 0,
+          approved: 0,
+          rejected: 0,
+          approval_rate: 0,
+        });
+      }
+      const inst = institutionMap.get(instId)!;
+      inst.total++;
+      if (r.request_status === 'pending') inst.pending++;
+      if (r.request_status === 'approved') inst.approved++;
+      if (r.request_status === 'rejected') inst.rejected++;
+    }
+    // Compute approval rates per institution (approved / total so it matches the table visually)
+    const byInstitution = Array.from(institutionMap.values()).map((inst) => ({
+      ...inst,
+      approval_rate:
+        inst.total > 0
+          ? Math.round((inst.approved / inst.total) * 100)
+          : 0,
+    }));
+    byInstitution.sort((a, b) => b.total - a.total);
+
+    // --- Top changed fields ---
+    const fieldCounts = new Map<string, number>();
+    for (const r of all) {
+      // fields_summary is an array of field names
+      const fields: string[] = r.fields_summary || [];
+      for (const field of fields) {
+        fieldCounts.set(field, (fieldCounts.get(field) || 0) + 1);
+      }
+    }
+    const topChangedFields = Array.from(fieldCounts.entries())
+      .map(([field, count]) => ({
+        field,
+        count,
+        percentage: total > 0 ? Math.round((count / total) * 100) : 0,
+      }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 10);
+
+    // --- Requests by date (last 30 days) ---
+    const now = new Date();
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const dateMap = new Map<string, number>();
+    // Initialize all 30 days
+    for (let i = 0; i < 30; i++) {
+      const d = new Date(thirtyDaysAgo.getTime() + i * 24 * 60 * 60 * 1000);
+      dateMap.set(d.toISOString().split('T')[0], 0);
+    }
+    for (const r of all) {
+      const dateKey = new Date(r.submitted_at).toISOString().split('T')[0];
+      if (dateMap.has(dateKey)) {
+        dateMap.set(dateKey, (dateMap.get(dateKey) || 0) + 1);
+      }
+    }
+    const requestsByDate = Array.from(dateMap.entries())
+      .map(([date, count]) => ({ date, count }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+
+    // --- Status distribution (for pie chart) ---
+    const statusEntries = [
+      { status: 'Pending', count: pending },
+      { status: 'Approved', count: approved },
+      { status: 'Rejected', count: rejected },
+      { status: 'Cancelled', count: cancelled },
+    ].filter((s) => s.count > 0);
+    const byStatus = statusEntries.map((s) => ({
+      ...s,
+      percentage: total > 0 ? Math.round((s.count / total) * 100) : 0,
+    }));
+
+    return {
+      totalRequests: total,
+      pendingCount: pending,
+      approvedCount: approved,
+      rejectedCount: rejected,
+      approvalRate,
+      averageReviewTimeHours,
+      byInstitution,
+      topChangedFields,
+      requestsByDate,
+      byStatus,
+    };
   }
 
   /**
