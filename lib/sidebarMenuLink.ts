@@ -1105,6 +1105,13 @@ export function GetPages(pathname: string): MenuGroup[] {
       groupLabel: 'Facilitators Management',
       menus: [
         {
+          href: '/facilitator-impact',
+          label: 'Impact Dashboard',
+          active: pathname === '/facilitator-impact',
+          icon: Target,
+          submenus: []
+        },
+        {
           href: '/staff/dashboard',
           label: 'Analytics Dashboard',
           active: pathname === '/staff/dashboard',
