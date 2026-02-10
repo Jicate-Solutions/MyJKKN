@@ -88,7 +88,9 @@ import {
   Lightbulb,
   // Personalization Icons
   Route,
-  KeyRound
+  KeyRound,
+  // Compliance Icon
+  ShieldCheck
 } from 'lucide-react';
 import { CustomRole } from '@/types/auth';
 import { FEATURE_FLAGS } from '@/lib/config/feature-flags';
