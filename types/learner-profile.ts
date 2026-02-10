@@ -119,10 +119,6 @@ export interface LearnerProfile {
   accommodation_type: string;
   hostel_type?: string;
   food_type?: string;
-  bus_required?: boolean;
-  bus_route?: string;
-  bus_pickup_location?: string;
-
   // Reference Information
   reference_type?: string;
   reference_name?: string;
@@ -282,10 +278,6 @@ export const learnerProfileSchema = z.object({
   accommodation_type: z.string().min(1, 'Accommodation type is required'),
   hostel_type: z.string().optional(),
   food_type: z.string().optional(),
-  bus_required: z.boolean().optional(),
-  bus_route: z.string().optional(),
-  bus_pickup_location: z.string().optional(),
-
   // Reference
   reference_type: z.string().optional(),
   reference_name: z.string().optional(),
@@ -403,10 +395,6 @@ export interface UpdateLearnerProfileDto {
   accommodation_type?: string;
   hostel_type?: string | null;
   food_type?: string | null;
-  bus_required?: boolean | null;
-  bus_route?: string | null;
-  bus_pickup_location?: string | null;
-
   // Reference Information
   reference_type?: string | null;
   reference_name?: string | null;

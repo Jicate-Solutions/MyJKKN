@@ -692,7 +692,7 @@ export function EnquiryDetail({ enquiry }: EnquiryDetailProps) {
             <>
               <CardHeader>
                 <CardTitle>Accommodation Preferences</CardTitle>
-                <CardDescription>Hostel and transport details</CardDescription>
+                <CardDescription>Hostel and accommodation details</CardDescription>
               </CardHeader>
               <CardContent className='space-y-6'>
                 <div className='grid grid-cols-2 gap-4'>
@@ -716,30 +716,6 @@ export function EnquiryDetail({ enquiry }: EnquiryDetailProps) {
                     </h3>
                     <p className='text-sm'>
                       {enquiry.food_type || 'Not applicable'}
-                    </p>
-                  </div>
-                  <div className='space-y-1'>
-                    <h3 className='text-sm font-medium text-muted-foreground'>
-                      Bus Required
-                    </h3>
-                    <p className='text-sm'>
-                      {enquiry.bus_required ? 'Yes' : 'No'}
-                    </p>
-                  </div>
-                  <div className='space-y-1'>
-                    <h3 className='text-sm font-medium text-muted-foreground'>
-                      Bus Route
-                    </h3>
-                    <p className='text-sm'>
-                      {enquiry.bus_route || 'Not applicable'}
-                    </p>
-                  </div>
-                  <div className='space-y-1'>
-                    <h3 className='text-sm font-medium text-muted-foreground'>
-                      Pickup Location
-                    </h3>
-                    <p className='text-sm'>
-                      {enquiry.bus_pickup_location || 'Not applicable'}
                     </p>
                   </div>
                 </div>

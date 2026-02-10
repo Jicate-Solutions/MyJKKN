@@ -289,11 +289,6 @@ export function BulkUploadProfilesDialogEnhanced({ onSuccess }: { onSuccess?: ()
         'Quota': 'MANAGEMENT',
         'Category': 'General',
 
-        // Transport (Optional)
-        'Bus Required': 'TRUE',
-        'Bus Route': 'Route 5',
-        'Bus Pickup Location': 'Central Bus Stand',
-
         // Reference (Optional)
         'Reference Type': 'Alumni',
         'Reference Name': 'Dr. Kumar',
@@ -339,7 +334,6 @@ export function BulkUploadProfilesDialogEnhanced({ onSuccess }: { onSuccess?: ()
         { 'Food Type (Optional)': 'VEG  |  NON-VEG  |  VEGAN' },
         { 'Quota (Optional)': 'GOVERNMENT  |  MANAGEMENT' },
         { 'Counseling Applied (Optional)': 'TRUE  |  FALSE  |  YES  |  NO  |  1  |  0' },
-        { 'Bus Required (Optional)': 'TRUE  |  FALSE  |  YES  |  NO  |  1  |  0' },
         { '': '' },
 
         { '📝 FORMAT GUIDELINES': '' },
@@ -540,12 +534,7 @@ export function BulkUploadProfilesDialogEnhanced({ onSuccess }: { onSuccess?: ()
               quota: sanitizeValue(mappedData.quota, 'text', 'quota'),
               category: sanitizeValue(mappedData.category, 'text'),
 
-              // SECTION 11: Transport
-              bus_required: sanitizeValue(mappedData.bus_required, 'text'),
-              bus_route: sanitizeValue(mappedData.bus_route, 'text'),
-              bus_pickup_location: sanitizeValue(mappedData.bus_pickup_location, 'text'),
-
-              // SECTION 12: Reference Information
+              // SECTION 11: Reference Information
               reference_type: sanitizeValue(mappedData.reference_type, 'text'),
               reference_name: sanitizeValue(mappedData.reference_name, 'text'),
               reference_contact: sanitizeValue(mappedData.reference_contact, 'text'),

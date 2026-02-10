@@ -2280,9 +2280,6 @@ export type Database = {
           batch_id: string | null
           blood_group: string | null
           board_of_study: string
-          bus_pickup_location: string | null
-          bus_required: boolean | null
-          bus_route: string | null
           caste: string | null
           category: string | null
           college_email: string | null
@@ -2353,9 +2350,6 @@ export type Database = {
           batch_id?: string | null
           blood_group?: string | null
           board_of_study: string
-          bus_pickup_location?: string | null
-          bus_required?: boolean | null
-          bus_route?: string | null
           caste?: string | null
           category?: string | null
           college_email?: string | null
@@ -2426,9 +2420,6 @@ export type Database = {
           batch_id?: string | null
           blood_group?: string | null
           board_of_study?: string
-          bus_pickup_location?: string | null
-          bus_required?: boolean | null
-          bus_route?: string | null
           caste?: string | null
           category?: string | null
           college_email?: string | null
@@ -2601,9 +2592,6 @@ export type Database = {
           batch_id: string | null
           blood_group: string | null
           board_of_study: string | null
-          bus_pickup_location: string | null
-          bus_required: boolean | null
-          bus_route: string | null
           caste: string | null
           category: string | null
           college_email: string | null
@@ -2678,9 +2666,6 @@ export type Database = {
           batch_id?: string | null
           blood_group?: string | null
           board_of_study?: string | null
-          bus_pickup_location?: string | null
-          bus_required?: boolean | null
-          bus_route?: string | null
           caste?: string | null
           category?: string | null
           college_email?: string | null
@@ -2755,9 +2740,6 @@ export type Database = {
           batch_id?: string | null
           blood_group?: string | null
           board_of_study?: string | null
-          bus_pickup_location?: string | null
-          bus_required?: boolean | null
-          bus_route?: string | null
           caste?: string | null
           category?: string | null
           college_email?: string | null
@@ -2835,9 +2817,6 @@ export type Database = {
           batch_id: string | null
           blood_group: string | null
           board_of_study: string | null
-          bus_pickup_location: string | null
-          bus_required: boolean | null
-          bus_route: string | null
           caste: string | null
           category: string | null
           college_email: string | null
@@ -2910,9 +2889,6 @@ export type Database = {
           batch_id?: string | null
           blood_group?: string | null
           board_of_study?: string | null
-          bus_pickup_location?: string | null
-          bus_required?: boolean | null
-          bus_route?: string | null
           caste?: string | null
           category?: string | null
           college_email?: string | null
@@ -2985,9 +2961,6 @@ export type Database = {
           batch_id?: string | null
           blood_group?: string | null
           board_of_study?: string | null
-          bus_pickup_location?: string | null
-          bus_required?: boolean | null
-          bus_route?: string | null
           caste?: string | null
           category?: string | null
           college_email?: string | null
@@ -6402,9 +6375,6 @@ export type Database = {
           application_id: string | null
           batch_id: string | null
           board_of_study: string | null
-          bus_pickup_location: string | null
-          bus_required: boolean | null
-          bus_route: string | null
           caste: string | null
           category: string | null
           college_email: string | null
@@ -6471,9 +6441,6 @@ export type Database = {
           application_id?: string | null
           batch_id?: string | null
           board_of_study?: string | null
-          bus_pickup_location?: string | null
-          bus_required?: boolean | null
-          bus_route?: string | null
           caste?: string | null
           category?: string | null
           college_email?: string | null
@@ -6540,9 +6507,6 @@ export type Database = {
           application_id?: string | null
           batch_id?: string | null
           board_of_study?: string | null
-          bus_pickup_location?: string | null
-          bus_required?: boolean | null
-          bus_route?: string | null
           caste?: string | null
           category?: string | null
           college_email?: string | null
@@ -7556,7 +7520,6 @@ export type Database = {
       ai_rpc_admissions: {
         Args: {
           p_accommodation_type?: string
-          p_bus_required?: boolean
           p_category?: string
           p_community?: string
           p_counseling_applied?: boolean
@@ -7777,7 +7740,6 @@ export type Database = {
       ai_rpc_learners_comprehensive: {
         Args: {
           p_accommodation_type?: string
-          p_bus_required?: boolean
           p_community?: string
           p_department_id?: string
           p_district?: string

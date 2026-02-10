@@ -5,7 +5,7 @@
 // Purpose: Complete geographic distribution analysis
 // Features:
 //   - Basic View: State, District & Taluk distribution
-//   - Advanced View: Accommodation & Transport statistics
+//   - Advanced View: Accommodation statistics
 // Updated: 2025-02-02 - Moved Taluks to basic view
 // ============================================
 
@@ -16,7 +16,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { MapPin, Map, Navigation, Home, Bus, AlertCircle, Globe } from 'lucide-react';
+import { MapPin, Map, Navigation, Home, AlertCircle, Globe } from 'lucide-react';
 import type { LearnerDashboardStats, LearnerDashboardFilters } from '@/types/learner-dashboard';
 import type { GeographyMetrics } from '@/types/learner-analytics';
 import {
@@ -95,13 +95,10 @@ export function GeographicTabCombined({ basicData, advancedData, filters }: Geog
     },
   ] : [];
 
-  const totalAdvancedLearners = advancedData?.districtContributions.reduce((sum, d) => sum + d.count, 0) || 0;
-  const transportUsers = advancedData ? Math.round((advancedData.transportUsage / 100) * totalAdvancedLearners) : 0;
-
   return (
     <div className="space-y-6">
       {/* Summary Cards Row */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         {/* Basic Data Cards */}
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -158,18 +155,6 @@ export function GeographicTabCombined({ basicData, advancedData, filters }: Geog
               </CardContent>
             </Card>
 
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Transport Users</CardTitle>
-                <Bus className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{advancedData.transportUsage.toFixed(1)}%</div>
-                <p className="text-xs text-muted-foreground">
-                  {transportUsers.toLocaleString()} students
-                </p>
-              </CardContent>
-            </Card>
           </>
         )}
       </div>
@@ -183,7 +168,7 @@ export function GeographicTabCombined({ basicData, advancedData, filters }: Geog
           </TabsTrigger>
           <TabsTrigger value="advanced" disabled={!advancedData}>
             <Globe className="h-4 w-4 mr-2" />
-            Accommodation & Transport
+            Accommodation
             {!advancedData && <Badge variant="secondary" className="ml-2 text-xs">No Data</Badge>}
           </TabsTrigger>
         </TabsList>
@@ -306,58 +291,37 @@ export function GeographicTabCombined({ basicData, advancedData, filters }: Geog
         <TabsContent value="advanced" className="space-y-6">
           {advancedData ? (
             <>
-              {/* Accommodation & Transport Statistics */}
-              <div className="grid gap-6 md:grid-cols-2">
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Accommodation Type</CardTitle>
-                    <CardDescription>Hostel vs Day Scholar distribution</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="h-[300px]">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <PieChart>
-                          <Pie
-                            data={accommodationData}
-                            cx="50%"
-                            cy="50%"
-                            labelLine={false}
-                            label={(entry) => `${entry.name}: ${entry.value.toFixed(1)}%`}
-                            outerRadius={100}
-                            fill="#8884d8"
-                            dataKey="value"
-                          >
-                            {accommodationData.map((entry, index) => (
-                              <Cell key={`cell-${index}`} fill={entry.fill} />
-                            ))}
-                          </Pie>
-                          <Tooltip />
-                          <Legend />
-                        </PieChart>
-                      </ResponsiveContainer>
-                    </div>
-                  </CardContent>
-                </Card>
-
-                {/* Transport Usage Card */}
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Transport Usage</CardTitle>
-                    <CardDescription>Students using institutional transport</CardDescription>
-                  </CardHeader>
-                  <CardContent className="flex flex-col items-center justify-center h-[300px]">
-                    <div className="text-center space-y-4">
-                      <Bus className="h-16 w-16 mx-auto text-primary" />
-                      <div>
-                        <div className="text-5xl font-bold">{advancedData.transportUsage.toFixed(1)}%</div>
-                        <p className="text-muted-foreground mt-2">
-                          {transportUsers.toLocaleString()} students use transport
-                        </p>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
+              {/* Accommodation Statistics */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>Accommodation Type</CardTitle>
+                  <CardDescription>Hostel vs Day Scholar distribution</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="h-[300px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie
+                          data={accommodationData}
+                          cx="50%"
+                          cy="50%"
+                          labelLine={false}
+                          label={(entry) => `${entry.name}: ${entry.value.toFixed(1)}%`}
+                          outerRadius={100}
+                          fill="#8884d8"
+                          dataKey="value"
+                        >
+                          {accommodationData.map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={entry.fill} />
+                          ))}
+                        </Pie>
+                        <Tooltip />
+                        <Legend />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+                </CardContent>
+              </Card>
             </>
           ) : (
             <Alert>

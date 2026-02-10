@@ -15,7 +15,7 @@ import {
   Cell,
   Legend,
 } from 'recharts';
-import { MapPin, Home, Bus, AlertCircle } from 'lucide-react';
+import { MapPin, Home, AlertCircle } from 'lucide-react';
 import type { GeographyMetrics } from '@/types/learner-analytics';
 
 interface AdvancedGeographyTabProps {
@@ -25,7 +25,6 @@ interface AdvancedGeographyTabProps {
 const COLORS = {
   hostel: '#3B82F6',
   dayScholar: '#10B981',
-  transport: '#F59E0B',
 };
 
 export function AdvancedGeographyTab({ data }: AdvancedGeographyTabProps) {
@@ -64,13 +63,10 @@ export function AdvancedGeographyTab({ data }: AdvancedGeographyTabProps) {
     },
   ];
 
-  const totalLearners = data.districtContributions.reduce((sum, d) => sum + d.count, 0);
-  const transportUsers = Math.round((data.transportUsage / 100) * totalLearners);
-
   return (
     <div className="space-y-6">
       {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
@@ -100,23 +96,6 @@ export function AdvancedGeographyTab({ data }: AdvancedGeographyTabProps) {
               <span className="text-2xl font-bold">{data.dayScholarRatio.toFixed(1)}%</span>
               <p className="text-xs text-muted-foreground">
                 {accommodationData[1].count.toLocaleString()} students
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-              <Bus className="h-4 w-4" />
-              Transport Usage
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-2">
-              <span className="text-2xl font-bold">{data.transportUsage.toFixed(1)}%</span>
-              <p className="text-xs text-muted-foreground">
-                {transportUsers.toLocaleString()} students
               </p>
             </div>
           </CardContent>
@@ -209,98 +188,52 @@ export function AdvancedGeographyTab({ data }: AdvancedGeographyTabProps) {
       </Card>
 
       {/* Accommodation Distribution */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <Card>
-          <CardHeader>
-            <CardTitle>Accommodation Type Distribution</CardTitle>
-            <CardDescription>
-              Hostel vs Day Scholar breakdown
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <ResponsiveContainer width="100%" height={300}>
-              <PieChart>
-                <Pie
-                  data={accommodationData}
-                  cx="50%"
-                  cy="50%"
-                  labelLine={false}
-                  label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(1)}%`}
-                  outerRadius={100}
-                  fill="#8884d8"
-                  dataKey="value"
-                >
-                  {accommodationData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.fill} />
-                  ))}
-                </Pie>
-                <Tooltip
-                  content={({ active, payload }) => {
-                    if (active && payload && payload.length) {
-                      const data = payload[0].payload;
-                      return (
-                        <div className="bg-background border rounded-lg p-3 shadow-lg">
-                          <p className="font-semibold">{data.name}</p>
-                          <p className="text-sm">Students: {data.count.toLocaleString()}</p>
-                          <p className="text-sm">
-                            Percentage: {data.value.toFixed(1)}%
-                          </p>
-                        </div>
-                      );
-                    }
-                    return null;
-                  }}
-                />
-                <Legend />
-              </PieChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Transport Statistics</CardTitle>
-            <CardDescription>
-              Bus transportation usage analysis
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              <div className="flex items-center justify-between p-4 border rounded-lg">
-                <div>
-                  <p className="text-sm text-muted-foreground">Total Learners</p>
-                  <p className="text-2xl font-bold">{totalLearners.toLocaleString()}</p>
-                </div>
-                <MapPin className="h-8 w-8 text-muted-foreground" />
-              </div>
-
-              <div className="flex items-center justify-between p-4 border rounded-lg bg-amber-50 dark:bg-amber-950/20">
-                <div>
-                  <p className="text-sm text-muted-foreground">Using Transport</p>
-                  <p className="text-2xl font-bold">{transportUsers.toLocaleString()}</p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {data.transportUsage.toFixed(1)}% of total
-                  </p>
-                </div>
-                <Bus className="h-8 w-8 text-amber-600" />
-              </div>
-
-              <div className="flex items-center justify-between p-4 border rounded-lg">
-                <div>
-                  <p className="text-sm text-muted-foreground">Not Using Transport</p>
-                  <p className="text-2xl font-bold">
-                    {(totalLearners - transportUsers).toLocaleString()}
-                  </p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {(100 - data.transportUsage).toFixed(1)}% of total
-                  </p>
-                </div>
-                <Home className="h-8 w-8 text-muted-foreground" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+      <Card>
+        <CardHeader>
+          <CardTitle>Accommodation Type Distribution</CardTitle>
+          <CardDescription>
+            Hostel vs Day Scholar breakdown
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <ResponsiveContainer width="100%" height={300}>
+            <PieChart>
+              <Pie
+                data={accommodationData}
+                cx="50%"
+                cy="50%"
+                labelLine={false}
+                label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(1)}%`}
+                outerRadius={100}
+                fill="#8884d8"
+                dataKey="value"
+              >
+                {accommodationData.map((entry, index) => (
+                  <Cell key={`cell-${index}`} fill={entry.fill} />
+                ))}
+              </Pie>
+              <Tooltip
+                content={({ active, payload }) => {
+                  if (active && payload && payload.length) {
+                    const data = payload[0].payload;
+                    return (
+                      <div className="bg-background border rounded-lg p-3 shadow-lg">
+                        <p className="font-semibold">{data.name}</p>
+                        <p className="text-sm">Students: {data.count.toLocaleString()}</p>
+                        <p className="text-sm">
+                          Percentage: {data.value.toFixed(1)}%
+                        </p>
+                      </div>
+                    );
+                  }
+                  return null;
+                }}
+              />
+              <Legend />
+            </PieChart>
+          </ResponsiveContainer>
+        </CardContent>
+      </Card>
 
       {/* Detailed District Table */}
       <Card>

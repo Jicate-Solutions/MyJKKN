@@ -400,12 +400,7 @@ export default function BulkUploadEnquiries({ onSuccess }: { onSuccess?: () => v
               quota: sanitizeValue(mappedData.quota, 'text', 'quota'),
               category: sanitizeValue(mappedData.category, 'text'),
 
-              // SECTION 9: Transport
-              bus_required: sanitizeValue(mappedData.bus_required, 'text'),
-              bus_route: sanitizeValue(mappedData.bus_route, 'text'),
-              bus_pickup_location: sanitizeValue(mappedData.bus_pickup_location, 'text'),
-
-              // SECTION 10: Reference
+              // SECTION 9: Reference
               reference_type: sanitizeValue(mappedData.reference_type, 'text'),
               reference_name: sanitizeValue(mappedData.reference_name, 'text'),
               reference_contact: sanitizeValue(mappedData.reference_contact, 'text'),
@@ -827,11 +822,6 @@ export default function BulkUploadEnquiries({ onSuccess }: { onSuccess?: () => v
             counseling_applied: data.counseling_applied === 'TRUE' || data.counseling_applied === 'true',
             quota: data.quota,
             category: data.category,
-
-            // Transport
-            bus_required: data.bus_required === 'TRUE' || data.bus_required === 'true',
-            bus_route: data.bus_route,
-            bus_pickup_location: data.bus_pickup_location,
 
             // Reference
             reference_type: data.reference_type,
@@ -1358,12 +1348,7 @@ export default function BulkUploadEnquiries({ onSuccess }: { onSuccess?: () => v
                         <TableHead className="min-w-[100px]">Quota</TableHead>
                         <TableHead className="min-w-[80px]">Category</TableHead>
 
-                        {/* SECTION 10: Transport */}
-                        <TableHead className="min-w-[100px]">Bus Required</TableHead>
-                        <TableHead className="min-w-[120px]">Bus Route</TableHead>
-                        <TableHead className="min-w-[150px]">Pickup Location</TableHead>
-
-                        {/* SECTION 11: Reference */}
+                        {/* SECTION 10: Reference */}
                         <TableHead className="min-w-[100px]">Ref. Type</TableHead>
                         <TableHead className="min-w-[120px]">Ref. Name</TableHead>
                         <TableHead className="min-w-[120px]">Ref. Contact</TableHead>
@@ -1478,12 +1463,7 @@ export default function BulkUploadEnquiries({ onSuccess }: { onSuccess?: () => v
                           <TableCell className="text-xs">{row.sanitizedData.quota || '-'}</TableCell>
                           <TableCell className="text-xs">{row.sanitizedData.category || '-'}</TableCell>
 
-                          {/* SECTION 10: Transport */}
-                          <TableCell className="text-xs">{row.sanitizedData.bus_required || '-'}</TableCell>
-                          <TableCell className="text-xs">{row.sanitizedData.bus_route || '-'}</TableCell>
-                          <TableCell className="text-xs">{row.sanitizedData.bus_pickup_location || '-'}</TableCell>
-
-                          {/* SECTION 11: Reference */}
+                          {/* SECTION 10: Reference */}
                           <TableCell className="text-xs">{row.sanitizedData.reference_type || '-'}</TableCell>
                           <TableCell className="text-xs">{row.sanitizedData.reference_name || '-'}</TableCell>
                           <TableCell className="text-xs font-mono">{row.sanitizedData.reference_contact || '-'}</TableCell>

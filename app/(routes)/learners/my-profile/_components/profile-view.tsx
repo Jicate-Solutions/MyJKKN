@@ -23,7 +23,6 @@ import {
   BookOpen,
   Building,
   Bed,
-  Bus,
   Award,
   School,
   ClipboardList,
@@ -440,7 +439,7 @@ export function ProfileView({ learner, canEdit, onEdit }: ProfileViewProps) {
               </div>
               <div>
                 <CardTitle>Accommodation Details</CardTitle>
-                <CardDescription>Hostel and transport</CardDescription>
+                <CardDescription>Hostel and accommodation</CardDescription>
               </div>
             </div>
           </CardHeader>
@@ -453,18 +452,6 @@ export function ProfileView({ learner, canEdit, onEdit }: ProfileViewProps) {
               />
               <InfoField label="Hostel Type" value={(learner as any).hostel_type} icon={Bed} />
               <InfoField label="Food Type" value={(learner as any).food_type} icon={FileText} />
-              <Separator />
-              <InfoField
-                label="Bus Required"
-                value={(learner as any).bus_required ? 'Yes' : 'No'}
-                icon={Bus}
-              />
-              <InfoField label="Bus Route" value={(learner as any).bus_route} icon={Bus} />
-              <InfoField
-                label="Bus Pickup Location"
-                value={(learner as any).bus_pickup_location}
-                icon={MapPin}
-              />
             </div>
           </CardContent>
         </Card>

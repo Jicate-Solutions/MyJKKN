@@ -592,19 +592,57 @@ export class LearnerProfileService {
         );
       }
 
-      // Also check profiles table for non-pre-registered profiles with this email
+      // Also check profiles table for profiles with this email that belong to a different learner
+      // Note: We need to find ANY profile with this email (not just is_pre_registered=false)
+      // because guest users created during login have is_pre_registered=null
       const { data: existingProfile } = await supabase
         .from('profiles')
         .select('id, full_name, learner_id')
         .eq('email', dto.college_email)
-        .eq('is_pre_registered', false)
         .maybeSingle() as { data: any; error: any };
 
       // Only block if the profile belongs to a DIFFERENT learner
-      if (existingProfile && existingProfile.learner_id !== id) {
+      // Allow if: no profile found, profile has no learner (guest/unlinked), or same learner
+      if (
+        existingProfile &&
+        existingProfile.learner_id !== null &&
+        existingProfile.learner_id !== id
+      ) {
         throw new Error(
           `Email "${dto.college_email}" is already in use by another user${existingProfile.full_name ? ': ' + existingProfile.full_name : ''}`
         );
+      }
+
+      // Pre-link unlinked profiles (e.g., guest users who logged in before being registered as learners)
+      // This MUST happen BEFORE the learners_profiles UPDATE because the DB trigger
+      // (trg_sync_learner_email_to_profile) looks up profiles by learner_id first.
+      // Without pre-linking, the trigger won't find the guest profile and may cause
+      // a unique constraint violation (idx_profiles_email_unique_active) if it tries
+      // to update a different linked profile's email to one that's already taken by the guest.
+      if (existingProfile && existingProfile.learner_id === null) {
+        // Check if this learner already has a DIFFERENT linked profile (e.g., from previous activation)
+        const { data: oldLinkedProfile } = await supabase
+          .from('profiles')
+          .select('id')
+          .eq('learner_id', id)
+          .neq('id', existingProfile.id)
+          .maybeSingle() as { data: any; error: any };
+
+        if (oldLinkedProfile) {
+          // Unlink the old profile to avoid duplicate learner_id references
+          const unlinkQuery: any = supabase.from('profiles');
+          await unlinkQuery
+            .update({ learner_id: null, is_active: false, updated_at: new Date().toISOString() })
+            .eq('id', oldLinkedProfile.id);
+          console.log(`[learner-profile-service] Unlinked old profile ${oldLinkedProfile.id} from learner ${id}`);
+        }
+
+        // Link the guest/unlinked profile to this learner
+        const linkQuery: any = supabase.from('profiles');
+        await linkQuery
+          .update({ learner_id: id, updated_at: new Date().toISOString() })
+          .eq('id', existingProfile.id);
+        console.log(`[learner-profile-service] Pre-linked profile ${existingProfile.id} to learner ${id} (email: ${dto.college_email})`);
       }
     }
 

@@ -456,9 +456,6 @@ export class AIQueryService {
     // Accommodation filters
     accommodationType?: string;
     hostelType?: string;
-    busRequired?: boolean;
-    busRoute?: string;
-    busPickupLocation?: string;
     foodType?: string;
     // Academic filters
     institutionId?: string;
@@ -500,7 +497,6 @@ export class AIQueryService {
       p_religion: params.religion,
       p_community: params.community,
       p_accommodation_type: params.accommodationType,
-      p_bus_required: params.busRequired,
       p_institution_id: params.institutionId,
       p_department_id: params.departmentId,
       p_program_id: params.programId,
@@ -726,7 +722,6 @@ export class AIQueryService {
     quota?: string;
     category?: string;
     accommodationType?: string;
-    busRequired?: boolean;
     search?: string;
     dateFrom?: string;
     dateTo?: string;
@@ -750,7 +745,6 @@ export class AIQueryService {
       p_quota: params.quota,
       p_category: params.category,
       p_accommodation_type: params.accommodationType,
-      p_bus_required: params.busRequired,
       p_search: params.search,
       p_date_from: params.dateFrom,
       p_date_to: params.dateTo,
@@ -773,7 +767,7 @@ export class AIQueryService {
 
   /**
    * Search admissions by geographic location
-   * Searches across district, state, taluk, city, and bus pickup location
+   * Searches across district, state, taluk, and city
    */
   static async getAdmissionsByLocation(userId: string, params: {
     district?: string;

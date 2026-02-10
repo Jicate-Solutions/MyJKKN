@@ -90,10 +90,6 @@ const COLUMN_MAPPING: Record<string, string[]> = {
   'accommodation_type': ['Accommodation Type', 'accommodation_type'],
   'hostel_type': ['Hostel Type', 'hostel_type'],
   'food_type': ['Food Type', 'food_type'],
-  'bus_required': ['Bus Required', 'bus_required'],
-  'bus_route': ['Bus Route', 'bus_route'],
-  'bus_pickup_location': ['Bus Pickup Location', 'bus_pickup_location'],
-
   // SECTION 10: Reference Information
   'reference_type': ['Reference Type', 'reference_type'],
   'reference_name': ['Reference Name', 'reference_name'],
