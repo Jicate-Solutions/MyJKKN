@@ -209,7 +209,7 @@ function EnrollmentsSkeleton() {
 // ============================================
 
 export default function VACProgressPage() {
-  const { user, loading: authLoading } = useAuth();
+  const { profile: user, isLoading: authLoading } = useAuth();
   const { data: enrollmentData, isLoading: enrollmentsLoading } = useMyEnrollments(user?.id);
 
   const enrollments = enrollmentData?.enrollments ?? [];
