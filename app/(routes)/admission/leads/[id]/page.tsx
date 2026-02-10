@@ -418,13 +418,10 @@ function LeadDetailPageContent() {
         phone: (lead as any).phone || '',
       },
       {
-        onSuccess: (app: any) => {
-          toast.success(`Application ${app.application_number} created!`);
+        onSuccess: () => {
           setSelectedProgramId('');
           setShowCreateAppDialog(false);
-          refetch();
         },
-        onError: () => toast.error('Failed to create application'),
       }
     );
   };
