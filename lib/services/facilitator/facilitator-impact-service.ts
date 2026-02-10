@@ -373,7 +373,7 @@ export class FacilitatorImpactService {
       staffQuery = staffQuery.eq('department_id', filters.departmentId);
     }
 
-    const { data: staffList, error: staffError } = await staffQuery;
+    const { data: staffList, error: staffError } = await staffQuery as { data: any[] | null; error: any };
 
     if (staffError || !staffList) {
       console.error('[facilitator-impact] Error fetching staff:', staffError);
@@ -381,11 +381,11 @@ export class FacilitatorImpactService {
     }
 
     // Get all course assignments in one query
-    const staffIds = staffList.map((s) => s.id);
+    const staffIds = staffList.map((s: any) => s.id);
 
     if (staffIds.length === 0) return [];
 
-    const { data: courseAssignments } = await supabase
+    const { data: courseAssignments } = await (supabase as any)
       .from('staff_plan_courses')
       .select(
         `
@@ -393,7 +393,7 @@ export class FacilitatorImpactService {
         course:courses!staff_plan_courses_course_id_fkey(id, course_name)
       `
       )
-      .in('staff_id', staffIds);
+      .in('staff_id', staffIds) as { data: any[] | null };
 
     // Group assignments by staff_id
     const assignmentMap = new Map<
