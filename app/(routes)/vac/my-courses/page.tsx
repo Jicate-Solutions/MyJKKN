@@ -30,7 +30,7 @@ import {
 import type { VACEnrollmentWithDetails } from '@/types/vac';
 
 function CourseCard({ enrollment }: { enrollment: VACEnrollmentWithDetails }) {
-  const { user } = useAuth();
+  const { profile: user } = useAuth();
   const { data: progress } = useCourseProgress(user?.id, enrollment.course_id);
 
   const statusVariant = {
