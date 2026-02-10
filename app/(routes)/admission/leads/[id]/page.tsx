@@ -376,14 +376,12 @@ function LeadDetailPageContent() {
       },
       {
         onSuccess: () => {
-          toast.success('Activity logged successfully');
           setActivityType('note');
           setActivitySubject('');
           setActivityDescription('');
           setActivityOutcome('');
           setShowActivityDialog(false);
         },
-        onError: () => toast.error('Failed to log activity')
       }
     );
   };
