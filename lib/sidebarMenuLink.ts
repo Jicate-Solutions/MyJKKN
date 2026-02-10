@@ -1811,14 +1811,14 @@ export function GetPages(pathname: string): MenuGroup[] {
           icon: MessageSquareWarning,
           submenus: [
             {
-              href: '/grievance',
+              href: '/grievance/dashboard',
               label: 'Dashboard',
-              active: pathname === '/grievance'
+              active: pathname === '/grievance/dashboard'
             },
             {
-              href: '/grievance/tickets',
+              href: '/grievance',
               label: 'Tickets',
-              active: pathname.startsWith('/grievance/tickets')
+              active: pathname === '/grievance'
             },
             {
               href: '/grievance/analytics',
