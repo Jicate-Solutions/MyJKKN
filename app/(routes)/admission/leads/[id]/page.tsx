@@ -506,13 +506,7 @@ function LeadDetailPageContent() {
               <Button
                 variant={(lead.is_hot_lead || lead.is_priority) ? 'default' : 'outline'}
                 size="sm"
-                onClick={() => togglePriority.mutate(
-                  { leadId, isPriority: (!lead.is_hot_lead && !lead.is_priority) },
-                  {
-                    onSuccess: () => toast.success((lead.is_hot_lead || lead.is_priority) ? 'Removed from priority' : 'Marked as priority'),
-                    onError: () => toast.error('Failed to update priority status')
-                  }
-                )}
+                onClick={() => togglePriority.mutate({ leadId, isPriority: (!lead.is_hot_lead && !lead.is_priority) })}
               >
                 <Star className="h-4 w-4 mr-1" />
                 {(lead.is_hot_lead || lead.is_priority) ? 'Priority' : 'Mark Priority'}
