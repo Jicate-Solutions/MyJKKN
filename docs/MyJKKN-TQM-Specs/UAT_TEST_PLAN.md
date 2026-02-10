@@ -85,11 +85,11 @@ ORDER BY table_name;
 | Role | Email | Password | Institution Access | Test Scope |
 |------|-------|----------|-------------------|------------|
 | **Super Admin** | test-superadmin@jkkn.local | SuperAdmin@123 | All institutions | Full system access, all 7 modules |
-| **Institution Admin** | test-admin@jkkn.local | Admin@123 | JKKN College of Engineering | Institution-level access, all modules except Parent Portal |
-| **Staff Member** | test-staff@jkkn.local | Staff@123 | Single department | Department-level access, limited NPS/Grievance |
-| **Student** | test-student@jkkn.local | Student@123 | Self only | View own data, submit NPS/Grievance |
-| **Parent** | test-parent@jkkn.local | OTP via phone | Linked learners only | Parent Portal only (separate auth) |
-| **Employer** | test-employer@jkkn.local | Employer@123 | Alumni only | NPS surveys, placement data |
+| **Institution Admin** | test.admin@jkkn.local | Admin@123 | JKKN College of Engineering | Institution-level access, all modules except Parent Portal |
+| **Staff Member** | test.staff@jkkn.local | Staff@123 | Single department | Department-level access, limited NPS/Grievance |
+| **Student** | test.student@jkkn.local | Test@123 | Self only | View own data, submit NPS/Grievance |
+| **Parent** | test.parent@jkkn.local | OTP via phone | Linked learners only | Parent Portal only (separate auth) |
+| **Employer** | test.employer@jkkn.local | Employer@123 | Alumni only | NPS surveys, placement data |
 
 ### Role Permission Matrix
 
