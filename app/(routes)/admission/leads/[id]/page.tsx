@@ -796,13 +796,7 @@ function LeadDetailPageContent() {
                           key={tag}
                           variant="secondary"
                           className="cursor-pointer hover:bg-destructive hover:text-destructive-foreground"
-                          onClick={() => removeTag.mutate(
-                            { leadId, tag },
-                            {
-                              onSuccess: () => toast.success('Tag removed successfully'),
-                              onError: () => toast.error('Failed to remove tag')
-                            }
-                          )}
+                          onClick={() => removeTag.mutate({ leadId, tag })}
                         >
                           {tag}
                           <span className="ml-1">×</span>
