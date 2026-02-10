@@ -338,6 +338,42 @@ export default function LoginPage() {
     }
   };
 
+  // Handle one-click demo login
+  const handleQuickLogin = async (account: typeof testAccounts[0]) => {
+    try {
+      setQuickLoginRole(account.label);
+
+      const data = await AuthService.signInWithEmail(account.email, account.password);
+
+      if (data.user) {
+        toast.success(`Signed in as ${account.label}!`);
+
+        // Check user role and redirect accordingly
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('role, profile_completed')
+          .eq('id', data.user.id)
+          .single();
+
+        const profileData = profile as { role: string; profile_completed: boolean } | null;
+
+        if (!profileData?.profile_completed) {
+          router.push('/auth/complete-profile');
+        } else if (profileData?.role === 'guest') {
+          router.push('/guest');
+        } else if (profileData?.role === 'driver') {
+          router.push('/driver');
+        } else {
+          router.push('/');
+        }
+      }
+    } catch (error: any) {
+      console.error('Quick login error:', error);
+      toast.error(error?.message || `Failed to sign in as ${account.label}`);
+      setQuickLoginRole(null);
+    }
+  };
+
   const handleGoogleLogin = async () => {
     try {
       setLoading(true);
