@@ -347,7 +347,7 @@ export class FacilitatorImpactService {
     const supabase = createClientSupabaseClient();
 
     // Get staff with department and institution names
-    let staffQuery = supabase
+    let staffQuery = (supabase as any)
       .from('staff')
       .select(
         `
