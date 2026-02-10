@@ -523,7 +523,7 @@ export class ComplianceService {
   ): Promise<void> {
     const supabase = createClientSupabaseClient();
 
-    const { error } = await supabase
+    const { error } = await (supabase as any)
       .from('learners_profiles')
       .update({
         ai_solution_cleared: cleared,
