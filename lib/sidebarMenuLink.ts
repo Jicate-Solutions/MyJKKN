@@ -1598,6 +1598,13 @@ export function GetPages(pathname: string): MenuGroup[] {
           ]
         },
         {
+          href: '/solutions/compliance',
+          label: 'Compliance',
+          active: pathname.startsWith('/solutions/compliance'),
+          icon: ShieldCheck,
+          submenus: []
+        },
+        {
           href: '/solutions/settings/types',
           label: 'Settings',
           active: pathname.startsWith('/solutions/settings'),
