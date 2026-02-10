@@ -53,6 +53,19 @@ export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showEmailForm, setShowEmailForm] = useState(false);
+  const [quickLoginRole, setQuickLoginRole] = useState<string | null>(null);
+
+  // Test accounts for one-click login
+  const testAccounts = [
+    { label: 'Super Admin', email: 'test-superadmin@jkkn.local', password: 'SuperAdmin@123', icon: Shield, color: 'bg-red-600 hover:bg-red-700 text-white' },
+    { label: 'Admin', email: 'test.admin2@jkkn.local', password: 'Test@123', icon: UserCog, color: 'bg-orange-600 hover:bg-orange-700 text-white' },
+    { label: 'Principal', email: 'test.principal@jkkn.local', password: 'Test@123', icon: School, color: 'bg-purple-600 hover:bg-purple-700 text-white' },
+    { label: 'HOD', email: 'test.hod@jkkn.local', password: 'Test@123', icon: Briefcase, color: 'bg-blue-600 hover:bg-blue-700 text-white' },
+    { label: 'Faculty', email: 'test.faculty@jkkn.local', password: 'Test@123', icon: BookOpenCheck, color: 'bg-teal-600 hover:bg-teal-700 text-white' },
+    { label: 'Staff', email: 'test.staff@jkkn.local', password: 'Test@123', icon: User, color: 'bg-indigo-600 hover:bg-indigo-700 text-white' },
+    { label: 'Student', email: 'test.student@jkkn.local', password: 'Test@123', icon: GraduationCap, color: 'bg-green-600 hover:bg-green-700 text-white' },
+    { label: 'Parent', email: 'test.parent@jkkn.local', password: 'Test@123', icon: Heart, color: 'bg-pink-600 hover:bg-pink-700 text-white' },
+  ];
 
   const router = useRouter();
 
