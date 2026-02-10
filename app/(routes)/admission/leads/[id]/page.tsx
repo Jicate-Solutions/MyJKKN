@@ -283,16 +283,25 @@ function LeadDetailPageContent() {
 
   // Fetch programs for the Create Application dialog
   const [programs, setPrograms] = useState<{ id: string; program_name: string }[]>([]);
+  const [programsLoading, setProgramsLoading] = useState(false);
   useEffect(() => {
     if (showCreateAppDialog && lead?.institution_id) {
+      setProgramsLoading(true);
       const supabase = createClientSupabaseClient();
       supabase
         .from('programs')
         .select('id, program_name')
         .eq('institution_id', lead.institution_id)
+        .eq('is_active', true)
         .order('program_name')
-        .then(({ data }: { data: any }) => {
-          if (data) setPrograms(data);
+        .then(({ data, error }: { data: any; error: any }) => {
+          if (error) {
+            console.error('[admission/leads] Failed to fetch programs:', error.message);
+            toast.error('Failed to load programs');
+          } else {
+            setPrograms(data || []);
+          }
+          setProgramsLoading(false);
         });
     }
   }, [showCreateAppDialog, lead?.institution_id]);
