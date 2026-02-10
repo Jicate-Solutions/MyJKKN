@@ -513,7 +513,7 @@ export default function LoginPage() {
 
             {/* Sign In Options */}
             <div className='space-y-4'>
-              {/* Dev Auth Mode - Email/Password Form */}
+              {/* Dev Auth Mode - Quick Login Buttons */}
               {FEATURE_FLAGS.ENABLE_DEV_AUTH && (
                 <>
                   {showEmailForm ? (
@@ -560,14 +560,14 @@ export default function LoginPage() {
                         onClick={() => setShowEmailForm(false)}
                         className='w-full text-sm text-gray-500'
                       >
-                        Back to Google Sign In
+                        Back
                       </Button>
                     </form>
                   ) : (
                     <>
                       <Button
                         onClick={handleGoogleLogin}
-                        disabled={loading}
+                        disabled={loading || !!quickLoginRole}
                         className='w-full h-12 text-base font-medium bg-green-600 hover:bg-green-700 dark:bg-green-700 dark:hover:bg-green-800 text-white'
                       >
                         {loading ? (
@@ -606,18 +606,48 @@ export default function LoginPage() {
                         </div>
                         <div className='relative flex justify-center text-xs uppercase'>
                           <span className='bg-white dark:bg-gray-900 px-2 text-gray-500'>
-                            Dev Mode
+                            Quick Login (Test Accounts)
                           </span>
                         </div>
                       </div>
 
+                      {/* One-click role buttons */}
+                      <div className='grid grid-cols-2 gap-2'>
+                        {testAccounts.map((account) => {
+                          const Icon = account.icon;
+                          const isLoggingIn = quickLoginRole === account.label;
+                          return (
+                            <Button
+                              key={account.email}
+                              type='button'
+                              disabled={!!quickLoginRole || loading}
+                              onClick={() => handleQuickLogin(account)}
+                              className={`h-10 text-xs font-medium ${account.color} disabled:opacity-50`}
+                            >
+                              {isLoggingIn ? (
+                                <div className='flex items-center space-x-1.5'>
+                                  <div className='w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin'></div>
+                                  <span>Signing in...</span>
+                                </div>
+                              ) : (
+                                <div className='flex items-center space-x-1.5'>
+                                  <Icon className='w-3.5 h-3.5' />
+                                  <span>{account.label}</span>
+                                </div>
+                              )}
+                            </Button>
+                          );
+                        })}
+                      </div>
+
                       <Button
                         type='button'
-                        variant='outline'
+                        variant='ghost'
                         onClick={() => setShowEmailForm(true)}
-                        className='w-full h-10 text-sm'
+                        disabled={!!quickLoginRole || loading}
+                        className='w-full text-xs text-gray-400 h-8'
                       >
-                        Sign in with Email (Test Accounts)
+                        Custom email/password login
                       </Button>
                     </>
                   )}
