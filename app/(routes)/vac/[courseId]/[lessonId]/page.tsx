@@ -27,7 +27,7 @@ import {
   useCourseProgress,
   useIsEnrolled
 } from '@/hooks/vac/use-vac';
-import { useAuth } from '@/providers/auth-provider';
+import { useAuth } from '@/hooks/use-auth';
 import { useToast } from '@/hooks/use-toast';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
