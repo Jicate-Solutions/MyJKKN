@@ -39,8 +39,8 @@ export class ComplianceService {
   ): Promise<ComplianceOverview> {
     const supabase = createClientSupabaseClient();
 
-    // Get all active learners
-    let learnersQuery = supabase
+    // Get all active learners (cast to any — ai_solution_cleared not in generated types yet)
+    let learnersQuery = (supabase as any)
       .from('learners_profiles')
       .select('id, ai_solution_cleared')
       .eq('lifecycle_status', 'active');
@@ -52,7 +52,7 @@ export class ComplianceService {
       learnersQuery = learnersQuery.eq('department_id', filters.departmentId);
     }
 
-    const { data: learners } = await learnersQuery;
+    const { data: learners } = await learnersQuery as { data: any[] | null };
 
     if (!learners || learners.length === 0) {
       return {
