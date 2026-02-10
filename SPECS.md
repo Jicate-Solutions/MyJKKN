@@ -549,6 +549,10 @@ WHERE lp.lifecycle_status = 'active';
 | Attendance Quality | Mandatory for practicals, optional for lectures | Practical engagement directly maps to Fink's Application dimension |
 | Competency Taxonomy | Fink's Taxonomy of Significant Learning | Research-backed, holistic, covers AI-proof skills |
 | AI Resistance Score | 0-100 scale per competency | Future-proofing curriculum against AI automation |
+| AI Graduation Requirement | "Built a solution using AI" via Solutions Hub | Activates existing ecosystem, no new module needed |
+| Terminology | "Solution" not "Project" | "Solution" triggers Flywheel mindset; "Project" triggers compliance mindset |
+| Team Model | Teams of 4-5 (lead + contributors) | 609 students / 4-5 = ~120-150 solutions. Mirrors real-world dev |
+| University Alignment | Same final year deliverable satisfies both | Zero additional burden on students |
 
 ---
 
