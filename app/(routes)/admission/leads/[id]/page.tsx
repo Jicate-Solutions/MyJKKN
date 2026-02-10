@@ -498,13 +498,7 @@ function LeadDetailPageContent() {
               <Button
                 variant={lead.is_hot_lead ? 'default' : 'outline'}
                 size="sm"
-                onClick={() => toggleHotLead.mutate(
-                  { leadId, isHot: !lead.is_hot_lead },
-                  {
-                    onSuccess: () => toast.success(lead.is_hot_lead ? 'Removed from hot leads' : 'Marked as hot lead'),
-                    onError: () => toast.error('Failed to update hot lead status')
-                  }
-                )}
+                onClick={() => toggleHotLead.mutate({ leadId, isHot: !lead.is_hot_lead })}
               >
                 <Flame className="h-4 w-4 mr-1" />
                 {lead.is_hot_lead ? 'Hot' : 'Mark Hot'}
