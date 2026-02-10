@@ -395,12 +395,10 @@ function LeadDetailPageContent() {
       { leadId, followupDate },
       {
         onSuccess: () => {
-          toast.success('Follow-up scheduled successfully');
           setFollowupDate('');
           setFollowupNotes('');
           setShowFollowupDialog(false);
         },
-        onError: () => toast.error('Failed to schedule follow-up')
       }
     );
   };
