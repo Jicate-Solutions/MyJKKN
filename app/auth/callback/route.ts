@@ -279,21 +279,31 @@ export async function GET(request: NextRequest) {
 
       // Auto-fix: Assign institution_id for JKKN users who have null institution_id
       // This handles existing profiles, migrated profiles, and any edge cases
+      // Wrapped in try-catch to never block login if this fails
       if (actualProfile && !actualProfile.institution_id) {
         if (user.email?.endsWith('@jkkn.ac.in') || user.email?.endsWith('@jkkn.local')) {
-          const { data: defaultInst } = await adminClient
-            .from('institutions')
-            .select('id')
-            .order('created_at', { ascending: true })
-            .limit(1)
-            .maybeSingle();
-          if (defaultInst?.id) {
-            await adminClient
-              .from('profiles')
-              .update({ institution_id: defaultInst.id })
-              .eq('id', user.id);
-            actualProfile.institution_id = defaultInst.id;
-            console.log('[Auth Callback] Auto-fixed institution_id for existing user:', user.email);
+          try {
+            const { data: defaultInst } = await adminClient
+              .from('institutions')
+              .select('id')
+              .order('created_at', { ascending: true })
+              .limit(1)
+              .maybeSingle();
+            if (defaultInst?.id) {
+              const { error: fixError } = await adminClient
+                .from('profiles')
+                .update({ institution_id: defaultInst.id })
+                .eq('id', user.id);
+              if (!fixError) {
+                actualProfile.institution_id = defaultInst.id;
+                console.log('[Auth Callback] Auto-fixed institution_id for existing user:', user.email);
+              } else {
+                console.warn('[Auth Callback] Failed to auto-fix institution_id:', fixError);
+              }
+            }
+          } catch (instError) {
+            // Non-blocking: login continues even if institution auto-fix fails
+            console.warn('[Auth Callback] Institution auto-fix error (non-blocking):', instError);
           }
         }
       }
