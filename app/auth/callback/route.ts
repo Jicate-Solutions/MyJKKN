@@ -277,6 +277,27 @@ export async function GET(request: NextRequest) {
 
       const actualProfile = existingProfile || migratedProfile;
 
+      // Auto-fix: Assign institution_id for JKKN users who have null institution_id
+      // This handles existing profiles, migrated profiles, and any edge cases
+      if (actualProfile && !actualProfile.institution_id) {
+        if (user.email?.endsWith('@jkkn.ac.in') || user.email?.endsWith('@jkkn.local')) {
+          const { data: defaultInst } = await adminClient
+            .from('institutions')
+            .select('id')
+            .order('created_at', { ascending: true })
+            .limit(1)
+            .maybeSingle();
+          if (defaultInst?.id) {
+            await adminClient
+              .from('profiles')
+              .update({ institution_id: defaultInst.id })
+              .eq('id', user.id);
+            actualProfile.institution_id = defaultInst.id;
+            console.log('[Auth Callback] Auto-fixed institution_id for existing user:', user.email);
+          }
+        }
+      }
+
       // Helper function to log login activity
       const logLoginActivity = async (profile: Partial<Profile> | null) => {
         try {
