@@ -440,6 +440,65 @@ export class LearnerProfileChangeService {
   }
 
   /**
+   * Bulk approve multiple change requests
+   * Loops through each request using the existing approveChangeRequest method
+   * which handles permission checks and audit logging per item.
+   * Returns per-item results so the UI can report partial success.
+   */
+  static async bulkApproveRequests(
+    requestIds: string[],
+    dto: ApproveRequestDto,
+    reviewedBy: string
+  ): Promise<{ succeeded: string[]; failed: { id: string; error: string }[] }> {
+    const succeeded: string[] = [];
+    const failed: { id: string; error: string }[] = [];
+
+    for (const id of requestIds) {
+      try {
+        await this.approveChangeRequest(id, dto, reviewedBy);
+        succeeded.push(id);
+      } catch (error: any) {
+        failed.push({ id, error: error.message || 'Unknown error' });
+      }
+    }
+
+    console.log(
+      `[learner-profile-change-service] Bulk approve complete: ${succeeded.length} succeeded, ${failed.length} failed`
+    );
+
+    return { succeeded, failed };
+  }
+
+  /**
+   * Bulk reject multiple change requests
+   * Same pattern as bulkApproveRequests — loops through each request
+   * using the existing rejectChangeRequest method.
+   */
+  static async bulkRejectRequests(
+    requestIds: string[],
+    dto: RejectRequestDto,
+    reviewedBy: string
+  ): Promise<{ succeeded: string[]; failed: { id: string; error: string }[] }> {
+    const succeeded: string[] = [];
+    const failed: { id: string; error: string }[] = [];
+
+    for (const id of requestIds) {
+      try {
+        await this.rejectChangeRequest(id, dto, reviewedBy);
+        succeeded.push(id);
+      } catch (error: any) {
+        failed.push({ id, error: error.message || 'Unknown error' });
+      }
+    }
+
+    console.log(
+      `[learner-profile-change-service] Bulk reject complete: ${succeeded.length} succeeded, ${failed.length} failed`
+    );
+
+    return { succeeded, failed };
+  }
+
+  /**
    * Cancel a change request (student action)
    */
   static async cancelChangeRequest(
