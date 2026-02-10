@@ -990,11 +990,14 @@ function LeadDetailPageContent() {
                               <SelectValue placeholder="Select a program" />
                             </SelectTrigger>
                             <SelectContent>
-                              {programs.map((p) => (
-                                <SelectItem key={p.id} value={p.id}>{p.program_name}</SelectItem>
-                              ))}
-                              {programs.length === 0 && (
+                              {programsLoading ? (
+                                <SelectItem value="_loading" disabled>Loading programs...</SelectItem>
+                              ) : programs.length === 0 ? (
                                 <SelectItem value="_none" disabled>No programs found</SelectItem>
+                              ) : (
+                                programs.map((p) => (
+                                  <SelectItem key={p.id} value={p.id}>{p.program_name}</SelectItem>
+                                ))
                               )}
                             </SelectContent>
                           </Select>
