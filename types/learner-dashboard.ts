@@ -340,3 +340,43 @@ export interface DashboardExportOptions {
     | 'conversion'
   >;
 }
+
+// ============================================
+// CHANGE REQUEST ANALYTICS
+// ============================================
+
+/** Institution-wise change request breakdown */
+export interface InstitutionChangeRequestStats {
+  institution_id: string;
+  institution_name: string;
+  total: number;
+  pending: number;
+  approved: number;
+  rejected: number;
+  approval_rate: number; // percentage
+}
+
+/** Change Request Analytics (for dashboard tab) */
+export interface ChangeRequestAnalytics {
+  // Summary KPIs
+  totalRequests: number;
+  pendingCount: number;
+  approvedCount: number;
+  rejectedCount: number;
+  approvalRate: number; // percentage of approved / (approved + rejected)
+
+  // Timing
+  averageReviewTimeHours: number; // avg hours between submitted_at → reviewed_at
+
+  // Institution-wise breakdown
+  byInstitution: InstitutionChangeRequestStats[];
+
+  // Top changed fields (which fields students most commonly want to change)
+  topChangedFields: { field: string; count: number; percentage: number }[];
+
+  // Trends - requests submitted over time (last 30 days)
+  requestsByDate: { date: string; count: number }[];
+
+  // Status distribution (for pie chart)
+  byStatus: { status: string; count: number; percentage: number }[];
+}

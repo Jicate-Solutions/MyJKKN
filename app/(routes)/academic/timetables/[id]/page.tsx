@@ -92,7 +92,6 @@ import {
   sortPeriodsByName,
   generateDateRange,
   validateDateRange,
-  checkDatesWithSlots,
   calculateDaysInRange,
   exportTimetableToPDF,
   createRangeMarker,
@@ -973,12 +972,13 @@ export default function TimetableDetailPage({
         return;
       }
 
-      // Check for dates with slots (only if not editing, or if dates changed)
-      const slotCheck = checkDatesWithSlots(startDateStr, endDateStr, slots);
-      if (slotCheck.hasSlots) {
-        toast.error(slotCheck.message || 'Some dates already have slots');
-        return;
-      }
+      // FIX: 2026-02-10 - Removed checkDatesWithSlots validation here.
+      // Previously this blocked adding date ranges when timetable_data had individual date slots.
+      // This caused a bug: date ranges saved to timetable_data (via slot creation) but not to
+      // selected_dates would be invisible yet block new range creation.
+      // The validateDateRange check above is sufficient — it detects overlaps with existing
+      // tracked ranges in selectedDates. Individual date slots in timetable_data are the
+      // timetable's own data and should not block range management.
 
       // If editing, remove the old range first
       let newSelectedDates = [...selectedDates];
@@ -1017,7 +1017,6 @@ export default function TimetableDetailPage({
     },
     [
       selectedDates,
-      slots,
       addDateRangeDialog,
       setSelectedDates,
       setHasUnsavedChanges,

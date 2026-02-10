@@ -27,6 +27,7 @@ import {
   School,
   Globe,
   Target,
+  FileEdit,
 } from 'lucide-react';
 
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -40,7 +41,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useAuth } from '@/hooks/use-auth';
-import type { LearnerDashboardFilters } from '@/types/learner-dashboard';
+import type { LearnerDashboardFilters, ChangeRequestAnalytics } from '@/types/learner-dashboard';
 import toast from 'react-hot-toast';
 
 // Tab components
@@ -56,6 +57,7 @@ import { ExportDashboardDialog } from './_components/export-dashboard-dialog';
 // Advanced Analytics Tab Components
 import { IntakeCapacityTab } from './_components/intake-capacity-tab';
 import { SchoolFeedersTab } from './_components/school-feeders-tab';
+import { ChangeRequestsAnalyticsTab } from './_components/change-requests-analytics-tab';
 
 // Advanced Analytics Hook
 import { useLearnerAdvancedAnalytics } from '@/hooks/use-learner-advanced-analytics';
@@ -215,6 +217,30 @@ export default function LearnersAnalyticsDashboard() {
       enabled: hasAccess && !authLoading && !permissionsLoading,
     }
   );
+
+  // Fetch change request analytics
+  const {
+    data: changeRequestAnalytics,
+    isLoading: isLoadingChangeRequests,
+    error: errorChangeRequests,
+  } = useQuery<ChangeRequestAnalytics>({
+    queryKey: ['learners', 'analytics', 'change-requests', filters.institutionIds?.[0]],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (filters.institutionIds?.[0]) {
+        params.set('institutionId', filters.institutionIds[0]);
+      }
+      const response = await fetch(`/api/learners/analytics/change-requests?${params.toString()}`);
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error || 'Failed to fetch change request analytics');
+      }
+      return response.json();
+    },
+    enabled: hasAccess && !authLoading && !permissionsLoading,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+  });
 
   // Handle manual refresh
   const handleRefresh = async () => {
@@ -453,6 +479,10 @@ export default function LearnersAnalyticsDashboard() {
               <School className="h-4 w-4" />
               <span>Schools</span>
             </TabsTrigger>
+            <TabsTrigger value="change-requests" className="flex min-w-[100px] flex-shrink-0 items-center gap-2">
+              <FileEdit className="h-4 w-4" />
+              <span>Changes</span>
+            </TabsTrigger>
           </TabsList>
 
           {/* Overview Tab */}
@@ -561,6 +591,36 @@ export default function LearnersAnalyticsDashboard() {
                 <AlertCircle className="h-4 w-4" />
                 <AlertDescription>
                   No school feeders data available.
+                </AlertDescription>
+              </Alert>
+            )}
+          </TabsContent>
+
+          {/* Change Requests Analytics Tab */}
+          <TabsContent value="change-requests">
+            {isLoadingChangeRequests ? (
+              <Card>
+                <CardContent className="pt-6">
+                  <div className="space-y-4">
+                    <Skeleton className="h-32 w-full" />
+                    <Skeleton className="h-64 w-full" />
+                  </div>
+                </CardContent>
+              </Card>
+            ) : errorChangeRequests ? (
+              <Alert variant="destructive">
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>
+                  Failed to load change request analytics. Please try again.
+                </AlertDescription>
+              </Alert>
+            ) : changeRequestAnalytics ? (
+              <ChangeRequestsAnalyticsTab data={changeRequestAnalytics} />
+            ) : (
+              <Alert>
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>
+                  No change request data available.
                 </AlertDescription>
               </Alert>
             )}

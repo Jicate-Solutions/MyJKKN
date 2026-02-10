@@ -310,7 +310,8 @@ export const PERMISSION_CATEGORIES = [
       { key: 'staff.view', label: 'View Facilitators' },
       { key: 'staff.create', label: 'Create Facilitators' },
       { key: 'staff.edit', label: 'Edit Facilitators' },
-      { key: 'staff.delete', label: 'Delete Facilitators' }
+      { key: 'staff.delete', label: 'Delete Facilitators' },
+      { key: 'staff.status_update', label: 'Update Facilitator Status' }
     ]
   },
   {

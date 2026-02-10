@@ -18,16 +18,32 @@ function isValidUUID(id: string): boolean {
 }
 
 /**
- * Recovers date ranges from timetable_data keys when selected_dates is empty
- * Groups consecutive dates into RANGE markers
+ * Recovers date ranges from timetable_data keys when selected_dates is empty or missing
  *
  * Fixed: 2025-12-04 - Auto-recover dates from timetable_data when selected_dates is empty
- * This prevents batch mode timetables from showing "No dates selected" when data exists
+ * Fixed: 2026-02-10 - Also recover when selected_dates is [] (empty array) but timetable_data has dates
+ *   Previously only recovered for null/undefined, treating [] as "intentionally empty".
+ *   But [] can also mean the user never clicked "Save Configuration" after adding ranges.
+ *   Now checks timetable_data for RANGE keys first, then falls back to grouping individual dates.
  */
 function recoverDatesFromTimetableData(timetableData: Record<string, any> | null): string[] {
   if (!timetableData) return [];
 
-  // Extract date keys (format: YYYY-MM-DD)
+  // First, check for existing RANGE markers in timetable_data keys
+  // These are the most reliable source since they were explicitly created
+  const rangeKeys = Object.keys(timetableData)
+    .filter(key => key.startsWith('RANGE:'))
+    .sort();
+
+  if (rangeKeys.length > 0) {
+    logger.info('academic/timetables', 'Recovered date ranges from RANGE keys in timetable_data', {
+      rangeCount: rangeKeys.length,
+      ranges: rangeKeys
+    });
+    return rangeKeys;
+  }
+
+  // Fallback: Extract individual date keys and group consecutive ones into ranges
   const dateKeys = Object.keys(timetableData)
     .filter(key => /^\d{4}-\d{2}-\d{2}$/.test(key))
     .sort();
@@ -57,6 +73,12 @@ function recoverDatesFromTimetableData(timetableData: Record<string, any> | null
 
   // Don't forget the last range
   ranges.push(`RANGE:${rangeStart}:${rangeEnd}`);
+
+  logger.info('academic/timetables', 'Recovered date ranges from individual date keys', {
+    dateCount: dateKeys.length,
+    rangeCount: ranges.length,
+    ranges
+  });
 
   return ranges;
 }
@@ -166,23 +188,25 @@ export function useTimetableDetail(timetableId: string): UseTimetableDetailResul
           setSelectedDates(currentSelectedDates);
         } else if (
           timetableData.selected_dates &&
-          Array.isArray(timetableData.selected_dates)
+          Array.isArray(timetableData.selected_dates) &&
+          timetableData.selected_dates.length > 0
         ) {
-          // Use database value (even if empty - user may have intentionally cleared all dates)
+          // Use non-empty database value directly
           setSelectedDates(timetableData.selected_dates);
-        } else if (timetableData.selected_dates === null || timetableData.selected_dates === undefined) {
-          // AUTO-RECOVERY: Only recover if selected_dates is null/undefined (not just empty array)
-          // This distinguishes between "no data" (null) and "intentionally empty" ([])
-          // Fixed: 2026-02-05 - Don't auto-recover if selected_dates is explicitly set to []
+        } else {
+          // AUTO-RECOVERY: selected_dates is null, undefined, or empty []
+          // Fixed: 2026-02-10 - Always attempt recovery when selected_dates has no entries.
+          // Previously, [] was treated as "intentionally empty", but this caused a bug where
+          // date ranges were stored in timetable_data (via slot creation) but never saved to
+          // selected_dates (user didn't click "Save Configuration"). The result was date ranges
+          // invisible in the UI but blocking new range creation via checkDatesWithSlots.
+          // Now we check timetable_data for RANGE keys or date keys to recover missing ranges.
           const recoveredDates = recoverDatesFromTimetableData(timetableData.timetable_data);
           if (recoveredDates.length > 0) {
             setSelectedDates(recoveredDates);
           } else {
             setSelectedDates([]);
           }
-        } else {
-          // Fallback: empty array
-          setSelectedDates([]);
         }
       } else {
         // Regular mode: Load selected days
