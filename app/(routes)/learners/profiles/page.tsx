@@ -130,49 +130,12 @@ async function ProfilesContent({
     learner_id: learnerIdFilter // Student filter - only see own profile
   });
 
-  const parsedParams = profilesSearchParamsSchema.parse(searchParams);
-
   return (
-    <>
-      {/* Advanced Search - Hidden for students */}
-      {!isStudent && (
-        <div className="mb-4">
-          <ProfilesSearchWrapper statusFilter={statusFilter as any} />
-        </div>
-      )}
-
-      {/* Filters (Client Component) - Hidden for students */}
-      {!isStudent && (
-        <ProfilesFilters searchParams={parsedParams} statusFilter={statusFilter as any} />
-      )}
-
-      {/* Debug: Active filter indicators (dev only) */}
-      {process.env.NODE_ENV === 'development' && !isStudent && (
-        <div className="text-xs text-muted-foreground bg-muted/50 p-2 rounded-md mt-2">
-          <span className="font-medium">Active Filters:</span>{' '}
-          {[
-            institution_id && `institution`,
-            degree_id && `degree`,
-            department_id && `department`,
-            program_id && `program`,
-            semester_id && `semester`,
-            section_id && `section`,
-            academic_year_id && `academic_year`,
-            gender && `gender=${gender}`,
-            is_profile_complete !== undefined && `profile_complete=${is_profile_complete}`,
-          ].filter(Boolean).join(', ') || 'none'}
-          {' | '}
-          <span className="font-medium">Results:</span> {metadata.total_items} total, showing page {metadata.page} of {metadata.total_pages}
-        </div>
-      )}
-
-      {/* Table */}
-      <ProfilesTableServer
-        initialData={profiles}
-        metadata={metadata}
-        statusFilter={statusFilter as any}
-      />
-    </>
+    <ProfilesTableServer
+      initialData={profiles}
+      metadata={metadata}
+      statusFilter={statusFilter as any}
+    />
   );
 }
 
@@ -263,48 +226,51 @@ export default async function ProfilesPage({ searchParams }: ProfilesPageProps) 
           // Students see only their active profile (no tabs)
           <div className="space-y-4">
             <Suspense
-              key={`active-${JSON.stringify(params)}`}
               fallback={<TableSkeleton rows={1} columns={10} />}
             >
               <ProfilesContent searchParams={params} statusFilter="active" />
             </Suspense>
           </div>
         ) : (
-          // Admins see tabs for different statuses
-          <Tabs defaultValue="active" className="w-full">
-            <TabsList>
-              <TabsTrigger value="active">Active</TabsTrigger>
-              <TabsTrigger value="inactive">Inactive</TabsTrigger>
-              <TabsTrigger value="exited">Exited</TabsTrigger>
-            </TabsList>
+          // Admins: search & filters outside Suspense so they stay visible during loading
+          <div className="space-y-4">
+            {/* Search & Filters - always visible, never unmounted by Suspense */}
+            <ProfilesSearchWrapper />
+            <ProfilesFilters searchParams={profilesSearchParamsSchema.parse(params)} />
 
-            <TabsContent value="active" className="space-y-4">
-              <Suspense
-                key={`active-${JSON.stringify(params)}`}
-                fallback={<TableSkeleton rows={10} columns={10} />}
-              >
-                <ProfilesContent searchParams={params} statusFilter="active" />
-              </Suspense>
-            </TabsContent>
+            {/* Tabs with data tables inside Suspense */}
+            <Tabs defaultValue="active" className="w-full">
+              <TabsList>
+                <TabsTrigger value="active">Active</TabsTrigger>
+                <TabsTrigger value="inactive">Inactive</TabsTrigger>
+                <TabsTrigger value="exited">Exited</TabsTrigger>
+              </TabsList>
 
-          <TabsContent value="inactive" className="space-y-4">
-            <Suspense
-              key={`inactive-${JSON.stringify(params)}`}
-              fallback={<TableSkeleton rows={10} columns={10} />}
-            >
-              <ProfilesContent searchParams={params} statusFilter="inactive" />
-            </Suspense>
-          </TabsContent>
+              <TabsContent value="active" className="space-y-4">
+                <Suspense
+                  fallback={<TableSkeleton rows={10} columns={10} />}
+                >
+                  <ProfilesContent searchParams={params} statusFilter="active" />
+                </Suspense>
+              </TabsContent>
 
-          <TabsContent value="exited" className="space-y-4">
-            <Suspense
-              key={`exited-${JSON.stringify(params)}`}
-              fallback={<TableSkeleton rows={10} columns={10} />}
-            >
-              <ProfilesContent searchParams={params} statusFilter="exited" />
-            </Suspense>
-          </TabsContent>
-        </Tabs>
+              <TabsContent value="inactive" className="space-y-4">
+                <Suspense
+                  fallback={<TableSkeleton rows={10} columns={10} />}
+                >
+                  <ProfilesContent searchParams={params} statusFilter="inactive" />
+                </Suspense>
+              </TabsContent>
+
+              <TabsContent value="exited" className="space-y-4">
+                <Suspense
+                  fallback={<TableSkeleton rows={10} columns={10} />}
+                >
+                  <ProfilesContent searchParams={params} statusFilter="exited" />
+                </Suspense>
+              </TabsContent>
+            </Tabs>
+          </div>
         )}
       </div>
     </ContentLayout>
