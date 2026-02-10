@@ -202,7 +202,8 @@ export class LearnerProfileChangeService {
   /**
    * Get pending requests with filters (for HOD/Staff)
    * Applies role-based filtering
-   * Optimized: filters by learner IDs first to avoid slow nested-relation filtering
+   * Uses PostgREST !inner join to filter by institution/department server-side,
+   * avoiding URL length limits from large .in() clauses.
    */
   static async getPendingRequests(
     filters: ChangeRequestFilters = {}
@@ -210,44 +211,21 @@ export class LearnerProfileChangeService {
     // Use service role client for admin queries - filtering is applied at the page level
     const supabase = createServiceRoleClient();
 
-    // Step 1: If filtering by institution or department, resolve matching learner IDs first.
-    // This avoids PostgREST nested-relation filtering (learner.institution_id) which is very slow.
-    let learnerIds: string[] | null = null;
+    // Use !inner join when filtering by institution/department so PostgreSQL
+    // handles the filtering server-side (avoids PostgREST URL length limits
+    // that occur when passing large UUID arrays via .in() clause).
+    const needsInnerJoin = !!(filters.institution_id || filters.department_id);
 
-    if (filters.institution_id || filters.department_id) {
-      let learnerQuery = supabase
-        .from('learners_profiles')
-        .select('id');
+    const learnerJoin = needsInnerJoin
+      ? 'learner:learners_profiles!inner'
+      : 'learner:learners_profiles';
 
-      if (filters.institution_id) {
-        learnerQuery = learnerQuery.eq('institution_id', filters.institution_id);
-      }
-      if (filters.department_id) {
-        learnerQuery = learnerQuery.eq('department_id', filters.department_id);
-      }
-
-      const { data: learners, error: learnerError } = await learnerQuery;
-
-      if (learnerError) {
-        console.error('[learner-profile-change-service] Error fetching learner IDs:', learnerError);
-        throw new Error(`Failed to fetch learner IDs: ${learnerError.message}`);
-      }
-
-      learnerIds = learners?.map((l) => l.id) || [];
-
-      // No matching learners → return empty immediately
-      if (learnerIds.length === 0) {
-        return { data: [], total: 0 };
-      }
-    }
-
-    // Step 2: Query change requests with lightweight joins
     let query = supabase
       .from('profile_change_requests')
       .select(
         `
         *,
-        learner:learners_profiles(
+        ${learnerJoin}(
           id, first_name, last_name, roll_number, college_email,
           institution_id, department_id, degree_id, program_id, semester_id,
           institution:institutions(id, name),
@@ -263,9 +241,12 @@ export class LearnerProfileChangeService {
       .eq('request_status', filters.status || 'pending')
       .order('submitted_at', { ascending: false });
 
-    // Apply learner ID filter (resolved from Step 1)
-    if (learnerIds !== null) {
-      query = query.in('learner_id', learnerIds);
+    // Filter on the joined learner table — handled entirely in PostgreSQL
+    if (filters.institution_id) {
+      query = query.eq('learner.institution_id', filters.institution_id);
+    }
+    if (filters.department_id) {
+      query = query.eq('learner.department_id', filters.department_id);
     }
 
     if (filters.learner_id) {
