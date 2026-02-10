@@ -451,7 +451,7 @@ export class FacilitatorImpactService {
     const supabase = createClientSupabaseClient();
 
     // Get staff grouped by department with course counts
-    let staffQuery = supabase
+    let staffQuery = (supabase as any)
       .from('staff')
       .select(
         `
@@ -470,16 +470,16 @@ export class FacilitatorImpactService {
       staffQuery = staffQuery.eq('department_id', filters.departmentId);
     }
 
-    const { data: staffList } = await staffQuery;
+    const { data: staffList } = await staffQuery as { data: any[] | null };
 
     if (!staffList || staffList.length === 0) return [];
 
     // Get all course assignments
-    const staffIds = staffList.map((s) => s.id);
-    const { data: courseAssignments } = await supabase
+    const staffIds = staffList.map((s: any) => s.id);
+    const { data: courseAssignments } = await (supabase as any)
       .from('staff_plan_courses')
       .select('staff_id, course_id')
-      .in('staff_id', staffIds);
+      .in('staff_id', staffIds) as { data: any[] | null };
 
     // Build department map
     const deptMap = new Map<
