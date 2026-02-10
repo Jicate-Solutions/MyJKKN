@@ -171,7 +171,7 @@ function EmptyState({ type }: { type: 'active' | 'all' }) {
 }
 
 export default function MyCoursesPage() {
-  const { user, loading: userLoading } = useAuth();
+  const { profile: user, isLoading: userLoading } = useAuth();
   const { data: activeData, isLoading: activeLoading } = useActiveEnrollments(user?.id);
   const { data: allData, isLoading: allLoading } = useMyEnrollments(user?.id);
 
