@@ -180,7 +180,7 @@ export class FacilitatorImpactService {
     supabase: ReturnType<typeof createClientSupabaseClient>,
     filters?: FacilitatorImpactFilters
   ): Promise<DataStream> {
-    let query = supabase
+    let query = (supabase as any)
       .from('alumni_outcomes')
       .select('id', { count: 'exact', head: true });
 
