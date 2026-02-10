@@ -488,38 +488,28 @@ export class AIQueryService {
     limit?: number;
     offset?: number;
   } = {}): Promise<ToolResponse> {
+    // Only send parameters that the DB function ai_rpc_learners_comprehensive accepts.
+    // PostgREST matches functions by exact parameter names — any extra non-null
+    // param causes PGRST202 "function not found". Parameters not in the DB function
+    // (e.g. p_caste, p_hostel_type, p_state, p_taluk, p_include_full_details, etc.)
+    // must be excluded here until the DB function is updated to support them.
     return this.executeTool('learners_comprehensive', userId, {
       p_search: params.search,
       p_status: params.status,
       p_gender: params.gender,
       p_religion: params.religion,
       p_community: params.community,
-      p_caste: params.caste,
       p_accommodation_type: params.accommodationType,
-      p_hostel_type: params.hostelType,
       p_bus_required: params.busRequired,
-      p_bus_route: params.busRoute,
-      p_bus_pickup_location: params.busPickupLocation,
-      p_food_type: params.foodType,
       p_institution_id: params.institutionId,
       p_department_id: params.departmentId,
       p_program_id: params.programId,
-      p_degree_id: params.degreeId,
       p_semester_id: params.semesterId,
-      p_section_id: params.sectionId,
-      p_academic_year_id: params.academicYearId,
       p_entry_type: params.entryType,
       p_quota: params.quota,
-      p_category: params.category,
       p_first_graduate: params.firstGraduate,
-      p_counseling_applied: params.counselingApplied,
       p_district: params.district,
-      p_state: params.state,
-      p_taluk: params.taluk,
-      p_board_of_study: params.boardOfStudy,
-      p_last_school: params.lastSchool,
       p_include_stats: params.includeStats !== false,
-      p_include_full_details: params.includeFullDetails || false,
       p_limit: params.limit || 100,
       p_offset: params.offset || 0,
     });
