@@ -17,7 +17,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Progress } from '@/components/ui/progress';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useActiveEnrollments, useMyEnrollments, useCourseProgress } from '@/hooks/vac/use-vac';
-import { useAuth } from '@/providers/auth-provider';
+import { useAuth } from '@/hooks/use-auth';
 import {
   BookOpen,
   Calendar,
