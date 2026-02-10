@@ -243,6 +243,11 @@ export type {
 } from './notifications-service';
 
 // ============================================
+// COMPLIANCE / GRADUATION GATE
+// ============================================
+export { ComplianceService } from './compliance-service';
+
+// ============================================
 // UTILITY FUNCTIONS
 // ============================================
 
