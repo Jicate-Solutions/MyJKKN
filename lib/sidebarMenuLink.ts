@@ -513,6 +513,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/solutions/settings/types': 'solutions.view',
   '/solutions/publications': 'solutions.publications.view',
   '/solutions/publications/new': 'solutions.publications.create',
+  '/solutions/compliance': 'solutions.view',
 
   // Talent Portals (Role-specific)
   '/talent/builder': 'talent.builder.view',
