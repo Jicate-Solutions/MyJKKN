@@ -218,28 +218,28 @@ const AI_TOOLS: Anthropic.Tool[] = [
   },
   {
     name: 'get_learners_by_location',
-    description: 'Comprehensive location-based learner search - searches across permanent address district, bus pickup location, street address, and taluk fields. Returns learners from specific geographic areas with location statistics and indicates which field matched. Use this when asked about learners from a specific district, city, state, bus pickup point, or region.',
+    description: 'Comprehensive location-based learner search - searches across permanent address district, street address, and taluk fields. Returns learners from specific geographic areas with location statistics and indicates which field matched. Use this when asked about learners from a specific district, city, state, or region.',
     input_schema: {
       type: 'object' as const,
       properties: {
-        district: { type: 'string', description: 'Filter by district name (e.g., Erode, Salem, Coimbatore) - searches in district, bus pickup location, street, and taluk fields' },
+        district: { type: 'string', description: 'Filter by district name (e.g., Erode, Salem, Coimbatore) - searches in district, street, and taluk fields' },
         state: { type: 'string', description: 'Filter by state name (e.g., Tamil Nadu, Kerala)' },
-        taluk: { type: 'string', description: 'Filter by taluk/sub-district name - also searches bus pickup location' },
-        city: { type: 'string', description: 'Filter by city name - searches in district, bus pickup location, and street fields' },
+        taluk: { type: 'string', description: 'Filter by taluk/sub-district name' },
+        city: { type: 'string', description: 'Filter by city name - searches in district and street fields' },
         status: { type: 'string', enum: ['active', 'inactive', 'graduated', 'exited', 'pending'], description: 'Filter by learner status' },
         department_id: { type: 'string', description: 'Filter by department UUID' },
-        include_stats: { type: 'boolean', description: 'Include location statistics with bus pickup locations (district/state distribution). Default: true' },
+        include_stats: { type: 'boolean', description: 'Include location statistics (district/state distribution). Default: true' },
       },
     },
   },
   {
     name: 'get_learners_comprehensive',
-    description: 'MOST POWERFUL learner search tool - searches ALL learner data across ALL institutions. Use this for: demographics (gender, religion, community, caste), accommodation (hostel, day scholar, bus), academic filters, admission details (quota, category, first graduate), location, and education background. Returns statistics breakdown. Always use this tool when user asks about specific learner characteristics or wants comprehensive data.',
+    description: 'MOST POWERFUL learner search tool - searches ALL learner data across ALL institutions. Use this for: demographics (gender, religion, community, caste), accommodation (hostel, day scholar), academic filters, admission details (quota, category, first graduate), location, and education background. Returns statistics breakdown. Always use this tool when user asks about specific learner characteristics or wants comprehensive data.',
     input_schema: {
       type: 'object' as const,
       properties: {
         // Text search
-        search: { type: 'string', description: 'Free text search across name, roll number, email, mobile, father/mother name, bus pickup location, district, school' },
+        search: { type: 'string', description: 'Free text search across name, roll number, email, mobile, father/mother name, district, school' },
         // Identity filters
         status: { type: 'string', enum: ['active', 'inactive', 'graduated', 'exited', 'pending'], description: 'Learner status' },
         gender: { type: 'string', enum: ['male', 'female'], description: 'Filter by gender (case-insensitive)' },
@@ -250,9 +250,6 @@ const AI_TOOLS: Anthropic.Tool[] = [
         // Accommodation filters
         accommodation_type: { type: 'string', description: 'Filter by accommodation type (hostel, dayscholar, day scholar)' },
         hostel_type: { type: 'string', description: 'Filter by hostel type (e.g., AC HOSTEL)' },
-        bus_required: { type: 'boolean', description: 'Filter learners who require bus transport' },
-        bus_route: { type: 'string', description: 'Filter by bus route' },
-        bus_pickup_location: { type: 'string', description: 'Filter by bus pickup location' },
         food_type: { type: 'string', description: 'Filter by food preference (veg/non-veg)' },
         // Academic filters
         institution_id: { type: 'string', description: 'Filter by institution UUID' },
@@ -268,7 +265,7 @@ const AI_TOOLS: Anthropic.Tool[] = [
         first_graduate: { type: 'boolean', description: 'Filter first-generation graduates (first in family to attend college)' },
         counseling_applied: { type: 'boolean', description: 'Filter learners who applied through counseling' },
         // Location filters
-        district: { type: 'string', description: 'Filter by district (searches district, bus pickup, street, taluk)' },
+        district: { type: 'string', description: 'Filter by district (searches district, street, taluk)' },
         state: { type: 'string', description: 'Filter by state' },
         taluk: { type: 'string', description: 'Filter by taluk/sub-district' },
         // Education background
@@ -303,7 +300,6 @@ const AI_TOOLS: Anthropic.Tool[] = [
         quota: { type: 'string', description: 'Filter by admission quota (GOVERNMENT, MANAGEMENT)' },
         category: { type: 'string', description: 'Filter by category' },
         accommodation_type: { type: 'string', description: 'Filter by accommodation type (hostel, dayscholar)' },
-        bus_required: { type: 'boolean', description: 'Filter applicants who require bus transport' },
         search: { type: 'string', description: 'Search by name, email, mobile, application ID, father name, mother name' },
         date_from: { type: 'string', description: 'Admission date from (YYYY-MM-DD)' },
         date_to: { type: 'string', description: 'Admission date to (YYYY-MM-DD)' },
@@ -324,7 +320,7 @@ const AI_TOOLS: Anthropic.Tool[] = [
   },
   {
     name: 'get_admissions_by_location',
-    description: 'Search admissions by geographic location - searches across district, state, taluk, city, and bus pickup location. Returns ALL matching admissions with location statistics breakdown. Use this when asked about admissions from a specific district, city, or region.',
+    description: 'Search admissions by geographic location - searches across district, state, taluk, and city. Returns ALL matching admissions with location statistics breakdown. Use this when asked about admissions from a specific district, city, or region.',
     input_schema: {
       type: 'object' as const,
       properties: {
@@ -652,9 +648,6 @@ async function executeTool(
         caste: toolInput.caste as string,
         accommodationType: toolInput.accommodation_type as string,
         hostelType: toolInput.hostel_type as string,
-        busRequired: toolInput.bus_required as boolean,
-        busRoute: toolInput.bus_route as string,
-        busPickupLocation: toolInput.bus_pickup_location as string,
         foodType: toolInput.food_type as string,
         institutionId: toolInput.institution_id as string,
         departmentId: toolInput.department_id as string,
@@ -695,7 +688,6 @@ async function executeTool(
         quota: toolInput.quota as string,
         category: toolInput.category as string,
         accommodationType: toolInput.accommodation_type as string,
-        busRequired: toolInput.bus_required as boolean,
         search: toolInput.search as string,
         dateFrom: toolInput.date_from as string,
         dateTo: toolInput.date_to as string,

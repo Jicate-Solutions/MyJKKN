@@ -162,13 +162,9 @@ function parseExcelRow(row: any[], rowNumber: number): {
   const quotaLabel = getCellValue(row[51]);
   const category = getCellValue(row[52]);
 
-  const busRequiredLabel = getCellValue(row[53]);
-  const busRoute = getCellValue(row[54]);
-  const busPickupLocation = getCellValue(row[55]);
-
-  const referenceType = getCellValue(row[56]);
-  const referenceName = getCellValue(row[57]);
-  const referenceContact = getCellValue(row[58]);
+  const referenceType = getCellValue(row[53]);
+  const referenceName = getCellValue(row[54]);
+  const referenceContact = getCellValue(row[55]);
 
   // Skip completely empty rows
   if (!firstName && !lastName && !studentMobile && !studentEmail) {
@@ -400,12 +396,6 @@ function parseExcelRow(row: any[], rowNumber: number): {
     }
   }
 
-  let busRequired: boolean | undefined;
-  if (busRequiredLabel) {
-    const mapped = mapLabelToValue(busRequiredLabel, 'boolean');
-    busRequired = mapped === true;
-  }
-
   if (errors.length > 0) {
     return { data: null, errors };
   }
@@ -494,11 +484,6 @@ function parseExcelRow(row: any[], rowNumber: number): {
       counseling_applied: counselingApplied || false,
       quota: quota || null,
       category: category || null,
-
-      // Transport
-      bus_required: busRequired || false,
-      bus_route: busRoute || null,
-      bus_pickup_location: busPickupLocation || null,
 
       // Reference
       reference_type: referenceType || null,
@@ -930,11 +915,6 @@ export async function POST(request: NextRequest): Promise<NextResponse<ImportRes
       counseling_applied: data.counseling_applied,
       quota: data.quota,
       category: data.category,
-
-      // Transport
-      bus_required: data.bus_required,
-      bus_route: data.bus_route,
-      bus_pickup_location: data.bus_pickup_location,
 
       // Reference
       reference_type: data.reference_type,

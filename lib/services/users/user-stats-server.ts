@@ -8,12 +8,16 @@
 //   - Invalidate on user create/delete/bulk operations
 // ============================================
 
-import { createServerClient } from '@supabase/ssr';
+import { createClient } from '@supabase/supabase-js';
 import type { UserStats } from '@/types/users';
 import { cacheLife, cacheTag } from 'next/cache';
 
 /**
  * Fetch user statistics from the database (server-side only)
+ *
+ * Uses createClient (not createServerClient) because:
+ * - Service role key bypasses RLS — no cookies needed
+ * - Avoids SSR cookie layer that can cause fetch failures in 'use cache' context
  *
  * @param institutionId - Optional institution ID to filter stats
  * @returns UserStats object with counts and breakdowns
@@ -21,18 +25,9 @@ import { cacheLife, cacheTag } from 'next/cache';
 async function getUserStatsServer(institutionId?: string): Promise<UserStats> {
   try {
     // Use service role key for stats (no cookies needed, just counting)
-    const supabase = createServerClient(
+    const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-      {
-        cookies: {
-          get() {
-            return undefined;
-          },
-          set() {},
-          remove() {}
-        }
-      }
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
     const fromProfiles = supabase.from('profiles');
 

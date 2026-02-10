@@ -436,12 +436,7 @@ export async function GET(request: NextRequest) {
       { header: 'Quota', key: 'quota', width: 18 },
       { header: 'Category', key: 'category', width: 15 },
 
-      // SECTION 11: Transport
-      { header: 'Bus Required', key: 'bus_required', width: 15 },
-      { header: 'Bus Route', key: 'bus_route', width: 20 },
-      { header: 'Bus Pickup Location', key: 'bus_pickup_location', width: 25 },
-
-      // SECTION 12: Reference
+      // SECTION 11: Reference
       { header: 'Reference Type', key: 'reference_type', width: 15 },
       { header: 'Reference Name', key: 'reference_name', width: 20 },
       { header: 'Reference Contact', key: 'reference_contact', width: 15 }
@@ -555,9 +550,6 @@ export async function GET(request: NextRequest) {
       counseling_applied: EXCEL_BOOLEAN[0],
       quota: EXCEL_QUOTA[0],
       category: 'General',
-      bus_required: EXCEL_BOOLEAN[0],
-      bus_route: 'Route 5',
-      bus_pickup_location: 'Central Bus Stand',
       reference_type: EXCEL_REFERENCE_TYPE[0], // Use first reference type from list
       reference_name: 'Dr. Kumar',
       reference_contact: '9999999999'
@@ -1203,19 +1195,8 @@ export async function GET(request: NextRequest) {
         error: 'Please select from dropdown'
       };
 
-      // Column 57 (BE): Bus Required (Boolean)
+      // Column 57 (BE): Reference Type dropdown
       worksheet.getCell(row, 57).dataValidation = {
-        type: 'list',
-        allowBlank: true,
-        formulae: [`Lists!$${getColLetter(booleanCol)}$2:$${getColLetter(booleanCol)}$${EXCEL_BOOLEAN.length + 1}`],
-        showErrorMessage: true,
-        errorStyle: 'warning',
-        errorTitle: 'Invalid Input',
-        error: `Please select: ${EXCEL_BOOLEAN.join(', ')}`
-      };
-
-      // Column 60 (BH): Reference Type dropdown
-      worksheet.getCell(row, 60).dataValidation = {
         type: 'list',
         allowBlank: true,
         formulae: [`Lists!$${getColLetter(referenceTypeCol)}$2:$${getColLetter(referenceTypeCol)}$${EXCEL_REFERENCE_TYPE.length + 1}`],

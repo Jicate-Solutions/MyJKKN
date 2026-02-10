@@ -232,10 +232,6 @@ export async function GET(request: NextRequest) {
       'Accommodation Type': learner.accommodation_type || '',
       'Hostel Type': learner.hostel_type || '',
       'Food Type': learner.food_type || '',
-      'Bus Required': learner.bus_required ? 'TRUE' : 'FALSE',
-      'Bus Route': learner.bus_route || '',
-      'Bus Pickup Location': learner.bus_pickup_location || '',
-
       // SECTION 10: Reference Information
       'Reference Type': learner.reference_type || '',
       'Reference Name': learner.reference_name || '',
@@ -301,7 +297,7 @@ export async function GET(request: NextRequest) {
       { 'A': 'SECTIONS 7-11: Optional Fields' },
       { 'A': '• Previous Education (School, Board, 10th & 12th Marks)' },
       { 'A': '• Entrance Exams (NEET, Cutoff Marks, Counseling)' },
-      { 'A': '• Accommodation (Hostel, Food, Bus Details)' },
+      { 'A': '• Accommodation (Hostel, Food Details)' },
       { 'A': '• Reference Information' },
       { 'A': '• Student Specific (Roll Number, Register Number, Quota, Category)' },
       { 'A': '' },

@@ -52,7 +52,6 @@ export interface GeographyMetrics {
   talukContributions: TalukContribution[];
   hostelStudentRatio: number; // percentage
   dayScholarRatio: number; // percentage
-  transportUsage: number; // percentage
 }
 
 export interface DistrictContribution {

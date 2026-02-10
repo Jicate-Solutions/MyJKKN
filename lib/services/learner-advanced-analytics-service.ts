@@ -180,7 +180,7 @@ export class LearnerAdvancedAnalyticsService {
 
     let query = supabase
       .from('learners_profiles')
-      .select('permanent_address_district, permanent_address_taluk, accommodation_type, bus_required');
+      .select('permanent_address_district, permanent_address_taluk, accommodation_type');
 
     if (filters.institutionId) {
       query = query.eq('institution_id', filters.institutionId);
@@ -203,7 +203,6 @@ export class LearnerAdvancedAnalyticsService {
         talukContributions: [],
         hostelStudentRatio: 0,
         dayScholarRatio: 0,
-        transportUsage: 0,
       };
     }
 
@@ -253,16 +252,11 @@ export class LearnerAdvancedAnalyticsService {
     const hostelStudentRatio = totalLearners > 0 ? (hostelCount / totalLearners) * 100 : 0;
     const dayScholarRatio = totalLearners > 0 ? (dayScholarCount / totalLearners) * 100 : 0;
 
-    // Transport usage
-    const transportCount = learners.filter(l => l.bus_required === true).length;
-    const transportUsage = totalLearners > 0 ? (transportCount / totalLearners) * 100 : 0;
-
     return {
       districtContributions,
       talukContributions,
       hostelStudentRatio: Math.round(hostelStudentRatio * 10) / 10,
       dayScholarRatio: Math.round(dayScholarRatio * 10) / 10,
-      transportUsage: Math.round(transportUsage * 10) / 10,
     };
   }
 
