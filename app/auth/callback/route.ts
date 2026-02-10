@@ -331,13 +331,13 @@ export async function GET(request: NextRequest) {
         // Auto-assign institution for JKKN domain users
         let defaultInstitutionId: string | null = null;
         if (user.email?.endsWith('@jkkn.ac.in') || user.email?.endsWith('@jkkn.local')) {
-          // Lookup the default JKKN institution
+          // Lookup the default JKKN institution (maybeSingle to avoid error if empty table)
           const { data: defaultInst } = await adminClient
             .from('institutions')
             .select('id')
             .order('created_at', { ascending: true })
             .limit(1)
-            .single();
+            .maybeSingle();
           defaultInstitutionId = defaultInst?.id || null;
           console.log('[Auth Callback] Auto-assigned institution for JKKN user:', defaultInstitutionId);
         }
