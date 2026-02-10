@@ -376,9 +376,9 @@ export class VACService {
       .select('*')
       .eq('user_id', userId)
       .eq('lesson_id', lessonId)
-      .single();
+      .maybeSingle();
 
-    if (error && error.code !== 'PGRST116') throw error; // PGRST116 = not found
+    if (error) throw error;
     return data as VACLearnerProgress | null;
   }
 
