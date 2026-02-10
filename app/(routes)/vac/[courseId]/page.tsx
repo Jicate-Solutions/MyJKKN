@@ -22,7 +22,7 @@ import {
   useVACProgress,
   useCourseProgress
 } from '@/hooks/vac/use-vac';
-import { useAuth } from '@/providers/auth-provider';
+import { useAuth } from '@/hooks/use-auth';
 import { EnrollButton } from '../_components/enroll-button';
 import type { VACLesson } from '@/types/vac';
 import {
