@@ -44,7 +44,7 @@ export default function CourseDetailPage({
   params: Promise<{ courseId: string }>;
 }) {
   const { courseId } = use(params);
-  const { user } = useAuth();
+  const { profile: user } = useAuth();
 
   const {
     course,
