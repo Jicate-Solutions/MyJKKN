@@ -106,8 +106,10 @@ export async function getEnhancedUserProfile(): Promise<{
       return { profile: null, error: new Error('No authenticated user') };
     }
 
-    // Get user profile
-    const { data: profileData, error: profileError } = await supabase
+    // Get user profile - try with institutions join first, fallback to simple query
+    let profileData: any = null;
+
+    const { data: fullProfileData, error: fullProfileError } = await supabase
       .from('profiles')
       .select(
         `
@@ -129,7 +131,20 @@ export async function getEnhancedUserProfile(): Promise<{
       .eq('id', userData.user.id)
       .single();
 
-    if (profileError) throw profileError;
+    if (fullProfileError) {
+      // Fallback: fetch profile without institutions join (RLS on institutions may block the join)
+      console.warn('[getEnhancedUserProfile] Institutions join failed, falling back to simple query:', fullProfileError.message);
+      const { data: simpleProfileData, error: simpleProfileError } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', userData.user.id)
+        .single();
+
+      if (simpleProfileError) throw simpleProfileError;
+      profileData = simpleProfileData;
+    } else {
+      profileData = fullProfileData;
+    }
 
     // If user is a student, fetch their student record and status
     if (profileData && profileData.role === 'student') {

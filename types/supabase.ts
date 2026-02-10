@@ -1171,18 +1171,24 @@ export type Database = {
       }
       admission_leads: {
         Row: {
+          address_line1: string | null
+          alternate_phone: string | null
           assigned_at: string | null
           assigned_counselor_id: string | null
+          city: string | null
           combined_score: number | null
           conversion_probability: number | null
           counselor_id: string | null
+          country: string | null
           created_at: string | null
           created_by: string | null
+          date_of_birth: string | null
           dormant_at: string | null
           email: string | null
           engagement_score: number | null
           full_name: string | null
           funnel_stage: string | null
+          gender: string | null
           id: string
           institution_id: string
           interested_programs: string[] | null
@@ -1199,6 +1205,7 @@ export type Database = {
           lost_reason: string | null
           messages_this_week: number | null
           next_followup_at: string | null
+          notes: string | null
           ownership_mode:
             | Database["public"]["Enums"]["lead_ownership_mode"]
             | null
@@ -1207,6 +1214,7 @@ export type Database = {
           parent_opted_in: boolean | null
           parent_phone: string | null
           phone: string | null
+          pincode: string | null
           preferred_campus: string | null
           preferred_channel:
             | Database["public"]["Enums"]["communication_channel_type"]
@@ -1222,23 +1230,30 @@ export type Database = {
           source: string | null
           stage: Database["public"]["Enums"]["admission_lead_stage"] | null
           stage_changed_at: string | null
+          state: string | null
           tags: string[] | null
           total_messages_sent: number | null
           updated_at: string | null
         }
         Insert: {
+          address_line1?: string | null
+          alternate_phone?: string | null
           assigned_at?: string | null
           assigned_counselor_id?: string | null
+          city?: string | null
           combined_score?: number | null
           conversion_probability?: number | null
           counselor_id?: string | null
+          country?: string | null
           created_at?: string | null
           created_by?: string | null
+          date_of_birth?: string | null
           dormant_at?: string | null
           email?: string | null
           engagement_score?: number | null
           full_name?: string | null
           funnel_stage?: string | null
+          gender?: string | null
           id?: string
           institution_id: string
           interested_programs?: string[] | null
@@ -1255,6 +1270,7 @@ export type Database = {
           lost_reason?: string | null
           messages_this_week?: number | null
           next_followup_at?: string | null
+          notes?: string | null
           ownership_mode?:
             | Database["public"]["Enums"]["lead_ownership_mode"]
             | null
@@ -1263,6 +1279,7 @@ export type Database = {
           parent_opted_in?: boolean | null
           parent_phone?: string | null
           phone?: string | null
+          pincode?: string | null
           preferred_campus?: string | null
           preferred_channel?:
             | Database["public"]["Enums"]["communication_channel_type"]
@@ -1278,23 +1295,30 @@ export type Database = {
           source?: string | null
           stage?: Database["public"]["Enums"]["admission_lead_stage"] | null
           stage_changed_at?: string | null
+          state?: string | null
           tags?: string[] | null
           total_messages_sent?: number | null
           updated_at?: string | null
         }
         Update: {
+          address_line1?: string | null
+          alternate_phone?: string | null
           assigned_at?: string | null
           assigned_counselor_id?: string | null
+          city?: string | null
           combined_score?: number | null
           conversion_probability?: number | null
           counselor_id?: string | null
+          country?: string | null
           created_at?: string | null
           created_by?: string | null
+          date_of_birth?: string | null
           dormant_at?: string | null
           email?: string | null
           engagement_score?: number | null
           full_name?: string | null
           funnel_stage?: string | null
+          gender?: string | null
           id?: string
           institution_id?: string
           interested_programs?: string[] | null
@@ -1311,6 +1335,7 @@ export type Database = {
           lost_reason?: string | null
           messages_this_week?: number | null
           next_followup_at?: string | null
+          notes?: string | null
           ownership_mode?:
             | Database["public"]["Enums"]["lead_ownership_mode"]
             | null
@@ -1319,6 +1344,7 @@ export type Database = {
           parent_opted_in?: boolean | null
           parent_phone?: string | null
           phone?: string | null
+          pincode?: string | null
           preferred_campus?: string | null
           preferred_channel?:
             | Database["public"]["Enums"]["communication_channel_type"]
@@ -1334,6 +1360,7 @@ export type Database = {
           source?: string | null
           stage?: Database["public"]["Enums"]["admission_lead_stage"] | null
           stage_changed_at?: string | null
+          state?: string | null
           tags?: string[] | null
           total_messages_sent?: number | null
           updated_at?: string | null
@@ -1920,6 +1947,96 @@ export type Database = {
           },
         ]
       }
+      admission_workflow_configs: {
+        Row: {
+          academic_year: string
+          active_stages: string[]
+          config_name: string
+          created_at: string | null
+          default_templates: Json | null
+          entrance_exam_type: string | null
+          government_quota_percentage: number | null
+          has_entrance_exam: boolean | null
+          has_gd_pi: boolean | null
+          has_government_quota: boolean | null
+          has_management_quota: boolean | null
+          has_merit_list: boolean | null
+          has_nri_quota: boolean | null
+          id: string
+          institution_id: string
+          is_active: boolean | null
+          merit_criteria: Json | null
+          quota_config: Json | null
+          required_documents: string[] | null
+          sla_config: Json | null
+          stage_configs: Json
+          updated_at: string | null
+        }
+        Insert: {
+          academic_year: string
+          active_stages?: string[]
+          config_name: string
+          created_at?: string | null
+          default_templates?: Json | null
+          entrance_exam_type?: string | null
+          government_quota_percentage?: number | null
+          has_entrance_exam?: boolean | null
+          has_gd_pi?: boolean | null
+          has_government_quota?: boolean | null
+          has_management_quota?: boolean | null
+          has_merit_list?: boolean | null
+          has_nri_quota?: boolean | null
+          id?: string
+          institution_id: string
+          is_active?: boolean | null
+          merit_criteria?: Json | null
+          quota_config?: Json | null
+          required_documents?: string[] | null
+          sla_config?: Json | null
+          stage_configs?: Json
+          updated_at?: string | null
+        }
+        Update: {
+          academic_year?: string
+          active_stages?: string[]
+          config_name?: string
+          created_at?: string | null
+          default_templates?: Json | null
+          entrance_exam_type?: string | null
+          government_quota_percentage?: number | null
+          has_entrance_exam?: boolean | null
+          has_gd_pi?: boolean | null
+          has_government_quota?: boolean | null
+          has_management_quota?: boolean | null
+          has_merit_list?: boolean | null
+          has_nri_quota?: boolean | null
+          id?: string
+          institution_id?: string
+          is_active?: boolean | null
+          merit_criteria?: Json | null
+          quota_config?: Json | null
+          required_documents?: string[] | null
+          sla_config?: Json | null
+          stage_configs?: Json
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "admission_workflow_configs_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admission_workflow_configs_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+        ]
+      }
       admission_workflows: {
         Row: {
           created_at: string
@@ -2172,6 +2289,257 @@ export type Database = {
             columns: ["user_id"]
             isOneToOne: true
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      alumni_outcomes: {
+        Row: {
+          batch_id: string | null
+          business_name: string | null
+          business_sector: string | null
+          business_type: string | null
+          city: string | null
+          company_name: string | null
+          company_website: string | null
+          contact_frequency: string | null
+          country: string | null
+          course_name: string | null
+          created_at: string
+          created_by: string | null
+          data_source: Database["public"]["Enums"]["data_source_enum"] | null
+          department: string | null
+          department_id: string | null
+          designation: string | null
+          employee_count: number | null
+          engagement_notes: string | null
+          feedback: string | null
+          funding_raised: string | null
+          graduation_date: string | null
+          graduation_year: number
+          has_equity: boolean | null
+          id: string
+          industry_sector: string | null
+          institution_id: string
+          institution_name: string | null
+          is_contactable: boolean | null
+          is_relevant_to_program: boolean | null
+          is_remote: boolean | null
+          is_scholarship: boolean | null
+          is_willing_to_guest_lecture: boolean | null
+          is_willing_to_hire: boolean | null
+          is_willing_to_mentor: boolean | null
+          job_function: string | null
+          last_engagement_date: string | null
+          last_updated_at: string | null
+          learner_id: string | null
+          other_benefits: string | null
+          outcome_start_date: string | null
+          outcome_type: Database["public"]["Enums"]["outcome_type_enum"]
+          preferred_contact_method: string | null
+          program_id: string | null
+          relevance_percentage: number | null
+          reported_at: string | null
+          salary_range: Database["public"]["Enums"]["salary_range_enum"] | null
+          satisfaction_score: number | null
+          scholarship_details: string | null
+          skills_used: string[] | null
+          specialization: string | null
+          state: string | null
+          suggestions: string | null
+          testimonial: string | null
+          testimonial_approved: boolean | null
+          update_count: number | null
+          updated_at: string
+          verification_documents: Json | null
+          verification_notes: string | null
+          verification_status:
+            | Database["public"]["Enums"]["verification_status_enum"]
+            | null
+          verified_at: string | null
+          verified_by: string | null
+          would_recommend_program: boolean | null
+        }
+        Insert: {
+          batch_id?: string | null
+          business_name?: string | null
+          business_sector?: string | null
+          business_type?: string | null
+          city?: string | null
+          company_name?: string | null
+          company_website?: string | null
+          contact_frequency?: string | null
+          country?: string | null
+          course_name?: string | null
+          created_at?: string
+          created_by?: string | null
+          data_source?: Database["public"]["Enums"]["data_source_enum"] | null
+          department?: string | null
+          department_id?: string | null
+          designation?: string | null
+          employee_count?: number | null
+          engagement_notes?: string | null
+          feedback?: string | null
+          funding_raised?: string | null
+          graduation_date?: string | null
+          graduation_year: number
+          has_equity?: boolean | null
+          id?: string
+          industry_sector?: string | null
+          institution_id: string
+          institution_name?: string | null
+          is_contactable?: boolean | null
+          is_relevant_to_program?: boolean | null
+          is_remote?: boolean | null
+          is_scholarship?: boolean | null
+          is_willing_to_guest_lecture?: boolean | null
+          is_willing_to_hire?: boolean | null
+          is_willing_to_mentor?: boolean | null
+          job_function?: string | null
+          last_engagement_date?: string | null
+          last_updated_at?: string | null
+          learner_id?: string | null
+          other_benefits?: string | null
+          outcome_start_date?: string | null
+          outcome_type?: Database["public"]["Enums"]["outcome_type_enum"]
+          preferred_contact_method?: string | null
+          program_id?: string | null
+          relevance_percentage?: number | null
+          reported_at?: string | null
+          salary_range?: Database["public"]["Enums"]["salary_range_enum"] | null
+          satisfaction_score?: number | null
+          scholarship_details?: string | null
+          skills_used?: string[] | null
+          specialization?: string | null
+          state?: string | null
+          suggestions?: string | null
+          testimonial?: string | null
+          testimonial_approved?: boolean | null
+          update_count?: number | null
+          updated_at?: string
+          verification_documents?: Json | null
+          verification_notes?: string | null
+          verification_status?:
+            | Database["public"]["Enums"]["verification_status_enum"]
+            | null
+          verified_at?: string | null
+          verified_by?: string | null
+          would_recommend_program?: boolean | null
+        }
+        Update: {
+          batch_id?: string | null
+          business_name?: string | null
+          business_sector?: string | null
+          business_type?: string | null
+          city?: string | null
+          company_name?: string | null
+          company_website?: string | null
+          contact_frequency?: string | null
+          country?: string | null
+          course_name?: string | null
+          created_at?: string
+          created_by?: string | null
+          data_source?: Database["public"]["Enums"]["data_source_enum"] | null
+          department?: string | null
+          department_id?: string | null
+          designation?: string | null
+          employee_count?: number | null
+          engagement_notes?: string | null
+          feedback?: string | null
+          funding_raised?: string | null
+          graduation_date?: string | null
+          graduation_year?: number
+          has_equity?: boolean | null
+          id?: string
+          industry_sector?: string | null
+          institution_id?: string
+          institution_name?: string | null
+          is_contactable?: boolean | null
+          is_relevant_to_program?: boolean | null
+          is_remote?: boolean | null
+          is_scholarship?: boolean | null
+          is_willing_to_guest_lecture?: boolean | null
+          is_willing_to_hire?: boolean | null
+          is_willing_to_mentor?: boolean | null
+          job_function?: string | null
+          last_engagement_date?: string | null
+          last_updated_at?: string | null
+          learner_id?: string | null
+          other_benefits?: string | null
+          outcome_start_date?: string | null
+          outcome_type?: Database["public"]["Enums"]["outcome_type_enum"]
+          preferred_contact_method?: string | null
+          program_id?: string | null
+          relevance_percentage?: number | null
+          reported_at?: string | null
+          salary_range?: Database["public"]["Enums"]["salary_range_enum"] | null
+          satisfaction_score?: number | null
+          scholarship_details?: string | null
+          skills_used?: string[] | null
+          specialization?: string | null
+          state?: string | null
+          suggestions?: string | null
+          testimonial?: string | null
+          testimonial_approved?: boolean | null
+          update_count?: number | null
+          updated_at?: string
+          verification_documents?: Json | null
+          verification_notes?: string | null
+          verification_status?:
+            | Database["public"]["Enums"]["verification_status_enum"]
+            | null
+          verified_at?: string | null
+          verified_by?: string | null
+          would_recommend_program?: boolean | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "alumni_outcomes_batch_id_fkey"
+            columns: ["batch_id"]
+            isOneToOne: false
+            referencedRelation: "batches"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "alumni_outcomes_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "alumni_outcomes_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "alumni_outcomes_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "learners_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "alumni_outcomes_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "semester_program_audit_view"
+            referencedColumns: ["learner_id"]
+          },
+          {
+            foreignKeyName: "alumni_outcomes_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "v_pending_escalations"
+            referencedColumns: ["learner_profile_id"]
+          },
+          {
+            foreignKeyName: "alumni_outcomes_program_id_fkey"
+            columns: ["program_id"]
+            isOneToOne: false
+            referencedRelation: "programs"
             referencedColumns: ["id"]
           },
         ]
@@ -2637,6 +3005,9 @@ export type Database = {
           effective_date: string
           expiry_date: string | null
           id: string
+          is_outcome_based: boolean | null
+          outcome_criteria: Json | null
+          outcome_verification: Json | null
           supporting_documents: Json | null
           updated_at: string | null
         }
@@ -2655,6 +3026,9 @@ export type Database = {
           effective_date: string
           expiry_date?: string | null
           id?: string
+          is_outcome_based?: boolean | null
+          outcome_criteria?: Json | null
+          outcome_verification?: Json | null
           supporting_documents?: Json | null
           updated_at?: string | null
         }
@@ -2673,6 +3047,9 @@ export type Database = {
           effective_date?: string
           expiry_date?: string | null
           id?: string
+          is_outcome_based?: boolean | null
+          outcome_criteria?: Json | null
+          outcome_verification?: Json | null
           supporting_documents?: Json | null
           updated_at?: string | null
         }
@@ -6649,6 +7026,176 @@ export type Database = {
           },
         ]
       }
+      facilitator_development: {
+        Row: {
+          certifications: Json | null
+          competencies_acquired: string[] | null
+          completed_at: string | null
+          created_at: string
+          current_stage: string
+          development_plan: Json | null
+          id: string
+          industry_exposure_hours: number | null
+          institution_id: string
+          mentor_id: string | null
+          mentor_notes: string | null
+          outcome_score: number | null
+          peer_observations_done: number | null
+          peer_observations_received: number | null
+          staff_id: string
+          stage_updated_at: string | null
+          started_at: string | null
+          status: string | null
+          student_feedback_average: number | null
+          target_stage: string | null
+          updated_at: string
+          workshops_attended: number | null
+          workshops_facilitated: number | null
+        }
+        Insert: {
+          certifications?: Json | null
+          competencies_acquired?: string[] | null
+          completed_at?: string | null
+          created_at?: string
+          current_stage?: string
+          development_plan?: Json | null
+          id?: string
+          industry_exposure_hours?: number | null
+          institution_id: string
+          mentor_id?: string | null
+          mentor_notes?: string | null
+          outcome_score?: number | null
+          peer_observations_done?: number | null
+          peer_observations_received?: number | null
+          staff_id: string
+          stage_updated_at?: string | null
+          started_at?: string | null
+          status?: string | null
+          student_feedback_average?: number | null
+          target_stage?: string | null
+          updated_at?: string
+          workshops_attended?: number | null
+          workshops_facilitated?: number | null
+        }
+        Update: {
+          certifications?: Json | null
+          competencies_acquired?: string[] | null
+          completed_at?: string | null
+          created_at?: string
+          current_stage?: string
+          development_plan?: Json | null
+          id?: string
+          industry_exposure_hours?: number | null
+          institution_id?: string
+          mentor_id?: string | null
+          mentor_notes?: string | null
+          outcome_score?: number | null
+          peer_observations_done?: number | null
+          peer_observations_received?: number | null
+          staff_id?: string
+          stage_updated_at?: string | null
+          started_at?: string | null
+          status?: string | null
+          student_feedback_average?: number | null
+          target_stage?: string | null
+          updated_at?: string
+          workshops_attended?: number | null
+          workshops_facilitated?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "facilitator_development_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "facilitator_development_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+        ]
+      }
+      facilitator_industry_immersion: {
+        Row: {
+          company_name: string
+          created_at: string
+          development_id: string
+          duration_days: number
+          end_date: string | null
+          evidence_url: string | null
+          id: string
+          industry: string | null
+          industry_contacts_made: number | null
+          learnings: string | null
+          objectives: string[] | null
+          rating: number | null
+          relevance_to_curriculum: string | null
+          role_title: string | null
+          skills_acquired: string[] | null
+          start_date: string
+          status: string | null
+          supervisor_feedback: string | null
+          supervisor_name: string | null
+          updated_at: string
+        }
+        Insert: {
+          company_name: string
+          created_at?: string
+          development_id: string
+          duration_days: number
+          end_date?: string | null
+          evidence_url?: string | null
+          id?: string
+          industry?: string | null
+          industry_contacts_made?: number | null
+          learnings?: string | null
+          objectives?: string[] | null
+          rating?: number | null
+          relevance_to_curriculum?: string | null
+          role_title?: string | null
+          skills_acquired?: string[] | null
+          start_date: string
+          status?: string | null
+          supervisor_feedback?: string | null
+          supervisor_name?: string | null
+          updated_at?: string
+        }
+        Update: {
+          company_name?: string
+          created_at?: string
+          development_id?: string
+          duration_days?: number
+          end_date?: string | null
+          evidence_url?: string | null
+          id?: string
+          industry?: string | null
+          industry_contacts_made?: number | null
+          learnings?: string | null
+          objectives?: string[] | null
+          rating?: number | null
+          relevance_to_curriculum?: string | null
+          role_title?: string | null
+          skills_acquired?: string[] | null
+          start_date?: string
+          status?: string | null
+          supervisor_feedback?: string | null
+          supervisor_name?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "facilitator_industry_immersion_development_id_fkey"
+            columns: ["development_id"]
+            isOneToOne: false
+            referencedRelation: "facilitator_development"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       funnel_alert_thresholds: {
         Row: {
           avg_time_critical: number | null
@@ -8178,6 +8725,288 @@ export type Database = {
           },
         ]
       }
+      industry_mentors: {
+        Row: {
+          availability: Json | null
+          bio: string | null
+          created_at: string
+          created_by: string | null
+          current_mentees_count: number | null
+          designation: string | null
+          email: string | null
+          expertise_areas: string[] | null
+          id: string
+          institution_id: string
+          is_active: boolean
+          linkedin_url: string | null
+          max_mentees: number | null
+          mentor_name: string
+          partner_id: string | null
+          phone: string | null
+          photo_url: string | null
+          updated_at: string
+        }
+        Insert: {
+          availability?: Json | null
+          bio?: string | null
+          created_at?: string
+          created_by?: string | null
+          current_mentees_count?: number | null
+          designation?: string | null
+          email?: string | null
+          expertise_areas?: string[] | null
+          id?: string
+          institution_id: string
+          is_active?: boolean
+          linkedin_url?: string | null
+          max_mentees?: number | null
+          mentor_name: string
+          partner_id?: string | null
+          phone?: string | null
+          photo_url?: string | null
+          updated_at?: string
+        }
+        Update: {
+          availability?: Json | null
+          bio?: string | null
+          created_at?: string
+          created_by?: string | null
+          current_mentees_count?: number | null
+          designation?: string | null
+          email?: string | null
+          expertise_areas?: string[] | null
+          id?: string
+          institution_id?: string
+          is_active?: boolean
+          linkedin_url?: string | null
+          max_mentees?: number | null
+          mentor_name?: string
+          partner_id?: string | null
+          phone?: string | null
+          photo_url?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "industry_mentors_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "industry_mentors_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "industry_mentors_partner_id_fkey"
+            columns: ["partner_id"]
+            isOneToOne: false
+            referencedRelation: "industry_partners"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      industry_partners: {
+        Row: {
+          company_name: string
+          contact_email: string | null
+          contact_person: string | null
+          contact_phone: string | null
+          created_at: string
+          created_by: string | null
+          description: string | null
+          id: string
+          industry_sector: string | null
+          institution_id: string
+          is_active: boolean
+          logo_url: string | null
+          mou_document_url: string | null
+          notes: string | null
+          partnership_end_date: string | null
+          partnership_start_date: string | null
+          partnership_type: Database["public"]["Enums"]["partnership_type"]
+          updated_at: string
+          website_url: string | null
+        }
+        Insert: {
+          company_name: string
+          contact_email?: string | null
+          contact_person?: string | null
+          contact_phone?: string | null
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          industry_sector?: string | null
+          institution_id: string
+          is_active?: boolean
+          logo_url?: string | null
+          mou_document_url?: string | null
+          notes?: string | null
+          partnership_end_date?: string | null
+          partnership_start_date?: string | null
+          partnership_type?: Database["public"]["Enums"]["partnership_type"]
+          updated_at?: string
+          website_url?: string | null
+        }
+        Update: {
+          company_name?: string
+          contact_email?: string | null
+          contact_person?: string | null
+          contact_phone?: string | null
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          industry_sector?: string | null
+          institution_id?: string
+          is_active?: boolean
+          logo_url?: string | null
+          mou_document_url?: string | null
+          notes?: string | null
+          partnership_end_date?: string | null
+          partnership_start_date?: string | null
+          partnership_type?: Database["public"]["Enums"]["partnership_type"]
+          updated_at?: string
+          website_url?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "industry_partners_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "industry_partners_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+        ]
+      }
+      industry_projects: {
+        Row: {
+          application_deadline: string | null
+          created_at: string
+          created_by: string | null
+          deliverables: string[] | null
+          description: string | null
+          difficulty_level:
+            | Database["public"]["Enums"]["difficulty_level"]
+            | null
+          duration_weeks: number | null
+          end_date: string | null
+          id: string
+          institution_id: string
+          is_remote: boolean | null
+          location: string | null
+          max_team_size: number | null
+          mentor_id: string | null
+          min_team_size: number | null
+          partner_id: string | null
+          project_title: string
+          required_competencies: string[] | null
+          start_date: string | null
+          status: Database["public"]["Enums"]["project_status"]
+          stipend_amount: number | null
+          stipend_currency: string | null
+          technologies: string[] | null
+          updated_at: string
+        }
+        Insert: {
+          application_deadline?: string | null
+          created_at?: string
+          created_by?: string | null
+          deliverables?: string[] | null
+          description?: string | null
+          difficulty_level?:
+            | Database["public"]["Enums"]["difficulty_level"]
+            | null
+          duration_weeks?: number | null
+          end_date?: string | null
+          id?: string
+          institution_id: string
+          is_remote?: boolean | null
+          location?: string | null
+          max_team_size?: number | null
+          mentor_id?: string | null
+          min_team_size?: number | null
+          partner_id?: string | null
+          project_title: string
+          required_competencies?: string[] | null
+          start_date?: string | null
+          status?: Database["public"]["Enums"]["project_status"]
+          stipend_amount?: number | null
+          stipend_currency?: string | null
+          technologies?: string[] | null
+          updated_at?: string
+        }
+        Update: {
+          application_deadline?: string | null
+          created_at?: string
+          created_by?: string | null
+          deliverables?: string[] | null
+          description?: string | null
+          difficulty_level?:
+            | Database["public"]["Enums"]["difficulty_level"]
+            | null
+          duration_weeks?: number | null
+          end_date?: string | null
+          id?: string
+          institution_id?: string
+          is_remote?: boolean | null
+          location?: string | null
+          max_team_size?: number | null
+          mentor_id?: string | null
+          min_team_size?: number | null
+          partner_id?: string | null
+          project_title?: string
+          required_competencies?: string[] | null
+          start_date?: string | null
+          status?: Database["public"]["Enums"]["project_status"]
+          stipend_amount?: number | null
+          stipend_currency?: string | null
+          technologies?: string[] | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "industry_projects_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "industry_projects_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "industry_projects_mentor_id_fkey"
+            columns: ["mentor_id"]
+            isOneToOne: false
+            referencedRelation: "industry_mentors"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "industry_projects_partner_id_fkey"
+            columns: ["partner_id"]
+            isOneToOne: false
+            referencedRelation: "industry_partners"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       institution_leaves: {
         Row: {
           academic_year_id: string | null
@@ -8304,6 +9133,60 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
+          },
+        ]
+      }
+      institution_seat_config: {
+        Row: {
+          academic_year: string
+          created_at: string | null
+          government_quota_seats: number | null
+          id: string
+          institution_id: string
+          management_quota_seats: number | null
+          nri_quota_seats: number | null
+          program_name: string | null
+          total_seats: number
+          updated_at: string | null
+        }
+        Insert: {
+          academic_year: string
+          created_at?: string | null
+          government_quota_seats?: number | null
+          id?: string
+          institution_id: string
+          management_quota_seats?: number | null
+          nri_quota_seats?: number | null
+          program_name?: string | null
+          total_seats?: number
+          updated_at?: string | null
+        }
+        Update: {
+          academic_year?: string
+          created_at?: string | null
+          government_quota_seats?: number | null
+          id?: string
+          institution_id?: string
+          management_quota_seats?: number | null
+          nri_quota_seats?: number | null
+          program_name?: string | null
+          total_seats?: number
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "institution_seat_config_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "institution_seat_config_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
           },
         ]
       }
@@ -9513,6 +10396,126 @@ export type Database = {
         }
         Relationships: []
       }
+      learner_industry_engagements: {
+        Row: {
+          certificate_url: string | null
+          competencies_demonstrated: string[] | null
+          created_at: string
+          end_date: string | null
+          engagement_type: Database["public"]["Enums"]["engagement_type"]
+          expected_end_date: string | null
+          feedback: Json | null
+          hours_completed: number | null
+          id: string
+          institution_id: string
+          learner_id: string
+          mentor_id: string | null
+          notes: string | null
+          partner_id: string | null
+          project_id: string | null
+          start_date: string | null
+          status: Database["public"]["Enums"]["engagement_status"]
+          updated_at: string
+        }
+        Insert: {
+          certificate_url?: string | null
+          competencies_demonstrated?: string[] | null
+          created_at?: string
+          end_date?: string | null
+          engagement_type: Database["public"]["Enums"]["engagement_type"]
+          expected_end_date?: string | null
+          feedback?: Json | null
+          hours_completed?: number | null
+          id?: string
+          institution_id: string
+          learner_id: string
+          mentor_id?: string | null
+          notes?: string | null
+          partner_id?: string | null
+          project_id?: string | null
+          start_date?: string | null
+          status?: Database["public"]["Enums"]["engagement_status"]
+          updated_at?: string
+        }
+        Update: {
+          certificate_url?: string | null
+          competencies_demonstrated?: string[] | null
+          created_at?: string
+          end_date?: string | null
+          engagement_type?: Database["public"]["Enums"]["engagement_type"]
+          expected_end_date?: string | null
+          feedback?: Json | null
+          hours_completed?: number | null
+          id?: string
+          institution_id?: string
+          learner_id?: string
+          mentor_id?: string | null
+          notes?: string | null
+          partner_id?: string | null
+          project_id?: string | null
+          start_date?: string | null
+          status?: Database["public"]["Enums"]["engagement_status"]
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "learner_industry_engagements_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "learner_industry_engagements_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "learner_industry_engagements_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "learners_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "learner_industry_engagements_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "semester_program_audit_view"
+            referencedColumns: ["learner_id"]
+          },
+          {
+            foreignKeyName: "learner_industry_engagements_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "v_pending_escalations"
+            referencedColumns: ["learner_profile_id"]
+          },
+          {
+            foreignKeyName: "learner_industry_engagements_mentor_id_fkey"
+            columns: ["mentor_id"]
+            isOneToOne: false
+            referencedRelation: "industry_mentors"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "learner_industry_engagements_partner_id_fkey"
+            columns: ["partner_id"]
+            isOneToOne: false
+            referencedRelation: "industry_partners"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "learner_industry_engagements_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "industry_projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       learner_okr_assignments: {
         Row: {
           academic_year: string
@@ -9569,6 +10572,9 @@ export type Database = {
           academic_year_id: string | null
           accommodation_type: string | null
           admission_year: number | null
+          ai_solution_cleared: boolean | null
+          ai_solution_cleared_at: string | null
+          ai_solution_cleared_by: string | null
           annual_income: string | null
           application_id: string | null
           batch_id: string | null
@@ -9577,6 +10583,8 @@ export type Database = {
           bus_pickup_location: string | null
           bus_required: boolean | null
           bus_route: string | null
+          capabilities: Json | null
+          career_aspirations: Json | null
           caste: string | null
           category: string | null
           college_email: string | null
@@ -9599,6 +10607,7 @@ export type Database = {
           gender: string | null
           hostel_type: string | null
           id: string
+          industry_readiness_score: number | null
           institution_id: string | null
           is_profile_complete: boolean | null
           last_name: string | null
@@ -9617,6 +10626,7 @@ export type Database = {
           permanent_address_state: string | null
           permanent_address_street: string | null
           permanent_address_taluk: string | null
+          portfolio_url: string | null
           program_id: string | null
           quota: string | null
           reference_contact: string | null
@@ -9642,6 +10652,9 @@ export type Database = {
           academic_year_id?: string | null
           accommodation_type?: string | null
           admission_year?: number | null
+          ai_solution_cleared?: boolean | null
+          ai_solution_cleared_at?: string | null
+          ai_solution_cleared_by?: string | null
           annual_income?: string | null
           application_id?: string | null
           batch_id?: string | null
@@ -9650,6 +10663,8 @@ export type Database = {
           bus_pickup_location?: string | null
           bus_required?: boolean | null
           bus_route?: string | null
+          capabilities?: Json | null
+          career_aspirations?: Json | null
           caste?: string | null
           category?: string | null
           college_email?: string | null
@@ -9672,6 +10687,7 @@ export type Database = {
           gender?: string | null
           hostel_type?: string | null
           id?: string
+          industry_readiness_score?: number | null
           institution_id?: string | null
           is_profile_complete?: boolean | null
           last_name?: string | null
@@ -9690,6 +10706,7 @@ export type Database = {
           permanent_address_state?: string | null
           permanent_address_street?: string | null
           permanent_address_taluk?: string | null
+          portfolio_url?: string | null
           program_id?: string | null
           quota?: string | null
           reference_contact?: string | null
@@ -9715,6 +10732,9 @@ export type Database = {
           academic_year_id?: string | null
           accommodation_type?: string | null
           admission_year?: number | null
+          ai_solution_cleared?: boolean | null
+          ai_solution_cleared_at?: string | null
+          ai_solution_cleared_by?: string | null
           annual_income?: string | null
           application_id?: string | null
           batch_id?: string | null
@@ -9723,6 +10743,8 @@ export type Database = {
           bus_pickup_location?: string | null
           bus_required?: boolean | null
           bus_route?: string | null
+          capabilities?: Json | null
+          career_aspirations?: Json | null
           caste?: string | null
           category?: string | null
           college_email?: string | null
@@ -9745,6 +10767,7 @@ export type Database = {
           gender?: string | null
           hostel_type?: string | null
           id?: string
+          industry_readiness_score?: number | null
           institution_id?: string | null
           is_profile_complete?: boolean | null
           last_name?: string | null
@@ -9763,6 +10786,7 @@ export type Database = {
           permanent_address_state?: string | null
           permanent_address_street?: string | null
           permanent_address_taluk?: string | null
+          portfolio_url?: string | null
           program_id?: string | null
           quota?: string | null
           reference_contact?: string | null
@@ -10352,6 +11376,161 @@ export type Database = {
           updated_by?: string | null
         }
         Relationships: []
+      }
+      learning_path_steps: {
+        Row: {
+          completed_at: string | null
+          completion_evidence: string | null
+          created_at: string
+          description: string | null
+          estimated_hours: number | null
+          id: string
+          is_required: boolean | null
+          mentor_notes: string | null
+          path_id: string
+          resource_id: string | null
+          resource_type: string | null
+          score: number | null
+          started_at: string | null
+          status: string | null
+          step_number: number
+          step_type: string
+          target_competencies: string[] | null
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          completed_at?: string | null
+          completion_evidence?: string | null
+          created_at?: string
+          description?: string | null
+          estimated_hours?: number | null
+          id?: string
+          is_required?: boolean | null
+          mentor_notes?: string | null
+          path_id: string
+          resource_id?: string | null
+          resource_type?: string | null
+          score?: number | null
+          started_at?: string | null
+          status?: string | null
+          step_number: number
+          step_type?: string
+          target_competencies?: string[] | null
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          completed_at?: string | null
+          completion_evidence?: string | null
+          created_at?: string
+          description?: string | null
+          estimated_hours?: number | null
+          id?: string
+          is_required?: boolean | null
+          mentor_notes?: string | null
+          path_id?: string
+          resource_id?: string | null
+          resource_type?: string | null
+          score?: number | null
+          started_at?: string | null
+          status?: string | null
+          step_number?: number
+          step_type?: string
+          target_competencies?: string[] | null
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "learning_path_steps_path_id_fkey"
+            columns: ["path_id"]
+            isOneToOne: false
+            referencedRelation: "learning_paths"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      learning_paths: {
+        Row: {
+          completed_at: string | null
+          created_at: string
+          created_by: string | null
+          current_progress: number | null
+          description: string | null
+          estimated_duration_weeks: number | null
+          id: string
+          institution_id: string
+          is_ai_generated: boolean | null
+          learner_id: string
+          metadata: Json | null
+          start_date: string | null
+          status: string | null
+          target_competencies: string[] | null
+          target_completion_date: string | null
+          target_industry: string | null
+          target_role: string | null
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          completed_at?: string | null
+          created_at?: string
+          created_by?: string | null
+          current_progress?: number | null
+          description?: string | null
+          estimated_duration_weeks?: number | null
+          id?: string
+          institution_id: string
+          is_ai_generated?: boolean | null
+          learner_id: string
+          metadata?: Json | null
+          start_date?: string | null
+          status?: string | null
+          target_competencies?: string[] | null
+          target_completion_date?: string | null
+          target_industry?: string | null
+          target_role?: string | null
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          completed_at?: string | null
+          created_at?: string
+          created_by?: string | null
+          current_progress?: number | null
+          description?: string | null
+          estimated_duration_weeks?: number | null
+          id?: string
+          institution_id?: string
+          is_ai_generated?: boolean | null
+          learner_id?: string
+          metadata?: Json | null
+          start_date?: string | null
+          status?: string | null
+          target_competencies?: string[] | null
+          target_completion_date?: string | null
+          target_industry?: string | null
+          target_role?: string | null
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "learning_paths_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "learning_paths_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+        ]
       }
       leave_approval_chains: {
         Row: {
@@ -12791,6 +13970,202 @@ export type Database = {
           },
         ]
       }
+      outcome_program_correlation: {
+        Row: {
+          alumni_engaged_count: number | null
+          average_salary_range:
+            | Database["public"]["Enums"]["salary_range_enum"]
+            | null
+          avg_days_to_placement: number | null
+          avg_relevance_percentage: number | null
+          cohort_batch_id: string | null
+          cohort_year: number
+          competitive_exams_count: number | null
+          computation_notes: string | null
+          computed_at: string | null
+          created_at: string
+          employed_count: number | null
+          employment_rate: number | null
+          entrepreneur_count: number | null
+          entrepreneurship_rate: number | null
+          family_business_count: number | null
+          guest_lecturers_available: number | null
+          higher_studies_count: number | null
+          higher_studies_rate: number | null
+          id: string
+          industry_benchmark_employment_rate: number | null
+          institution_id: string
+          is_published: boolean | null
+          jobs_created: number | null
+          median_salary_range:
+            | Database["public"]["Enums"]["salary_range_enum"]
+            | null
+          mentors_available: number | null
+          performance_vs_benchmark: string | null
+          placed_count: number | null
+          placement_before_graduation_count: number | null
+          placement_rate: number | null
+          potential_recruiters: number | null
+          program_id: string
+          program_satisfaction_avg: number | null
+          published_at: string | null
+          salary_distribution: Json | null
+          scholarship_recipients: number | null
+          seeking_count: number | null
+          self_employed_count: number | null
+          startups_founded: number | null
+          top_courses_pursued: Json | null
+          top_employers: Json | null
+          top_institutions_for_studies: Json | null
+          top_locations: Json | null
+          top_roles: Json | null
+          top_sectors: Json | null
+          total_funding_raised: string | null
+          total_graduates: number | null
+          tracked_graduates: number | null
+          tracking_percentage: number | null
+          unknown_count: number | null
+          updated_at: string
+          would_recommend_percentage: number | null
+        }
+        Insert: {
+          alumni_engaged_count?: number | null
+          average_salary_range?:
+            | Database["public"]["Enums"]["salary_range_enum"]
+            | null
+          avg_days_to_placement?: number | null
+          avg_relevance_percentage?: number | null
+          cohort_batch_id?: string | null
+          cohort_year?: number
+          competitive_exams_count?: number | null
+          computation_notes?: string | null
+          computed_at?: string | null
+          created_at?: string
+          employed_count?: number | null
+          employment_rate?: number | null
+          entrepreneur_count?: number | null
+          entrepreneurship_rate?: number | null
+          family_business_count?: number | null
+          guest_lecturers_available?: number | null
+          higher_studies_count?: number | null
+          higher_studies_rate?: number | null
+          id?: string
+          industry_benchmark_employment_rate?: number | null
+          institution_id: string
+          is_published?: boolean | null
+          jobs_created?: number | null
+          median_salary_range?:
+            | Database["public"]["Enums"]["salary_range_enum"]
+            | null
+          mentors_available?: number | null
+          performance_vs_benchmark?: string | null
+          placed_count?: number | null
+          placement_before_graduation_count?: number | null
+          placement_rate?: number | null
+          potential_recruiters?: number | null
+          program_id: string
+          program_satisfaction_avg?: number | null
+          published_at?: string | null
+          salary_distribution?: Json | null
+          scholarship_recipients?: number | null
+          seeking_count?: number | null
+          self_employed_count?: number | null
+          startups_founded?: number | null
+          top_courses_pursued?: Json | null
+          top_employers?: Json | null
+          top_institutions_for_studies?: Json | null
+          top_locations?: Json | null
+          top_roles?: Json | null
+          top_sectors?: Json | null
+          total_funding_raised?: string | null
+          total_graduates?: number | null
+          tracked_graduates?: number | null
+          tracking_percentage?: number | null
+          unknown_count?: number | null
+          updated_at?: string
+          would_recommend_percentage?: number | null
+        }
+        Update: {
+          alumni_engaged_count?: number | null
+          average_salary_range?:
+            | Database["public"]["Enums"]["salary_range_enum"]
+            | null
+          avg_days_to_placement?: number | null
+          avg_relevance_percentage?: number | null
+          cohort_batch_id?: string | null
+          cohort_year?: number
+          competitive_exams_count?: number | null
+          computation_notes?: string | null
+          computed_at?: string | null
+          created_at?: string
+          employed_count?: number | null
+          employment_rate?: number | null
+          entrepreneur_count?: number | null
+          entrepreneurship_rate?: number | null
+          family_business_count?: number | null
+          guest_lecturers_available?: number | null
+          higher_studies_count?: number | null
+          higher_studies_rate?: number | null
+          id?: string
+          industry_benchmark_employment_rate?: number | null
+          institution_id?: string
+          is_published?: boolean | null
+          jobs_created?: number | null
+          median_salary_range?:
+            | Database["public"]["Enums"]["salary_range_enum"]
+            | null
+          mentors_available?: number | null
+          performance_vs_benchmark?: string | null
+          placed_count?: number | null
+          placement_before_graduation_count?: number | null
+          placement_rate?: number | null
+          potential_recruiters?: number | null
+          program_id?: string
+          program_satisfaction_avg?: number | null
+          published_at?: string | null
+          salary_distribution?: Json | null
+          scholarship_recipients?: number | null
+          seeking_count?: number | null
+          self_employed_count?: number | null
+          startups_founded?: number | null
+          top_courses_pursued?: Json | null
+          top_employers?: Json | null
+          top_institutions_for_studies?: Json | null
+          top_locations?: Json | null
+          top_roles?: Json | null
+          top_sectors?: Json | null
+          total_funding_raised?: string | null
+          total_graduates?: number | null
+          tracked_graduates?: number | null
+          tracking_percentage?: number | null
+          unknown_count?: number | null
+          updated_at?: string
+          would_recommend_percentage?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "outcome_program_correlation_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "outcome_program_correlation_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "outcome_program_correlation_program_id_fkey"
+            columns: ["program_id"]
+            isOneToOne: false
+            referencedRelation: "programs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       parent_activity_log: {
         Row: {
           activity_type: Database["public"]["Enums"]["parent_activity_type"]
@@ -13027,6 +14402,75 @@ export type Database = {
           },
           {
             foreignKeyName: "parent_otp_requests_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+        ]
+      }
+      parent_portal_access: {
+        Row: {
+          access_code: string
+          access_level: string | null
+          created_at: string
+          id: string
+          institution_id: string
+          is_active: boolean | null
+          last_login_at: string | null
+          learner_id: string
+          login_count: number | null
+          notification_preferences: Json | null
+          parent_email: string | null
+          parent_name: string
+          parent_phone: string | null
+          relationship: string | null
+          updated_at: string
+        }
+        Insert: {
+          access_code: string
+          access_level?: string | null
+          created_at?: string
+          id?: string
+          institution_id: string
+          is_active?: boolean | null
+          last_login_at?: string | null
+          learner_id: string
+          login_count?: number | null
+          notification_preferences?: Json | null
+          parent_email?: string | null
+          parent_name: string
+          parent_phone?: string | null
+          relationship?: string | null
+          updated_at?: string
+        }
+        Update: {
+          access_code?: string
+          access_level?: string | null
+          created_at?: string
+          id?: string
+          institution_id?: string
+          is_active?: boolean | null
+          last_login_at?: string | null
+          learner_id?: string
+          login_count?: number | null
+          notification_preferences?: Json | null
+          parent_email?: string | null
+          parent_name?: string
+          parent_phone?: string | null
+          relationship?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "parent_portal_access_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "parent_portal_access_institution_id_fkey"
             columns: ["institution_id"]
             isOneToOne: false
             referencedRelation: "semester_hierarchy_health"
@@ -16750,6 +18194,7 @@ export type Database = {
           state: string | null
           tags: string[] | null
           updated_at: string
+          user_id: string | null
           website: string | null
         }
         Insert: {
@@ -16781,6 +18226,7 @@ export type Database = {
           state?: string | null
           tags?: string[] | null
           updated_at?: string
+          user_id?: string | null
           website?: string | null
         }
         Update: {
@@ -16812,6 +18258,7 @@ export type Database = {
           state?: string | null
           tags?: string[] | null
           updated_at?: string
+          user_id?: string | null
           website?: string | null
         }
         Relationships: [
@@ -17304,6 +18751,85 @@ export type Database = {
             columns: ["solution_id"]
             isOneToOne: false
             referencedRelation: "sh_solutions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sh_department_status_history: {
+        Row: {
+          changed_at: string | null
+          changed_by: string | null
+          id: string
+          new_status: string
+          previous_status: string | null
+          reason: string | null
+          solution_department_id: string
+        }
+        Insert: {
+          changed_at?: string | null
+          changed_by?: string | null
+          id?: string
+          new_status: string
+          previous_status?: string | null
+          reason?: string | null
+          solution_department_id: string
+        }
+        Update: {
+          changed_at?: string | null
+          changed_by?: string | null
+          id?: string
+          new_status?: string
+          previous_status?: string | null
+          reason?: string | null
+          solution_department_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sh_department_status_history_solution_department_id_fkey"
+            columns: ["solution_department_id"]
+            isOneToOne: false
+            referencedRelation: "sh_solution_departments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sh_department_targets: {
+        Row: {
+          created_at: string | null
+          id: string
+          notes: string | null
+          quarter: string
+          set_by: string | null
+          solution_department_id: string
+          target_revenue: number
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          notes?: string | null
+          quarter: string
+          set_by?: string | null
+          solution_department_id: string
+          target_revenue?: number
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          notes?: string | null
+          quarter?: string
+          set_by?: string | null
+          solution_department_id?: string
+          target_revenue?: number
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sh_department_targets_solution_department_id_fkey"
+            columns: ["solution_department_id"]
+            isOneToOne: false
+            referencedRelation: "sh_solution_departments"
             referencedColumns: ["id"]
           },
         ]
@@ -18842,6 +20368,83 @@ export type Database = {
           },
         ]
       }
+      sh_solution_departments: {
+        Row: {
+          activated_at: string | null
+          approved_by: string | null
+          capabilities: string[] | null
+          created_at: string | null
+          department_id: string
+          dormant_at: string | null
+          id: string
+          institution_id: string
+          last_revenue_at: string | null
+          metadata: Json | null
+          nominated_by: string | null
+          status: string
+          updated_at: string | null
+        }
+        Insert: {
+          activated_at?: string | null
+          approved_by?: string | null
+          capabilities?: string[] | null
+          created_at?: string | null
+          department_id: string
+          dormant_at?: string | null
+          id?: string
+          institution_id: string
+          last_revenue_at?: string | null
+          metadata?: Json | null
+          nominated_by?: string | null
+          status?: string
+          updated_at?: string | null
+        }
+        Update: {
+          activated_at?: string | null
+          approved_by?: string | null
+          capabilities?: string[] | null
+          created_at?: string | null
+          department_id?: string
+          dormant_at?: string | null
+          id?: string
+          institution_id?: string
+          last_revenue_at?: string | null
+          metadata?: Json | null
+          nominated_by?: string | null
+          status?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sh_solution_departments_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: true
+            referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_solution_departments_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: true
+            referencedRelation: "maturity_dashboard_summary"
+            referencedColumns: ["department_id"]
+          },
+          {
+            foreignKeyName: "sh_solution_departments_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sh_solution_departments_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+        ]
+      }
       sh_solution_mous: {
         Row: {
           amc_duration_months: number | null
@@ -19044,10 +20647,54 @@ export type Database = {
           },
         ]
       }
+      sh_solution_types: {
+        Row: {
+          color: string | null
+          created_at: string | null
+          created_by: string | null
+          description: string | null
+          icon: string | null
+          id: string
+          is_active: boolean | null
+          is_default: boolean | null
+          name: string
+          slug: string
+          updated_at: string | null
+        }
+        Insert: {
+          color?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          description?: string | null
+          icon?: string | null
+          id?: string
+          is_active?: boolean | null
+          is_default?: boolean | null
+          name: string
+          slug: string
+          updated_at?: string | null
+        }
+        Update: {
+          color?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          description?: string | null
+          icon?: string | null
+          id?: string
+          is_active?: boolean | null
+          is_default?: boolean | null
+          name?: string
+          slug?: string
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       sh_solutions: {
         Row: {
           base_price: number | null
           client_id: string | null
+          client_name: string | null
+          client_organization: string | null
           completion_date: string | null
           created_at: string
           created_by: string | null
@@ -19060,10 +20707,12 @@ export type Database = {
           institution_id: string | null
           lead_department_id: string
           metadata: Json | null
+          networker_contact_id: string | null
           notes: string | null
           priority: number | null
           solution_code: string
           solution_type: Database["public"]["Enums"]["sh_solution_type"]
+          solution_type_id: string | null
           start_date: string | null
           status: Database["public"]["Enums"]["sh_solution_status"]
           tags: string[] | null
@@ -19074,6 +20723,8 @@ export type Database = {
         Insert: {
           base_price?: number | null
           client_id?: string | null
+          client_name?: string | null
+          client_organization?: string | null
           completion_date?: string | null
           created_at?: string
           created_by?: string | null
@@ -19086,10 +20737,12 @@ export type Database = {
           institution_id?: string | null
           lead_department_id: string
           metadata?: Json | null
+          networker_contact_id?: string | null
           notes?: string | null
           priority?: number | null
           solution_code: string
           solution_type: Database["public"]["Enums"]["sh_solution_type"]
+          solution_type_id?: string | null
           start_date?: string | null
           status?: Database["public"]["Enums"]["sh_solution_status"]
           tags?: string[] | null
@@ -19100,6 +20753,8 @@ export type Database = {
         Update: {
           base_price?: number | null
           client_id?: string | null
+          client_name?: string | null
+          client_organization?: string | null
           completion_date?: string | null
           created_at?: string
           created_by?: string | null
@@ -19112,10 +20767,12 @@ export type Database = {
           institution_id?: string | null
           lead_department_id?: string
           metadata?: Json | null
+          networker_contact_id?: string | null
           notes?: string | null
           priority?: number | null
           solution_code?: string
           solution_type?: Database["public"]["Enums"]["sh_solution_type"]
+          solution_type_id?: string | null
           start_date?: string | null
           status?: Database["public"]["Enums"]["sh_solution_status"]
           tags?: string[] | null
@@ -19172,6 +20829,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "maturity_dashboard_summary"
             referencedColumns: ["department_id"]
+          },
+          {
+            foreignKeyName: "sh_solutions_solution_type_id_fkey"
+            columns: ["solution_type_id"]
+            isOneToOne: false
+            referencedRelation: "sh_solution_types"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -19481,6 +21145,7 @@ export type Database = {
           designation: string
           district: string | null
           email: string
+          facilitator_certification: Json | null
           first_name: string
           full_name: string | null
           gender: string
@@ -19490,10 +21155,12 @@ export type Database = {
           is_active: boolean | null
           last_name: string
           marital_status: string
+          outcome_metrics: Json | null
           phone: string
           pincode: string | null
           profile_id: string | null
           profile_picture: string | null
+          role_type: string | null
           staff_id: string | null
           state: string | null
           updated_at: string
@@ -19512,6 +21179,7 @@ export type Database = {
           designation: string
           district?: string | null
           email: string
+          facilitator_certification?: Json | null
           first_name: string
           full_name?: string | null
           gender: string
@@ -19521,10 +21189,12 @@ export type Database = {
           is_active?: boolean | null
           last_name: string
           marital_status: string
+          outcome_metrics?: Json | null
           phone: string
           pincode?: string | null
           profile_id?: string | null
           profile_picture?: string | null
+          role_type?: string | null
           staff_id?: string | null
           state?: string | null
           updated_at?: string
@@ -19543,6 +21213,7 @@ export type Database = {
           designation?: string
           district?: string | null
           email?: string
+          facilitator_certification?: Json | null
           first_name?: string
           full_name?: string | null
           gender?: string
@@ -19552,10 +21223,12 @@ export type Database = {
           is_active?: boolean | null
           last_name?: string
           marital_status?: string
+          outcome_metrics?: Json | null
           phone?: string
           pincode?: string | null
           profile_id?: string | null
           profile_picture?: string | null
+          role_type?: string | null
           staff_id?: string | null
           state?: string | null
           updated_at?: string
@@ -24192,6 +25865,10 @@ export type Database = {
       }
       can_user_manage_staff: { Args: never; Returns: boolean }
       check_ai_query_rate_limit: { Args: { p_user_id: string }; Returns: Json }
+      check_ai_solution_clearance: {
+        Args: { p_learner_id: string }
+        Returns: boolean
+      }
       check_attendance_data_integrity: {
         Args: never
         Returns: {
@@ -24353,6 +26030,16 @@ export type Database = {
           user_email: string
           user_id: string
         }[]
+      }
+      create_parent_session: {
+        Args: {
+          p_expires_at: string
+          p_ip_address?: string
+          p_parent_id: string
+          p_session_token: string
+          p_user_agent?: string
+        }
+        Returns: Json
       }
       create_preregistered_profile: {
         Args: {
@@ -24781,6 +26468,14 @@ export type Database = {
       get_day_schedule: {
         Args: { day_name: string; timetable_uuid: string }
         Returns: Json
+      }
+      get_department_revenue: {
+        Args: {
+          p_department_id: string
+          p_end_date?: string
+          p_start_date?: string
+        }
+        Returns: number
       }
       get_faculty_attendance_reports: {
         Args: {
@@ -25385,6 +27080,14 @@ export type Database = {
         }
         Returns: string
       }
+      log_parent_activity: {
+        Args: {
+          p_activity_type: string
+          p_description?: string
+          p_parent_id: string
+        }
+        Returns: undefined
+      }
       manual_invoice_generation: {
         Args: { bill_uuid: string }
         Returns: string
@@ -25459,6 +27162,14 @@ export type Database = {
         Args: never
         Returns: undefined
       }
+      revoke_all_parent_sessions: {
+        Args: { p_parent_id: string; p_reason?: string }
+        Returns: Json
+      }
+      revoke_parent_session: {
+        Args: { p_reason?: string; p_token: string }
+        Returns: Json
+      }
       revoke_scholarship_access: {
         Args: { target_role_key: string }
         Returns: undefined
@@ -25483,6 +27194,10 @@ export type Database = {
       sh_is_hod: { Args: never; Returns: boolean }
       sh_is_jicate_staff: { Args: never; Returns: boolean }
       sh_is_staff: { Args: never; Returns: boolean }
+      sh_resolve_user_id: {
+        Args: { p_email?: string; p_staff_id?: string }
+        Returns: string
+      }
       sh_user_department_id: { Args: never; Returns: string }
       sh_user_institution_id: { Args: never; Returns: string }
       sync_attendance_with_timetable: {
@@ -25563,6 +27278,7 @@ export type Database = {
         Args: { p_app_id: string; p_date: string; p_stats: Json }
         Returns: undefined
       }
+      update_department_statuses: { Args: never; Returns: undefined }
       update_existing_user_for_staff: {
         Args: {
           p_email: string
@@ -25670,6 +27386,7 @@ export type Database = {
           suggestions: string[]
         }[]
       }
+      validate_parent_session: { Args: { p_token: string }; Returns: Json }
       verify_parent_otp: {
         Args: { p_institution_id: string; p_otp: string; p_phone: string }
         Returns: Json
@@ -25780,11 +27497,25 @@ export type Database = {
         | "push"
       communication_priority: "low" | "normal" | "high" | "urgent"
       communication_type: "announcement" | "message" | "alert"
-      competency_type: "technical" | "behavioral" | "domain" | "soft_skill"
+      competency_type:
+        | "technical"
+        | "behavioral"
+        | "domain"
+        | "soft_skill"
+        | "metacognitive"
       consultant_status: "draft" | "active" | "inactive" | "blacklisted"
       consultant_tier: "bronze" | "silver" | "gold" | "platinum" | "diamond"
       consultant_type: "external" | "student" | "alumni"
       contract_status: "draft" | "active" | "expired" | "terminated"
+      data_source_enum:
+        | "self_reported"
+        | "phone_survey"
+        | "email_survey"
+        | "linkedin_scrape"
+        | "placement_cell"
+        | "employer_feedback"
+        | "alumni_meet"
+        | "manual_entry"
       day_of_week:
         | "MONDAY"
         | "TUESDAY"
@@ -25796,6 +27527,7 @@ export type Database = {
       department: "engineering" | "science" | "arts" | "medical"
       department_status: "active" | "inactive" | "archived"
       dependency_status: "pending" | "in_progress" | "completed" | "blocked"
+      difficulty_level: "beginner" | "intermediate" | "advanced" | "expert"
       document_verification_status:
         | "pending"
         | "verified"
@@ -25814,6 +27546,21 @@ export type Database = {
         | "completed"
         | "skipped"
         | "failed"
+      engagement_status:
+        | "applied"
+        | "approved"
+        | "active"
+        | "completed"
+        | "withdrawn"
+        | "terminated"
+      engagement_type:
+        | "project"
+        | "internship"
+        | "mentorship"
+        | "workshop"
+        | "site_visit"
+        | "guest_lecture"
+        | "hackathon"
       escalation_status: "triggered" | "acknowledged" | "resolved" | "expired"
       exam_status:
         | "scheduled"
@@ -25879,6 +27626,16 @@ export type Database = {
         | "question"
       okr_status: "draft" | "active" | "completed" | "archived"
       okr_tier: "tier_1" | "tier_2" | "tier_3"
+      outcome_type_enum:
+        | "employed"
+        | "self_employed"
+        | "entrepreneur"
+        | "higher_studies"
+        | "competitive_exams"
+        | "family_business"
+        | "gap_year"
+        | "seeking"
+        | "unknown"
       parent_activity_type:
         | "login"
         | "view_dashboard"
@@ -25889,6 +27646,14 @@ export type Database = {
         | "submit_survey"
         | "logout"
       parent_relationship: "father" | "mother" | "guardian" | "other"
+      partnership_type:
+        | "mou"
+        | "placement"
+        | "project"
+        | "mentorship"
+        | "internship"
+        | "sponsorship"
+        | "training"
       payment_query_status: "open" | "in_progress" | "resolved" | "closed"
       payment_status:
         | "pending"
@@ -25911,6 +27676,14 @@ export type Database = {
         | "intermediate"
         | "advanced"
         | "expert"
+      project_status:
+        | "draft"
+        | "open"
+        | "assigned"
+        | "in_progress"
+        | "under_review"
+        | "completed"
+        | "cancelled"
       referral_reward_type: "discount" | "cashback" | "credits"
       reservation_status:
         | "pending"
@@ -25925,6 +27698,16 @@ export type Database = {
         | "maintenance"
         | "out_of_order"
         | "retired"
+      salary_range_enum:
+        | "below_3l"
+        | "3l_to_5l"
+        | "5l_to_8l"
+        | "8l_to_12l"
+        | "12l_to_20l"
+        | "20l_to_35l"
+        | "above_35l"
+        | "not_applicable"
+        | "undisclosed"
       scholarship_type:
         | "merit"
         | "need_based"
@@ -26107,6 +27890,13 @@ export type Database = {
         | "guest"
         | "staff"
         | "driver"
+      verification_status_enum:
+        | "pending"
+        | "self_reported"
+        | "document_verified"
+        | "employer_confirmed"
+        | "linkedin_verified"
+        | "rejected"
       whatsapp_delivery_status:
         | "pending"
         | "sent"
@@ -26372,11 +28162,27 @@ export const Constants = {
       communication_channel_type: ["whatsapp", "sms", "email", "voice", "push"],
       communication_priority: ["low", "normal", "high", "urgent"],
       communication_type: ["announcement", "message", "alert"],
-      competency_type: ["technical", "behavioral", "domain", "soft_skill"],
+      competency_type: [
+        "technical",
+        "behavioral",
+        "domain",
+        "soft_skill",
+        "metacognitive",
+      ],
       consultant_status: ["draft", "active", "inactive", "blacklisted"],
       consultant_tier: ["bronze", "silver", "gold", "platinum", "diamond"],
       consultant_type: ["external", "student", "alumni"],
       contract_status: ["draft", "active", "expired", "terminated"],
+      data_source_enum: [
+        "self_reported",
+        "phone_survey",
+        "email_survey",
+        "linkedin_scrape",
+        "placement_cell",
+        "employer_feedback",
+        "alumni_meet",
+        "manual_entry",
+      ],
       day_of_week: [
         "MONDAY",
         "TUESDAY",
@@ -26389,6 +28195,7 @@ export const Constants = {
       department: ["engineering", "science", "arts", "medical"],
       department_status: ["active", "inactive", "archived"],
       dependency_status: ["pending", "in_progress", "completed", "blocked"],
+      difficulty_level: ["beginner", "intermediate", "advanced", "expert"],
       document_verification_status: [
         "pending",
         "verified",
@@ -26409,6 +28216,23 @@ export const Constants = {
         "completed",
         "skipped",
         "failed",
+      ],
+      engagement_status: [
+        "applied",
+        "approved",
+        "active",
+        "completed",
+        "withdrawn",
+        "terminated",
+      ],
+      engagement_type: [
+        "project",
+        "internship",
+        "mentorship",
+        "workshop",
+        "site_visit",
+        "guest_lecture",
+        "hackathon",
       ],
       escalation_status: ["triggered", "acknowledged", "resolved", "expired"],
       exam_status: [
@@ -26482,6 +28306,17 @@ export const Constants = {
       ],
       okr_status: ["draft", "active", "completed", "archived"],
       okr_tier: ["tier_1", "tier_2", "tier_3"],
+      outcome_type_enum: [
+        "employed",
+        "self_employed",
+        "entrepreneur",
+        "higher_studies",
+        "competitive_exams",
+        "family_business",
+        "gap_year",
+        "seeking",
+        "unknown",
+      ],
       parent_activity_type: [
         "login",
         "view_dashboard",
@@ -26493,6 +28328,15 @@ export const Constants = {
         "logout",
       ],
       parent_relationship: ["father", "mother", "guardian", "other"],
+      partnership_type: [
+        "mou",
+        "placement",
+        "project",
+        "mentorship",
+        "internship",
+        "sponsorship",
+        "training",
+      ],
       payment_query_status: ["open", "in_progress", "resolved", "closed"],
       payment_status: [
         "pending",
@@ -26518,6 +28362,15 @@ export const Constants = {
         "advanced",
         "expert",
       ],
+      project_status: [
+        "draft",
+        "open",
+        "assigned",
+        "in_progress",
+        "under_review",
+        "completed",
+        "cancelled",
+      ],
       referral_reward_type: ["discount", "cashback", "credits"],
       reservation_status: [
         "pending",
@@ -26533,6 +28386,17 @@ export const Constants = {
         "maintenance",
         "out_of_order",
         "retired",
+      ],
+      salary_range_enum: [
+        "below_3l",
+        "3l_to_5l",
+        "5l_to_8l",
+        "8l_to_12l",
+        "12l_to_20l",
+        "20l_to_35l",
+        "above_35l",
+        "not_applicable",
+        "undisclosed",
       ],
       scholarship_type: [
         "merit",
@@ -26738,6 +28602,14 @@ export const Constants = {
         "staff",
         "driver",
       ],
+      verification_status_enum: [
+        "pending",
+        "self_reported",
+        "document_verified",
+        "employer_confirmed",
+        "linkedin_verified",
+        "rejected",
+      ],
       whatsapp_delivery_status: [
         "pending",
         "sent",
@@ -26774,3 +28646,5 @@ export const Constants = {
     },
   },
 } as const
+A new version of Supabase CLI is available: v2.75.0 (currently installed v2.72.7)
+We recommend updating regularly for new features and bug fixes: https://supabase.com/docs/guides/cli/getting-started#updating-the-supabase-cli
