@@ -153,7 +153,7 @@ export default async function ChangeRequestsPage() {
         </div>
 
         {/* Client Component with Tabs and Table */}
-        <ChangeRequestsClient initialData={allRequests} />
+        <ChangeRequestsClient initialData={allRequests} effectiveRole={effectiveRole} />
       </div>
     </ContentLayout>
   );
