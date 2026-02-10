@@ -343,13 +343,7 @@ function LeadDetailPageContent() {
   }
 
   const handleStageChange = (newStage: string) => {
-    updateStage.mutate(
-      { leadId, stage: newStage as FunnelStage },
-      {
-        onSuccess: () => toast.success('Lead stage updated successfully'),
-        onError: () => toast.error('Failed to update lead stage')
-      }
-    );
+    updateStage.mutate({ leadId, stage: newStage as FunnelStage });
   };
 
   const handleAddTag = () => {
