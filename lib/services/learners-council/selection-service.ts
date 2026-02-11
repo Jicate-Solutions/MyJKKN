@@ -27,7 +27,7 @@ export class LCSelectionService {
     type?: string;
     term_id?: string;
   } = {}): Promise<LCElection[]> {
-    let query = this.supabase
+    let query = (this.supabase as any)
       .from('lc_elections')
       .select(`
         *,

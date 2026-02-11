@@ -46,7 +46,7 @@ export class LCEventService {
     const from = (page - 1) * limit;
     const to = from + limit - 1;
 
-    let query = this.supabase
+    let query = (this.supabase as any)
       .from('lc_events')
       .select(EVENT_SELECT, { count: 'exact' })
       .order('starts_at', { ascending: false })

@@ -31,7 +31,7 @@ export interface LCIssueStats {
 }
 
 export class LCIssueService {
-  private static supabase = createClientSupabaseClient();
+  private static supabase: any = createClientSupabaseClient();
 
   // ============================================================================
   // ISSUE QUERY METHODS
@@ -61,7 +61,7 @@ export class LCIssueService {
     const limit = filters.limit || 50;
     const offset = (page - 1) * limit;
 
-    let query = this.supabase
+    let query = (this.supabase as any)
       .from('grievance_tickets')
       .select(`
         *,
@@ -294,7 +294,7 @@ export class LCIssueService {
     institutionId: string,
     assignedTo?: string
   ): Promise<KanbanBoard> {
-    let query = this.supabase
+    let query = (this.supabase as any)
       .from('grievance_tickets')
       .select(`
         *,

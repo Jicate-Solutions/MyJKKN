@@ -47,7 +47,7 @@ export class LCODService {
     const from = (page - 1) * limit;
     const to = from + limit - 1;
 
-    let query = this.supabase
+    let query = (this.supabase as any)
       .from('lc_od_requests')
       .select(OD_REQUEST_LIST_SELECT, { count: 'exact' })
       .order('created_at', { ascending: false })

@@ -113,7 +113,7 @@ export class LCStructureService {
     category?: string;
     is_active?: boolean;
   }): Promise<LCPosition[]> {
-    let query = this.supabase
+    let query = (this.supabase as any)
       .from('lc_positions')
       .select('*')
       .order('sort_order', { ascending: true });
@@ -173,7 +173,7 @@ export class LCStructureService {
     status?: string;
     institution_id?: string;
   }): Promise<LCMember[]> {
-    let query = this.supabase
+    let query = (this.supabase as any)
       .from('lc_members')
       .select(`
         *,
@@ -312,7 +312,7 @@ export class LCStructureService {
     institution_id?: string;
     is_active?: boolean;
   }): Promise<YUVAChapter[]> {
-    let query = this.supabase
+    let query = (this.supabase as any)
       .from('yuva_chapters')
       .select(`
         *,
@@ -416,7 +416,7 @@ export class LCStructureService {
     type?: string;
     is_active?: boolean;
   }): Promise<YUVAVertical[]> {
-    let query = this.supabase
+    let query = (this.supabase as any)
       .from('yuva_verticals')
       .select('*')
       .order('sort_order', { ascending: true });
