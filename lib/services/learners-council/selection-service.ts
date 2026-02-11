@@ -413,7 +413,7 @@ export class LCSelectionService {
     const results = nominations.map(nom => ({
       nomination_id: nom.id,
       nominee_name: nom.nominee?.full_name || 'Unknown',
-      nominee_avatar: nom.nominee?.avatar_url || null,
+      nominee_avatar: (nom.nominee as any)?.avatar_url || null,
       position_id: nom.position_id,
       role_sought: nom.role_sought,
       vote_count: voteCounts[nom.id] || 0,
