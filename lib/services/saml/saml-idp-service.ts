@@ -5,6 +5,7 @@
  */
 
 import * as samlify from 'samlify';
+import * as zlib from 'zlib';
 import {
   SamlIdpConfig,
   SamlSpConfig,
@@ -149,13 +150,24 @@ export class SamlIdpService {
   ): Promise<{ request: ParsedSamlRequest; spEntityId: string }> {
     try {
       // Decode the SAML request
-      const decoded =
-        binding === 'redirect'
-          ? Buffer.from(samlRequest, 'base64').toString('utf-8')
-          : Buffer.from(samlRequest, 'base64').toString('utf-8');
+      // HTTP-Redirect binding: SAMLRequest is DEFLATE-compressed then base64-encoded
+      // HTTP-POST binding: SAMLRequest is only base64-encoded
+      let decoded: string;
+      if (binding === 'redirect') {
+        const buffer = Buffer.from(samlRequest, 'base64');
+        try {
+          // SAML HTTP-Redirect binding uses DEFLATE (raw) compression
+          decoded = zlib.inflateRawSync(buffer).toString('utf-8');
+        } catch {
+          // Fallback: some SPs may not compress (non-standard but handle gracefully)
+          decoded = buffer.toString('utf-8');
+        }
+      } else {
+        decoded = Buffer.from(samlRequest, 'base64').toString('utf-8');
+      }
 
-      // Parse XML to extract issuer
-      const issuerMatch = decoded.match(/<saml:Issuer[^>]*>([^<]+)<\/saml:Issuer>/i);
+      // Parse XML to extract issuer (handle saml:, saml2:, or no namespace prefix)
+      const issuerMatch = decoded.match(/<(?:saml2?:)?Issuer[^>]*>([^<]+)<\/(?:saml2?:)?Issuer>/i);
       if (!issuerMatch) {
         throw new SamlError(
           'Missing Issuer in SAML request',
@@ -171,7 +183,12 @@ export class SamlIdpService {
       const idp = this.getIdP();
 
       // Parse request using samlify
-      const { extract } = await idp.parseLoginRequest(sp, binding, { body: { SAMLRequest: samlRequest } });
+      // samlify expects { query: ... } for redirect binding, { body: ... } for post binding
+      const requestData =
+        binding === 'redirect'
+          ? { query: { SAMLRequest: samlRequest } }
+          : { body: { SAMLRequest: samlRequest } };
+      const { extract } = await idp.parseLoginRequest(sp, binding, requestData);
 
       return {
         request: {
@@ -219,9 +236,11 @@ export class SamlIdpService {
       );
 
       // Build attribute statement
+      // For direct SSO (JKKN → MathWorks), use "Affiliation" attribute name
+      // Note: "eduPersonScopedAffiliation" is for federated SSO (JKKN → InFED → eduGAIN → MathWorks)
       const attributes = {
         email: userAttributes.email,
-        eduPersonScopedAffiliation: userAttributes.affiliation,
+        Affiliation: userAttributes.affiliation,
         displayName: `${userAttributes.firstName} ${userAttributes.lastName}`.trim() || userAttributes.userId,
         givenName: userAttributes.firstName || '',
         sn: userAttributes.lastName || '',
