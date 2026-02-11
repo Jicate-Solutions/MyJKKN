@@ -26,7 +26,7 @@ const EVENT_DETAIL_SELECT = `
 `;
 
 export class LCEventService {
-  private static supabase = createClientSupabaseClient();
+  private static supabase: any = createClientSupabaseClient();
 
   // ============================================================================
   // EVENT CRUD

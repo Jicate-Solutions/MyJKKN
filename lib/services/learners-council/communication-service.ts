@@ -50,7 +50,7 @@ export class LCCommunicationService {
     const from = (page - 1) * limit;
     const to = from + limit - 1;
 
-    let query = this.supabase
+    let query = (this.supabase as any)
       .from('lc_announcements')
       .select(
         `
@@ -253,7 +253,7 @@ export class LCCommunicationService {
     const from = (page - 1) * limit;
     const to = from + limit - 1;
 
-    let query = this.supabase
+    let query = (this.supabase as any)
       .from('lc_polls')
       .select(
         `
@@ -491,7 +491,7 @@ export class LCCommunicationService {
     const from = (page - 1) * limit;
     const to = from + limit - 1;
 
-    let query = this.supabase
+    let query = (this.supabase as any)
       .from('lc_forum_topics')
       .select(
         `
