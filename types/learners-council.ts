@@ -529,7 +529,7 @@ export interface LCNomination {
   updated_at: string;
 
   // Joined
-  nominee?: { id: string; full_name: string; email: string; year_of_study: number | null; institution_id: string };
+  nominee?: { id: string; full_name: string; email: string; avatar_url: string | null; year_of_study: number | null; institution_id: string };
   election?: LCElection;
   interviews?: LCInterview[];
 }
