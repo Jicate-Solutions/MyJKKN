@@ -1,0 +1,245 @@
+{
+  "module": "learners-council",
+  "version": "1.0.0",
+  "total_features": 6,
+  "status": "spec_complete",
+  "features": [
+    {
+      "id": "LC-001",
+      "name": "LC/YUVA Structure Management",
+      "description": "Core organizational structure: terms, positions, YUVA chapters, verticals, member assignments, and progression tracking",
+      "status": "pending",
+      "priority": 1,
+      "sub_features": [
+        "Term management (create, track, archive, handover)",
+        "LC position management (27 positions across 4 categories)",
+        "YUVA chapter management (1 per institution)",
+        "CRUD verticals (add/remove/rename verticals)",
+        "Member assignment and role history",
+        "Progression tracking (YUVA Chair -> LC Member)",
+        "Executive rotation (6-month terms)"
+      ],
+      "dependencies": ["institutions table", "users/profiles table"],
+      "test_steps": [
+        "Navigate to /learners-council/structure/ — verify org chart renders with two tiers",
+        "Create a new term — verify start/end dates saved, appears in term list",
+        "Assign an LC member to a position — verify shows in structure and history",
+        "Create a YUVA chapter for an institution — verify chair/co-chair slots",
+        "Add a new vertical (e.g., 'Digital Literacy') — verify appears in CRUD list",
+        "Delete a vertical — verify soft-deleted, existing members notified",
+        "Rename a vertical — verify name updated everywhere it appears",
+        "View position history — verify past holders shown with dates",
+        "Start executive rotation — verify nomination form opens for LC members",
+        "Complete rotation — verify old positions archived, new ones active",
+        "Check mobile responsiveness of structure page"
+      ]
+    },
+    {
+      "id": "LC-002",
+      "name": "Communication Hub",
+      "description": "Announcements, polls, discussion forums, internal chat (LC/YUVA only Phase 1), and notifications",
+      "status": "pending",
+      "priority": 2,
+      "sub_features": [
+        "Announcements (draft, review, publish with scope)",
+        "Polls & Surveys (yes/no, multiple choice, demographic breakdown)",
+        "Discussion Forums (topic-based, threaded replies, moderation)",
+        "Internal Chat (1:1, group channels via Supabase Realtime)",
+        "Notification preferences and delivery"
+      ],
+      "dependencies": ["LC-001 (member roles needed for permissions)"],
+      "test_steps": [
+        "Navigate to /learners-council/communication/ — verify tabbed interface loads",
+        "Create announcement as YUVA chair — verify draft saved, scope = institution",
+        "Submit for review — verify senior council member sees review request",
+        "Approve and publish — verify appears in announcement feed",
+        "Check announcement visibility: learner at same institution sees it",
+        "Check announcement visibility: learner at different institution does NOT see institution-scoped announcement",
+        "Create LC-wide announcement — verify all institutions can see it",
+        "Track read rates — verify read count increments on open",
+        "Create a poll with multiple choice — verify options render",
+        "Vote on poll as learner — verify vote recorded, results update",
+        "View poll results — verify demographic breakdown available to creator",
+        "Create discussion topic as verified learner — verify appears in forum",
+        "Reply to discussion — verify threaded reply renders correctly",
+        "Like a post — verify reaction count updates",
+        "Flag a post — verify moderator notification sent",
+        "Moderate flagged post — verify moderator can edit/delete",
+        "Open chat — verify LC/YUVA member can access",
+        "Send 1:1 message — verify real-time delivery via Supabase Realtime",
+        "Create group channel for a vertical — verify members can join",
+        "Send message in group — verify all channel members receive",
+        "Regular learner (non-LC) cannot access chat — verify access denied",
+        "Configure notification preferences — verify email/in-app toggles work",
+        "Check mobile responsive layout for all communication sub-features"
+      ]
+    },
+    {
+      "id": "LC-003",
+      "name": "Event Coordination",
+      "description": "Event lifecycle from proposal to post-event reporting, with calendar view, tiered approvals, and Resource Management integration",
+      "status": "pending",
+      "priority": 3,
+      "sub_features": [
+        "Event proposal submission (any learner)",
+        "Tiered approval workflow (campus/inter-campus/institution-wide)",
+        "Event calendar view (shared, role-specific actions)",
+        "Participant registration and tracking",
+        "Resource Management integration (venue booking)",
+        "Post-event documentation and feedback",
+        "Coordinator override for changes"
+      ],
+      "dependencies": ["LC-001", "Resource Management module", "Academic module (timetables)"],
+      "test_steps": [
+        "Navigate to /learners-council/events/ — verify calendar view loads",
+        "Submit event proposal as learner — verify form captures all required fields",
+        "Venue availability auto-check — verify Resource Management integration works",
+        "Campus event enters LC member review queue — verify reviewer sees it",
+        "Approve campus event — verify status updates, event published to calendar",
+        "Inter-campus event requires principal approval — verify routing",
+        "Institution-wide event requires MD approval — verify routing",
+        "Learner signs up for approved event — verify registration confirmed",
+        "Check capacity limits — verify sign-up blocked when full",
+        "Coordinator modifies event date — verify all registrants notified",
+        "Post-event: submit attendance confirmation — verify participant records updated",
+        "Post-event: collect feedback — verify feedback form accessible to attendees",
+        "Generate post-event report — verify data export works",
+        "View calendar as LC member — verify coordination tasks visible",
+        "View calendar as learner — verify only upcoming events and own proposals visible",
+        "View calendar as principal — verify pending approvals with impact summaries",
+        "Check timetable conflict detection — verify warning shown for exam-day events",
+        "Check mobile responsive calendar view"
+      ]
+    },
+    {
+      "id": "LC-004",
+      "name": "Permission & OD Management",
+      "description": "Automated OD and permission workflows with configurable approval chains, academic integration, and attendance auto-update",
+      "status": "pending",
+      "priority": 4,
+      "sub_features": [
+        "Smart form submission (rule-based, AI-ready)",
+        "Configurable approval chains per institution",
+        "Sequential and parallel approval support",
+        "Workflow tracking UI (visual progress)",
+        "Smart correction (reassignment with reason)",
+        "Academic conflict checking (exams, mandatory classes)",
+        "Attendance auto-update on OD approval"
+      ],
+      "dependencies": ["LC-001", "Academic module (attendance, timetables, leaves)"],
+      "test_steps": [
+        "Navigate to /learners-council/od/ — verify OD dashboard loads",
+        "Configure approval chain for institution — verify chain saved",
+        "Submit OD request as learner — verify form auto-suggests category/routing",
+        "Confirm/edit routing — verify request sent to correct first approver",
+        "First approver approves — verify moves to next step in chain",
+        "Check parallel approval — verify both approvers can act independently",
+        "All approvers complete — verify OD marked as approved",
+        "Check attendance auto-update — verify OD marked in daily_attendance",
+        "Submit OD conflicting with exam — verify conflict warning shown",
+        "Reject OD request — verify learner notified with reason",
+        "Smart correction: reassign to different approver — verify audit trail",
+        "Check workflow tracking UI — verify visual progress bar accurate",
+        "Check reminder sent for pending approvals after configurable delay",
+        "Cross-campus OD — verify routing includes additional approvers",
+        "Bulk OD for team event — verify multiple learners covered in one request",
+        "View 'My Requests' as learner — verify status of all submitted ODs",
+        "View 'Pending Approvals' as HOD — verify filtered to their department",
+        "Check mobile responsive OD forms and tracking"
+      ]
+    },
+    {
+      "id": "LC-005",
+      "name": "Selection & Elections",
+      "description": "YUVA chair/co-chair selection interviews, LC member progression, and 6-month executive rotation",
+      "status": "pending",
+      "priority": 5,
+      "sub_features": [
+        "YUVA nomination submission",
+        "Interview scheduling and management",
+        "Interview scoring (hybrid assessment)",
+        "LC member progression tracking (YUVA -> LC)",
+        "Executive nomination (self-nomination by LC members)",
+        "Internal election (voting among LC members)",
+        "Term transition and handover"
+      ],
+      "dependencies": ["LC-001"],
+      "test_steps": [
+        "Navigate to /learners-council/selection/ — verify selection dashboard loads",
+        "Open nominations for YUVA positions — verify nomination form available",
+        "Submit self-nomination as 1st year learner — verify eligible for co-chair only",
+        "Submit self-nomination as 2nd year learner — verify eligible for chair",
+        "Schedule interview — verify past LC members receive notification",
+        "Conduct interview: enter scores — verify scoring form captures criteria",
+        "Complete all interviews — verify ranking/comparison view available",
+        "Select candidates — verify position assignments created in structure",
+        "Auto-notification to selected candidates — verify they receive confirmation",
+        "LC progression: view YUVA chair eligible for LC — verify progression tracking",
+        "Start executive rotation: open self-nominations — verify only LC members can nominate",
+        "LC members vote — verify voting works and results calculated",
+        "Announce results — verify new executive positions assigned",
+        "Verify old term archived with position history",
+        "Check handover documentation — verify term summary available",
+        "Check mobile responsive nomination and voting forms"
+      ]
+    },
+    {
+      "id": "LC-006",
+      "name": "Issue Management (Grievance Enhancement)",
+      "description": "LC-specific issue view linking to enhanced Grievance module, Kanban board, OKR integration, and bulk issue detection",
+      "status": "pending",
+      "priority": 6,
+      "sub_features": [
+        "LC-specific issue view within LC module",
+        "LC categories added to Grievance module",
+        "Kanban board view for LC members",
+        "Bulk similar issue detection (rule-based, AI-ready)",
+        "OKR integration for resolution metrics",
+        "Role-based issue visibility (tiered access)"
+      ],
+      "dependencies": ["LC-001", "Grievance module", "OKR module"],
+      "test_steps": [
+        "Navigate to /learners-council/issues/ — verify LC issue dashboard loads",
+        "Submit issue as learner — verify routed to appropriate LC member",
+        "View 'My Issues' as learner — verify only own issues visible",
+        "View Kanban board as LC member — verify assigned issues in correct columns",
+        "Move issue from 'New' to 'In Progress' — verify status updates",
+        "Submit similar issue from different learner — verify similarity flagged",
+        "Merge similar issues — verify consolidated view with collective impact count",
+        "LC member reassigns issue — verify audit trail and notifications",
+        "Resolve issue — verify learner notified and issue moved to 'Resolved'",
+        "Check issue contributes to LC member OKR — verify metric tracked",
+        "Senior coordinator views aggregated dashboard — verify cross-institution stats",
+        "Regular learner cannot see other learners' issues — verify access control",
+        "Check Kanban drag-and-drop on mobile"
+      ]
+    }
+  ],
+  "cross_cutting": {
+    "dashboard": {
+      "description": "LC Dashboard at /learners-council/ + widgets on MyJKKN home page",
+      "test_steps": [
+        "Navigate to /learners-council/ — verify dashboard loads with all sections",
+        "Verify role-specific dashboard content (learner vs LC member vs principal)",
+        "Check MyJKKN home page for LC summary widgets",
+        "Check mobile responsive dashboard layout"
+      ]
+    },
+    "sidebar_navigation": {
+      "description": "Add LC module to MyJKKN sidebar with nested navigation",
+      "test_steps": [
+        "Verify 'Learners Council' appears in sidebar for all authenticated users",
+        "Verify sub-navigation matches URL structure",
+        "Verify active state highlights current section"
+      ]
+    },
+    "terminology": {
+      "description": "JKKN terminology used throughout: Learner, Senior Learner",
+      "test_steps": [
+        "Search all LC module files for 'student' — verify zero occurrences",
+        "Search all LC module files for 'teacher'/'faculty' — verify zero occurrences (except technical column names)",
+        "Verify all UI labels use 'Learner' and 'Senior Learner'"
+      ]
+    }
+  }
+}

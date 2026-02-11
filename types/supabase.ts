@@ -1179,13 +1179,14 @@ export type Database = {
           combined_score: number | null
           conversion_probability: number | null
           counselor_id: string | null
-          country: string | null
           created_at: string | null
           created_by: string | null
           date_of_birth: string | null
+          district: string | null
           dormant_at: string | null
           email: string | null
           engagement_score: number | null
+          entry_date: string | null
           full_name: string | null
           funnel_stage: string | null
           gender: string | null
@@ -1244,13 +1245,14 @@ export type Database = {
           combined_score?: number | null
           conversion_probability?: number | null
           counselor_id?: string | null
-          country?: string | null
           created_at?: string | null
           created_by?: string | null
           date_of_birth?: string | null
+          district?: string | null
           dormant_at?: string | null
           email?: string | null
           engagement_score?: number | null
+          entry_date?: string | null
           full_name?: string | null
           funnel_stage?: string | null
           gender?: string | null
@@ -1309,13 +1311,14 @@ export type Database = {
           combined_score?: number | null
           conversion_probability?: number | null
           counselor_id?: string | null
-          country?: string | null
           created_at?: string | null
           created_by?: string | null
           date_of_birth?: string | null
+          district?: string | null
           dormant_at?: string | null
           email?: string | null
           engagement_score?: number | null
+          entry_date?: string | null
           full_name?: string | null
           funnel_stage?: string | null
           gender?: string | null
@@ -9898,6 +9901,1414 @@ export type Database = {
           },
         ]
       }
+      lc_announcement_reads: {
+        Row: {
+          announcement_id: string
+          id: string
+          read_at: string | null
+          user_id: string
+        }
+        Insert: {
+          announcement_id: string
+          id?: string
+          read_at?: string | null
+          user_id: string
+        }
+        Update: {
+          announcement_id?: string
+          id?: string
+          read_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lc_announcement_reads_announcement_id_fkey"
+            columns: ["announcement_id"]
+            isOneToOne: false
+            referencedRelation: "lc_announcements"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      lc_announcements: {
+        Row: {
+          archived_at: string | null
+          attachments: Json | null
+          content: string
+          created_at: string | null
+          created_by: string
+          id: string
+          published_at: string | null
+          read_count: number | null
+          reviewed_at: string | null
+          reviewed_by: string | null
+          scope: string
+          scope_id: string | null
+          status: string | null
+          title: string
+          type: string | null
+          updated_at: string | null
+          urgency: string | null
+        }
+        Insert: {
+          archived_at?: string | null
+          attachments?: Json | null
+          content: string
+          created_at?: string | null
+          created_by: string
+          id?: string
+          published_at?: string | null
+          read_count?: number | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          scope: string
+          scope_id?: string | null
+          status?: string | null
+          title: string
+          type?: string | null
+          updated_at?: string | null
+          urgency?: string | null
+        }
+        Update: {
+          archived_at?: string | null
+          attachments?: Json | null
+          content?: string
+          created_at?: string | null
+          created_by?: string
+          id?: string
+          published_at?: string | null
+          read_count?: number | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          scope?: string
+          scope_id?: string | null
+          status?: string | null
+          title?: string
+          type?: string | null
+          updated_at?: string | null
+          urgency?: string | null
+        }
+        Relationships: []
+      }
+      lc_chat_channels: {
+        Row: {
+          created_at: string | null
+          created_by: string
+          description: string | null
+          id: string
+          is_active: boolean | null
+          name: string
+          reference_id: string | null
+          type: string
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          created_by: string
+          description?: string | null
+          id?: string
+          is_active?: boolean | null
+          name: string
+          reference_id?: string | null
+          type: string
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          created_by?: string
+          description?: string | null
+          id?: string
+          is_active?: boolean | null
+          name?: string
+          reference_id?: string | null
+          type?: string
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+      lc_chat_members: {
+        Row: {
+          channel_id: string
+          id: string
+          joined_at: string | null
+          last_read_at: string | null
+          role: string | null
+          user_id: string
+        }
+        Insert: {
+          channel_id: string
+          id?: string
+          joined_at?: string | null
+          last_read_at?: string | null
+          role?: string | null
+          user_id: string
+        }
+        Update: {
+          channel_id?: string
+          id?: string
+          joined_at?: string | null
+          last_read_at?: string | null
+          role?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lc_chat_members_channel_id_fkey"
+            columns: ["channel_id"]
+            isOneToOne: false
+            referencedRelation: "lc_chat_channels"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      lc_chat_messages: {
+        Row: {
+          attachments: Json | null
+          channel_id: string
+          content: string
+          created_at: string | null
+          id: string
+          is_deleted: boolean | null
+          is_edited: boolean | null
+          reply_to_id: string | null
+          sender_id: string
+          updated_at: string | null
+        }
+        Insert: {
+          attachments?: Json | null
+          channel_id: string
+          content: string
+          created_at?: string | null
+          id?: string
+          is_deleted?: boolean | null
+          is_edited?: boolean | null
+          reply_to_id?: string | null
+          sender_id: string
+          updated_at?: string | null
+        }
+        Update: {
+          attachments?: Json | null
+          channel_id?: string
+          content?: string
+          created_at?: string | null
+          id?: string
+          is_deleted?: boolean | null
+          is_edited?: boolean | null
+          reply_to_id?: string | null
+          sender_id?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lc_chat_messages_channel_id_fkey"
+            columns: ["channel_id"]
+            isOneToOne: false
+            referencedRelation: "lc_chat_channels"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lc_chat_messages_reply_to_id_fkey"
+            columns: ["reply_to_id"]
+            isOneToOne: false
+            referencedRelation: "lc_chat_messages"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      lc_election_votes: {
+        Row: {
+          election_id: string
+          id: string
+          nomination_id: string
+          position_id: string
+          voted_at: string | null
+          voter_id: string
+        }
+        Insert: {
+          election_id: string
+          id?: string
+          nomination_id: string
+          position_id: string
+          voted_at?: string | null
+          voter_id: string
+        }
+        Update: {
+          election_id?: string
+          id?: string
+          nomination_id?: string
+          position_id?: string
+          voted_at?: string | null
+          voter_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lc_election_votes_election_id_fkey"
+            columns: ["election_id"]
+            isOneToOne: false
+            referencedRelation: "lc_elections"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lc_election_votes_nomination_id_fkey"
+            columns: ["nomination_id"]
+            isOneToOne: false
+            referencedRelation: "lc_nominations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lc_election_votes_position_id_fkey"
+            columns: ["position_id"]
+            isOneToOne: false
+            referencedRelation: "lc_positions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      lc_elections: {
+        Row: {
+          chapter_id: string | null
+          created_at: string | null
+          created_by: string
+          id: string
+          institution_id: string | null
+          nominations_close_at: string
+          nominations_open_at: string
+          results_declared_at: string | null
+          status: string | null
+          term_id: string
+          title: string
+          type: string
+          updated_at: string | null
+          voting_close_at: string | null
+          voting_open_at: string | null
+        }
+        Insert: {
+          chapter_id?: string | null
+          created_at?: string | null
+          created_by: string
+          id?: string
+          institution_id?: string | null
+          nominations_close_at: string
+          nominations_open_at: string
+          results_declared_at?: string | null
+          status?: string | null
+          term_id: string
+          title: string
+          type: string
+          updated_at?: string | null
+          voting_close_at?: string | null
+          voting_open_at?: string | null
+        }
+        Update: {
+          chapter_id?: string | null
+          created_at?: string | null
+          created_by?: string
+          id?: string
+          institution_id?: string | null
+          nominations_close_at?: string
+          nominations_open_at?: string
+          results_declared_at?: string | null
+          status?: string | null
+          term_id?: string
+          title?: string
+          type?: string
+          updated_at?: string | null
+          voting_close_at?: string | null
+          voting_open_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lc_elections_chapter_id_fkey"
+            columns: ["chapter_id"]
+            isOneToOne: false
+            referencedRelation: "yuva_chapters"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lc_elections_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lc_elections_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "lc_elections_term_id_fkey"
+            columns: ["term_id"]
+            isOneToOne: false
+            referencedRelation: "lc_terms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      lc_event_approvals: {
+        Row: {
+          acted_at: string | null
+          action: string | null
+          approver_id: string
+          approver_role: string
+          comments: string | null
+          created_at: string | null
+          event_id: string
+          id: string
+          step_order: number | null
+        }
+        Insert: {
+          acted_at?: string | null
+          action?: string | null
+          approver_id: string
+          approver_role: string
+          comments?: string | null
+          created_at?: string | null
+          event_id: string
+          id?: string
+          step_order?: number | null
+        }
+        Update: {
+          acted_at?: string | null
+          action?: string | null
+          approver_id?: string
+          approver_role?: string
+          comments?: string | null
+          created_at?: string | null
+          event_id?: string
+          id?: string
+          step_order?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lc_event_approvals_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "lc_events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      lc_event_participants: {
+        Row: {
+          attended_at: string | null
+          confirmed_at: string | null
+          event_id: string
+          feedback: string | null
+          feedback_rating: number | null
+          id: string
+          od_request_id: string | null
+          registered_at: string | null
+          status: string | null
+          user_id: string
+        }
+        Insert: {
+          attended_at?: string | null
+          confirmed_at?: string | null
+          event_id: string
+          feedback?: string | null
+          feedback_rating?: number | null
+          id?: string
+          od_request_id?: string | null
+          registered_at?: string | null
+          status?: string | null
+          user_id: string
+        }
+        Update: {
+          attended_at?: string | null
+          confirmed_at?: string | null
+          event_id?: string
+          feedback?: string | null
+          feedback_rating?: number | null
+          id?: string
+          od_request_id?: string | null
+          registered_at?: string | null
+          status?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lc_event_participants_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "lc_events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      lc_events: {
+        Row: {
+          attachments: Json | null
+          budget_estimate: number | null
+          created_at: string | null
+          current_participants: number | null
+          description: string
+          ends_at: string
+          feedback_enabled: boolean | null
+          id: string
+          institution_id: string | null
+          max_participants: number | null
+          post_event_report: string | null
+          proposed_by: string
+          requires_od: boolean | null
+          scope: string
+          starts_at: string
+          status: string | null
+          tags: Json | null
+          title: string
+          type: string | null
+          updated_at: string | null
+          venue_name: string | null
+          venue_resource_id: string | null
+        }
+        Insert: {
+          attachments?: Json | null
+          budget_estimate?: number | null
+          created_at?: string | null
+          current_participants?: number | null
+          description: string
+          ends_at: string
+          feedback_enabled?: boolean | null
+          id?: string
+          institution_id?: string | null
+          max_participants?: number | null
+          post_event_report?: string | null
+          proposed_by: string
+          requires_od?: boolean | null
+          scope: string
+          starts_at: string
+          status?: string | null
+          tags?: Json | null
+          title: string
+          type?: string | null
+          updated_at?: string | null
+          venue_name?: string | null
+          venue_resource_id?: string | null
+        }
+        Update: {
+          attachments?: Json | null
+          budget_estimate?: number | null
+          created_at?: string | null
+          current_participants?: number | null
+          description?: string
+          ends_at?: string
+          feedback_enabled?: boolean | null
+          id?: string
+          institution_id?: string | null
+          max_participants?: number | null
+          post_event_report?: string | null
+          proposed_by?: string
+          requires_od?: boolean | null
+          scope?: string
+          starts_at?: string
+          status?: string | null
+          tags?: Json | null
+          title?: string
+          type?: string | null
+          updated_at?: string | null
+          venue_name?: string | null
+          venue_resource_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lc_events_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lc_events_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+        ]
+      }
+      lc_forum_posts: {
+        Row: {
+          author_id: string
+          content: string
+          created_at: string | null
+          edited_at: string | null
+          id: string
+          moderated_by: string | null
+          moderation_reason: string | null
+          parent_id: string | null
+          status: string | null
+          topic_id: string
+          updated_at: string | null
+        }
+        Insert: {
+          author_id: string
+          content: string
+          created_at?: string | null
+          edited_at?: string | null
+          id?: string
+          moderated_by?: string | null
+          moderation_reason?: string | null
+          parent_id?: string | null
+          status?: string | null
+          topic_id: string
+          updated_at?: string | null
+        }
+        Update: {
+          author_id?: string
+          content?: string
+          created_at?: string | null
+          edited_at?: string | null
+          id?: string
+          moderated_by?: string | null
+          moderation_reason?: string | null
+          parent_id?: string | null
+          status?: string | null
+          topic_id?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lc_forum_posts_parent_id_fkey"
+            columns: ["parent_id"]
+            isOneToOne: false
+            referencedRelation: "lc_forum_posts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lc_forum_posts_topic_id_fkey"
+            columns: ["topic_id"]
+            isOneToOne: false
+            referencedRelation: "lc_forum_topics"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      lc_forum_reactions: {
+        Row: {
+          created_at: string | null
+          id: string
+          post_id: string
+          type: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          post_id: string
+          type: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          post_id?: string
+          type?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lc_forum_reactions_post_id_fkey"
+            columns: ["post_id"]
+            isOneToOne: false
+            referencedRelation: "lc_forum_posts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      lc_forum_topics: {
+        Row: {
+          category: string
+          created_at: string | null
+          created_by: string
+          description: string | null
+          id: string
+          is_locked: boolean | null
+          is_pinned: boolean | null
+          last_post_at: string | null
+          post_count: number | null
+          title: string
+          updated_at: string | null
+        }
+        Insert: {
+          category: string
+          created_at?: string | null
+          created_by: string
+          description?: string | null
+          id?: string
+          is_locked?: boolean | null
+          is_pinned?: boolean | null
+          last_post_at?: string | null
+          post_count?: number | null
+          title: string
+          updated_at?: string | null
+        }
+        Update: {
+          category?: string
+          created_at?: string | null
+          created_by?: string
+          description?: string | null
+          id?: string
+          is_locked?: boolean | null
+          is_pinned?: boolean | null
+          last_post_at?: string | null
+          post_count?: number | null
+          title?: string
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+      lc_interviews: {
+        Row: {
+          completed_at: string | null
+          created_at: string | null
+          criteria_scores: Json | null
+          duration_minutes: number | null
+          id: string
+          interviewer_id: string
+          max_score: number | null
+          nomination_id: string
+          overall_notes: string | null
+          recommendation: string | null
+          scheduled_at: string
+          score: number | null
+          status: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          completed_at?: string | null
+          created_at?: string | null
+          criteria_scores?: Json | null
+          duration_minutes?: number | null
+          id?: string
+          interviewer_id: string
+          max_score?: number | null
+          nomination_id: string
+          overall_notes?: string | null
+          recommendation?: string | null
+          scheduled_at: string
+          score?: number | null
+          status?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          completed_at?: string | null
+          created_at?: string | null
+          criteria_scores?: Json | null
+          duration_minutes?: number | null
+          id?: string
+          interviewer_id?: string
+          max_score?: number | null
+          nomination_id?: string
+          overall_notes?: string | null
+          recommendation?: string | null
+          scheduled_at?: string
+          score?: number | null
+          status?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lc_interviews_nomination_id_fkey"
+            columns: ["nomination_id"]
+            isOneToOne: false
+            referencedRelation: "lc_nominations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      lc_members: {
+        Row: {
+          appointed_at: string
+          appointment_notes: string | null
+          created_at: string | null
+          ended_at: string | null
+          id: string
+          institution_id: string
+          position_id: string
+          status: string | null
+          term_id: string
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          appointed_at?: string
+          appointment_notes?: string | null
+          created_at?: string | null
+          ended_at?: string | null
+          id?: string
+          institution_id: string
+          position_id: string
+          status?: string | null
+          term_id: string
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          appointed_at?: string
+          appointment_notes?: string | null
+          created_at?: string | null
+          ended_at?: string | null
+          id?: string
+          institution_id?: string
+          position_id?: string
+          status?: string | null
+          term_id?: string
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lc_members_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lc_members_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "lc_members_position_id_fkey"
+            columns: ["position_id"]
+            isOneToOne: false
+            referencedRelation: "lc_positions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lc_members_term_id_fkey"
+            columns: ["term_id"]
+            isOneToOne: false
+            referencedRelation: "lc_terms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      lc_nominations: {
+        Row: {
+          chapter_id: string | null
+          created_at: string | null
+          election_id: string
+          id: string
+          nominee_id: string
+          position_id: string | null
+          qualifications: string | null
+          review_notes: string | null
+          reviewed_at: string | null
+          reviewed_by: string | null
+          role_sought: string
+          statement: string | null
+          status: string | null
+          submitted_at: string | null
+          updated_at: string | null
+          vertical_id: string | null
+        }
+        Insert: {
+          chapter_id?: string | null
+          created_at?: string | null
+          election_id: string
+          id?: string
+          nominee_id: string
+          position_id?: string | null
+          qualifications?: string | null
+          review_notes?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          role_sought: string
+          statement?: string | null
+          status?: string | null
+          submitted_at?: string | null
+          updated_at?: string | null
+          vertical_id?: string | null
+        }
+        Update: {
+          chapter_id?: string | null
+          created_at?: string | null
+          election_id?: string
+          id?: string
+          nominee_id?: string
+          position_id?: string | null
+          qualifications?: string | null
+          review_notes?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          role_sought?: string
+          statement?: string | null
+          status?: string | null
+          submitted_at?: string | null
+          updated_at?: string | null
+          vertical_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lc_nominations_chapter_id_fkey"
+            columns: ["chapter_id"]
+            isOneToOne: false
+            referencedRelation: "yuva_chapters"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lc_nominations_election_id_fkey"
+            columns: ["election_id"]
+            isOneToOne: false
+            referencedRelation: "lc_elections"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lc_nominations_position_id_fkey"
+            columns: ["position_id"]
+            isOneToOne: false
+            referencedRelation: "lc_positions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lc_nominations_vertical_id_fkey"
+            columns: ["vertical_id"]
+            isOneToOne: false
+            referencedRelation: "yuva_verticals"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      lc_notification_preferences: {
+        Row: {
+          channel_email: boolean | null
+          channel_in_app: boolean | null
+          channel_push: boolean | null
+          id: string
+          notification_type: string
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          channel_email?: boolean | null
+          channel_in_app?: boolean | null
+          channel_push?: boolean | null
+          id?: string
+          notification_type: string
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          channel_email?: boolean | null
+          channel_in_app?: boolean | null
+          channel_push?: boolean | null
+          id?: string
+          notification_type?: string
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      lc_notifications: {
+        Row: {
+          created_at: string | null
+          id: string
+          is_read: boolean | null
+          link: string | null
+          message: string
+          read_at: string | null
+          reference_id: string | null
+          reference_type: string | null
+          title: string
+          type: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          is_read?: boolean | null
+          link?: string | null
+          message: string
+          read_at?: string | null
+          reference_id?: string | null
+          reference_type?: string | null
+          title: string
+          type: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          is_read?: boolean | null
+          link?: string | null
+          message?: string
+          read_at?: string | null
+          reference_id?: string | null
+          reference_type?: string | null
+          title?: string
+          type?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      lc_od_approval_chains: {
+        Row: {
+          created_at: string | null
+          created_by: string
+          event_scope: string
+          id: string
+          institution_id: string
+          is_active: boolean | null
+          name: string
+          steps: Json
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          created_by: string
+          event_scope: string
+          id?: string
+          institution_id: string
+          is_active?: boolean | null
+          name: string
+          steps?: Json
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          created_by?: string
+          event_scope?: string
+          id?: string
+          institution_id?: string
+          is_active?: boolean | null
+          name?: string
+          steps?: Json
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lc_od_approval_chains_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lc_od_approval_chains_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+        ]
+      }
+      lc_od_approvals: {
+        Row: {
+          acted_at: string | null
+          action: string
+          approver_id: string
+          comments: string | null
+          created_at: string | null
+          id: string
+          request_id: string
+          step_order: number
+        }
+        Insert: {
+          acted_at?: string | null
+          action: string
+          approver_id: string
+          comments?: string | null
+          created_at?: string | null
+          id?: string
+          request_id: string
+          step_order: number
+        }
+        Update: {
+          acted_at?: string | null
+          action?: string
+          approver_id?: string
+          comments?: string | null
+          created_at?: string | null
+          id?: string
+          request_id?: string
+          step_order?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lc_od_approvals_request_id_fkey"
+            columns: ["request_id"]
+            isOneToOne: false
+            referencedRelation: "lc_od_requests"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      lc_od_requests: {
+        Row: {
+          category: string | null
+          chain_id: string
+          completed_at: string | null
+          conflict_details: string | null
+          created_at: string | null
+          current_step: number | null
+          duration_hours: number
+          end_date: string
+          event_id: string | null
+          has_academic_conflict: boolean | null
+          id: string
+          institution_id: string
+          reason: string
+          request_number: string
+          requester_id: string
+          start_date: string
+          status: string | null
+          submitted_at: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          category?: string | null
+          chain_id: string
+          completed_at?: string | null
+          conflict_details?: string | null
+          created_at?: string | null
+          current_step?: number | null
+          duration_hours: number
+          end_date: string
+          event_id?: string | null
+          has_academic_conflict?: boolean | null
+          id?: string
+          institution_id: string
+          reason: string
+          request_number: string
+          requester_id: string
+          start_date: string
+          status?: string | null
+          submitted_at?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          category?: string | null
+          chain_id?: string
+          completed_at?: string | null
+          conflict_details?: string | null
+          created_at?: string | null
+          current_step?: number | null
+          duration_hours?: number
+          end_date?: string
+          event_id?: string | null
+          has_academic_conflict?: boolean | null
+          id?: string
+          institution_id?: string
+          reason?: string
+          request_number?: string
+          requester_id?: string
+          start_date?: string
+          status?: string | null
+          submitted_at?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lc_od_requests_chain_id_fkey"
+            columns: ["chain_id"]
+            isOneToOne: false
+            referencedRelation: "lc_od_approval_chains"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lc_od_requests_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "lc_events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lc_od_requests_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lc_od_requests_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+        ]
+      }
+      lc_poll_options: {
+        Row: {
+          id: string
+          label: string
+          poll_id: string
+          sort_order: number | null
+          vote_count: number | null
+        }
+        Insert: {
+          id?: string
+          label: string
+          poll_id: string
+          sort_order?: number | null
+          vote_count?: number | null
+        }
+        Update: {
+          id?: string
+          label?: string
+          poll_id?: string
+          sort_order?: number | null
+          vote_count?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lc_poll_options_poll_id_fkey"
+            columns: ["poll_id"]
+            isOneToOne: false
+            referencedRelation: "lc_polls"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      lc_poll_votes: {
+        Row: {
+          id: string
+          option_id: string
+          poll_id: string
+          user_id: string
+          voted_at: string | null
+        }
+        Insert: {
+          id?: string
+          option_id: string
+          poll_id: string
+          user_id: string
+          voted_at?: string | null
+        }
+        Update: {
+          id?: string
+          option_id?: string
+          poll_id?: string
+          user_id?: string
+          voted_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lc_poll_votes_option_id_fkey"
+            columns: ["option_id"]
+            isOneToOne: false
+            referencedRelation: "lc_poll_options"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lc_poll_votes_poll_id_fkey"
+            columns: ["poll_id"]
+            isOneToOne: false
+            referencedRelation: "lc_polls"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      lc_polls: {
+        Row: {
+          allows_multiple: boolean | null
+          created_at: string | null
+          created_by: string
+          description: string | null
+          ends_at: string
+          id: string
+          is_anonymous: boolean | null
+          max_selections: number | null
+          scope: string
+          scope_id: string | null
+          starts_at: string
+          status: string | null
+          title: string
+          total_votes: number | null
+          type: string
+          updated_at: string | null
+        }
+        Insert: {
+          allows_multiple?: boolean | null
+          created_at?: string | null
+          created_by: string
+          description?: string | null
+          ends_at: string
+          id?: string
+          is_anonymous?: boolean | null
+          max_selections?: number | null
+          scope: string
+          scope_id?: string | null
+          starts_at: string
+          status?: string | null
+          title: string
+          total_votes?: number | null
+          type: string
+          updated_at?: string | null
+        }
+        Update: {
+          allows_multiple?: boolean | null
+          created_at?: string | null
+          created_by?: string
+          description?: string | null
+          ends_at?: string
+          id?: string
+          is_anonymous?: boolean | null
+          max_selections?: number | null
+          scope?: string
+          scope_id?: string | null
+          starts_at?: string
+          status?: string | null
+          title?: string
+          total_votes?: number | null
+          type?: string
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+      lc_position_history: {
+        Row: {
+          created_at: string | null
+          end_reason: string | null
+          ended_at: string | null
+          id: string
+          position_id: string
+          started_at: string
+          term_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          end_reason?: string | null
+          ended_at?: string | null
+          id?: string
+          position_id: string
+          started_at: string
+          term_id: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          end_reason?: string | null
+          ended_at?: string | null
+          id?: string
+          position_id?: string
+          started_at?: string
+          term_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lc_position_history_position_id_fkey"
+            columns: ["position_id"]
+            isOneToOne: false
+            referencedRelation: "lc_positions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lc_position_history_term_id_fkey"
+            columns: ["term_id"]
+            isOneToOne: false
+            referencedRelation: "lc_terms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      lc_positions: {
+        Row: {
+          category: string
+          created_at: string | null
+          description: string | null
+          id: string
+          institution_id: string | null
+          is_active: boolean | null
+          max_holders: number | null
+          sort_order: number | null
+          tier: string
+          title: string
+          updated_at: string | null
+        }
+        Insert: {
+          category: string
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          institution_id?: string | null
+          is_active?: boolean | null
+          max_holders?: number | null
+          sort_order?: number | null
+          tier: string
+          title: string
+          updated_at?: string | null
+        }
+        Update: {
+          category?: string
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          institution_id?: string | null
+          is_active?: boolean | null
+          max_holders?: number | null
+          sort_order?: number | null
+          tier?: string
+          title?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lc_positions_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lc_positions_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+        ]
+      }
+      lc_terms: {
+        Row: {
+          created_at: string | null
+          created_by: string
+          description: string | null
+          end_date: string
+          handover_notes: string | null
+          id: string
+          name: string
+          start_date: string
+          status: string | null
+          term_type: string
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          created_by: string
+          description?: string | null
+          end_date: string
+          handover_notes?: string | null
+          id?: string
+          name: string
+          start_date: string
+          status?: string | null
+          term_type: string
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          created_by?: string
+          description?: string | null
+          end_date?: string
+          handover_notes?: string | null
+          id?: string
+          name?: string
+          start_date?: string
+          status?: string | null
+          term_type?: string
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       lead_activity_log: {
         Row: {
           activity_description: string | null
@@ -13362,6 +14773,60 @@ export type Database = {
           },
         ]
       }
+      okr_external_api_credentials: {
+        Row: {
+          api_name: string
+          auth_config: Json
+          auth_type: string
+          base_url: string
+          created_at: string
+          default_headers: Json | null
+          description: string | null
+          display_name: string
+          id: string
+          is_active: boolean
+          last_error: string | null
+          last_validated_at: string | null
+          rate_limit_per_minute: number | null
+          timeout_seconds: number | null
+          updated_at: string
+        }
+        Insert: {
+          api_name: string
+          auth_config: Json
+          auth_type: string
+          base_url: string
+          created_at?: string
+          default_headers?: Json | null
+          description?: string | null
+          display_name: string
+          id?: string
+          is_active?: boolean
+          last_error?: string | null
+          last_validated_at?: string | null
+          rate_limit_per_minute?: number | null
+          timeout_seconds?: number | null
+          updated_at?: string
+        }
+        Update: {
+          api_name?: string
+          auth_config?: Json
+          auth_type?: string
+          base_url?: string
+          created_at?: string
+          default_headers?: Json | null
+          description?: string | null
+          display_name?: string
+          id?: string
+          is_active?: boolean
+          last_error?: string | null
+          last_validated_at?: string | null
+          rate_limit_per_minute?: number | null
+          timeout_seconds?: number | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       okr_key_results: {
         Row: {
           abcd_category: string | null
@@ -13520,6 +14985,229 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      okr_metric_cache: {
+        Row: {
+          cache_key: string
+          computed_at: string
+          context_hash: string
+          expires_at: string
+          hit_count: number | null
+          id: string
+          institution_id: string | null
+          last_accessed_at: string | null
+          metric_key: string
+          profile_id: string | null
+          raw_data: Json | null
+          scope: Database["public"]["Enums"]["metric_scope"]
+          value: number
+        }
+        Insert: {
+          cache_key: string
+          computed_at?: string
+          context_hash: string
+          expires_at: string
+          hit_count?: number | null
+          id?: string
+          institution_id?: string | null
+          last_accessed_at?: string | null
+          metric_key: string
+          profile_id?: string | null
+          raw_data?: Json | null
+          scope?: Database["public"]["Enums"]["metric_scope"]
+          value: number
+        }
+        Update: {
+          cache_key?: string
+          computed_at?: string
+          context_hash?: string
+          expires_at?: string
+          hit_count?: number | null
+          id?: string
+          institution_id?: string | null
+          last_accessed_at?: string | null
+          metric_key?: string
+          profile_id?: string | null
+          raw_data?: Json | null
+          scope?: Database["public"]["Enums"]["metric_scope"]
+          value?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "okr_metric_cache_metric_key_fkey"
+            columns: ["metric_key"]
+            isOneToOne: false
+            referencedRelation: "okr_metric_registry"
+            referencedColumns: ["metric_key"]
+          },
+        ]
+      }
+      okr_metric_execution_log: {
+        Row: {
+          cache_expires_at: string | null
+          cache_key: string | null
+          computed_value: number | null
+          context_params: Json | null
+          error_message: string | null
+          executed_at: string
+          execution_duration_ms: number | null
+          id: string
+          institution_id: string | null
+          is_success: boolean
+          metric_key: string
+          profile_id: string | null
+          raw_result: Json | null
+          scope: Database["public"]["Enums"]["metric_scope"]
+          source_type: Database["public"]["Enums"]["metric_source_type"]
+          was_cached: boolean | null
+        }
+        Insert: {
+          cache_expires_at?: string | null
+          cache_key?: string | null
+          computed_value?: number | null
+          context_params?: Json | null
+          error_message?: string | null
+          executed_at?: string
+          execution_duration_ms?: number | null
+          id?: string
+          institution_id?: string | null
+          is_success?: boolean
+          metric_key: string
+          profile_id?: string | null
+          raw_result?: Json | null
+          scope?: Database["public"]["Enums"]["metric_scope"]
+          source_type: Database["public"]["Enums"]["metric_source_type"]
+          was_cached?: boolean | null
+        }
+        Update: {
+          cache_expires_at?: string | null
+          cache_key?: string | null
+          computed_value?: number | null
+          context_params?: Json | null
+          error_message?: string | null
+          executed_at?: string
+          execution_duration_ms?: number | null
+          id?: string
+          institution_id?: string | null
+          is_success?: boolean
+          metric_key?: string
+          profile_id?: string | null
+          raw_result?: Json | null
+          scope?: Database["public"]["Enums"]["metric_scope"]
+          source_type?: Database["public"]["Enums"]["metric_source_type"]
+          was_cached?: boolean | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "okr_metric_execution_log_metric_key_fkey"
+            columns: ["metric_key"]
+            isOneToOne: false
+            referencedRelation: "okr_metric_registry"
+            referencedColumns: ["metric_key"]
+          },
+        ]
+      }
+      okr_metric_registry: {
+        Row: {
+          applicable_roles: string[]
+          applicable_scopes: Database["public"]["Enums"]["metric_scope"][]
+          cache_duration_seconds: number | null
+          category: string
+          chart_type: string | null
+          color: string | null
+          created_at: string
+          created_by: string | null
+          default_baseline: number | null
+          default_target: number | null
+          description: string | null
+          display_format: string | null
+          display_name: string
+          icon: string | null
+          id: string
+          is_active: boolean
+          is_system: boolean
+          last_global_sync_at: string | null
+          max_value: number | null
+          metric_key: string
+          min_value: number | null
+          module: string
+          precision: number | null
+          refresh_frequency: Database["public"]["Enums"]["metric_refresh_frequency"]
+          requires_context: Json
+          source_config: Json
+          source_type: Database["public"]["Enums"]["metric_source_type"]
+          tags: string[] | null
+          unit: string
+          updated_at: string
+          value_type: Database["public"]["Enums"]["metric_value_type"]
+        }
+        Insert: {
+          applicable_roles?: string[]
+          applicable_scopes?: Database["public"]["Enums"]["metric_scope"][]
+          cache_duration_seconds?: number | null
+          category: string
+          chart_type?: string | null
+          color?: string | null
+          created_at?: string
+          created_by?: string | null
+          default_baseline?: number | null
+          default_target?: number | null
+          description?: string | null
+          display_format?: string | null
+          display_name: string
+          icon?: string | null
+          id?: string
+          is_active?: boolean
+          is_system?: boolean
+          last_global_sync_at?: string | null
+          max_value?: number | null
+          metric_key: string
+          min_value?: number | null
+          module: string
+          precision?: number | null
+          refresh_frequency?: Database["public"]["Enums"]["metric_refresh_frequency"]
+          requires_context?: Json
+          source_config: Json
+          source_type: Database["public"]["Enums"]["metric_source_type"]
+          tags?: string[] | null
+          unit?: string
+          updated_at?: string
+          value_type?: Database["public"]["Enums"]["metric_value_type"]
+        }
+        Update: {
+          applicable_roles?: string[]
+          applicable_scopes?: Database["public"]["Enums"]["metric_scope"][]
+          cache_duration_seconds?: number | null
+          category?: string
+          chart_type?: string | null
+          color?: string | null
+          created_at?: string
+          created_by?: string | null
+          default_baseline?: number | null
+          default_target?: number | null
+          description?: string | null
+          display_format?: string | null
+          display_name?: string
+          icon?: string | null
+          id?: string
+          is_active?: boolean
+          is_system?: boolean
+          last_global_sync_at?: string | null
+          max_value?: number | null
+          metric_key?: string
+          min_value?: number | null
+          module?: string
+          precision?: number | null
+          refresh_frequency?: Database["public"]["Enums"]["metric_refresh_frequency"]
+          requires_context?: Json
+          source_config?: Json
+          source_type?: Database["public"]["Enums"]["metric_source_type"]
+          tags?: string[] | null
+          unit?: string
+          updated_at?: string
+          value_type?: Database["public"]["Enums"]["metric_value_type"]
+        }
+        Relationships: []
       }
       okr_milestones: {
         Row: {
@@ -19688,6 +21376,65 @@ export type Database = {
           },
         ]
       }
+      sh_product_validations: {
+        Row: {
+          created_at: string | null
+          created_by: string | null
+          evidence_description: string | null
+          evidence_url: string | null
+          id: string
+          is_external: boolean | null
+          product_id: string
+          status: string | null
+          title: string
+          trl_level: number
+          validated_by: string | null
+          validation_date: string | null
+          validation_type: string
+          validator_affiliation: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          created_by?: string | null
+          evidence_description?: string | null
+          evidence_url?: string | null
+          id?: string
+          is_external?: boolean | null
+          product_id: string
+          status?: string | null
+          title: string
+          trl_level: number
+          validated_by?: string | null
+          validation_date?: string | null
+          validation_type: string
+          validator_affiliation?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          created_by?: string | null
+          evidence_description?: string | null
+          evidence_url?: string | null
+          id?: string
+          is_external?: boolean | null
+          product_id?: string
+          status?: string | null
+          title?: string
+          trl_level?: number
+          validated_by?: string | null
+          validation_date?: string | null
+          validation_type?: string
+          validator_affiliation?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sh_product_validations_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "sh_products"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       sh_production_assignments: {
         Row: {
           actual_hours: number | null
@@ -19949,6 +21696,90 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      sh_products: {
+        Row: {
+          created_at: string | null
+          created_by: string | null
+          current_trl: number | null
+          description: string | null
+          development_budget: number | null
+          development_spent: number | null
+          domain: string | null
+          id: string
+          lead_department_id: string | null
+          metadata: Json | null
+          notes: string | null
+          originating_solution_ids: string[] | null
+          patent_filed_at: string | null
+          patent_number: string | null
+          patent_status: string | null
+          product_code: string
+          rdif_readiness_score: number | null
+          sector: string | null
+          status: string | null
+          tags: string[] | null
+          target_trl: number | null
+          title: string
+          trl_assessed_at: string | null
+          trl_assessed_by: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          created_by?: string | null
+          current_trl?: number | null
+          description?: string | null
+          development_budget?: number | null
+          development_spent?: number | null
+          domain?: string | null
+          id?: string
+          lead_department_id?: string | null
+          metadata?: Json | null
+          notes?: string | null
+          originating_solution_ids?: string[] | null
+          patent_filed_at?: string | null
+          patent_number?: string | null
+          patent_status?: string | null
+          product_code: string
+          rdif_readiness_score?: number | null
+          sector?: string | null
+          status?: string | null
+          tags?: string[] | null
+          target_trl?: number | null
+          title: string
+          trl_assessed_at?: string | null
+          trl_assessed_by?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          created_by?: string | null
+          current_trl?: number | null
+          description?: string | null
+          development_budget?: number | null
+          development_spent?: number | null
+          domain?: string | null
+          id?: string
+          lead_department_id?: string | null
+          metadata?: Json | null
+          notes?: string | null
+          originating_solution_ids?: string[] | null
+          patent_filed_at?: string | null
+          patent_number?: string | null
+          patent_status?: string | null
+          product_code?: string
+          rdif_readiness_score?: number | null
+          sector?: string | null
+          status?: string | null
+          tags?: string[] | null
+          target_trl?: number | null
+          title?: string
+          trl_assessed_at?: string | null
+          trl_assessed_by?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
       }
       sh_prototype_iterations: {
         Row: {
@@ -20313,6 +22144,45 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      sh_rdif_prerequisites: {
+        Row: {
+          description: string | null
+          evidence: string | null
+          evidence_url: string | null
+          id: string
+          is_met: boolean | null
+          label: string
+          prerequisite_key: string
+          target_date: string | null
+          updated_at: string | null
+          updated_by: string | null
+        }
+        Insert: {
+          description?: string | null
+          evidence?: string | null
+          evidence_url?: string | null
+          id?: string
+          is_met?: boolean | null
+          label: string
+          prerequisite_key: string
+          target_date?: string | null
+          updated_at?: string | null
+          updated_by?: string | null
+        }
+        Update: {
+          description?: string | null
+          evidence?: string | null
+          evidence_url?: string | null
+          id?: string
+          is_met?: boolean | null
+          label?: string
+          prerequisite_key?: string
+          target_date?: string | null
+          updated_at?: string | null
+          updated_by?: string | null
+        }
+        Relationships: []
       }
       sh_revenue_split_models: {
         Row: {
@@ -20705,11 +22575,13 @@ export type Database = {
           final_price: number | null
           id: string
           institution_id: string | null
+          ip_retention_notes: string | null
           lead_department_id: string
           metadata: Json | null
           networker_contact_id: string | null
           notes: string | null
           priority: number | null
+          retained_ip: boolean | null
           solution_code: string
           solution_type: Database["public"]["Enums"]["sh_solution_type"]
           solution_type_id: string | null
@@ -20735,11 +22607,13 @@ export type Database = {
           final_price?: number | null
           id?: string
           institution_id?: string | null
+          ip_retention_notes?: string | null
           lead_department_id: string
           metadata?: Json | null
           networker_contact_id?: string | null
           notes?: string | null
           priority?: number | null
+          retained_ip?: boolean | null
           solution_code: string
           solution_type: Database["public"]["Enums"]["sh_solution_type"]
           solution_type_id?: string | null
@@ -20765,11 +22639,13 @@ export type Database = {
           final_price?: number | null
           id?: string
           institution_id?: string | null
+          ip_retention_notes?: string | null
           lead_department_id?: string
           metadata?: Json | null
           networker_contact_id?: string | null
           notes?: string | null
           priority?: number | null
+          retained_ip?: boolean | null
           solution_code?: string
           solution_type?: Database["public"]["Enums"]["sh_solution_type"]
           solution_type_id?: string | null
@@ -23690,6 +25566,147 @@ export type Database = {
           },
         ]
       }
+      yuva_chapters: {
+        Row: {
+          academic_year: string
+          created_at: string | null
+          description: string | null
+          id: string
+          institution_id: string
+          is_active: boolean | null
+          name: string
+          updated_at: string | null
+        }
+        Insert: {
+          academic_year: string
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          institution_id: string
+          is_active?: boolean | null
+          name: string
+          updated_at?: string | null
+        }
+        Update: {
+          academic_year?: string
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          institution_id?: string
+          is_active?: boolean | null
+          name?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "yuva_chapters_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "yuva_chapters_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+        ]
+      }
+      yuva_vertical_members: {
+        Row: {
+          academic_year: string
+          appointed_at: string | null
+          chapter_id: string
+          created_at: string | null
+          ended_at: string | null
+          id: string
+          is_active: boolean | null
+          role: string
+          updated_at: string | null
+          user_id: string
+          vertical_id: string
+        }
+        Insert: {
+          academic_year: string
+          appointed_at?: string | null
+          chapter_id: string
+          created_at?: string | null
+          ended_at?: string | null
+          id?: string
+          is_active?: boolean | null
+          role: string
+          updated_at?: string | null
+          user_id: string
+          vertical_id: string
+        }
+        Update: {
+          academic_year?: string
+          appointed_at?: string | null
+          chapter_id?: string
+          created_at?: string | null
+          ended_at?: string | null
+          id?: string
+          is_active?: boolean | null
+          role?: string
+          updated_at?: string | null
+          user_id?: string
+          vertical_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "yuva_vertical_members_chapter_id_fkey"
+            columns: ["chapter_id"]
+            isOneToOne: false
+            referencedRelation: "yuva_chapters"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "yuva_vertical_members_vertical_id_fkey"
+            columns: ["vertical_id"]
+            isOneToOne: false
+            referencedRelation: "yuva_verticals"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      yuva_verticals: {
+        Row: {
+          created_at: string | null
+          description: string | null
+          icon: string | null
+          id: string
+          is_active: boolean | null
+          name: string
+          sort_order: number | null
+          type: string
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          description?: string | null
+          icon?: string | null
+          id?: string
+          is_active?: boolean | null
+          name: string
+          sort_order?: number | null
+          type: string
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          description?: string | null
+          icon?: string | null
+          id?: string
+          is_active?: boolean | null
+          name?: string
+          sort_order?: number | null
+          type?: string
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       activity_stats: {
@@ -25964,6 +27981,7 @@ export type Database = {
         }[]
       }
       claim_campaign_step: { Args: { p_queue_id: string }; Returns: boolean }
+      clean_expired_metric_cache: { Args: never; Returns: number }
       cleanup_expired_auth_buckets: { Args: never; Returns: number }
       cleanup_expired_auth_codes: { Args: never; Returns: undefined }
       cleanup_expired_child_app_sessions: { Args: never; Returns: undefined }
@@ -26225,6 +28243,10 @@ export type Database = {
         Args: { institution_id_param: string }
         Returns: string
       }
+      generate_metric_cache_key: {
+        Args: { p_context: Json; p_metric_key: string }
+        Returns: string
+      }
       generate_payment_query_number: { Args: never; Returns: string }
       generate_payout_batch_number: { Args: never; Returns: string }
       generate_process_audit_metrics: {
@@ -26388,6 +28410,15 @@ export type Database = {
           start_time: string
         }[]
       }
+      get_avg_learner_competency_score: {
+        Args: {
+          p_end_date: string
+          p_institution_id: string
+          p_profile_id: string
+          p_start_date: string
+        }
+        Returns: number
+      }
       get_billing_copq_dashboard: {
         Args: { p_institution_id: string; p_year?: number }
         Returns: Json
@@ -26402,6 +28433,10 @@ export type Database = {
           user_name: string
         }[]
       }
+      get_cached_metric_value: {
+        Args: { p_cache_key: string; p_metric_key: string }
+        Returns: number
+      }
       get_campaign_queue_stats: {
         Args: { p_institution_id: string }
         Returns: {
@@ -26412,6 +28447,15 @@ export type Database = {
           total_pending: number
           total_running: number
         }[]
+      }
+      get_competency_coverage_pct: {
+        Args: {
+          p_end_date: string
+          p_institution_id: string
+          p_profile_id: string
+          p_start_date: string
+        }
+        Returns: number
       }
       get_correct_faculty_by_course: {
         Args: {
@@ -26530,6 +28574,15 @@ export type Database = {
           total_periods: number
         }[]
       }
+      get_finks_aggregate_score: {
+        Args: {
+          p_end_date: string
+          p_institution_id: string
+          p_profile_id: string
+          p_start_date: string
+        }
+        Returns: number
+      }
       get_grievance_sla_stats: {
         Args: { p_institution_id: string }
         Returns: Json
@@ -26549,6 +28602,15 @@ export type Database = {
       get_learner_fees_for_parent: {
         Args: { p_learner_id: string }
         Returns: Json
+      }
+      get_learners_assessed_pct: {
+        Args: {
+          p_end_date: string
+          p_institution_id: string
+          p_profile_id: string
+          p_start_date: string
+        }
+        Returns: number
       }
       get_learners_count_by_status: {
         Args: {
@@ -26903,6 +28965,15 @@ export type Database = {
           slot: Json
         }[]
       }
+      get_total_competencies_count: {
+        Args: {
+          p_end_date: string
+          p_institution_id: string
+          p_profile_id: string
+          p_start_date: string
+        }
+        Returns: number
+      }
       get_unmapped_courses: {
         Args: {
           p_institution_id: string
@@ -27037,6 +29108,10 @@ export type Database = {
       }
       is_enrolled_in_vac_course: {
         Args: { p_course_id: string; p_user_id: string }
+        Returns: boolean
+      }
+      is_metric_cache_valid: {
+        Args: { p_cache_key: string; p_metric_key: string }
         Returns: boolean
       }
       is_profile_complete: { Args: { profile_id: string }; Returns: boolean }
@@ -27186,6 +29261,20 @@ export type Database = {
       send_parent_otp: {
         Args: { p_institution_id: string; p_phone: string }
         Returns: Json
+      }
+      set_cached_metric_value: {
+        Args: {
+          p_cache_key: string
+          p_context_hash: string
+          p_institution_id: string
+          p_metric_key: string
+          p_profile_id: string
+          p_raw_data: Json
+          p_scope: Database["public"]["Enums"]["metric_scope"]
+          p_ttl_seconds: number
+          p_value: number
+        }
+        Returns: undefined
       }
       sh_get_builder_id: { Args: never; Returns: string }
       sh_has_management_access: { Args: never; Returns: boolean }
@@ -27612,6 +29701,35 @@ export type Database = {
         | "read"
         | "failed"
         | "replied"
+      metric_refresh_frequency:
+        | "realtime"
+        | "minute_5"
+        | "minute_15"
+        | "hourly"
+        | "daily"
+        | "weekly"
+        | "on_demand"
+      metric_scope:
+        | "individual"
+        | "section"
+        | "department"
+        | "program"
+        | "institution"
+        | "organization"
+      metric_source_type:
+        | "db_query"
+        | "db_function"
+        | "edge_function"
+        | "external_api"
+        | "computed"
+      metric_value_type:
+        | "number"
+        | "percentage"
+        | "currency"
+        | "count"
+        | "ratio"
+        | "duration"
+        | "score"
       nps_category: "promoter" | "passive" | "detractor"
       offer_response: "pending" | "accepted" | "rejected" | "expired"
       okr_cycle_type: "annual" | "quarterly" | "semester"
@@ -28290,6 +30408,39 @@ export const Constants = {
         "read",
         "failed",
         "replied",
+      ],
+      metric_refresh_frequency: [
+        "realtime",
+        "minute_5",
+        "minute_15",
+        "hourly",
+        "daily",
+        "weekly",
+        "on_demand",
+      ],
+      metric_scope: [
+        "individual",
+        "section",
+        "department",
+        "program",
+        "institution",
+        "organization",
+      ],
+      metric_source_type: [
+        "db_query",
+        "db_function",
+        "edge_function",
+        "external_api",
+        "computed",
+      ],
+      metric_value_type: [
+        "number",
+        "percentage",
+        "currency",
+        "count",
+        "ratio",
+        "duration",
+        "score",
       ],
       nps_category: ["promoter", "passive", "detractor"],
       offer_response: ["pending", "accepted", "rejected", "expired"],

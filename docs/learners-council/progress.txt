@@ -1,0 +1,64 @@
+# Learners Council Module - Progress Tracker
+
+## Current Status: SPEC COMPLETE - READY FOR IMPLEMENTATION
+
+## Session: 2026-02-12 (Interview + Spec Creation)
+
+### What Happened
+- Read original specs-lc.md (113 questions from previous interview tool)
+- User provided JKKN Learners Council Launch Document (full governance framework)
+- Conducted deep interview (13 questions) to resolve contradictions and ambiguities
+- Created comprehensive SPECS.md, features.json with test steps
+
+### Key Decisions Made During Interview
+
+| # | Question | Decision | Rationale |
+|---|----------|----------|-----------|
+| 1 | Feature priority | All features at once | Module needs to be complete |
+| 2 | LC structure | One unified LC across all 9 institutions | Per real JKKN governance model |
+| 3 | YUVA structure | Chapter per institution + CRUD verticals | Based on Yi-style chapter model |
+| 4 | Terminology | JKKN progressive (Learner/Senior Learner) | LC module leads the shift |
+| 5 | Interview feature | LC Selection Process (not performance review) | Resolved contradictions in spec |
+| 6 | Selection flow | YUVA via interview; LC via progression; Exec via rotation | Three distinct processes |
+| 7 | Data visibility | Filtered by default (institution), toggle to LC-wide | Balance privacy with cross-institution needs |
+| 8 | AI Prod House | NOT in scope (Solutions Hub handles it) | Already exists in MyJKKN |
+| 9 | Senior Learner Advisor | Same as Faculty Coordinator | Review/recommend, no approval power |
+| 10 | Issue Management | Enhance existing Grievance module; LC links to it | Grievance serves all users (not just learners) |
+| 11 | Messaging | Full chat for LC/YUVA only Phase 1 (~150 users) | Manageable scope with Supabase Realtime |
+| 12 | AI level | Rule-based now, AI-ready architecture | Pragmatic, reliable, upgradeable |
+| 13 | OD approvals | Configurable chains per institution | Institutions have different workflows |
+| 14 | Term management | Full tracking with history and handovers | Position history important for governance |
+| 15 | Venues | Integrate with existing Resource Management module | Venue booking already exists |
+| 16 | LC vs YUVA verticals | Different structures | Portfolio Heads = governance; Verticals = activities |
+| 17 | Announcements | LC + YUVA chairs only, scope matching authority | Resolved contradictions in spec |
+| 18 | URL structure | /learners-council/ with own dashboard + home widgets | Clear module boundary |
+
+### Existing MyJKKN Modules to Integrate With
+- **Academic** (attendance, timetables, leaves, periods) — for OD auto-marking and conflict checks
+- **Resource Management** (venues, booking, availability) — for event venue coordination
+- **Grievance** (tickets, SLA, escalations, analytics) — enhance and link to
+- **OKR** (objectives, key results) — issue resolution feeds into OKRs
+- **Solutions Hub** — already handles AI Production House
+
+### Build Order (All at once, but layer by layer)
+1. Layer 1: Types — all LC TypeScript types and Zod schemas
+2. Layer 2: Database — Supabase migrations for all LC tables + RLS
+3. Layer 3: Services — business logic for all 6 features
+4. Layer 4: Hooks — React Query hooks for all features
+5. Layer 5: Pages — UI for all routes + sidebar navigation + dashboard
+
+### Files Created This Session
+- docs/learners-council/SPECS.md — Complete specifications
+- docs/learners-council/features.json — Features with test steps
+- docs/learners-council/progress.txt — This file
+
+### Next Steps
+- [ ] Pull production schema to understand existing table structures
+- [ ] Design database schema for all LC tables
+- [ ] Create TypeScript types (Layer 1)
+- [ ] Create Supabase migrations (Layer 2)
+- [ ] Build services (Layer 3)
+- [ ] Build hooks (Layer 4)
+- [ ] Build pages (Layer 5)
+- [ ] Browser test all features
+- [ ] Deploy and verify

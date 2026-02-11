@@ -90,7 +90,14 @@ import {
   Route,
   KeyRound,
   // Compliance Icon
-  ShieldCheck
+  ShieldCheck,
+  // Learners Council Icons
+  Crown,
+  Network,
+  Megaphone,
+  Vote,
+  Kanban,
+  ClipboardSignature
 } from 'lucide-react';
 import { CustomRole } from '@/types/auth';
 import { FEATURE_FLAGS } from '@/lib/config/feature-flags';
