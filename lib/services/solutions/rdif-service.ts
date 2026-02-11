@@ -46,14 +46,14 @@ export interface RDIFMilestone {
  */
 export const RDIF_PREREQUISITE_KEYS = [
   'registered_company',
-  'indian_citizen_control',
+  'indian_control',
   'trl_4_plus',
   'ip_portfolio',
-  'co_investment_capital',
+  'co_investment',
   'rd_track_record',
   'slfm_relationships',
   'dsir_recognition',
-  'vc_connections',
+  'research_output',
 ] as const;
 
 /**
@@ -152,11 +152,11 @@ export class RDIFService extends BaseService {
       ip_portfolio: 'critical',
       rd_track_record: 'high',
       dsir_recognition: 'high',
-      co_investment_capital: 'high',
+      co_investment: 'high',
       slfm_relationships: 'medium',
-      vc_connections: 'medium',
+      research_output: 'medium',
       registered_company: 'critical',
-      indian_citizen_control: 'critical',
+      indian_control: 'critical',
     };
 
     const milestones: RDIFMilestone[] = prerequisites.map((p) => ({

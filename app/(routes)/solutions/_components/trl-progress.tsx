@@ -34,9 +34,6 @@ export function TRLProgress({ currentTRL, targetTRL, className }: TRLProgressPro
           const isRDIFThreshold = level === 4;
 
           const trlLevel = TRL_LEVELS[level as keyof typeof TRL_LEVELS];
-          const bgColor = isCompleted || isCurrent
-            ? trlLevel.color.split(' ')[0].replace('bg-', '')
-            : 'gray-200';
 
           return (
             <div key={level} className="flex flex-col items-center flex-1">

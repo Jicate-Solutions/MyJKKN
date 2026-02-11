@@ -24,6 +24,7 @@ import { useBuilderStats } from '@/hooks/solutions/use-builders';
 import { useCohortMemberStats } from '@/hooks/solutions/use-training';
 import { useContentOrderStats } from '@/hooks/solutions/use-content';
 import { usePhaseStats } from '@/hooks/solutions/use-phases';
+import { useProductStats, useRDIFReadinessScore } from '@/hooks/solutions/use-products';
 import { DepartmentTrackerSummary } from './department-tracker-summary';
 
 function formatCurrency(amount: number): string {
@@ -41,6 +42,8 @@ export function SolutionsDashboard() {
   const { data: cohortStats, isLoading: cohortLoading } = useCohortMemberStats();
   const { data: contentStats, isLoading: contentLoading } = useContentOrderStats();
   const { data: phaseStats, isLoading: phasesLoading } = usePhaseStats();
+  const { data: productStats, isLoading: productsLoading } = useProductStats();
+  const { data: rdifScore } = useRDIFReadinessScore();
 
   const isLoading = statsLoading || buildersLoading || cohortLoading || contentLoading || phasesLoading;
 
@@ -296,19 +299,29 @@ export function SolutionsDashboard() {
             <div className="grid grid-cols-2 gap-4 text-sm">
               <div>
                 <p className="text-muted-foreground">Products</p>
-                <p className="text-lg font-semibold">0</p>
+                {productsLoading ? (
+                  <Skeleton className="h-6 w-12" />
+                ) : (
+                  <p className="text-lg font-semibold">{productStats?.total || 0}</p>
+                )}
               </div>
               <div>
                 <p className="text-muted-foreground">Avg TRL</p>
-                <p className="text-lg font-semibold">—</p>
+                {productsLoading ? (
+                  <Skeleton className="h-6 w-12" />
+                ) : (
+                  <p className="text-lg font-semibold">
+                    {productStats?.averageTRL ? productStats.averageTRL.toFixed(1) : '—'}
+                  </p>
+                )}
               </div>
             </div>
             <div className="space-y-2">
               <div className="text-xs text-muted-foreground">
-                <span className="font-medium">RDIF Ready:</span> 2 of 9
+                <span className="font-medium">RDIF Ready:</span> {rdifScore?.score ?? 0} of {rdifScore?.total ?? 9}
               </div>
               <div className="w-full bg-muted rounded-full h-1.5">
-                <div className="bg-orange-600 h-1.5 rounded-full" style={{ width: '22%' }} />
+                <div className="bg-orange-600 h-1.5 rounded-full" style={{ width: `${rdifScore?.percentage ?? 0}%` }} />
               </div>
             </div>
             <div className="flex gap-2">
@@ -394,7 +407,9 @@ export function SolutionsDashboard() {
               <Shield className="h-8 w-8 text-orange-600" />
               <div>
                 <p className="font-medium">RDIF Readiness</p>
-                <p className="text-sm text-muted-foreground">2 of 9 criteria met</p>
+                <p className="text-sm text-muted-foreground">
+                  {rdifScore ? `${rdifScore.score} of ${rdifScore.total} criteria met` : 'Track RDIF progress'}
+                </p>
               </div>
             </CardContent>
           </Link>

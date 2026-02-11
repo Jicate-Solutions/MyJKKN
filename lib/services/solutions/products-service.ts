@@ -724,9 +724,13 @@ export class ProductsService extends BaseService {
       if (product.domain) {
         byDomain[product.domain as ProductDomain]++;
       }
-      totalTRL += product.current_trl || 0;
       totalBudget += Number(product.development_budget) || 0;
       totalSpent += Number(product.development_spent) || 0;
+    });
+
+    // Only accumulate TRL from active (non-archived) products for average calculation
+    activeProducts.forEach((product) => {
+      totalTRL += product.current_trl || 0;
     });
 
     return {
