@@ -97,7 +97,11 @@ import {
   Megaphone,
   Vote,
   Kanban,
-  ClipboardSignature
+  ClipboardSignature,
+  // Social Media Icons
+  Share2,
+  Activity,
+  Eye,
 } from 'lucide-react';
 import { CustomRole } from '@/types/auth';
 import { FEATURE_FLAGS } from '@/lib/config/feature-flags';
@@ -435,6 +439,11 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/industry/engagements/new': 'industry.engagements.create',
   '/industry/engagements/[id]': 'industry.engagements.view',
   '/industry/engagements/[id]/edit': 'industry.engagements.edit',
+
+  // Social Media Module
+  '/social-media': 'sm.monitoring.view',
+  '/social-media/accounts': 'sm.monitoring.view',
+  '/social-media/accounts/[id]': 'sm.monitoring.view',
 
   // TQM (Total Quality Management) Module
   '/stakeholder-nps': 'tqm.nps.view',
@@ -2384,6 +2393,31 @@ export function GetPages(pathname: string): MenuGroup[] {
           submenus: []
         }
       ]
+    },
+    {
+      groupLabel: 'Social Media',
+      menus: [
+        {
+          href: '/social-media',
+          label: 'Dashboard',
+          active: pathname === '/social-media',
+          icon: Share2,
+          submenus: [],
+        },
+        {
+          href: '/social-media/accounts',
+          label: 'Accounts',
+          active: pathname.startsWith('/social-media/accounts'),
+          icon: Eye,
+          submenus: [
+            {
+              href: '/social-media/accounts',
+              label: 'All Accounts',
+              active: pathname === '/social-media/accounts',
+            },
+          ],
+        },
+      ],
     },
     {
       groupLabel: 'Administration',
