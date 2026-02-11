@@ -27,16 +27,20 @@ async function handleSamlSso(
 ) {
   try {
     // Extract SAML request from query params or body
-    const searchParams = request.nextUrl.searchParams;
-    const samlRequest =
-      binding === 'redirect'
-        ? searchParams.get('SAMLRequest')
-        : await request.formData().then((data) => data.get('SAMLRequest') as string);
+    // NOTE: For POST binding, formData() must be called only ONCE as
+    // the request body stream is consumed on first read
+    let samlRequest: string | null = null;
+    let relayState: string | null = null;
 
-    const relayState =
-      binding === 'redirect'
-        ? searchParams.get('RelayState')
-        : await request.formData().then((data) => data.get('RelayState') as string);
+    if (binding === 'redirect') {
+      const searchParams = request.nextUrl.searchParams;
+      samlRequest = searchParams.get('SAMLRequest');
+      relayState = searchParams.get('RelayState');
+    } else {
+      const formData = await request.formData();
+      samlRequest = formData.get('SAMLRequest') as string;
+      relayState = formData.get('RelayState') as string;
+    }
 
     if (!samlRequest) {
       throw new SamlError(
