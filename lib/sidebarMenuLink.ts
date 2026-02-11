@@ -2066,6 +2066,141 @@ export function GetPages(pathname: string): MenuGroup[] {
     },
 
     {
+      groupLabel: 'Learners Council',
+      menus: [
+        {
+          href: '/learners-council',
+          label: 'LC Dashboard',
+          active: pathname === '/learners-council',
+          icon: Crown,
+          submenus: []
+        },
+        {
+          href: '/learners-council/structure',
+          label: 'Structure',
+          active: pathname.startsWith('/learners-council/structure'),
+          icon: Network,
+          submenus: [
+            {
+              href: '/learners-council/structure',
+              label: 'Org Chart',
+              active: pathname === '/learners-council/structure'
+            },
+            {
+              href: '/learners-council/structure/terms',
+              label: 'Terms',
+              active: pathname === '/learners-council/structure/terms'
+            },
+            {
+              href: '/learners-council/structure/members',
+              label: 'Members',
+              active: pathname === '/learners-council/structure/members'
+            },
+            {
+              href: '/learners-council/structure/yuva',
+              label: 'YUVA Chapters',
+              active: pathname.startsWith('/learners-council/structure/yuva')
+            }
+          ]
+        },
+        {
+          href: '/learners-council/communication',
+          label: 'Communication',
+          active: pathname.startsWith('/learners-council/communication'),
+          icon: Megaphone,
+          submenus: [
+            {
+              href: '/learners-council/communication',
+              label: 'Announcements',
+              active: pathname === '/learners-council/communication'
+            },
+            {
+              href: '/learners-council/communication/polls',
+              label: 'Polls',
+              active: pathname === '/learners-council/communication/polls'
+            },
+            {
+              href: '/learners-council/communication/forums',
+              label: 'Forums',
+              active: pathname === '/learners-council/communication/forums'
+            },
+            {
+              href: '/learners-council/communication/chat',
+              label: 'Chat',
+              active: pathname === '/learners-council/communication/chat'
+            }
+          ]
+        },
+        {
+          href: '/learners-council/events',
+          label: 'Events',
+          active: pathname.startsWith('/learners-council/events'),
+          icon: CalendarCheck,
+          submenus: [
+            {
+              href: '/learners-council/events',
+              label: 'Calendar',
+              active: pathname === '/learners-council/events'
+            },
+            {
+              href: '/learners-council/events/proposals',
+              label: 'Proposals',
+              active: pathname === '/learners-council/events/proposals'
+            }
+          ]
+        },
+        {
+          href: '/learners-council/od',
+          label: 'OD Management',
+          active: pathname.startsWith('/learners-council/od'),
+          icon: ClipboardSignature,
+          submenus: [
+            {
+              href: '/learners-council/od',
+              label: 'My Requests',
+              active: pathname === '/learners-council/od'
+            },
+            {
+              href: '/learners-council/od/approvals',
+              label: 'Approvals',
+              active: pathname === '/learners-council/od/approvals'
+            },
+            {
+              href: '/learners-council/od/chains',
+              label: 'Approval Chains',
+              active: pathname === '/learners-council/od/chains'
+            }
+          ]
+        },
+        {
+          href: '/learners-council/selection',
+          label: 'Selection & Elections',
+          active: pathname.startsWith('/learners-council/selection'),
+          icon: Vote,
+          submenus: [
+            {
+              href: '/learners-council/selection',
+              label: 'Active Elections',
+              active: pathname === '/learners-council/selection'
+            },
+            {
+              href: '/learners-council/selection/nominations',
+              label: 'Nominations',
+              active: pathname === '/learners-council/selection/nominations'
+            }
+          ]
+        },
+        {
+          href: '/learners-council/issues',
+          label: 'Issues',
+          active: pathname.startsWith('/learners-council/issues'),
+          icon: Kanban,
+          submenus: []
+        }
+      ]
+    },
+
+    {
       groupLabel: 'Resource Management',
       menus: [
         {
