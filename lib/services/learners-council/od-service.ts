@@ -27,7 +27,7 @@ const OD_REQUEST_LIST_SELECT = `
 `;
 
 export class LCODService {
-  private static supabase = createClientSupabaseClient();
+  private static supabase: any = createClientSupabaseClient();
 
   // ============================================================================
   // OD REQUEST CRUD
