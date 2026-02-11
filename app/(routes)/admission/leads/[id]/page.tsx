@@ -1,7 +1,7 @@
 'use client';
 
 import { useParams } from 'next/navigation';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb,
@@ -78,6 +78,7 @@ import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import { AdmissionErrorBoundary } from '@/components/admission';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { indianStates, getDistrictsByState } from '@/lib/data/locations';
 import type { FunnelStage } from '@/types/admission';
 
 const FUNNEL_STAGES = [
@@ -95,6 +96,26 @@ const FUNNEL_STAGES = [
   { value: 'token_paid', label: 'Token Paid' },
   { value: 'enrolled', label: 'Enrolled' },
   { value: 'lost', label: 'Lost' }
+];
+
+const LEAD_SOURCES = [
+  { value: 'website', label: 'Website' },
+  { value: 'walk_in', label: 'Walk-in' },
+  { value: 'referral', label: 'Referral' },
+  { value: 'social_media', label: 'Social Media' },
+  { value: 'newspaper', label: 'Newspaper' },
+  { value: 'education_fair', label: 'Education Fair' },
+  { value: 'agent', label: 'Agent/Partner' },
+  { value: 'publisher', label: 'Publisher' },
+  { value: 'google_ads', label: 'Google Ads' },
+  { value: 'facebook_ads', label: 'Facebook Ads' },
+  { value: 'other', label: 'Other' }
+];
+
+const GENDERS = [
+  { value: 'male', label: 'Male' },
+  { value: 'female', label: 'Female' },
+  { value: 'other', label: 'Other' }
 ];
 
 function getStageColor(stage: string | null): string {
@@ -280,15 +301,35 @@ function LeadDetailPageContent() {
   const { timeline, isLoading: timelineLoading } = useEnhancedTimeline(leadId);
   const { history: communicationHistory, isLoading: commLoading } = useLeadCommunicationHistory(leadId);
 
-  const { updateStage, toggleHotLead, togglePriority, addTag, removeTag, scheduleFollowup } = useLeadMutations();
+  const { updateLead, updateStage, toggleHotLead, togglePriority, addTag, removeTag, scheduleFollowup } = useLeadMutations();
   const { createActivity } = useActivityMutations(leadId);
   const { createApplication } = useApplicationMutations();
 
-  // Fetch programs for the Create Application dialog
+  // Edit lead dialog state
+  const [showEditDialog, setShowEditDialog] = useState(false);
+  const [editForm, setEditForm] = useState({
+    full_name: '',
+    email: '',
+    phone: '',
+    alternate_phone: '',
+    date_of_birth: '',
+    gender: '',
+    address_line1: '',
+    state: '',
+    district: '',
+    city: '',
+    pincode: '',
+    parent_name: '',
+    parent_phone: '',
+    parent_email: '',
+    source: '',
+  });
+
+  // Fetch programs for details display & Create Application dialog
   const [programs, setPrograms] = useState<{ id: string; program_name: string }[]>([]);
   const [programsLoading, setProgramsLoading] = useState(false);
   useEffect(() => {
-    if (showCreateAppDialog && lead?.institution_id) {
+    if (lead?.institution_id) {
       setProgramsLoading(true);
       const supabase = createClientSupabaseClient();
       supabase
@@ -300,14 +341,99 @@ function LeadDetailPageContent() {
         .then(({ data, error }: { data: any; error: any }) => {
           if (error) {
             console.error('[admission/leads] Failed to fetch programs:', error.message);
-            toast.error('Failed to load programs');
           } else {
             setPrograms(data || []);
           }
           setProgramsLoading(false);
         });
     }
-  }, [showCreateAppDialog, lead?.institution_id]);
+  }, [lead?.institution_id]);
+
+  // Map interested program IDs to names
+  const interestedProgramNames = useMemo(() => {
+    const ids = (lead as any)?.interested_programs || [];
+    if (!ids.length || !programs.length) return [];
+    return ids
+      .map((id: string) => programs.find((p) => p.id === id)?.program_name)
+      .filter(Boolean);
+  }, [lead, programs]);
+
+  // Edit form: cascading districts
+  const editDistricts = useMemo(() => {
+    return editForm.state ? getDistrictsByState(editForm.state) : [];
+  }, [editForm.state]);
+
+  // Populate edit form when dialog opens
+  const openEditDialog = () => {
+    if (!lead) return;
+    const l = lead as any;
+    // Reverse-map state name to state ID for dropdown
+    const stateId = indianStates.find((s) => s.name === l.state)?.id || '';
+    const districts = stateId ? getDistrictsByState(stateId) : [];
+    const districtId = districts.find((d) => d.name === l.district)?.id || '';
+    setEditForm({
+      full_name: l.full_name || '',
+      email: l.email || '',
+      phone: l.phone || '',
+      alternate_phone: l.alternate_phone || '',
+      date_of_birth: l.date_of_birth ? l.date_of_birth.split('T')[0] : '',
+      gender: l.gender || '',
+      address_line1: l.address_line1 || '',
+      state: stateId,
+      district: districtId,
+      city: l.city || '',
+      pincode: l.pincode || '',
+      parent_name: l.parent_name || '',
+      parent_phone: l.parent_phone || '',
+      parent_email: l.parent_email || '',
+      source: l.source || '',
+    });
+    setShowEditDialog(true);
+  };
+
+  const handleEditChange = (field: string, value: string) => {
+    setEditForm((prev) => {
+      if (field === 'state') return { ...prev, state: value, district: '' };
+      return { ...prev, [field]: value };
+    });
+  };
+
+  const handleEditSubmit = () => {
+    if (!lead || !editForm.full_name.trim() || !editForm.phone.trim()) {
+      toast.error('Full name and phone are required');
+      return;
+    }
+    const selectedState = indianStates.find((s) => s.id === editForm.state);
+    const selectedDistrict = editDistricts.find((d) => d.id === editForm.district);
+    updateLead.mutate(
+      {
+        id: lead.id,
+        data: {
+          full_name: editForm.full_name.trim(),
+          email: editForm.email?.trim() || null,
+          phone: editForm.phone.trim(),
+          alternate_phone: editForm.alternate_phone?.trim() || null,
+          date_of_birth: editForm.date_of_birth || null,
+          gender: editForm.gender || null,
+          address_line1: editForm.address_line1?.trim() || null,
+          state: selectedState?.name || null,
+          district: selectedDistrict?.name || null,
+          city: editForm.city?.trim() || null,
+          pincode: editForm.pincode?.trim() || null,
+          parent_name: editForm.parent_name?.trim() || null,
+          parent_phone: editForm.parent_phone?.trim() || null,
+          parent_email: editForm.parent_email?.trim() || null,
+          source: editForm.source as any,
+        },
+      },
+      {
+        onSuccess: () => {
+          setShowEditDialog(false);
+          refetch();
+        },
+      }
+    );
+  };
 
   // Show loading skeleton if UUID hasn't resolved yet (PPR) or data is still fetching
   const isLoading = leadLoading || !isValidId;
@@ -522,7 +648,7 @@ function LeadDetailPageContent() {
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
-                  <DropdownMenuItem>
+                  <DropdownMenuItem onClick={openEditDialog}>
                     <Edit className="h-4 w-4 mr-2" />
                     Edit Lead
                   </DropdownMenuItem>
@@ -675,10 +801,17 @@ function LeadDetailPageContent() {
                   </Card>
                 </TabsContent>
 
-                <TabsContent value="details" className="mt-4">
+                <TabsContent value="details" className="mt-4 space-y-4">
+                  {/* Personal Information */}
                   <Card>
-                    <CardHeader>
-                      <CardTitle className="text-base">Lead Details</CardTitle>
+                    <CardHeader className="pb-3">
+                      <div className="flex items-center justify-between">
+                        <CardTitle className="text-base">Personal Information</CardTitle>
+                        <Button variant="outline" size="sm" onClick={openEditDialog}>
+                          <Edit className="h-3.5 w-3.5 mr-1.5" />
+                          Edit
+                        </Button>
+                      </div>
                     </CardHeader>
                     <CardContent>
                       <dl className="grid grid-cols-2 gap-4">
@@ -708,38 +841,130 @@ function LeadDetailPageContent() {
                         </div>
                         <div>
                           <dt className="text-sm text-muted-foreground">Gender</dt>
-                          <dd className="font-medium">{(lead as any).gender || '-'}</dd>
+                          <dd className="font-medium capitalize">{(lead as any).gender || '-'}</dd>
                         </div>
-                        <div className="col-span-2">
-                          <dt className="text-sm text-muted-foreground">Address</dt>
+                      </dl>
+                    </CardContent>
+                  </Card>
+
+                  {/* Academic Details */}
+                  <Card>
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-base">Academic Details</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <dl className="grid grid-cols-2 gap-4">
+                        <div>
+                          <dt className="text-sm text-muted-foreground">Entry Date</dt>
                           <dd className="font-medium">
-                            {[(lead as any).city, (lead as any).state, (lead as any).country, (lead as any).pincode]
-                              .filter(Boolean)
-                              .join(', ') || '-'}
+                            {(lead as any).entry_date
+                              ? new Date((lead as any).entry_date).toLocaleDateString()
+                              : lead.created_at
+                                ? new Date(lead.created_at).toLocaleDateString()
+                                : '-'}
                           </dd>
                         </div>
                         <div>
-                          <dt className="text-sm text-muted-foreground">First Touch Source</dt>
-                          <dd className="font-medium">{(lead as any).first_touch_source || '-'}</dd>
+                          <dt className="text-sm text-muted-foreground">Preferred Campus</dt>
+                          <dd className="font-medium">{lead.preferred_campus || '-'}</dd>
+                        </div>
+                        <div className="col-span-2">
+                          <dt className="text-sm text-muted-foreground">Interested Programs</dt>
+                          <dd className="font-medium">
+                            {programsLoading ? (
+                              <span className="text-muted-foreground text-sm">Loading...</span>
+                            ) : interestedProgramNames.length > 0 ? (
+                              <div className="flex flex-wrap gap-1.5 mt-1">
+                                {interestedProgramNames.map((name: string, i: number) => (
+                                  <Badge key={i} variant="secondary">{name}</Badge>
+                                ))}
+                              </div>
+                            ) : '-'}
+                          </dd>
+                        </div>
+                      </dl>
+                    </CardContent>
+                  </Card>
+
+                  {/* Address */}
+                  <Card>
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-base">Address</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <dl className="grid grid-cols-2 gap-4">
+                        <div className="col-span-2">
+                          <dt className="text-sm text-muted-foreground">Address Line</dt>
+                          <dd className="font-medium">{(lead as any).address_line1 || '-'}</dd>
                         </div>
                         <div>
-                          <dt className="text-sm text-muted-foreground">Last Touch Source</dt>
-                          <dd className="font-medium">{(lead as any).last_touch_source || '-'}</dd>
+                          <dt className="text-sm text-muted-foreground">State</dt>
+                          <dd className="font-medium">{(lead as any).state || '-'}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-sm text-muted-foreground">District</dt>
+                          <dd className="font-medium">{(lead as any).district || '-'}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-sm text-muted-foreground">City / Town</dt>
+                          <dd className="font-medium">{(lead as any).city || '-'}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-sm text-muted-foreground">Pincode</dt>
+                          <dd className="font-medium">{(lead as any).pincode || '-'}</dd>
+                        </div>
+                      </dl>
+                    </CardContent>
+                  </Card>
+
+                  {/* Parent / Guardian */}
+                  <Card>
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-base">Parent / Guardian</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <dl className="grid grid-cols-2 gap-4">
+                        <div>
+                          <dt className="text-sm text-muted-foreground">Parent Name</dt>
+                          <dd className="font-medium">{(lead as any).parent_name || '-'}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-sm text-muted-foreground">Parent Phone</dt>
+                          <dd className="font-medium">{(lead as any).parent_phone || '-'}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-sm text-muted-foreground">Parent Email</dt>
+                          <dd className="font-medium">{(lead as any).parent_email || '-'}</dd>
+                        </div>
+                      </dl>
+                    </CardContent>
+                  </Card>
+
+                  {/* Source & Timestamps */}
+                  <Card>
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-base">Source & Timeline</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <dl className="grid grid-cols-2 gap-4">
+                        <div>
+                          <dt className="text-sm text-muted-foreground">Lead Source</dt>
+                          <dd className="font-medium capitalize">{(lead.source || '-').replace(/_/g, ' ')}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-sm text-muted-foreground">Preferred Channel</dt>
+                          <dd className="font-medium capitalize">{(lead.preferred_channel || '-').replace(/_/g, ' ')}</dd>
                         </div>
                         <div>
                           <dt className="text-sm text-muted-foreground">Created</dt>
                           <dd className="font-medium">
-                            {lead.created_at
-                              ? new Date(lead.created_at).toLocaleString()
-                              : '-'}
+                            {lead.created_at ? new Date(lead.created_at).toLocaleString() : '-'}
                           </dd>
                         </div>
                         <div>
                           <dt className="text-sm text-muted-foreground">Last Activity</dt>
                           <dd className="font-medium">
-                            {lead.last_contact_at
-                              ? new Date(lead.last_contact_at).toLocaleString()
-                              : '-'}
+                            {lead.last_contact_at ? new Date(lead.last_contact_at).toLocaleString() : '-'}
                           </dd>
                         </div>
                       </dl>
@@ -1041,6 +1266,206 @@ function LeadDetailPageContent() {
               </Card>
             </div>
           </div>
+          {/* Edit Lead Dialog */}
+          <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
+            <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>Edit Lead</DialogTitle>
+                <DialogDescription>Update lead information</DialogDescription>
+              </DialogHeader>
+              <div className="space-y-6 py-4">
+                {/* Personal Info */}
+                <div className="space-y-3">
+                  <h4 className="text-sm font-semibold text-muted-foreground">Personal Information</h4>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label htmlFor="edit-full_name">Full Name *</Label>
+                      <Input
+                        id="edit-full_name"
+                        value={editForm.full_name}
+                        onChange={(e) => handleEditChange('full_name', e.target.value)}
+                        className="mt-1"
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="edit-email">Email</Label>
+                      <Input
+                        id="edit-email"
+                        type="email"
+                        value={editForm.email}
+                        onChange={(e) => handleEditChange('email', e.target.value)}
+                        className="mt-1"
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="edit-phone">Phone *</Label>
+                      <Input
+                        id="edit-phone"
+                        value={editForm.phone}
+                        onChange={(e) => handleEditChange('phone', e.target.value)}
+                        className="mt-1"
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="edit-alternate_phone">Alternate Phone</Label>
+                      <Input
+                        id="edit-alternate_phone"
+                        value={editForm.alternate_phone}
+                        onChange={(e) => handleEditChange('alternate_phone', e.target.value)}
+                        className="mt-1"
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="edit-dob">Date of Birth</Label>
+                      <Input
+                        id="edit-dob"
+                        type="date"
+                        value={editForm.date_of_birth}
+                        onChange={(e) => handleEditChange('date_of_birth', e.target.value)}
+                        className="mt-1"
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="edit-gender">Gender</Label>
+                      <Select value={editForm.gender} onValueChange={(v) => handleEditChange('gender', v)}>
+                        <SelectTrigger className="mt-1">
+                          <SelectValue placeholder="Select gender" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {GENDERS.map((g) => (
+                            <SelectItem key={g.value} value={g.value}>{g.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Address */}
+                <div className="space-y-3">
+                  <h4 className="text-sm font-semibold text-muted-foreground">Address</h4>
+                  <div>
+                    <Label htmlFor="edit-address">Address Line</Label>
+                    <Input
+                      id="edit-address"
+                      value={editForm.address_line1}
+                      onChange={(e) => handleEditChange('address_line1', e.target.value)}
+                      className="mt-1"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label>State</Label>
+                      <Select value={editForm.state} onValueChange={(v) => handleEditChange('state', v)}>
+                        <SelectTrigger className="mt-1">
+                          <SelectValue placeholder="Select state" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {indianStates.map((s) => (
+                            <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label>District</Label>
+                      <Select
+                        value={editForm.district}
+                        onValueChange={(v) => handleEditChange('district', v)}
+                        disabled={!editForm.state}
+                      >
+                        <SelectTrigger className="mt-1">
+                          <SelectValue placeholder={editForm.state ? 'Select district' : 'Select state first'} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {editDistricts.map((d) => (
+                            <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label htmlFor="edit-city">City / Town</Label>
+                      <Input
+                        id="edit-city"
+                        value={editForm.city}
+                        onChange={(e) => handleEditChange('city', e.target.value)}
+                        className="mt-1"
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="edit-pincode">Pincode</Label>
+                      <Input
+                        id="edit-pincode"
+                        value={editForm.pincode}
+                        onChange={(e) => handleEditChange('pincode', e.target.value)}
+                        className="mt-1"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Parent / Guardian */}
+                <div className="space-y-3">
+                  <h4 className="text-sm font-semibold text-muted-foreground">Parent / Guardian</h4>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label htmlFor="edit-parent_name">Parent Name</Label>
+                      <Input
+                        id="edit-parent_name"
+                        value={editForm.parent_name}
+                        onChange={(e) => handleEditChange('parent_name', e.target.value)}
+                        className="mt-1"
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="edit-parent_phone">Parent Phone</Label>
+                      <Input
+                        id="edit-parent_phone"
+                        value={editForm.parent_phone}
+                        onChange={(e) => handleEditChange('parent_phone', e.target.value)}
+                        className="mt-1"
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="edit-parent_email">Parent Email</Label>
+                      <Input
+                        id="edit-parent_email"
+                        type="email"
+                        value={editForm.parent_email}
+                        onChange={(e) => handleEditChange('parent_email', e.target.value)}
+                        className="mt-1"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Source */}
+                <div className="space-y-3">
+                  <h4 className="text-sm font-semibold text-muted-foreground">Lead Source</h4>
+                  <div>
+                    <Select value={editForm.source} onValueChange={(v) => handleEditChange('source', v)}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select source" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {LEAD_SOURCES.map((s) => (
+                          <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setShowEditDialog(false)}>Cancel</Button>
+                <Button onClick={handleEditSubmit} disabled={updateLead.isPending}>
+                  {updateLead.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                  Save Changes
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </div>
       </ContentLayout>
     </PermissionGuard>

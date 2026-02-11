@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -17,6 +17,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { Badge } from '@/components/ui/badge';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Select,
   SelectContent,
@@ -24,14 +26,29 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger
+} from '@/components/ui/popover';
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList
+} from '@/components/ui/command';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { useLeadMutations } from '@/hooks/admission';
-import { ArrowLeft, Save, Loader2 } from 'lucide-react';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { ArrowLeft, Save, Loader2, ChevronsUpDown, X } from 'lucide-react';
 import Link from 'next/link';
 import { AdmissionErrorBoundary } from '@/components/admission';
+import { indianStates, getDistrictsByState } from '@/lib/data/locations';
 
 // Must match LeadSource type from types/admission.ts
 const LEAD_SOURCES = [
@@ -64,10 +81,18 @@ interface FormData {
   address_line1: string;
   city: string;
   state: string;
-  country: string;
+  district: string;
   pincode: string;
   first_touch_source: string;
   notes: string;
+}
+
+interface ProgramOption {
+  id: string;
+  program_name: string;
+  display_name: string | null;
+  degree_name: string | null;
+  department_name: string | null;
 }
 
 function NewLeadPageContent() {
@@ -77,13 +102,95 @@ function NewLeadPageContent() {
   const { institutions, loading: institutionsLoading } = useInstitutionsWithAccess();
   const { createLeadWithProfile } = useLeadMutations();
 
-  // For Super Admins without institution_id, allow them to select an institution
+  // Institution selection — all users can see & select from their accessible institutions
   const [selectedInstitutionId, setSelectedInstitutionId] = useState<string>('');
 
-  // Use selected institution for Super Admins, profile's institution for others
-  const institutionId = isSuperAdmin && !profile?.institution_id
-    ? selectedInstitutionId
-    : profile?.institution_id;
+  // Auto-set institution if user has only one
+  useEffect(() => {
+    if (!isSuperAdmin && profile?.institution_id) {
+      setSelectedInstitutionId(profile.institution_id);
+    } else if (institutions.length === 1) {
+      setSelectedInstitutionId(institutions[0].id);
+    }
+  }, [profile?.institution_id, isSuperAdmin, institutions]);
+
+  const institutionId = selectedInstitutionId || profile?.institution_id;
+
+  // Programs loaded based on selected institution
+  const [programs, setPrograms] = useState<ProgramOption[]>([]);
+  const [programsLoading, setProgramsLoading] = useState(false);
+  const [selectedProgramIds, setSelectedProgramIds] = useState<string[]>([]);
+  const [programsPopoverOpen, setProgramsPopoverOpen] = useState(false);
+
+  // Entry date — auto-populated to today
+  const [entryDate] = useState<string>(new Date().toISOString().split('T')[0]);
+
+  // Fetch programs when institution changes
+  useEffect(() => {
+    if (!institutionId) {
+      setPrograms([]);
+      setSelectedProgramIds([]);
+      return;
+    }
+
+    setProgramsLoading(true);
+    setSelectedProgramIds([]);
+    const supabase = createClientSupabaseClient();
+
+    (supabase as any)
+      .from('programs')
+      .select(`
+        id,
+        program_name,
+        display_name,
+        degree:degrees!fk_programs_degree(degree_name),
+        department:departments!fk_programs_department(department_name)
+      `)
+      .eq('institution_id', institutionId)
+      .eq('is_active', true)
+      .order('program_name')
+      .then(({ data, error }: { data: any; error: any }) => {
+        if (error) {
+          console.error('[admission/leads] Failed to fetch programs:', error.message);
+          setPrograms([]);
+        } else {
+          setPrograms(
+            (data || []).map((p: any) => ({
+              id: p.id,
+              program_name: p.program_name,
+              display_name: p.display_name,
+              degree_name: p.degree?.degree_name || null,
+              department_name: p.department?.department_name || null,
+            }))
+          );
+        }
+        setProgramsLoading(false);
+      });
+  }, [institutionId]);
+
+  // Group programs by degree for organized display
+  const programsByDegree = useMemo(() => {
+    const grouped: Record<string, ProgramOption[]> = {};
+    programs.forEach((p) => {
+      const key = p.degree_name || 'Other';
+      if (!grouped[key]) grouped[key] = [];
+      grouped[key].push(p);
+    });
+    return grouped;
+  }, [programs]);
+
+  const toggleProgram = (programId: string) => {
+    setSelectedProgramIds((prev) =>
+      prev.includes(programId) ? prev.filter((id) => id !== programId) : [...prev, programId]
+    );
+  };
+
+  const selectedProgramNames = useMemo(() => {
+    return selectedProgramIds
+      .map((id) => programs.find((p) => p.id === id))
+      .filter(Boolean)
+      .map((p) => p!.display_name || p!.program_name);
+  }, [selectedProgramIds, programs]);
 
   const [formData, setFormData] = useState<FormData>({
     full_name: '',
@@ -94,25 +201,40 @@ function NewLeadPageContent() {
     gender: '',
     address_line1: '',
     city: '',
-    state: '',
-    country: 'India',
+    state: 'tamil_nadu',
+    district: '',
     pincode: '',
     first_touch_source: '',
     notes: ''
   });
 
-  const [errors, setErrors] = useState<Partial<Record<keyof FormData, string>>>({});
+  const [errors, setErrors] = useState<Partial<Record<keyof FormData | 'institution', string>>>({});
 
   const handleChange = (field: keyof FormData, value: string) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
-    // Clear error when user starts typing
     if (errors[field]) {
       setErrors((prev) => ({ ...prev, [field]: undefined }));
     }
   };
 
+  const handleInstitutionChange = (value: string) => {
+    setSelectedInstitutionId(value);
+    if (errors.institution) {
+      setErrors((prev) => ({ ...prev, institution: undefined }));
+    }
+  };
+
+  // Cascading districts from selected state
+  const availableDistricts = useMemo(() => {
+    return formData.state ? getDistrictsByState(formData.state) : [];
+  }, [formData.state]);
+
+  const handleStateChange = (stateId: string) => {
+    setFormData((prev) => ({ ...prev, state: stateId, district: '' }));
+  };
+
   const validateForm = (): boolean => {
-    const newErrors: Partial<Record<keyof FormData, string>> = {};
+    const newErrors: Partial<Record<keyof FormData | 'institution', string>> = {};
 
     if (!formData.full_name.trim()) {
       newErrors.full_name = 'Full name is required';
@@ -132,6 +254,10 @@ function NewLeadPageContent() {
       newErrors.first_touch_source = 'Lead source is required';
     }
 
+    if (!institutionId) {
+      newErrors.institution = 'Institution is required';
+    }
+
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -143,23 +269,29 @@ function NewLeadPageContent() {
       toast.error('Please fill all required fields');
       return;
     }
-    if (!institutionId) {
-      if (isSuperAdmin && !profile?.institution_id) {
-        toast.error('Please select an institution first');
-      } else {
-        toast.error('Unable to create lead: Institution not configured. Please contact administrator.');
-      }
-      console.error('[admission/leads] Missing institution_id - profile:', profile);
-      return;
-    }
+
+    const selectedState = indianStates.find((s) => s.id === formData.state);
+    const selectedDistrict = availableDistricts.find((d) => d.id === formData.district);
 
     const leadPayload = {
-      institution_id: institutionId,
+      institution_id: institutionId!,
       full_name: formData.full_name.trim(),
       email: formData.email?.trim() || null,
       phone: formData.phone.trim(),
       source: formData.first_touch_source as any,
-      tags: [] as string[]
+      tags: [] as string[],
+      interested_programs: selectedProgramIds.length > 0 ? selectedProgramIds : null,
+      entry_date: new Date(entryDate).toISOString(),
+      // Address fields
+      address_line1: formData.address_line1?.trim() || null,
+      state: selectedState?.name || null,
+      district: selectedDistrict?.name || null,
+      city: formData.city?.trim() || null,
+      pincode: formData.pincode?.trim() || null,
+      // Personal details
+      alternate_phone: formData.alternate_phone?.trim() || null,
+      date_of_birth: formData.date_of_birth || null,
+      gender: formData.gender || null,
     };
 
     createLeadWithProfile.mutate(
@@ -177,6 +309,10 @@ function NewLeadPageContent() {
       }
     );
   };
+
+  // Determine if user can change institution (super admin or has access to multiple)
+  const canSelectInstitution = isSuperAdmin || institutions.length > 1;
+  const selectedInstitutionName = institutions.find((i) => i.id === institutionId)?.name;
 
   return (
     <PermissionGuard module="admission" action="create">
@@ -300,6 +436,148 @@ function NewLeadPageContent() {
                           </SelectContent>
                         </Select>
                       </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="entry_date">Entry Date</Label>
+                        <Input
+                          id="entry_date"
+                          type="date"
+                          value={entryDate}
+                          disabled
+                          className="bg-muted"
+                        />
+                        <p className="text-xs text-muted-foreground">Auto-set to today&apos;s date</p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Academic Details */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Academic Details</CardTitle>
+                    <CardDescription>Institution and program interest</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    {/* Institution */}
+                    <div className="space-y-2">
+                      <Label htmlFor="institution">
+                        Institution <span className="text-destructive">*</span>
+                      </Label>
+                      {canSelectInstitution ? (
+                        <Select
+                          value={selectedInstitutionId}
+                          onValueChange={handleInstitutionChange}
+                          disabled={institutionsLoading}
+                        >
+                          <SelectTrigger className={errors.institution ? 'border-destructive' : ''}>
+                            <SelectValue placeholder={institutionsLoading ? 'Loading...' : 'Select institution'} />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {institutions.map((inst) => (
+                              <SelectItem key={inst.id} value={inst.id}>
+                                {inst.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <Input
+                          value={selectedInstitutionName || 'Loading...'}
+                          disabled
+                          className="bg-muted"
+                        />
+                      )}
+                      {errors.institution && (
+                        <p className="text-xs text-destructive">{errors.institution}</p>
+                      )}
+                    </div>
+
+                    {/* Interested Programs — Multi-select */}
+                    <div className="space-y-2">
+                      <Label>Interested Programs</Label>
+                      {!institutionId ? (
+                        <p className="text-sm text-muted-foreground">Select an institution first to view programs</p>
+                      ) : programsLoading ? (
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          Loading programs...
+                        </div>
+                      ) : programs.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">No programs found for this institution</p>
+                      ) : (
+                        <>
+                          <Popover open={programsPopoverOpen} onOpenChange={setProgramsPopoverOpen}>
+                            <PopoverTrigger asChild>
+                              <Button
+                                variant="outline"
+                                role="combobox"
+                                aria-expanded={programsPopoverOpen}
+                                className="w-full justify-between font-normal"
+                              >
+                                {selectedProgramIds.length > 0
+                                  ? `${selectedProgramIds.length} program${selectedProgramIds.length > 1 ? 's' : ''} selected`
+                                  : 'Select interested programs'}
+                                <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                              </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                              <Command>
+                                <CommandInput placeholder="Search programs..." />
+                                <CommandList>
+                                  <CommandEmpty>No programs found.</CommandEmpty>
+                                  {Object.entries(programsByDegree).map(([degreeName, degreePrograms]) => (
+                                    <CommandGroup key={degreeName} heading={degreeName}>
+                                      {degreePrograms.map((program) => (
+                                        <CommandItem
+                                          key={program.id}
+                                          value={program.program_name}
+                                          onSelect={() => toggleProgram(program.id)}
+                                        >
+                                          <Checkbox
+                                            checked={selectedProgramIds.includes(program.id)}
+                                            className="mr-2"
+                                          />
+                                          <div className="flex flex-col">
+                                            <span>{program.display_name || program.program_name}</span>
+                                            {program.department_name && (
+                                              <span className="text-xs text-muted-foreground">
+                                                {program.department_name}
+                                              </span>
+                                            )}
+                                          </div>
+                                        </CommandItem>
+                                      ))}
+                                    </CommandGroup>
+                                  ))}
+                                </CommandList>
+                              </Command>
+                            </PopoverContent>
+                          </Popover>
+
+                          {/* Selected programs as badges */}
+                          {selectedProgramNames.length > 0 && (
+                            <div className="flex flex-wrap gap-1.5 mt-2">
+                              {selectedProgramIds.map((id) => {
+                                const prog = programs.find((p) => p.id === id);
+                                if (!prog) return null;
+                                return (
+                                  <Badge key={id} variant="secondary" className="gap-1">
+                                    {prog.display_name || prog.program_name}
+                                    <button
+                                      type="button"
+                                      onClick={() => toggleProgram(id)}
+                                      className="ml-0.5 rounded-full hover:bg-muted-foreground/20"
+                                    >
+                                      <X className="h-3 w-3" />
+                                    </button>
+                                  </Badge>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </>
+                      )}
                     </div>
                   </CardContent>
                 </Card>
@@ -323,32 +601,51 @@ function NewLeadPageContent() {
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div className="space-y-2">
-                        <Label htmlFor="city">City</Label>
+                        <Label htmlFor="state">State</Label>
+                        <Select
+                          value={formData.state}
+                          onValueChange={handleStateChange}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select state" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {indianStates.map((state) => (
+                              <SelectItem key={state.id} value={state.id}>
+                                {state.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="district">District</Label>
+                        <Select
+                          value={formData.district}
+                          onValueChange={(value) => handleChange('district', value)}
+                          disabled={!formData.state}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder={formData.state ? 'Select district' : 'Select state first'} />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {availableDistricts.map((district) => (
+                              <SelectItem key={district.id} value={district.id}>
+                                {district.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="city">City / Town</Label>
                         <Input
                           id="city"
                           value={formData.city}
                           onChange={(e) => handleChange('city', e.target.value)}
-                          placeholder="Enter city"
-                        />
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label htmlFor="state">State</Label>
-                        <Input
-                          id="state"
-                          value={formData.state}
-                          onChange={(e) => handleChange('state', e.target.value)}
-                          placeholder="Enter state"
-                        />
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label htmlFor="country">Country</Label>
-                        <Input
-                          id="country"
-                          value={formData.country}
-                          onChange={(e) => handleChange('country', e.target.value)}
-                          placeholder="Enter country"
+                          placeholder="Enter city or town"
                         />
                       </div>
 
@@ -383,42 +680,6 @@ function NewLeadPageContent() {
 
               {/* Sidebar */}
               <div className="space-y-6">
-                {/* Institution Selector for Super Admins */}
-                {isSuperAdmin && !profile?.institution_id && (
-                  <Card>
-                    <CardHeader>
-                      <CardTitle>Institution</CardTitle>
-                      <CardDescription>Select institution for this lead</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="space-y-2">
-                        <Label htmlFor="institution">
-                          Institution <span className="text-destructive">*</span>
-                        </Label>
-                        <Select
-                          value={selectedInstitutionId}
-                          onValueChange={setSelectedInstitutionId}
-                          disabled={institutionsLoading}
-                        >
-                          <SelectTrigger className={!selectedInstitutionId ? 'border-amber-500' : ''}>
-                            <SelectValue placeholder={institutionsLoading ? 'Loading...' : 'Select institution'} />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {institutions.map((inst) => (
-                              <SelectItem key={inst.id} value={inst.id}>
-                                {inst.name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        {!selectedInstitutionId && (
-                          <p className="text-xs text-amber-600">Select an institution to create leads</p>
-                        )}
-                      </div>
-                    </CardContent>
-                  </Card>
-                )}
-
                 {/* Lead Source */}
                 <Card>
                   <CardHeader>

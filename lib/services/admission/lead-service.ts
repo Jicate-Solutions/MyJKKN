@@ -220,11 +220,23 @@ export class LeadService {
 
     // Add optional columns that exist in the table
     if (leadData.counselor_id) insertData.counselor_id = leadData.counselor_id;
-    if ((leadData as any).preferred_channel) insertData.preferred_channel = (leadData as any).preferred_channel;
-    if ((leadData as any).interested_programs) insertData.interested_programs = (leadData as any).interested_programs;
-    if ((leadData as any).parent_name) insertData.parent_name = (leadData as any).parent_name;
-    if ((leadData as any).parent_phone) insertData.parent_phone = (leadData as any).parent_phone;
-    if ((leadData as any).parent_email) insertData.parent_email = (leadData as any).parent_email;
+    if (leadData.preferred_channel) insertData.preferred_channel = leadData.preferred_channel;
+    if (leadData.interested_programs && leadData.interested_programs.length > 0) {
+      insertData.interested_programs = leadData.interested_programs;
+    }
+    if (leadData.parent_name) insertData.parent_name = leadData.parent_name;
+    if (leadData.parent_phone) insertData.parent_phone = leadData.parent_phone;
+    if (leadData.parent_email) insertData.parent_email = leadData.parent_email;
+    if (leadData.entry_date) insertData.entry_date = leadData.entry_date;
+    // Address fields
+    if (leadData.alternate_phone) insertData.alternate_phone = leadData.alternate_phone;
+    if (leadData.date_of_birth) insertData.date_of_birth = leadData.date_of_birth;
+    if (leadData.gender) insertData.gender = leadData.gender;
+    if (leadData.address_line1) insertData.address_line1 = leadData.address_line1;
+    if (leadData.state) insertData.state = leadData.state;
+    if (leadData.district) insertData.district = leadData.district;
+    if (leadData.city) insertData.city = leadData.city;
+    if (leadData.pincode) insertData.pincode = leadData.pincode;
 
     const { data, error } = await (this.supabase as any).from('admission_leads')
       .insert(insertData)
