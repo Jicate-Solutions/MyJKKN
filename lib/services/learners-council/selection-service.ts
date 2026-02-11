@@ -13,7 +13,7 @@ import type {
 } from '@/types/learners-council';
 
 export class LCSelectionService {
-  private static supabase = createClientSupabaseClient();
+  private static supabase: any = createClientSupabaseClient();
 
   // ============================================================================
   // ELECTION METHODS
