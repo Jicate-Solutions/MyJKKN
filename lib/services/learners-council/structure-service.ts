@@ -19,7 +19,7 @@ import type {
 } from '@/types/learners-council';
 
 export class LCStructureService {
-  private static supabase = createClientSupabaseClient();
+  private static supabase: any = createClientSupabaseClient();
 
   // ============================================================================
   // TERM METHODS
