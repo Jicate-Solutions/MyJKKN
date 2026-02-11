@@ -33,7 +33,9 @@ export function usePendingChangeRequest(learnerId: string | undefined) {
     queryFn: async () => {
       if (!learnerId) throw new Error('Learner ID is required');
 
-      const res = await fetch(`/api/learner-profile/change-requests/pending/${learnerId}`);
+      const res = await fetch(`/api/learner-profile/change-requests/pending/${learnerId}`, {
+        cache: 'no-store',
+      });
       if (!res.ok) {
         if (res.status === 404) return null; // No pending request
         throw new Error('Failed to fetch pending request');
