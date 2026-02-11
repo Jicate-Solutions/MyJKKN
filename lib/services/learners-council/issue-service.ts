@@ -113,7 +113,7 @@ export class LCIssueService {
    * Get a single issue by ID with full details
    */
   static async getIssueById(id: string): Promise<GrievanceTicket> {
-    const { data, error } = await this.supabase
+    const { data, error } = await (this.supabase as any)
       .from('grievance_tickets')
       .select(`
         *,
@@ -156,7 +156,7 @@ export class LCIssueService {
     let categoryId = data.category;
 
     // Attempt to find category by name first
-    const { data: categoryData } = await this.supabase
+    const { data: categoryData } = await (this.supabase as any)
       .from('grievance_categories')
       .select('id')
       .eq('institution_id', data.institution_id)
@@ -168,13 +168,13 @@ export class LCIssueService {
     }
 
     // Get user profile for raiser info
-    const { data: profile } = await this.supabase
+    const { data: profile } = await (this.supabase as any)
       .from('profiles')
       .select('full_name, email, role')
       .eq('id', userId)
       .single();
 
-    const { data: ticket, error } = await this.supabase
+    const { data: ticket, error } = await (this.supabase as any)
       .from('grievance_tickets')
       .insert({
         institution_id: data.institution_id,
@@ -212,7 +212,7 @@ export class LCIssueService {
    * Assign an issue to an LC member
    */
   static async assignIssue(issueId: string, assigneeId: string): Promise<GrievanceTicket> {
-    const { data, error } = await this.supabase
+    const { data, error } = await (this.supabase as any)
       .from('grievance_tickets')
       .update({
         assigned_to: assigneeId,
@@ -252,7 +252,7 @@ export class LCIssueService {
       updateData.resolved_at = new Date().toISOString();
     }
 
-    const { data, error } = await this.supabase
+    const { data, error } = await (this.supabase as any)
       .from('grievance_tickets')
       .update(updateData)
       .eq('id', issueId)
@@ -270,7 +270,7 @@ export class LCIssueService {
 
     // Add comment if provided
     if (comment && data) {
-      await this.supabase.from('grievance_comments').insert({
+      await (this.supabase as any).from('grievance_comments').insert({
         ticket_id: issueId,
         author_name: 'System',
         author_type: 'system',
@@ -348,7 +348,7 @@ export class LCIssueService {
     // Build OR condition for keyword matching
     const orCondition = keywords.map(kw => `subject.ilike.%${kw}%`).join(',');
 
-    const { data, error } = await this.supabase
+    const { data, error } = await (this.supabase as any)
       .from('grievance_tickets')
       .select(`
         id, subject, status, priority, created_at,
@@ -376,7 +376,7 @@ export class LCIssueService {
   ): Promise<GrievanceTicket> {
     // Close duplicates with a reference to the primary
     for (const dupId of duplicateIds) {
-      await this.supabase
+      await (this.supabase as any)
         .from('grievance_tickets')
         .update({
           status: 'closed' as GrievanceStatus,
@@ -387,7 +387,7 @@ export class LCIssueService {
         .eq('id', dupId);
 
       // Add a comment on the duplicate
-      await this.supabase.from('grievance_comments').insert({
+      await (this.supabase as any).from('grievance_comments').insert({
         ticket_id: dupId,
         author_name: 'System',
         author_type: 'system',
@@ -398,7 +398,7 @@ export class LCIssueService {
     }
 
     // Add a comment on the primary
-    await this.supabase.from('grievance_comments').insert({
+    await (this.supabase as any).from('grievance_comments').insert({
       ticket_id: primaryId,
       author_name: 'System',
       author_type: 'system',
@@ -420,7 +420,7 @@ export class LCIssueService {
     const statusCounts: Record<string, number> = {};
 
     const countPromises = statuses.map(async (status) => {
-      const { count } = await this.supabase
+      const { count } = await (this.supabase as any)
         .from('grievance_tickets')
         .select('*', { count: 'exact', head: true })
         .eq('institution_id', institutionId)
@@ -429,7 +429,7 @@ export class LCIssueService {
     });
 
     // Get total count
-    const totalPromise = this.supabase
+    const totalPromise = (this.supabase as any)
       .from('grievance_tickets')
       .select('*', { count: 'exact', head: true })
       .eq('institution_id', institutionId);
@@ -439,7 +439,7 @@ export class LCIssueService {
     startOfMonth.setDate(1);
     startOfMonth.setHours(0, 0, 0, 0);
 
-    const resolvedMonthPromise = this.supabase
+    const resolvedMonthPromise = (this.supabase as any)
       .from('grievance_tickets')
       .select('*', { count: 'exact', head: true })
       .eq('institution_id', institutionId)
@@ -447,7 +447,7 @@ export class LCIssueService {
       .gte('resolved_at', startOfMonth.toISOString());
 
     // Get category breakdown
-    const categoriesPromise = this.supabase
+    const categoriesPromise = (this.supabase as any)
       .from('grievance_tickets')
       .select(`
         category:grievance_categories!category_id(name)
@@ -456,7 +456,7 @@ export class LCIssueService {
       .in('status', ['open', 'in_progress']);
 
     // Get priority breakdown
-    const prioritiesPromise = this.supabase
+    const prioritiesPromise = (this.supabase as any)
       .from('grievance_tickets')
       .select('priority')
       .eq('institution_id', institutionId)

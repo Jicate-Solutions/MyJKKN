@@ -76,7 +76,7 @@ export class LCEventService {
    * Get single event with participants & approvals
    */
   static async getEventById(id: string): Promise<LCEvent | null> {
-    const { data, error } = await this.supabase
+    const { data, error } = await (this.supabase as any)
       .from('lc_events')
       .select(EVENT_DETAIL_SELECT)
       .eq('id', id)
@@ -95,7 +95,7 @@ export class LCEventService {
    * Create a new event as draft
    */
   static async createEvent(dto: CreateEventDto, userId: string): Promise<LCEvent> {
-    const { data, error } = await this.supabase
+    const { data, error } = await (this.supabase as any)
       .from('lc_events')
       .insert({
         title: dto.title,
@@ -132,7 +132,7 @@ export class LCEventService {
    * Update an event
    */
   static async updateEvent(id: string, dto: UpdateEventDto): Promise<LCEvent> {
-    const { data, error } = await this.supabase
+    const { data, error } = await (this.supabase as any)
       .from('lc_events')
       .update(dto)
       .eq('id', id)
@@ -155,7 +155,7 @@ export class LCEventService {
    * Submit event for approval - changes status from draft to pending_review
    */
   static async submitEventForApproval(id: string): Promise<LCEvent> {
-    const { data, error } = await this.supabase
+    const { data, error } = await (this.supabase as any)
       .from('lc_events')
       .update({ status: 'pending_review' as EventStatus })
       .eq('id', id)
@@ -180,7 +180,7 @@ export class LCEventService {
     comments?: string
   ): Promise<LCEvent> {
     // Record the approval action
-    const { error: approvalError } = await this.supabase
+    const { error: approvalError } = await (this.supabase as any)
       .from('lc_event_approvals')
       .insert({
         event_id: eventId,
@@ -196,7 +196,7 @@ export class LCEventService {
     }
 
     // Update event status to approved
-    const { data, error } = await this.supabase
+    const { data, error } = await (this.supabase as any)
       .from('lc_events')
       .update({ status: 'approved' as EventStatus })
       .eq('id', eventId)
@@ -220,7 +220,7 @@ export class LCEventService {
     comments: string
   ): Promise<LCEvent> {
     // Record the rejection
-    const { error: approvalError } = await this.supabase
+    const { error: approvalError } = await (this.supabase as any)
       .from('lc_event_approvals')
       .insert({
         event_id: eventId,
@@ -236,7 +236,7 @@ export class LCEventService {
     }
 
     // Update event status to cancelled
-    const { data, error } = await this.supabase
+    const { data, error } = await (this.supabase as any)
       .from('lc_events')
       .update({ status: 'cancelled' as EventStatus })
       .eq('id', eventId)
@@ -262,7 +262,7 @@ export class LCEventService {
     eventId: string,
     userId: string
   ): Promise<LCEventParticipant> {
-    const { data, error } = await this.supabase
+    const { data, error } = await (this.supabase as any)
       .from('lc_event_participants')
       .insert({
         event_id: eventId,
@@ -279,7 +279,7 @@ export class LCEventService {
     }
 
     // Increment participant count
-    await this.supabase.rpc('increment_event_participants', { event_id: eventId });
+    await (this.supabase as any).rpc('increment_event_participants', { event_id: eventId });
 
     return data as unknown as LCEventParticipant;
   }
@@ -288,7 +288,7 @@ export class LCEventService {
    * Cancel event registration
    */
   static async cancelRegistration(eventId: string, userId: string): Promise<void> {
-    const { error } = await this.supabase
+    const { error } = await (this.supabase as any)
       .from('lc_event_participants')
       .update({ status: 'cancelled' })
       .eq('event_id', eventId)
@@ -308,7 +308,7 @@ export class LCEventService {
     participantId: string,
     attended: boolean
   ): Promise<void> {
-    const { error } = await this.supabase
+    const { error } = await (this.supabase as any)
       .from('lc_event_participants')
       .update({
         status: attended ? 'attended' : 'absent',
@@ -332,7 +332,7 @@ export class LCEventService {
     feedback: string,
     rating: number
   ): Promise<void> {
-    const { error } = await this.supabase
+    const { error } = await (this.supabase as any)
       .from('lc_event_participants')
       .update({
         feedback,

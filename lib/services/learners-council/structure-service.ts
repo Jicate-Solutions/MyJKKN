@@ -29,7 +29,7 @@ export class LCStructureService {
    * Get all terms ordered by start_date descending
    */
   static async getTerms(): Promise<LCTerm[]> {
-    const { data, error } = await this.supabase
+    const { data, error } = await (this.supabase as any)
       .from('lc_terms')
       .select('*')
       .order('start_date', { ascending: false });
@@ -46,7 +46,7 @@ export class LCStructureService {
    * Get the current active term
    */
   static async getActiveTerm(): Promise<LCTerm | null> {
-    const { data, error } = await this.supabase
+    const { data, error } = await (this.supabase as any)
       .from('lc_terms')
       .select('*')
       .eq('status', 'active')
@@ -64,7 +64,7 @@ export class LCStructureService {
    * Create a new term
    */
   static async createTerm(data: CreateLCTermDto, userId: string): Promise<LCTerm> {
-    const { data: term, error } = await this.supabase
+    const { data: term, error } = await (this.supabase as any)
       .from('lc_terms')
       .insert({
         ...data,
@@ -86,7 +86,7 @@ export class LCStructureService {
    * Update an existing term
    */
   static async updateTerm(id: string, data: UpdateLCTermDto): Promise<LCTerm> {
-    const { data: term, error } = await this.supabase
+    const { data: term, error } = await (this.supabase as any)
       .from('lc_terms')
       .update(data)
       .eq('id', id)
@@ -142,7 +142,7 @@ export class LCStructureService {
    * Get all holders of a specific position across terms
    */
   static async getPositionHistory(positionId: string): Promise<LCPositionHistory[]> {
-    const { data, error } = await this.supabase
+    const { data, error } = await (this.supabase as any)
       .from('lc_position_history')
       .select(`
         *,
@@ -213,7 +213,7 @@ export class LCStructureService {
     institution_id: string;
     appointment_notes?: string;
   }): Promise<LCMember> {
-    const { data: member, error } = await this.supabase
+    const { data: member, error } = await (this.supabase as any)
       .from('lc_members')
       .insert({
         ...data,
@@ -234,7 +234,7 @@ export class LCStructureService {
     }
 
     // Also log to position history
-    await this.supabase.from('lc_position_history').insert({
+    await (this.supabase as any).from('lc_position_history').insert({
       position_id: data.position_id,
       user_id: data.user_id,
       term_id: data.term_id,
@@ -255,7 +255,7 @@ export class LCStructureService {
       updateData.ended_at = new Date().toISOString();
     }
 
-    const { data: member, error } = await this.supabase
+    const { data: member, error } = await (this.supabase as any)
       .from('lc_members')
       .update(updateData)
       .eq('id', id)
@@ -279,7 +279,7 @@ export class LCStructureService {
    * Get a single member by ID with all joins
    */
   static async getMemberById(id: string): Promise<LCMember> {
-    const { data, error } = await this.supabase
+    const { data, error } = await (this.supabase as any)
       .from('lc_members')
       .select(`
         *,
@@ -341,7 +341,7 @@ export class LCStructureService {
    * Get a single chapter by ID with verticals and members
    */
   static async getChapterById(id: string): Promise<YUVAChapter> {
-    const { data, error } = await this.supabase
+    const { data, error } = await (this.supabase as any)
       .from('yuva_chapters')
       .select(`
         *,
@@ -364,7 +364,7 @@ export class LCStructureService {
     }
 
     // Also fetch verticals separately (cleaner than deeply nested join)
-    const { data: verticals } = await this.supabase
+    const { data: verticals } = await (this.supabase as any)
       .from('yuva_verticals')
       .select('*')
       .eq('is_active', true)
@@ -385,7 +385,7 @@ export class LCStructureService {
     description?: string;
     academic_year: string;
   }): Promise<YUVAChapter> {
-    const { data: chapter, error } = await this.supabase
+    const { data: chapter, error } = await (this.supabase as any)
       .from('yuva_chapters')
       .insert({
         ...data,
@@ -442,7 +442,7 @@ export class LCStructureService {
    * Create a new YUVA vertical
    */
   static async createVertical(data: CreateYUVAVerticalDto): Promise<YUVAVertical> {
-    const { data: vertical, error } = await this.supabase
+    const { data: vertical, error } = await (this.supabase as any)
       .from('yuva_verticals')
       .insert({
         ...data,
@@ -463,7 +463,7 @@ export class LCStructureService {
    * Update a YUVA vertical
    */
   static async updateVertical(id: string, data: UpdateYUVAVerticalDto): Promise<YUVAVertical> {
-    const { data: vertical, error } = await this.supabase
+    const { data: vertical, error } = await (this.supabase as any)
       .from('yuva_verticals')
       .update(data)
       .eq('id', id)
@@ -486,7 +486,7 @@ export class LCStructureService {
    * Get all vertical members for a chapter
    */
   static async getVerticalMembers(chapterId: string): Promise<YUVAVerticalMember[]> {
-    const { data, error } = await this.supabase
+    const { data, error } = await (this.supabase as any)
       .from('yuva_vertical_members')
       .select(`
         *,
@@ -515,7 +515,7 @@ export class LCStructureService {
     role: string;
     academic_year: string;
   }): Promise<YUVAVerticalMember> {
-    const { data: member, error } = await this.supabase
+    const { data: member, error } = await (this.supabase as any)
       .from('yuva_vertical_members')
       .insert({
         ...data,
@@ -541,7 +541,7 @@ export class LCStructureService {
    * Remove a vertical member (soft-remove: set is_active=false)
    */
   static async removeVerticalMember(id: string): Promise<void> {
-    const { error } = await this.supabase
+    const { error } = await (this.supabase as any)
       .from('yuva_vertical_members')
       .update({
         is_active: false,

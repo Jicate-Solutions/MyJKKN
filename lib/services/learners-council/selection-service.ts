@@ -60,7 +60,7 @@ export class LCSelectionService {
    * Get a single election by ID with full nominations and term details
    */
   static async getElectionById(id: string): Promise<LCElection> {
-    const { data, error } = await this.supabase
+    const { data, error } = await (this.supabase as any)
       .from('lc_elections')
       .select(`
         *,
@@ -93,7 +93,7 @@ export class LCSelectionService {
    * Create a new election
    */
   static async createElection(data: CreateElectionDto, userId: string): Promise<LCElection> {
-    const { data: election, error } = await this.supabase
+    const { data: election, error } = await (this.supabase as any)
       .from('lc_elections')
       .insert({
         ...data,
@@ -125,7 +125,7 @@ export class LCSelectionService {
       updateData.results_declared_at = new Date().toISOString();
     }
 
-    const { data, error } = await this.supabase
+    const { data, error } = await (this.supabase as any)
       .from('lc_elections')
       .update(updateData)
       .eq('id', id)
@@ -148,7 +148,7 @@ export class LCSelectionService {
    * Get nominations for an election
    */
   static async getNominations(electionId: string): Promise<LCNomination[]> {
-    const { data, error } = await this.supabase
+    const { data, error } = await (this.supabase as any)
       .from('lc_nominations')
       .select(`
         *,
@@ -174,7 +174,7 @@ export class LCSelectionService {
    */
   static async submitNomination(data: CreateNominationDto, userId: string): Promise<LCNomination> {
     // Check for duplicate nomination
-    const { data: existing } = await this.supabase
+    const { data: existing } = await (this.supabase as any)
       .from('lc_nominations')
       .select('id')
       .eq('election_id', data.election_id)
@@ -185,7 +185,7 @@ export class LCSelectionService {
       throw new Error('You have already submitted a nomination for this election');
     }
 
-    const { data: nomination, error } = await this.supabase
+    const { data: nomination, error } = await (this.supabase as any)
       .from('lc_nominations')
       .insert({
         ...data,
@@ -216,7 +216,7 @@ export class LCSelectionService {
     reviewerId: string,
     notes?: string
   ): Promise<LCNomination> {
-    const { data, error } = await this.supabase
+    const { data, error } = await (this.supabase as any)
       .from('lc_nominations')
       .update({
         status,
@@ -247,7 +247,7 @@ export class LCSelectionService {
    * Get interviews for a nomination
    */
   static async getInterviews(nominationId: string): Promise<LCInterview[]> {
-    const { data, error } = await this.supabase
+    const { data, error } = await (this.supabase as any)
       .from('lc_interviews')
       .select(`
         *,
@@ -273,7 +273,7 @@ export class LCSelectionService {
     scheduled_at: string;
     max_score: number;
   }): Promise<LCInterview> {
-    const { data: interview, error } = await this.supabase
+    const { data: interview, error } = await (this.supabase as any)
       .from('lc_interviews')
       .insert({
         ...data,
@@ -303,7 +303,7 @@ export class LCSelectionService {
     notes: string,
     recommendation: string
   ): Promise<LCInterview> {
-    const { data, error } = await this.supabase
+    const { data, error } = await (this.supabase as any)
       .from('lc_interviews')
       .update({
         score,
@@ -339,7 +339,7 @@ export class LCSelectionService {
     voterId: string
   ): Promise<LCElectionVote> {
     // Check if already voted for this position in this election
-    const { data: existingVote } = await this.supabase
+    const { data: existingVote } = await (this.supabase as any)
       .from('lc_election_votes')
       .select('id')
       .eq('election_id', electionId)
@@ -351,7 +351,7 @@ export class LCSelectionService {
       throw new Error('You have already voted for this position');
     }
 
-    const { data, error } = await this.supabase
+    const { data, error } = await (this.supabase as any)
       .from('lc_election_votes')
       .insert({
         election_id: electionId,
@@ -390,7 +390,7 @@ export class LCSelectionService {
     const election = await this.getElectionById(electionId);
 
     // Get all votes for this election
-    const { data: votes, error: votesError } = await this.supabase
+    const { data: votes, error: votesError } = await (this.supabase as any)
       .from('lc_election_votes')
       .select('nomination_id, position_id')
       .eq('election_id', electionId);

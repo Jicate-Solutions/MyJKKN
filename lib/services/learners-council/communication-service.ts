@@ -84,7 +84,7 @@ export class LCCommunicationService {
    * Get a single announcement by ID and optionally track read
    */
   static async getAnnouncementById(id: string): Promise<LCAnnouncement> {
-    const { data, error } = await this.supabase
+    const { data, error } = await (this.supabase as any)
       .from('lc_announcements')
       .select(
         `
@@ -111,7 +111,7 @@ export class LCCommunicationService {
     data: CreateAnnouncementDto,
     userId: string
   ): Promise<LCAnnouncement> {
-    const { data: created, error } = await this.supabase
+    const { data: created, error } = await (this.supabase as any)
       .from('lc_announcements')
       .insert({
         title: data.title,
@@ -153,7 +153,7 @@ export class LCCommunicationService {
     if (data.attachments !== undefined) updatePayload.attachments = data.attachments;
     if (data.status !== undefined) updatePayload.status = data.status;
 
-    const { data: updated, error } = await this.supabase
+    const { data: updated, error } = await (this.supabase as any)
       .from('lc_announcements')
       .update(updatePayload)
       .eq('id', id)
@@ -175,7 +175,7 @@ export class LCCommunicationService {
     id: string,
     reviewerId: string
   ): Promise<LCAnnouncement> {
-    const { data, error } = await this.supabase
+    const { data, error } = await (this.supabase as any)
       .from('lc_announcements')
       .update({
         status: 'published' as AnnouncementStatus,
@@ -203,7 +203,7 @@ export class LCCommunicationService {
     userId: string
   ): Promise<void> {
     // Upsert to avoid duplicates
-    const { error } = await this.supabase
+    const { error } = await (this.supabase as any)
       .from('lc_announcement_reads')
       .upsert(
         {
@@ -220,7 +220,7 @@ export class LCCommunicationService {
     }
 
     // Increment read count on the announcement
-    const { error: rpcError } = await this.supabase.rpc('increment_field', {
+    const { error: rpcError } = await (this.supabase as any).rpc('increment_field', {
       table_name: 'lc_announcements',
       field_name: 'read_count',
       row_id: announcementId
@@ -228,7 +228,7 @@ export class LCCommunicationService {
 
     // If RPC doesn't exist, try direct update
     if (rpcError) {
-      await this.supabase
+      await (this.supabase as any)
         .from('lc_announcements')
         .update({ read_count: this.supabase.rpc ? undefined : 0 })
         .eq('id', announcementId);
@@ -287,7 +287,7 @@ export class LCCommunicationService {
    * Get a single poll by ID with options and vote counts
    */
   static async getPollById(id: string): Promise<LCPoll> {
-    const { data, error } = await this.supabase
+    const { data, error } = await (this.supabase as any)
       .from('lc_polls')
       .select(
         `
@@ -315,7 +315,7 @@ export class LCCommunicationService {
     userId: string
   ): Promise<LCPoll> {
     // Create the poll first
-    const { data: poll, error: pollError } = await this.supabase
+    const { data: poll, error: pollError } = await (this.supabase as any)
       .from('lc_polls')
       .insert({
         title: data.title,
@@ -349,14 +349,14 @@ export class LCCommunicationService {
         vote_count: 0
       }));
 
-      const { error: optError } = await this.supabase
+      const { error: optError } = await (this.supabase as any)
         .from('lc_poll_options')
         .insert(optionRows);
 
       if (optError) {
         console.error('[lc/communication] Error creating poll options:', optError);
         // Try to clean up the poll
-        await this.supabase.from('lc_polls').delete().eq('id', poll.id);
+        await (this.supabase as any).from('lc_polls').delete().eq('id', poll.id);
         throw new Error(`Failed to create poll options: ${optError.message}`);
       }
     }
@@ -374,7 +374,7 @@ export class LCCommunicationService {
     userId: string
   ): Promise<LCPollVote> {
     // Check if user already voted (for single-vote polls)
-    const { data: existingVote } = await this.supabase
+    const { data: existingVote } = await (this.supabase as any)
       .from('lc_poll_votes')
       .select('id')
       .eq('poll_id', pollId)
@@ -386,7 +386,7 @@ export class LCCommunicationService {
     }
 
     // Insert vote
-    const { data: vote, error: voteError } = await this.supabase
+    const { data: vote, error: voteError } = await (this.supabase as any)
       .from('lc_poll_votes')
       .insert({
         poll_id: pollId,
@@ -403,28 +403,28 @@ export class LCCommunicationService {
     }
 
     // Increment option vote count
-    const { data: option } = await this.supabase
+    const { data: option } = await (this.supabase as any)
       .from('lc_poll_options')
       .select('vote_count')
       .eq('id', optionId)
       .single();
 
     if (option) {
-      await this.supabase
+      await (this.supabase as any)
         .from('lc_poll_options')
         .update({ vote_count: (option.vote_count || 0) + 1 })
         .eq('id', optionId);
     }
 
     // Increment poll total votes
-    const { data: poll } = await this.supabase
+    const { data: poll } = await (this.supabase as any)
       .from('lc_polls')
       .select('total_votes')
       .eq('id', pollId)
       .single();
 
     if (poll) {
-      await this.supabase
+      await (this.supabase as any)
         .from('lc_polls')
         .update({ total_votes: (poll.total_votes || 0) + 1 })
         .eq('id', pollId);
@@ -437,7 +437,7 @@ export class LCCommunicationService {
    * Close a poll
    */
   static async closePoll(pollId: string): Promise<LCPoll> {
-    const { data, error } = await this.supabase
+    const { data, error } = await (this.supabase as any)
       .from('lc_polls')
       .update({ status: 'closed' as PollStatus })
       .eq('id', pollId)
@@ -459,7 +459,7 @@ export class LCCommunicationService {
     pollId: string,
     userId: string
   ): Promise<LCPollVote | null> {
-    const { data, error } = await this.supabase
+    const { data, error } = await (this.supabase as any)
       .from('lc_poll_votes')
       .select('*')
       .eq('poll_id', pollId)
@@ -522,7 +522,7 @@ export class LCCommunicationService {
    * Get a single forum topic by ID
    */
   static async getTopicById(id: string): Promise<LCForumTopic> {
-    const { data, error } = await this.supabase
+    const { data, error } = await (this.supabase as any)
       .from('lc_forum_topics')
       .select(
         `
@@ -548,7 +548,7 @@ export class LCCommunicationService {
     data: CreateForumTopicDto,
     userId: string
   ): Promise<LCForumTopic> {
-    const { data: topic, error } = await this.supabase
+    const { data: topic, error } = await (this.supabase as any)
       .from('lc_forum_topics')
       .insert({
         title: data.title,
@@ -582,7 +582,7 @@ export class LCCommunicationService {
     const from = (page - 1) * limit;
     const to = from + limit - 1;
 
-    const { data, count, error } = await this.supabase
+    const { data, count, error } = await (this.supabase as any)
       .from('lc_forum_posts')
       .select(
         `
@@ -606,7 +606,7 @@ export class LCCommunicationService {
     // For each top-level post, also fetch replies
     const posts = (data || []) as LCForumPost[];
     for (const post of posts) {
-      const { data: replies } = await this.supabase
+      const { data: replies } = await (this.supabase as any)
         .from('lc_forum_posts')
         .select(
           `
@@ -640,7 +640,7 @@ export class LCCommunicationService {
     data: CreateForumPostDto,
     userId: string
   ): Promise<LCForumPost> {
-    const { data: post, error } = await this.supabase
+    const { data: post, error } = await (this.supabase as any)
       .from('lc_forum_posts')
       .insert({
         topic_id: data.topic_id,
@@ -658,14 +658,14 @@ export class LCCommunicationService {
     }
 
     // Update topic post_count and last_post_at
-    const { data: topic } = await this.supabase
+    const { data: topic } = await (this.supabase as any)
       .from('lc_forum_topics')
       .select('post_count')
       .eq('id', data.topic_id)
       .single();
 
     if (topic) {
-      await this.supabase
+      await (this.supabase as any)
         .from('lc_forum_topics')
         .update({
           post_count: (topic.post_count || 0) + 1,
@@ -686,7 +686,7 @@ export class LCCommunicationService {
     type: ForumReactionType
   ): Promise<{ added: boolean }> {
     // Check if reaction exists
-    const { data: existing } = await this.supabase
+    const { data: existing } = await (this.supabase as any)
       .from('lc_forum_reactions')
       .select('id')
       .eq('post_id', postId)
@@ -696,14 +696,14 @@ export class LCCommunicationService {
 
     if (existing) {
       // Remove reaction
-      await this.supabase
+      await (this.supabase as any)
         .from('lc_forum_reactions')
         .delete()
         .eq('id', existing.id);
       return { added: false };
     } else {
       // Add reaction
-      const { error } = await this.supabase
+      const { error } = await (this.supabase as any)
         .from('lc_forum_reactions')
         .insert({
           post_id: postId,
@@ -746,7 +746,7 @@ export class LCCommunicationService {
         newStatus = 'flagged';
     }
 
-    const { data, error } = await this.supabase
+    const { data, error } = await (this.supabase as any)
       .from('lc_forum_posts')
       .update({
         status: newStatus,
@@ -776,7 +776,7 @@ export class LCCommunicationService {
     userId: string
   ): Promise<LCChatChannel[]> {
     // Get channel IDs for this user
-    const { data: memberships, error: memError } = await this.supabase
+    const { data: memberships, error: memError } = await (this.supabase as any)
       .from('lc_chat_members')
       .select('channel_id')
       .eq('user_id', userId);
@@ -793,7 +793,7 @@ export class LCCommunicationService {
     const channelIds = memberships.map((m: { channel_id: string }) => m.channel_id);
 
     // Get channels with details
-    const { data: channels, error } = await this.supabase
+    const { data: channels, error } = await (this.supabase as any)
       .from('lc_chat_channels')
       .select(
         `
@@ -813,7 +813,7 @@ export class LCCommunicationService {
     // Fetch last message for each channel
     const enrichedChannels: LCChatChannel[] = [];
     for (const channel of channels || []) {
-      const { data: lastMsg } = await this.supabase
+      const { data: lastMsg } = await (this.supabase as any)
         .from('lc_chat_messages')
         .select(
           `
@@ -847,7 +847,7 @@ export class LCCommunicationService {
     const from = (page - 1) * limit;
     const to = from + limit - 1;
 
-    const { data, count, error } = await this.supabase
+    const { data, count, error } = await (this.supabase as any)
       .from('lc_chat_messages')
       .select(
         `
@@ -880,7 +880,7 @@ export class LCCommunicationService {
     userId: string
   ): Promise<LCChatChannel> {
     // Create channel
-    const { data: channel, error: chError } = await this.supabase
+    const { data: channel, error: chError } = await (this.supabase as any)
       .from('lc_chat_channels')
       .insert({
         name: data.name,
@@ -917,7 +917,7 @@ export class LCCommunicationService {
         }))
     ];
 
-    const { error: memError } = await this.supabase
+    const { error: memError } = await (this.supabase as any)
       .from('lc_chat_members')
       .insert(memberRows);
 
@@ -936,7 +936,7 @@ export class LCCommunicationService {
     data: SendChatMessageDto,
     userId: string
   ): Promise<LCChatMessage> {
-    const { data: message, error } = await this.supabase
+    const { data: message, error } = await (this.supabase as any)
       .from('lc_chat_messages')
       .insert({
         channel_id: data.channel_id,
@@ -961,7 +961,7 @@ export class LCCommunicationService {
     }
 
     // Update channel updated_at timestamp
-    await this.supabase
+    await (this.supabase as any)
       .from('lc_chat_channels')
       .update({ updated_at: new Date().toISOString() })
       .eq('id', data.channel_id);
@@ -976,7 +976,7 @@ export class LCCommunicationService {
     channelId: string,
     userId: string
   ): Promise<void> {
-    const { error } = await this.supabase
+    const { error } = await (this.supabase as any)
       .from('lc_chat_members')
       .update({ last_read_at: new Date().toISOString() })
       .eq('channel_id', channelId)

@@ -77,7 +77,7 @@ export class LCODService {
    * Get single OD request with all joins
    */
   static async getODRequestById(id: string): Promise<LCODRequest | null> {
-    const { data, error } = await this.supabase
+    const { data, error } = await (this.supabase as any)
       .from('lc_od_requests')
       .select(OD_REQUEST_SELECT)
       .eq('id', id)
@@ -102,7 +102,7 @@ export class LCODService {
     institutionId: string
   ): Promise<LCODRequest> {
     // Find the active approval chain for this institution
-    const { data: chains } = await this.supabase
+    const { data: chains } = await (this.supabase as any)
       .from('lc_od_approval_chains')
       .select('id, name, steps')
       .eq('institution_id', institutionId)
@@ -114,7 +114,7 @@ export class LCODService {
     // Generate request number
     const requestNumber = `OD-${Date.now().toString(36).toUpperCase()}`;
 
-    const { data, error } = await this.supabase
+    const { data, error } = await (this.supabase as any)
       .from('lc_od_requests')
       .insert({
         request_number: requestNumber,
@@ -146,7 +146,7 @@ export class LCODService {
    * Submit OD request for approval
    */
   static async submitODRequest(id: string): Promise<LCODRequest> {
-    const { data, error } = await this.supabase
+    const { data, error } = await (this.supabase as any)
       .from('lc_od_requests')
       .update({
         status: 'submitted' as ODRequestStatus,
@@ -179,7 +179,7 @@ export class LCODService {
     comments?: string
   ): Promise<LCODRequest> {
     // Get current request to determine step
-    const { data: request } = await this.supabase
+    const { data: request } = await (this.supabase as any)
       .from('lc_od_requests')
       .select('*, chain:lc_od_approval_chains(id, name, steps)')
       .eq('id', requestId)
@@ -192,7 +192,7 @@ export class LCODService {
     const totalSteps = chain?.steps?.length || 1;
 
     // Record the approval
-    const { error: approvalError } = await this.supabase
+    const { error: approvalError } = await (this.supabase as any)
       .from('lc_od_approvals')
       .insert({
         request_id: requestId,
@@ -220,7 +220,7 @@ export class LCODService {
           current_step: currentStep + 1,
         };
 
-    const { data, error } = await this.supabase
+    const { data, error } = await (this.supabase as any)
       .from('lc_od_requests')
       .update(updateData)
       .eq('id', requestId)
@@ -244,14 +244,14 @@ export class LCODService {
     comments: string
   ): Promise<LCODRequest> {
     // Get current step
-    const { data: request } = await this.supabase
+    const { data: request } = await (this.supabase as any)
       .from('lc_od_requests')
       .select('current_step')
       .eq('id', requestId)
       .single();
 
     // Record the rejection
-    const { error: approvalError } = await this.supabase
+    const { error: approvalError } = await (this.supabase as any)
       .from('lc_od_approvals')
       .insert({
         request_id: requestId,
@@ -267,7 +267,7 @@ export class LCODService {
       throw new Error(`Failed to record rejection: ${approvalError.message}`);
     }
 
-    const { data, error } = await this.supabase
+    const { data, error } = await (this.supabase as any)
       .from('lc_od_requests')
       .update({
         status: 'rejected' as ODRequestStatus,
@@ -291,7 +291,7 @@ export class LCODService {
   static async getMyPendingApprovals(approverId: string): Promise<LCODRequest[]> {
     // Get requests where status is submitted or in_review
     // In a full implementation, this would also check the approval chain step
-    const { data, error } = await this.supabase
+    const { data, error } = await (this.supabase as any)
       .from('lc_od_requests')
       .select(OD_REQUEST_SELECT)
       .in('status', ['submitted', 'in_review'])
@@ -313,7 +313,7 @@ export class LCODService {
    * List approval chains for an institution
    */
   static async getApprovalChains(institutionId: string): Promise<LCODApprovalChain[]> {
-    const { data, error } = await this.supabase
+    const { data, error } = await (this.supabase as any)
       .from('lc_od_approval_chains')
       .select('*')
       .eq('institution_id', institutionId)
@@ -334,7 +334,7 @@ export class LCODService {
     dto: CreateODApprovalChainDto,
     userId: string
   ): Promise<LCODApprovalChain> {
-    const { data, error } = await this.supabase
+    const { data, error } = await (this.supabase as any)
       .from('lc_od_approval_chains')
       .insert({
         institution_id: dto.institution_id,
@@ -362,7 +362,7 @@ export class LCODService {
     id: string,
     dto: Partial<CreateODApprovalChainDto>
   ): Promise<LCODApprovalChain> {
-    const { data, error } = await this.supabase
+    const { data, error } = await (this.supabase as any)
       .from('lc_od_approval_chains')
       .update(dto)
       .eq('id', id)
