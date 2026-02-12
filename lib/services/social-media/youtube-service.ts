@@ -115,6 +115,8 @@ export class YouTubeService {
 
     const playlistResp = await fetch(playlistUrl.toString());
     if (!playlistResp.ok) {
+      // 404 = playlist exists but has no content (channel with 0 videos)
+      if (playlistResp.status === 404) return [];
       throw new Error(`YouTube playlist API error: ${playlistResp.status}`);
     }
 
