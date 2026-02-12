@@ -307,6 +307,17 @@ export class LCEventService {
     eventId: string,
     userId: string
   ): Promise<LCEventParticipant> {
+    // Capacity enforcement: check if event is full before registering
+    const { data: event } = await (this.supabase as any)
+      .from('lc_events')
+      .select('current_participants, max_participants')
+      .eq('id', eventId)
+      .single();
+
+    if (event && event.max_participants && event.current_participants >= event.max_participants) {
+      throw new Error('Event is full — registration closed');
+    }
+
     const { data, error } = await (this.supabase as any)
       .from('lc_event_participants')
       .insert({
@@ -323,17 +334,7 @@ export class LCEventService {
       throw new Error(`Failed to register for event: ${error.message}`);
     }
 
-    // Increment participant count via read + update
-    const { data: event } = await (this.supabase as any)
-      .from('lc_events')
-      .select('current_participants')
-      .eq('id', eventId)
-      .single();
-
-    await (this.supabase as any)
-      .from('lc_events')
-      .update({ current_participants: (event?.current_participants || 0) + 1 })
-      .eq('id', eventId);
+    // current_participants is auto-incremented by database trigger trg_event_participant_count
 
     return data as unknown as LCEventParticipant;
   }
@@ -353,19 +354,7 @@ export class LCEventService {
       throw new Error(`Failed to cancel registration: ${error.message}`);
     }
 
-    // Decrement participant count
-    const { data: event } = await (this.supabase as any)
-      .from('lc_events')
-      .select('current_participants')
-      .eq('id', eventId)
-      .single();
-
-    if (event && event.current_participants > 0) {
-      await (this.supabase as any)
-        .from('lc_events')
-        .update({ current_participants: event.current_participants - 1 })
-        .eq('id', eventId);
-    }
+    // current_participants is auto-decremented by database trigger trg_event_participant_count
   }
 
   /**
