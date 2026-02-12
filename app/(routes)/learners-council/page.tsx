@@ -65,7 +65,7 @@ async function getDashboardStats(userId: string, institutionId: string | null, s
   };
 }
 
-async function getLiveData(userId: string, role: string) {
+async function getLiveData(userId: string, _role: string) {
   const supabase = await createClient();
   const now = new Date().toISOString();
 
