@@ -7,9 +7,12 @@ import type {
   LCNomination,
   LCInterview,
   LCElectionVote,
+  LCPositionHistory,
   CreateElectionDto,
   CreateNominationDto,
-  ElectionStatus
+  ElectionStatus,
+  NominationStatus,
+  InterviewStatus,
 } from '@/types/learners-council';
 
 export class LCSelectionService {
