@@ -249,6 +249,8 @@ export function EventDetailClient({
   userId,
   isRegistered,
   isProposer,
+  isStaffOrAdmin = false,
+  userRole = 'staff',
 }: EventDetailClientProps) {
   const registerForEvent = useRegisterForEvent();
   const cancelRegistration = useCancelRegistration();
