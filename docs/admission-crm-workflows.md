@@ -51,7 +51,7 @@ This is the **single source of truth** for the Admission CRM module. When resumi
 5. [AI & Intelligence Workflows](#5-ai--intelligence-workflows) (6 workflows)
 6. [Consultant Management Workflows](#6-consultant-management-workflows) (8 workflows)
 7. [Post-Decision Workflows](#7-post-decision-workflows) (3 workflows)
-8. [Automation, Rules & Configuration Workflows](#8-automation--rules-workflows) (10 workflows)
+8. [Automation, Rules & Configuration Workflows](#8-automation-rules--configuration-workflows) (10 workflows)
 9. [Data Quality & Compliance Workflows](#9-data-quality--compliance-workflows) (6 workflows)
 10. [Administrative & Configuration Workflows](#10-administrative--configuration-workflows) (2 workflows)
 11. [Cross-Cutting Workflows](#11-cross-cutting-workflows) (3 workflows)
