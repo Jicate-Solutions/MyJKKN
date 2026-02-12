@@ -13,6 +13,7 @@ import type {
   LCForumPost,
   LCForumReaction,
   LCChatChannel,
+  LCChatMember,
   LCChatMessage,
   CreateAnnouncementDto,
   UpdateAnnouncementDto,
@@ -25,6 +26,7 @@ import type {
   AnnouncementStatus,
   PollScope,
   PollStatus,
+  ForumPostStatus,
   ForumReactionType,
   ModerationAction
 } from '@/types/learners-council';
@@ -196,13 +198,15 @@ export class LCCommunicationService {
   }
 
   /**
-   * Mark an announcement as read by a user
+   * Mark an announcement as read by a user.
+   * Inserts into lc_announcement_reads (ON CONFLICT DO NOTHING),
+   * then updates the announcement's read_count from actual row count.
    */
   static async markAnnouncementRead(
     announcementId: string,
     userId: string
   ): Promise<void> {
-    // Upsert to avoid duplicates
+    // Insert read record, ignore if already exists
     const { error } = await (this.supabase as any)
       .from('lc_announcement_reads')
       .upsert(
@@ -211,28 +215,93 @@ export class LCCommunicationService {
           user_id: userId,
           read_at: new Date().toISOString()
         },
-        { onConflict: 'announcement_id,user_id' }
+        { onConflict: 'announcement_id,user_id', ignoreDuplicates: true }
       );
 
     if (error) {
       console.error('[lc/communication] Error marking announcement read:', error);
-      // Non-critical, don't throw
+      return; // Non-critical, don't throw
     }
 
-    // Increment read count on the announcement
-    const { error: rpcError } = await (this.supabase as any).rpc('increment_field', {
-      table_name: 'lc_announcements',
-      field_name: 'read_count',
-      row_id: announcementId
-    });
+    // Update read_count by counting actual rows in lc_announcement_reads
+    const { count } = await (this.supabase as any)
+      .from('lc_announcement_reads')
+      .select('id', { count: 'exact', head: true })
+      .eq('announcement_id', announcementId);
 
-    // If RPC doesn't exist, try direct update
-    if (rpcError) {
+    if (count !== null) {
       await (this.supabase as any)
         .from('lc_announcements')
-        .update({ read_count: this.supabase.rpc ? undefined : 0 })
+        .update({ read_count: count })
         .eq('id', announcementId);
     }
+  }
+
+  /**
+   * Get read statistics for an announcement: count, percentage, reader list
+   */
+  static async getAnnouncementReadStats(announcementId: string): Promise<{
+    read_count: number;
+    read_percentage: number;
+    readers: (LCAnnouncementRead & { user?: { id: string; full_name: string; avatar_url: string | null } })[];
+  }> {
+    // Get reads with user info
+    const { data: reads, error } = await (this.supabase as any)
+      .from('lc_announcement_reads')
+      .select(
+        `
+        *,
+        user:profiles!lc_announcement_reads_user_id_fkey(id, full_name, avatar_url)
+      `
+      )
+      .eq('announcement_id', announcementId)
+      .order('read_at', { ascending: false });
+
+    if (error) {
+      console.error('[lc/communication] Error fetching read stats:', error);
+      throw new Error(`Failed to fetch read stats: ${error.message}`);
+    }
+
+    const readCount = (reads || []).length;
+
+    // Get total active LC members as denominator for percentage
+    const { count: totalMembers } = await (this.supabase as any)
+      .from('lc_members')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'active');
+
+    const readPercentage =
+      totalMembers && totalMembers > 0
+        ? Math.round((readCount / totalMembers) * 100)
+        : 0;
+
+    return {
+      read_count: readCount,
+      read_percentage: readPercentage,
+      readers: (reads || []) as (LCAnnouncementRead & { user?: { id: string; full_name: string; avatar_url: string | null } })[]
+    };
+  }
+
+  /**
+   * Archive an announcement (set status to archived)
+   */
+  static async archiveAnnouncement(announcementId: string): Promise<LCAnnouncement> {
+    const { data, error } = await (this.supabase as any)
+      .from('lc_announcements')
+      .update({
+        status: 'archived' as AnnouncementStatus,
+        archived_at: new Date().toISOString()
+      })
+      .eq('id', announcementId)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('[lc/communication] Error archiving announcement:', error);
+      throw new Error(`Failed to archive announcement: ${error.message}`);
+    }
+
+    return data as LCAnnouncement;
   }
 
   // ============================================================================
@@ -366,23 +435,67 @@ export class LCCommunicationService {
   }
 
   /**
-   * Cast a vote on a poll
+   * Cast a vote on a poll.
+   * Respects allows_multiple flag and max_selections limit.
    */
   static async votePoll(
     pollId: string,
     optionId: string,
     userId: string
   ): Promise<LCPollVote> {
-    // Check if user already voted (for single-vote polls)
-    const { data: existingVote } = await (this.supabase as any)
-      .from('lc_poll_votes')
-      .select('id')
-      .eq('poll_id', pollId)
-      .eq('user_id', userId)
-      .maybeSingle();
+    // Fetch the poll to check allows_multiple and status
+    const { data: poll, error: pollFetchError } = await (this.supabase as any)
+      .from('lc_polls')
+      .select('id, allows_multiple, max_selections, status')
+      .eq('id', pollId)
+      .single();
 
-    if (existingVote) {
-      throw new Error('You have already voted on this poll');
+    if (pollFetchError || !poll) {
+      throw new Error('Poll not found');
+    }
+
+    if (poll.status !== 'active') {
+      throw new Error('This poll is not currently active');
+    }
+
+    if (!poll.allows_multiple) {
+      // Single-choice: block if user already voted on ANY option
+      const { data: existingVote } = await (this.supabase as any)
+        .from('lc_poll_votes')
+        .select('id')
+        .eq('poll_id', pollId)
+        .eq('user_id', userId)
+        .limit(1);
+
+      if (existingVote && existingVote.length > 0) {
+        throw new Error('You have already voted on this poll');
+      }
+    } else {
+      // Multi-choice: block duplicate vote on same option
+      const { data: existingOptionVote } = await (this.supabase as any)
+        .from('lc_poll_votes')
+        .select('id')
+        .eq('poll_id', pollId)
+        .eq('option_id', optionId)
+        .eq('user_id', userId)
+        .limit(1);
+
+      if (existingOptionVote && existingOptionVote.length > 0) {
+        throw new Error('You have already voted for this option');
+      }
+
+      // Enforce max_selections limit
+      if (poll.max_selections) {
+        const { count } = await (this.supabase as any)
+          .from('lc_poll_votes')
+          .select('id', { count: 'exact', head: true })
+          .eq('poll_id', pollId)
+          .eq('user_id', userId);
+
+        if ((count || 0) >= poll.max_selections) {
+          throw new Error(`You can only select up to ${poll.max_selections} options`);
+        }
+      }
     }
 
     // Insert vote
@@ -417,16 +530,16 @@ export class LCCommunicationService {
     }
 
     // Increment poll total votes
-    const { data: poll } = await (this.supabase as any)
+    const { data: pollData } = await (this.supabase as any)
       .from('lc_polls')
       .select('total_votes')
       .eq('id', pollId)
       .single();
 
-    if (poll) {
+    if (pollData) {
       await (this.supabase as any)
         .from('lc_polls')
-        .update({ total_votes: (poll.total_votes || 0) + 1 })
+        .update({ total_votes: (pollData.total_votes || 0) + 1 })
         .eq('id', pollId);
     }
 
@@ -453,7 +566,8 @@ export class LCCommunicationService {
   }
 
   /**
-   * Check if a user has already voted on a poll
+   * Check if a user has already voted on a poll.
+   * Returns the first vote found (works for both single and multi-select).
    */
   static async getUserVote(
     pollId: string,
@@ -464,14 +578,137 @@ export class LCCommunicationService {
       .select('*')
       .eq('poll_id', pollId)
       .eq('user_id', userId)
-      .maybeSingle();
+      .limit(1);
 
     if (error) {
       console.error('[lc/communication] Error checking user vote:', error);
       return null;
     }
 
-    return data as LCPollVote | null;
+    return data && data.length > 0 ? (data[0] as LCPollVote) : null;
+  }
+
+  /**
+   * Activate a poll (draft -> active)
+   */
+  static async activatePoll(pollId: string): Promise<LCPoll> {
+    const { data, error } = await (this.supabase as any)
+      .from('lc_polls')
+      .update({ status: 'active' as PollStatus })
+      .eq('id', pollId)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('[lc/communication] Error activating poll:', error);
+      throw new Error(`Failed to activate poll: ${error.message}`);
+    }
+
+    return data as LCPoll;
+  }
+
+  /**
+   * Pause a poll (active -> paused)
+   */
+  static async pausePoll(pollId: string): Promise<LCPoll> {
+    const { data, error } = await (this.supabase as any)
+      .from('lc_polls')
+      .update({ status: 'paused' as PollStatus })
+      .eq('id', pollId)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('[lc/communication] Error pausing poll:', error);
+      throw new Error(`Failed to pause poll: ${error.message}`);
+    }
+
+    return data as LCPoll;
+  }
+
+  /**
+   * Resume a poll (paused -> active)
+   */
+  static async resumePoll(pollId: string): Promise<LCPoll> {
+    const { data, error } = await (this.supabase as any)
+      .from('lc_polls')
+      .update({ status: 'active' as PollStatus })
+      .eq('id', pollId)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('[lc/communication] Error resuming poll:', error);
+      throw new Error(`Failed to resume poll: ${error.message}`);
+    }
+
+    return data as LCPoll;
+  }
+
+  /**
+   * Get poll results with voter demographic breakdown by institution
+   */
+  static async getPollResultsWithDemographics(pollId: string): Promise<{
+    poll: LCPoll;
+    total_votes: number;
+    institution_breakdown: { institution_id: string; institution_name: string; vote_count: number }[];
+  }> {
+    // Get the poll with options
+    const poll = await this.getPollById(pollId);
+
+    // Get all votes for this poll
+    const { data: votes, error } = await (this.supabase as any)
+      .from('lc_poll_votes')
+      .select('id, option_id, user_id, voted_at')
+      .eq('poll_id', pollId);
+
+    if (error) {
+      console.error('[lc/communication] Error fetching poll results:', error);
+      throw new Error(`Failed to fetch poll results: ${error.message}`);
+    }
+
+    const allVotes = votes || [];
+
+    if (allVotes.length === 0) {
+      return { poll, total_votes: 0, institution_breakdown: [] };
+    }
+
+    // Get voter institution info via lc_members
+    const voterIds = [...new Set(allVotes.map((v: any) => v.user_id))] as string[];
+    const { data: members } = await (this.supabase as any)
+      .from('lc_members')
+      .select('user_id, institution_id, institution:institutions(id, name)')
+      .in('user_id', voterIds)
+      .eq('status', 'active');
+
+    // Build user-to-institution map (first active membership)
+    const userInstMap = new Map<string, { id: string; name: string }>();
+    for (const m of (members || []) as any[]) {
+      if (!userInstMap.has(m.user_id) && m.institution) {
+        userInstMap.set(m.user_id, { id: m.institution_id, name: m.institution.name });
+      }
+    }
+
+    // Count votes per institution
+    const instCountMap = new Map<string, { institution_id: string; institution_name: string; vote_count: number }>();
+    for (const v of allVotes) {
+      const inst = userInstMap.get(v.user_id);
+      const key = inst?.id || 'unknown';
+      if (!instCountMap.has(key)) {
+        instCountMap.set(key, {
+          institution_id: key,
+          institution_name: inst?.name || 'Other',
+          vote_count: 0
+        });
+      }
+      instCountMap.get(key)!.vote_count++;
+    }
+
+    return {
+      poll,
+      total_votes: allVotes.length,
+      institution_breakdown: Array.from(instCountMap.values())
+    };
   }
 
   // ============================================================================
@@ -572,7 +809,8 @@ export class LCCommunicationService {
   }
 
   /**
-   * Get posts for a topic with pagination
+   * Get posts for a topic with pagination.
+   * Fixed: uses 2 queries instead of N+1 (one for parents, one for all replies).
    */
   static async getTopicPosts(
     topicId: string,
@@ -582,7 +820,8 @@ export class LCCommunicationService {
     const from = (page - 1) * limit;
     const to = from + limit - 1;
 
-    const { data, count, error } = await (this.supabase as any)
+    // Query 1: Get paginated top-level posts with reactions
+    const { data: parentPosts, count, error } = await (this.supabase as any)
       .from('lc_forum_posts')
       .select(
         `
@@ -593,7 +832,7 @@ export class LCCommunicationService {
         { count: 'exact' }
       )
       .eq('topic_id', topicId)
-      .is('parent_id', null) // Only top-level posts
+      .is('parent_id', null)
       .neq('status', 'deleted')
       .order('created_at', { ascending: true })
       .range(from, to);
@@ -603,31 +842,53 @@ export class LCCommunicationService {
       throw new Error(`Failed to fetch posts: ${error.message}`);
     }
 
-    // For each top-level post, also fetch replies
-    const posts = (data || []) as LCForumPost[];
-    for (const post of posts) {
-      const { data: replies } = await (this.supabase as any)
-        .from('lc_forum_posts')
-        .select(
-          `
-          *,
-          author:profiles!lc_forum_posts_author_id_fkey(id, full_name, avatar_url),
-          reactions:lc_forum_reactions(id, post_id, user_id, type)
+    const posts = (parentPosts || []) as LCForumPost[];
+
+    if (posts.length === 0) {
+      return { data: [], total: count || 0 };
+    }
+
+    // Query 2: Get ALL replies for these parent posts in ONE batch
+    const parentIds = posts.map((p) => p.id);
+    const { data: allReplies } = await (this.supabase as any)
+      .from('lc_forum_posts')
+      .select(
         `
-        )
-        .eq('parent_id', post.id)
-        .neq('status', 'deleted')
-        .order('created_at', { ascending: true });
+        *,
+        author:profiles!lc_forum_posts_author_id_fkey(id, full_name, avatar_url),
+        reactions:lc_forum_reactions(id, post_id, user_id, type)
+      `
+      )
+      .in('parent_id', parentIds)
+      .neq('status', 'deleted')
+      .order('created_at', { ascending: true });
 
-      post.replies = (replies || []) as LCForumPost[];
+    // Group replies by parent_id
+    const repliesMap = new Map<string, LCForumPost[]>();
+    for (const reply of ((allReplies || []) as LCForumPost[])) {
+      const reactions = (reply.reactions || []) as LCForumReaction[];
+      reply.reaction_counts = {
+        like: reactions.filter((r) => r.type === 'like').length,
+        save: reactions.filter((r) => r.type === 'save').length,
+        flag: reactions.filter((r) => r.type === 'flag').length
+      };
 
-      // Calculate reaction counts
+      const parentId = reply.parent_id!;
+      if (!repliesMap.has(parentId)) {
+        repliesMap.set(parentId, []);
+      }
+      repliesMap.get(parentId)!.push(reply);
+    }
+
+    // Attach replies and calculate reaction counts for parent posts
+    for (const post of posts) {
       const reactions = (post.reactions || []) as LCForumReaction[];
       post.reaction_counts = {
         like: reactions.filter((r) => r.type === 'like').length,
         save: reactions.filter((r) => r.type === 'save').length,
         flag: reactions.filter((r) => r.type === 'flag').length
       };
+      post.replies = repliesMap.get(post.id) || [];
     }
 
     return { data: posts, total: count || 0 };
@@ -675,6 +936,37 @@ export class LCCommunicationService {
     }
 
     return post as LCForumPost;
+  }
+
+  /**
+   * Edit an existing forum post's content
+   */
+  static async editPost(
+    postId: string,
+    content: string,
+    _editedBy: string
+  ): Promise<LCForumPost> {
+    const { data, error } = await (this.supabase as any)
+      .from('lc_forum_posts')
+      .update({
+        content,
+        edited_at: new Date().toISOString()
+      })
+      .eq('id', postId)
+      .select(
+        `
+        *,
+        author:profiles!lc_forum_posts_author_id_fkey(id, full_name, avatar_url)
+      `
+      )
+      .single();
+
+    if (error) {
+      console.error('[lc/communication] Error editing post:', error);
+      throw new Error(`Failed to edit post: ${error.message}`);
+    }
+
+    return data as LCForumPost;
   }
 
   /**
@@ -763,6 +1055,98 @@ export class LCCommunicationService {
     }
 
     return data as LCForumPost;
+  }
+
+  /**
+   * Pin or unpin a forum topic
+   */
+  static async pinTopic(
+    topicId: string,
+    pinned: boolean
+  ): Promise<LCForumTopic> {
+    const { data, error } = await (this.supabase as any)
+      .from('lc_forum_topics')
+      .update({ is_pinned: pinned })
+      .eq('id', topicId)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('[lc/communication] Error pinning topic:', error);
+      throw new Error(`Failed to ${pinned ? 'pin' : 'unpin'} topic: ${error.message}`);
+    }
+
+    return data as LCForumTopic;
+  }
+
+  /**
+   * Lock or unlock a forum topic
+   */
+  static async lockTopic(
+    topicId: string,
+    locked: boolean
+  ): Promise<LCForumTopic> {
+    const { data, error } = await (this.supabase as any)
+      .from('lc_forum_topics')
+      .update({ is_locked: locked })
+      .eq('id', topicId)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('[lc/communication] Error locking topic:', error);
+      throw new Error(`Failed to ${locked ? 'lock' : 'unlock'} topic: ${error.message}`);
+    }
+
+    return data as LCForumTopic;
+  }
+
+  /**
+   * Get flagged/moderated posts for moderator view
+   */
+  static async getFlaggedPosts(filters: {
+    status?: ForumPostStatus;
+    page?: number;
+    limit?: number;
+  }): Promise<{ data: LCForumPost[]; total: number }> {
+    const page = filters.page || 1;
+    const limit = filters.limit || 20;
+    const from = (page - 1) * limit;
+    const to = from + limit - 1;
+    const status = filters.status || 'flagged';
+
+    const { data, count, error } = await (this.supabase as any)
+      .from('lc_forum_posts')
+      .select(
+        `
+        *,
+        author:profiles!lc_forum_posts_author_id_fkey(id, full_name, avatar_url),
+        reactions:lc_forum_reactions(id, post_id, user_id, type),
+        topic:lc_forum_topics!lc_forum_posts_topic_id_fkey(id, title, category)
+      `,
+        { count: 'exact' }
+      )
+      .eq('status', status)
+      .order('updated_at', { ascending: false })
+      .range(from, to);
+
+    if (error) {
+      console.error('[lc/communication] Error fetching flagged posts:', error);
+      throw new Error(`Failed to fetch flagged posts: ${error.message}`);
+    }
+
+    // Calculate reaction counts
+    const posts = (data || []) as LCForumPost[];
+    for (const post of posts) {
+      const reactions = (post.reactions || []) as LCForumReaction[];
+      post.reaction_counts = {
+        like: reactions.filter((r) => r.type === 'like').length,
+        save: reactions.filter((r) => r.type === 'save').length,
+        flag: reactions.filter((r) => r.type === 'flag').length
+      };
+    }
+
+    return { data: posts, total: count || 0 };
   }
 
   // ============================================================================
@@ -985,6 +1369,100 @@ export class LCCommunicationService {
     if (error) {
       console.error('[lc/communication] Error marking channel read:', error);
       // Non-critical
+    }
+  }
+
+  /**
+   * Edit a chat message (sender only via RLS)
+   */
+  static async editMessage(
+    messageId: string,
+    content: string
+  ): Promise<LCChatMessage> {
+    const { data, error } = await (this.supabase as any)
+      .from('lc_chat_messages')
+      .update({
+        content,
+        is_edited: true
+      })
+      .eq('id', messageId)
+      .select(
+        `
+        *,
+        sender:profiles!lc_chat_messages_sender_id_fkey(id, full_name, avatar_url)
+      `
+      )
+      .single();
+
+    if (error) {
+      console.error('[lc/communication] Error editing message:', error);
+      throw new Error(`Failed to edit message: ${error.message}`);
+    }
+
+    return data as LCChatMessage;
+  }
+
+  /**
+   * Soft-delete a chat message (sender only via RLS)
+   */
+  static async deleteMessage(messageId: string): Promise<void> {
+    const { error } = await (this.supabase as any)
+      .from('lc_chat_messages')
+      .update({ is_deleted: true })
+      .eq('id', messageId);
+
+    if (error) {
+      console.error('[lc/communication] Error deleting message:', error);
+      throw new Error(`Failed to delete message: ${error.message}`);
+    }
+  }
+
+  /**
+   * Add a member to a chat channel
+   */
+  static async addChannelMember(
+    channelId: string,
+    userId: string,
+    role: 'admin' | 'member' = 'member'
+  ): Promise<LCChatMember> {
+    const { data, error } = await (this.supabase as any)
+      .from('lc_chat_members')
+      .upsert(
+        {
+          channel_id: channelId,
+          user_id: userId,
+          role,
+          joined_at: new Date().toISOString()
+        },
+        { onConflict: 'channel_id,user_id' }
+      )
+      .select()
+      .single();
+
+    if (error) {
+      console.error('[lc/communication] Error adding channel member:', error);
+      throw new Error(`Failed to add channel member: ${error.message}`);
+    }
+
+    return data as LCChatMember;
+  }
+
+  /**
+   * Remove a member from a chat channel
+   */
+  static async removeChannelMember(
+    channelId: string,
+    userId: string
+  ): Promise<void> {
+    const { error } = await (this.supabase as any)
+      .from('lc_chat_members')
+      .delete()
+      .eq('channel_id', channelId)
+      .eq('user_id', userId);
+
+    if (error) {
+      console.error('[lc/communication] Error removing channel member:', error);
+      throw new Error(`Failed to remove channel member: ${error.message}`);
     }
   }
 }
