@@ -97,6 +97,12 @@ export function NominationsClient({
   const scheduleInterview = useScheduleInterview();
   const submitScore = useSubmitInterviewScore();
   const castVote = useCastVote();
+  const withdrawNomination = useWithdrawNomination();
+
+  // Withdraw state
+  const [withdrawOpen, setWithdrawOpen] = useState(false);
+  const [withdrawNomId, setWithdrawNomId] = useState('');
+  const [withdrawReason, setWithdrawReason] = useState('');
 
   // Self-nomination form state
   const [nomOpen, setNomOpen] = useState(false);
