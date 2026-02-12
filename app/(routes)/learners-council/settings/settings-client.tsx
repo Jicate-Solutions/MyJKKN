@@ -121,7 +121,8 @@ export function SettingsClient({ userId, initialPreferences }: SettingsClientPro
       const supabase = createClientSupabaseClient();
 
       for (const [type, pref] of Object.entries(preferences)) {
-        await supabase
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await (supabase as any)
           .from('lc_notification_preferences')
           .upsert(
             {
