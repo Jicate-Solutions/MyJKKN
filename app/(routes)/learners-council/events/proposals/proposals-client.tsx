@@ -129,6 +129,12 @@ function CreateEventForm({
     e.preventDefault();
     if (!form.title || !form.description || !form.type || !form.starts_at || !form.ends_at) return;
 
+    // Validate end date is after start date
+    if (new Date(form.ends_at) <= new Date(form.starts_at)) {
+      toast.error('End date must be after start date');
+      return;
+    }
+
     createEvent.mutate(
       {
         data: {
