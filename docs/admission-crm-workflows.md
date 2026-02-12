@@ -274,7 +274,7 @@ engagement_score      INTEGER
 quality_score         INTEGER
 combined_score        INTEGER
 score                 INTEGER
-score_category        TEXT (hot/warm/cold)
+score_category        VARCHAR (hot/warm/cold)
 score_breakdown       JSONB
 score_updated_at      TIMESTAMPTZ
 next_followup_at      TIMESTAMPTZ
