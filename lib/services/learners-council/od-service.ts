@@ -436,4 +436,292 @@ export class LCODService {
 
     return data as unknown as LCODApprovalChain;
   }
+
+  /**
+   * Soft-delete an approval chain by setting is_active to false
+   */
+  static async deleteApprovalChain(chainId: string): Promise<LCODApprovalChain> {
+    const { data, error } = await (this.supabase as any)
+      .from('lc_od_approval_chains')
+      .update({ is_active: false })
+      .eq('id', chainId)
+      .select('*')
+      .single();
+
+    if (error) {
+      console.error('[learners-council/od] Error deleting approval chain:', error);
+      throw new Error(`Failed to delete approval chain: ${error.message}`);
+    }
+
+    return data as unknown as LCODApprovalChain;
+  }
+
+  // ============================================================================
+  // OD REQUEST ACTIONS
+  // ============================================================================
+
+  /**
+   * Cancel an OD request with a reason
+   */
+  static async cancelODRequest(
+    requestId: string,
+    reason: string
+  ): Promise<LCODRequest> {
+    // Only draft, submitted, or in_review requests can be cancelled
+    const { data: existing } = await (this.supabase as any)
+      .from('lc_od_requests')
+      .select('id, status')
+      .eq('id', requestId)
+      .single();
+
+    if (!existing) {
+      throw new Error('OD request not found');
+    }
+    if (!['draft', 'submitted', 'in_review'].includes(existing.status)) {
+      throw new Error(`Cannot cancel a request with status: ${existing.status}`);
+    }
+
+    const { data, error } = await (this.supabase as any)
+      .from('lc_od_requests')
+      .update({
+        status: 'cancelled' as ODRequestStatus,
+        conflict_details: reason,
+        completed_at: new Date().toISOString(),
+      })
+      .eq('id', requestId)
+      .select(OD_REQUEST_SELECT)
+      .single();
+
+    if (error) {
+      console.error('[learners-council/od] Error cancelling OD request:', error);
+      throw new Error(`Failed to cancel OD request: ${error.message}`);
+    }
+
+    return data as unknown as LCODRequest;
+  }
+
+  /**
+   * Reassign an OD request to a new approver with reason (smart correction).
+   * Records the reassignment as an audit trail entry in lc_od_approvals.
+   */
+  static async reassignODRequest(
+    requestId: string,
+    newApproverId: string,
+    reason: string
+  ): Promise<LCODRequest> {
+    // Get request with current step
+    const { data: request } = await (this.supabase as any)
+      .from('lc_od_requests')
+      .select('*, chain:lc_od_approval_chains(id, name, steps)')
+      .eq('id', requestId)
+      .single();
+
+    if (!request) {
+      throw new Error('OD request not found');
+    }
+    if (!['submitted', 'in_review'].includes(request.status)) {
+      throw new Error(`Cannot reassign a request with status: ${request.status}`);
+    }
+
+    // Record the reassignment action as an audit trail entry
+    const { error: auditError } = await (this.supabase as any)
+      .from('lc_od_approvals')
+      .insert({
+        request_id: requestId,
+        approver_id: newApproverId,
+        step_order: request.current_step || 1,
+        action: 'reassign',
+        comments: reason,
+        acted_at: new Date().toISOString(),
+      });
+
+    if (auditError) {
+      console.error('[learners-council/od] Error recording reassignment:', auditError);
+      throw new Error(`Failed to record reassignment: ${auditError.message}`);
+    }
+
+    // Fetch updated request
+    const { data, error } = await (this.supabase as any)
+      .from('lc_od_requests')
+      .select(OD_REQUEST_SELECT)
+      .eq('id', requestId)
+      .single();
+
+    if (error) {
+      console.error('[learners-council/od] Error fetching reassigned request:', error);
+      throw new Error(`Failed to fetch reassigned request: ${error.message}`);
+    }
+
+    return data as unknown as LCODRequest;
+  }
+
+  /**
+   * Check for academic conflicts (timetable/attendance overlaps).
+   * Returns conflict info for the given user and date range.
+   * This is a stub that checks for date-based overlaps in daily_attendance.
+   */
+  static async checkAcademicConflicts(
+    userId: string,
+    startDate: string,
+    endDate: string
+  ): Promise<{ hasConflict: boolean; details: string | null }> {
+    try {
+      // Check daily_attendance for existing records in the date range
+      const { data: attendanceRecords, error } = await (this.supabase as any)
+        .from('daily_attendance')
+        .select('id, date, status')
+        .eq('student_id', userId)
+        .gte('date', startDate)
+        .lte('date', endDate);
+
+      if (error) {
+        // Table may not exist or schema differs; return no conflict
+        console.warn('[learners-council/od] Could not check academic conflicts:', error.message);
+        return { hasConflict: false, details: null };
+      }
+
+      if (attendanceRecords && attendanceRecords.length > 0) {
+        const dates = attendanceRecords.map((r: any) => r.date).join(', ');
+        return {
+          hasConflict: true,
+          details: `Attendance records found for dates: ${dates}. Please verify no exams or mandatory classes overlap.`,
+        };
+      }
+
+      return { hasConflict: false, details: null };
+    } catch (err) {
+      console.warn('[learners-council/od] Academic conflict check failed:', err);
+      return { hasConflict: false, details: null };
+    }
+  }
+
+  /**
+   * Auto-update attendance for an approved OD request.
+   * Marks the learner as OD in daily_attendance for the request date range.
+   * Stub: attempts to upsert into daily_attendance; gracefully handles if table schema differs.
+   */
+  static async autoUpdateAttendance(requestId: string): Promise<{ success: boolean; message: string }> {
+    try {
+      // Get the OD request details
+      const { data: request, error: reqError } = await (this.supabase as any)
+        .from('lc_od_requests')
+        .select('requester_id, start_date, end_date, status, institution_id')
+        .eq('id', requestId)
+        .single();
+
+      if (reqError || !request) {
+        throw new Error('OD request not found');
+      }
+      if (request.status !== 'approved') {
+        throw new Error('OD request must be approved before updating attendance');
+      }
+
+      // Generate dates between start_date and end_date
+      const dates: string[] = [];
+      const start = new Date(request.start_date);
+      const end = new Date(request.end_date);
+      for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+        dates.push(d.toISOString().split('T')[0]);
+      }
+
+      // Attempt to upsert OD status into daily_attendance
+      const records = dates.map((date) => ({
+        student_id: request.requester_id,
+        date,
+        status: 'OD',
+        institution_id: request.institution_id,
+      }));
+
+      const { error: upsertError } = await (this.supabase as any)
+        .from('daily_attendance')
+        .upsert(records, { onConflict: 'student_id,date' });
+
+      if (upsertError) {
+        console.warn('[learners-council/od] Could not auto-update attendance:', upsertError.message);
+        return { success: false, message: `Attendance update failed: ${upsertError.message}. Manual update may be required.` };
+      }
+
+      return { success: true, message: `Attendance marked as OD for ${dates.length} day(s).` };
+    } catch (err: any) {
+      console.error('[learners-council/od] Auto-update attendance error:', err);
+      return { success: false, message: err.message || 'Failed to auto-update attendance' };
+    }
+  }
+
+  /**
+   * Create a bulk OD request for multiple learners.
+   * Creates individual OD requests for each learner in a single batch.
+   */
+  static async bulkODRequest(
+    data: {
+      event_id?: string;
+      reason: string;
+      start_date: string;
+      end_date: string;
+      duration_hours: number;
+      learner_ids: string[];
+    },
+    creatorId: string,
+    institutionId: string
+  ): Promise<{ created: LCODRequest[]; errors: { learner_id: string; error: string }[] }> {
+    if (!data.learner_ids || data.learner_ids.length === 0) {
+      throw new Error('At least one learner ID is required for bulk OD request');
+    }
+
+    // Find the active approval chain for this institution
+    const { data: chains, error: chainError } = await (this.supabase as any)
+      .from('lc_od_approval_chains')
+      .select('id, name, steps')
+      .eq('institution_id', institutionId)
+      .eq('is_active', true)
+      .limit(1);
+
+    if (chainError) {
+      console.error('[learners-council/od] Error fetching approval chains for bulk:', chainError);
+      throw new Error(`Failed to fetch approval chains: ${chainError.message}`);
+    }
+
+    if (!chains || chains.length === 0) {
+      throw new Error(
+        'No active approval chain configured for this institution. Please ask an administrator to set up an OD approval chain before submitting requests.'
+      );
+    }
+
+    const chainId = chains[0].id;
+    const created: LCODRequest[] = [];
+    const errors: { learner_id: string; error: string }[] = [];
+
+    // Create individual requests for each learner
+    const records = data.learner_ids.map((learnerId) => ({
+      request_number: `OD-${Date.now().toString(36).toUpperCase()}-${learnerId.slice(0, 4)}`,
+      requester_id: learnerId,
+      institution_id: institutionId,
+      event_id: data.event_id || null,
+      chain_id: chainId,
+      reason: data.reason,
+      category: 'bulk',
+      start_date: data.start_date,
+      end_date: data.end_date,
+      duration_hours: data.duration_hours,
+      status: 'draft' as ODRequestStatus,
+      current_step: 0,
+      has_academic_conflict: false,
+    }));
+
+    const { data: insertedData, error: insertError } = await (this.supabase as any)
+      .from('lc_od_requests')
+      .insert(records)
+      .select(OD_REQUEST_SELECT);
+
+    if (insertError) {
+      console.error('[learners-council/od] Error in bulk OD creation:', insertError);
+      throw new Error(`Failed to create bulk OD requests: ${insertError.message}`);
+    }
+
+    if (insertedData) {
+      created.push(...(insertedData as unknown as LCODRequest[]));
+    }
+
+    return { created, errors };
+  }
 }
