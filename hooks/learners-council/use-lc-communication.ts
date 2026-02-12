@@ -635,7 +635,8 @@ export function useChatChannels(userId: string) {
     queryFn: () => LCCommunicationService.getChannels(userId),
     enabled: !!userId,
     staleTime: 15 * 1000, // 15 seconds
-    refetchInterval: 30 * 1000 // Poll every 30 seconds
+    refetchInterval: 30 * 1000, // Poll every 30 seconds
+    refetchIntervalInBackground: false, // Don't poll when tab is inactive
   });
 }
 
@@ -648,7 +649,8 @@ export function useChannelMessages(channelId: string, page = 1, limit = 50) {
     queryFn: () => LCCommunicationService.getChannelMessages(channelId, page, limit),
     enabled: !!channelId,
     staleTime: 10 * 1000, // 10 seconds
-    refetchInterval: 15 * 1000 // Poll every 15 seconds for new messages
+    refetchInterval: 15 * 1000, // Poll every 15 seconds for new messages
+    refetchIntervalInBackground: false, // Don't poll when tab is inactive
   });
 }
 
