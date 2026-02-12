@@ -2,6 +2,7 @@
 // LC-004: OD Management - Service Layer
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { LCNotificationService } from './notification-service';
 import type {
   LCODRequest,
   LCODApproval,
