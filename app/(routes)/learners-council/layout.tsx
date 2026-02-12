@@ -19,6 +19,7 @@ import {
   Settings
 } from 'lucide-react';
 import { getEnhancedUserProfile, createClient } from '@/lib/supabase/server';
+import { getLCRole, canSeeSelectionTab, isStaffRole } from '@/lib/learners-council/lc-roles';
 
 interface LCLayoutProps {
   children: React.ReactNode;
@@ -26,23 +27,25 @@ interface LCLayoutProps {
 
 export default async function LearnersCouncilLayout({ children }: LCLayoutProps) {
   const { profile } = await getEnhancedUserProfile();
+  const supabase = await createClient();
 
-  const isStaffOrAdmin = ['admin', 'super_admin', 'staff', 'hod', 'principal'].includes(
-    profile?.role || ''
-  );
-
-  // Check if user is an active LC member (for Selection tab visibility)
-  let showSelectionTab = isStaffOrAdmin;
-  if (!isStaffOrAdmin && profile?.id) {
-    const supabase = await createClient();
+  // Fetch LC membership with position details for role resolution
+  let lcMembershipInfo: { position_category?: string | null; tier?: string | null } | null = null;
+  if (profile?.id) {
     const { data: lcMembership } = await supabase
       .from('lc_members')
-      .select('id')
+      .select('id, position:lc_positions(category, tier)')
       .eq('user_id', profile.id)
       .eq('status', 'active')
       .maybeSingle();
-    showSelectionTab = !!lcMembership;
+    if (lcMembership) {
+      const pos = lcMembership.position as any;
+      lcMembershipInfo = { position_category: pos?.category, tier: pos?.tier };
+    }
   }
+
+  const lcRole = getLCRole(profile?.role || null, lcMembershipInfo);
+  const showSelectionTab = canSeeSelectionTab(lcRole);
 
   return (
     <ContentLayout title="Learners Council">
