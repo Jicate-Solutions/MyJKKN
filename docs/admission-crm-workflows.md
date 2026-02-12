@@ -2969,19 +2969,6 @@ Multiple services use Supabase Realtime subscriptions:
 
 ---
 
-### Consultants (Extended)
-
-| Table | Service | Purpose |
-|-------|---------|---------|
-| `education_consultants` | ConsultantService | Consultant/publisher profiles |
-| `consultant_commission_transactions` | ConsultantService | Commission transaction ledger |
-| `consultant_lead_attributions` | ConsultantService | Lead-to-consultant attribution tracking |
-| `consultant_commissions` | ConsultantService | Legacy commission records |
-| `consultant_payouts` | ConsultantService | Payout records |
-| `consultant_portal_access` | ConsultantService | Portal access config |
-| `referral_reward_configs` | ConsultantService | Reward program definitions |
-| `referral_rewards` | ConsultantService | Individual reward instances |
-
 ### RPCs (Complete)
 
 | RPC Name | Service | Purpose |
