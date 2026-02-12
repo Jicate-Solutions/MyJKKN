@@ -26,7 +26,6 @@ import {
 import {
   type SmAccount,
   type SmPlatform,
-  type SmHealthStatus,
   PLATFORM_LABELS,
   PLATFORM_COLORS,
   HEALTH_STATUS_LABELS,

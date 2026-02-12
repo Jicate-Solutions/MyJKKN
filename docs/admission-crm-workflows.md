@@ -1,13 +1,39 @@
-# Admission CRM - Complete Workflow Documentation
+# Admission CRM - Master Specification & Implementation Guide
 
-> **Last Updated:** 2026-02-11
+> **Last Updated:** 2026-02-12
 > **Module:** Admission CRM (`/admission/*`)
-> **Services:** 43 service files | **Routes:** 50+ pages | **Hooks:** 38+ | **Tables:** 60+
+> **Services:** 43 files | **Routes:** 61 pages | **Hooks:** 38+ | **Tables:** 60+ | **Workflows:** 61
+> **Status:** Phase 0 COMPLETE (Supabase wiring) | Phase 1 IN PROGRESS (Verification & Repair)
+
+---
+
+## HOW TO USE THIS FILE
+
+This is the **single source of truth** for the Admission CRM module. When resuming work after a context clear:
+
+1. Read THIS file first (sections P0-P1 for current status)
+2. Check which phase you're on and what's next
+3. The workflow documentation (sections 1-13) is the complete spec
+4. Database schema and known gotchas are in section P0
+5. Test plan with 30 test cases is in section P1
 
 ---
 
 ## Table of Contents
 
+**IMPLEMENTATION PHASES:**
+- [P0: Foundation & Supabase Wiring](#p0-foundation--supabase-wiring-complete) (COMPLETE)
+- [P1: Module Verification & Repair](#p1-module-verification--repair-in-progress) (IN PROGRESS - 3/30)
+- [P2: UI Polish & Missing Features](#p2-ui-polish--missing-features-pending) (PENDING)
+- [P3: Integration & External APIs](#p3-integration--external-apis-pending) (PENDING)
+- [P4: Production Hardening](#p4-production-hardening-pending) (PENDING)
+
+**DATABASE & ARCHITECTURE:**
+- [Database Schema Reference](#database-schema-reference)
+- [Known Schema Mismatches](#known-schema-mismatches-critical)
+- [Complete File Inventory](#complete-file-inventory)
+
+**WORKFLOW SPECIFICATIONS (61 workflows):**
 1. [Master Lifecycle Workflow](#1-master-lifecycle-workflow)
 2. [Lead Management Workflows](#2-lead-management-workflows) (7 workflows)
 3. [Application Processing Workflows](#3-application-processing-workflows) (9 workflows)
@@ -21,6 +47,421 @@
 11. [Cross-Cutting Workflows](#11-cross-cutting-workflows) (3 workflows)
 12. [Service-to-Table Mapping](#12-service-to-table-mapping)
 13. [External API Dependencies](#13-external-api-dependencies)
+
+---
+
+# IMPLEMENTATION PHASES
+
+## P0: Foundation & Supabase Wiring (COMPLETE)
+
+**Status:** DONE (2026-02-10)
+**Method:** 7 parallel fullstack-developer agents ("admission-blitz" team)
+
+All ~50 admission CRM pages wired from mock/placeholder data to real Supabase queries.
+
+### What Was Built
+
+| Agent | Scope | Status |
+|-------|-------|--------|
+| hook-wirer | 23 TODO stubs in hooks (8 in index.ts, 15 in use-consultants.ts) | DONE |
+| selection-flow | GD-PI, Screening Exam, Merit List, Interviews pages | DONE |
+| offer-enrollment | Offer Letter, Seat Confirmation, Lateral Entry pages | DONE |
+| analytics-config | Analytics, Insights, Settings, Scoring/Assignment/Workflow configs | DONE |
+| consultant-portal | Consultant CRUD, Commissions, Rewards, Analytics + CSV export | DONE |
+| comms-daily-ops | Communication, Templates, Campaigns, Reminders, Status Tracking | DONE |
+| data-quality-finance | Phone Validation, Data Profiling, Dedup, Scholarships, Loans, Hostels, Documents, Sources, Publishers, Feedback, Re-engagement | DONE |
+
+**17 new service files created.** Build passes (650 pages). Tests: 655/655 PASS.
+
+### Migrations Applied
+
+| Migration | Purpose |
+|-----------|---------|
+| `20250131_update_learner_admission_fields.sql` | Learner profile admission fields |
+| `20260203000002_create_admission_crm_tables.sql` | Core admission tables |
+| `20260204100000_add_admission_crm_tables.sql` | Additional admission tables |
+| `20260204115310_create_admission_sms_logs.sql` | SMS communication logging |
+| `20260204130019_create_admission_lead_scores_table.sql` | Lead scoring table |
+| `20260204130025_create_admission_daily_briefings.sql` | Daily briefing tables |
+
+---
+
+## P1: Module Verification & Repair (IN PROGRESS)
+
+**Status:** 3/30 test cases done
+**Goal:** Every page loads, every button works, every service hits real DB correctly
+
+### Test Environment
+
+| Item | Value |
+|------|-------|
+| Staging DB | `hhprjbgknupaplivtoib` |
+| Test user | `test-superadmin@jkkn.local` / `SuperAdmin@123` |
+| Institution ID | `a1111111-1111-1111-1111-111111111111` |
+| Live URL | `https://myjkkn-omm-dev.vercel.app` |
+
+### Test Cases (30 total)
+
+| ID | Test | Route | Priority | Status |
+|----|------|-------|----------|--------|
+| P1-001 | Dashboard loads with real data | `/admission/dashboard` | P0 | FIXED |
+| P1-002 | Create a new lead | `/admission/leads/new` | P0 | IN PROGRESS |
+| P1-003 | View lead list with filters | `/admission/leads` | P0 | FIXED |
+| P1-004 | View lead detail | `/admission/leads/[id]` | P0 | PENDING |
+| P1-005 | Update lead stage | `/admission/leads/[id]` | P0 | PENDING |
+| P1-006 | Assign counselor to lead | `/admission/leads/[id]` | P0 | PENDING |
+| P1-007 | Log activity on lead | `/admission/leads/[id]` | P0 | PENDING |
+| P1-008 | Schedule follow-up | `/admission/leads/[id]` | P0 | PENDING |
+| P1-009 | Mark lead as hot/priority | `/admission/leads` | P0 | PENDING |
+| P1-010 | Create application from lead | `/admission/applications` | P0 | PENDING |
+| P1-011 | Funnel visualization accuracy | `/admission/dashboard` | P1 | PENDING |
+| P1-012 | Lead scoring calculates | `/admission/leads/[id]` | P1 | PENDING |
+| P1-013 | Counselor list loads | `/admission/counselors` | P1 | PENDING |
+| P1-014 | Analytics dashboard | `/admission/analytics` | P1 | PENDING |
+| P1-015 | Communication templates list | `/admission/templates` | P1 | PENDING |
+| P1-016 | Interview scheduling | `/admission/interviews` | P1 | PENDING |
+| P1-017 | Offer letter generation | `/admission/offer-letter` | P1 | PENDING |
+| P1-018 | Seat confirmation flow | `/admission/seat-confirmation` | P1 | PENDING |
+| P1-019 | Document upload & verification | `/admission/documents` | P1 | PENDING |
+| P1-020 | GD-PI session management | `/admission/gd-pi` | P1 | PENDING |
+| P1-021 | Scoring rules CRUD | `/admission/scoring-rules` | P2 | PENDING |
+| P1-022 | Assignment rules CRUD | `/admission/assignment-rules` | P2 | PENDING |
+| P1-023 | Workflow builder | `/admission/workflows` | P2 | PENDING |
+| P1-024 | Campaign monitoring | `/admission/campaigns/monitoring` | P2 | PENDING |
+| P1-025 | AI insights generation | `/admission/insights` | P2 | PENDING |
+| P1-026 | Daily briefing | `/admission/briefing` | P2 | PENDING |
+| P1-027 | Consultant management | `/admission/consultants` | P2 | PENDING |
+| P1-028 | Publisher management | `/admission/publishers` | P2 | PENDING |
+| P1-029 | Deduplication detection | `/admission/deduplication` | P2 | PENDING |
+| P1-030 | Phone validation | `/admission/phone-validation` | P2 | PENDING |
+
+### Detailed Test Steps
+
+**P1-001: Dashboard loads with real data** (FIXED)
+1. Navigate to `/admission/dashboard` → Page loads without errors
+2. Check KPI cards → Total Active Leads shows actual count (not 0)
+3. Check Hot Leads card → Shows count of `is_hot_lead=true` leads
+4. Check funnel visualization → Bar widths match actual stage distribution
+5. Check console → No errors in browser console
+
+**P1-002: Create a new lead** (IN PROGRESS)
+1. Navigate to `/admission/leads/new` → Form renders with all fields
+2. Fill required fields: name, phone, source → No validation errors
+3. Click Create Lead → Toast shows success, redirect to lead detail
+4. Verify lead in DB → Record exists in `admission_leads` with correct data
+5. Check stage_history → Initial stage entry logged in `admission_lead_stage_history`
+
+**P1-003: View lead list with filters** (FIXED)
+1. Navigate to `/admission/leads` → Lead list loads with data
+2. Test search by name → Filters leads by `full_name` match
+3. Test stage filter → Shows only leads in selected `funnel_stage`
+4. Test hot lead filter → Shows only `is_hot_lead=true` leads
+5. Test pagination → Pages through results correctly
+
+**P1-004 through P1-010: Core Lead Operations** (ALL PENDING)
+- Lead detail view, stage updates, counselor assignment, activity logging, follow-up scheduling, hot/priority toggling, application creation
+- See `docs/MyJKKN-TQM-Specs/features.json` → `admission_crm_phase1.items` for full step details
+
+**P1-011 through P1-020: Module Pages** (ALL PENDING)
+- Funnel accuracy, scoring, counselors, analytics, templates, interviews, offers, seat confirmation, documents, GD-PI
+
+**P1-021 through P1-030: Configuration & Advanced** (ALL PENDING)
+- Scoring rules CRUD, assignment rules, workflows, campaigns, AI insights, briefing, consultants, publishers, dedup, phone validation
+
+---
+
+## P2: UI Polish & Missing Features (PENDING)
+
+Pages identified as PARTIAL that need completion:
+
+| Page | What's Missing |
+|------|---------------|
+| `/admission/applications` | Full application list with filters |
+| `/admission/status` | Application pipeline dashboard polish |
+| `/admission/scholarships` | Full scholarship management UI |
+| `/admission/hostels` | Complete hostel allocation flow |
+| `/admission/loans` | Entire module (currently mock data, no service) |
+| `/admission/lateral-entry` | Polish lateral entry processing |
+| `/admission/templates` | Template create/edit forms |
+| `/admission/campaigns` | Campaign creation and management |
+| `/admission/reminders` | Reminder management dashboard |
+| `/admission/chatbot` | Chatbot interface and FAQ management |
+| `/admission/counselors` | Counselor management page |
+| `/admission/publishers` | Publisher management page |
+| `/admission/sources` | Lead source tracking page |
+| `/admission/scoring-rules` | Scoring rules configuration UI |
+| `/admission/assignment-rules` | Assignment rules configuration UI |
+| `/admission/insights` | AI insights dashboard |
+| `/admission/briefing` | Daily briefing view |
+| `/admission/data-profiling` | Data quality analysis UI |
+| `/admission/deduplication` | Duplicate detection and merge UI |
+| `/admission/phone-validation` | Phone validation dashboard |
+| `/admission/documents` | Document verification queue |
+
+---
+
+## P3: Integration & External APIs (PENDING)
+
+| Integration | Status | Notes |
+|-------------|--------|-------|
+| MSG91/Twilio SMS | NOT CONNECTED | SmsCampaignService ready, needs API keys |
+| WhatsApp Business API | NOT CONNECTED | WhatsAppCampaignService ready, currently simulated |
+| Anthropic Claude AI | NOT CONNECTED | AIResponseService, AgenticQueryService ready, needs API key in env |
+| Supabase Realtime | WIRED | CampaignMonitoringService uses subscriptions |
+| Supabase Storage | WIRED | InsightActionsService uses for CSV exports |
+
+---
+
+## P4: Production Hardening (PENDING)
+
+- [ ] RLS policies on all admission tables
+- [ ] Role-based access (counselor vs admin vs manager)
+- [ ] Input validation at all form boundaries
+- [ ] Error handling for all service calls
+- [ ] Loading states for all async operations
+- [ ] Empty states for all list pages
+- [ ] Pagination for all list queries
+- [ ] Rate limiting on public application form
+- [ ] Audit logging for sensitive operations
+- [ ] Performance optimization for large datasets
+
+---
+
+# DATABASE SCHEMA REFERENCE
+
+## `admission_leads` Table (47 columns)
+
+The central table. Every service touches this.
+
+```
+id                    UUID PRIMARY KEY
+learner_profile_id    UUID (FK to learner_profiles)
+institution_id        UUID (FK to institutions) -- multi-tenant key
+full_name             TEXT
+email                 TEXT
+phone                 TEXT
+source                TEXT (website/referral/social_media/walk_in/consultant/etc.)
+funnel_stage          TEXT (new/contacted/engaged/qualified/application_started/application_submitted/under_review/interview_scheduled/offered/accepted/enrolled/lost/dormant)
+stage_changed_at      TIMESTAMPTZ
+previous_stage        TEXT
+counselor_id          UUID (FK)
+assigned_counselor_id UUID (FK)
+assigned_at           TIMESTAMPTZ
+ownership_mode        TEXT
+engagement_score      NUMERIC
+quality_score         NUMERIC
+combined_score        NUMERIC
+score                 NUMERIC
+score_category        TEXT (hot/warm/cold)
+score_breakdown       JSONB
+score_updated_at      TIMESTAMPTZ
+conversion_probability NUMERIC
+last_activity_at      TIMESTAMPTZ
+last_contact_at       TIMESTAMPTZ
+total_messages_sent   INTEGER
+messages_this_week    INTEGER
+last_message_at       TIMESTAMPTZ
+preferred_channel     TEXT
+tags                  TEXT[]
+is_hot_lead           BOOLEAN
+is_priority           BOOLEAN
+is_active             BOOLEAN
+is_dormant            BOOLEAN
+dormant_at            TIMESTAMPTZ
+is_lost               BOOLEAN
+lost_reason           TEXT
+lost_at               TIMESTAMPTZ
+interested_programs   TEXT[]
+preferred_campus      TEXT
+parent_name           TEXT
+parent_phone          TEXT
+parent_email          TEXT
+parent_opted_in       BOOLEAN
+created_at            TIMESTAMPTZ
+updated_at            TIMESTAMPTZ
+created_by            UUID
+```
+
+## Known Schema Mismatches (CRITICAL)
+
+These were discovered during P1 verification. Services may still reference wrong column names:
+
+| What Code Says | What DB Actually Has | Fix |
+|----------------|---------------------|-----|
+| `priority` (enum) | `is_hot_lead` (bool) + `is_priority` (bool) | Use two booleans |
+| `next_followup_at` | DOES NOT EXIST | Use `last_contact_at` or add column |
+| `program_interest` | `interested_programs` (text[]) | Use correct name |
+| `is_duplicate` | DOES NOT EXIST | Not in schema |
+| `duplicate_of` | DOES NOT EXIST | Not in schema |
+| `type` (on templates) | `channel` (sms/email/whatsapp) | Use `channel` |
+
+**Pattern:** All services may reference non-existent columns. Every service must be audited against actual DB schema during P1.
+
+## Other Key Tables
+
+| Table | Key Info |
+|-------|----------|
+| `admission_counselors` | Simple: id, name, email, institution_id, created_at (5 cols only) |
+| `education_consultants` | Separate from counselors. ConsultantService uses this table |
+| `admission_communication_templates` | Uses `channel` column (NOT `type`) for sms/email/whatsapp |
+| `admission_scoring_rules` | Has flat columns (field, operator, value, points) AND `criteria` JSONB |
+
+---
+
+# COMPLETE FILE INVENTORY
+
+## Route Pages (61 total)
+
+### Fully Complete (20 pages)
+```
+/admission/counselor-view/page.tsx     - Counselor daily dashboard
+/admission/dashboard/page.tsx          - Main dashboard
+/admission/group-dashboard/page.tsx    - Multi-institution comparison
+/admission/leads/page.tsx              - Lead list
+/admission/leads/[id]/page.tsx         - Lead detail (1481 lines)
+/admission/leads/new/page.tsx          - Create lead (766 lines)
+/admission/interviews/page.tsx         - Interview scheduling (873 lines)
+/admission/screening-exam/page.tsx     - Exam management (1156 lines)
+/admission/gd-pi/page.tsx             - Group Discussion & PI (1017 lines)
+/admission/merit-list/page.tsx         - Merit list (1096 lines)
+/admission/offer-letter/page.tsx       - Offer letters (1197 lines)
+/admission/seat-confirmation/page.tsx  - Seat confirmation (858 lines)
+/admission/apply/page.tsx              - Public application form (1333 lines)
+/admission/parent-communication/page.tsx - Parent engagement (762 lines)
+/admission/feedback/page.tsx           - Feedback collection (808 lines)
+/admission/re-engagement/page.tsx      - Re-engage lost leads (789 lines)
+/admission/analytics/page.tsx          - Analytics dashboard (841 lines)
+/admission/workflow-config/page.tsx    - Workflow config
+/admission/workflows/page.tsx          - Workflow management (842 lines)
+/admission/settings/page.tsx           - Module settings (791 lines)
+```
+
+### Consultant Portal (6 pages - COMPLETE)
+```
+/admission/consultants/page.tsx            - Consultant list
+/admission/consultants/new/page.tsx        - Add consultant
+/admission/consultants/[id]/page.tsx       - Consultant detail (765 lines)
+/admission/consultants/[id]/edit/page.tsx  - Edit consultant (784 lines)
+/admission/consultants/analytics/page.tsx  - Performance analytics (818 lines)
+/admission/consultants/commissions/page.tsx - Commission tracking (828 lines)
+/admission/consultants/rewards/page.tsx    - Rewards management (1338 lines)
+```
+
+### Partial / Need Polish (35 pages)
+```
+/admission/applications/page.tsx       - Application list
+/admission/status/page.tsx             - Status tracking
+/admission/scholarships/page.tsx       - Scholarship management
+/admission/hostels/page.tsx            - Hostel allocation
+/admission/loans/page.tsx              - Education loans (MOCK DATA)
+/admission/lateral-entry/page.tsx      - Lateral entry
+/admission/templates/page.tsx          - Communication templates
+/admission/campaigns/page.tsx          - Campaign management
+/admission/campaigns/monitoring/page.tsx - Campaign monitoring
+/admission/reminders/page.tsx          - Reminders
+/admission/chatbot/page.tsx            - AI chatbot
+/admission/counselors/page.tsx         - Counselor management
+/admission/publishers/page.tsx         - Publisher management
+/admission/sources/page.tsx            - Source tracking
+/admission/scoring-rules/page.tsx      - Scoring rules config
+/admission/assignment-rules/page.tsx   - Assignment rules config
+/admission/insights/page.tsx           - AI insights
+/admission/briefing/page.tsx           - Daily briefing
+/admission/data-profiling/page.tsx     - Data quality
+/admission/deduplication/page.tsx      - Duplicate detection
+/admission/phone-validation/page.tsx   - Phone validation
+/admission/documents/page.tsx          - Document verification
+```
+
+## Service Files (43 total)
+
+All in `lib/services/admission/`:
+
+| Service | Lines | Purpose |
+|---------|-------|---------|
+| lead-service.ts | 718 | Lead CRUD, filtering, search |
+| lead-scoring-engine-service.ts | 741 | Score calculation engine |
+| admission-service.ts | 1398 | Legacy admissions operations |
+| consultant-service.ts | 2219 | Consultant CRUD, import, commissions |
+| insight-actions-service.ts | 985 | 11 actionable insight types |
+| sms-campaign-service.ts | 854 | SMS campaign execution |
+| drip-executor-service.ts | 784 | Drip sequence engine |
+| agentic-query-service.ts | 771 | NL query → DB query pipeline |
+| ai-insights-service.ts | 740 | AI analysis & recommendations |
+| daily-briefing-service.ts | 726 | Morning briefing generation |
+| campaign-processor-service.ts | 635 | Campaign queue processing |
+| campaign-monitoring-service.ts | 618 | Delivery tracking |
+| whatsapp-campaign-service.ts | 574 | WhatsApp campaigns |
+| admission-ai-service.ts | 560 | AI dashboard insights |
+| briefing-delivery-service.ts | 495 | Briefing notifications |
+| workflows-service.ts | 483 | Workflow execution engine |
+| ai-response-service.ts | 482 | AI response suggestions |
+| data-quality-service.ts | 457 | Data profiling & issues |
+| communication-templates-service.ts | 401 | Template management |
+| scoring-rules-service.ts | - | Scoring rules CRUD |
+| assignment-rules-service.ts | - | Assignment rules CRUD |
+| workflow-config-service.ts | - | Workflow config CRUD |
+| interview-service.ts | - | Interview scheduling |
+| screening-exam-service.ts | - | Exam management |
+| merit-list-service.ts | - | Merit list generation |
+| offer-letter-service.ts | - | Offer management |
+| seat-confirmation-service.ts | - | Seat confirmation |
+| lateral-entry-service.ts | - | Lateral entry |
+| hostel-service.ts | - | Hostel allocation |
+| scholarship-service.ts | - | Scholarships |
+| source-tracking-service.ts | - | Source attribution |
+| document-service.ts | - | Document verification |
+| feedback-service.ts | - | Feedback collection |
+| re-engagement-service.ts | - | Re-engagement campaigns |
+| status-tracking-service.ts | - | Status tracking |
+| activity-service.ts | - | Activity logging |
+| counselor-daily-view-service.ts | - | Counselor KPIs |
+| parent-communication-service.ts | - | Parent engagement |
+| group-dashboard-service.ts | - | Multi-institution analytics |
+| naac-report-service.ts | - | NAAC compliance reporting |
+| admission-tqm-metrics-service.ts | - | Quality metrics |
+
+## Type Definitions
+
+| File | Lines | Content |
+|------|-------|---------|
+| `types/admission.ts` | 1413 | All admission types (leads, apps, interviews, offers, etc.) |
+| `types/admission-workflow-config.ts` | 144 | Workflow config types, stage constants |
+
+## Hook Files (38+)
+
+All in `hooks/admission/`:
+
+| Hook | Lines | Purpose |
+|------|-------|---------|
+| use-consultants.ts | 20,098 | Full consultant portal hooks |
+| use-data-quality.ts | 12,509 | Data quality + publishers + hostels + scholarships |
+| use-agentic-query.ts | 12,790 | Conversational AI query hooks |
+| use-lead-scoring.ts | 10,107 | Lead scoring visualization |
+| use-ai-responses.ts | 6,618 | AI response generation hooks |
+| index.ts | - | 12 consolidated hooks |
+| Plus 25+ individual hook files for each feature area |
+
+## Component Files (23)
+
+All in `app/(routes)/admission/_components/`:
+- Lead scoring: badge, card, factors list
+- AI: suggested responses, personalizer, insight cards, anomaly alerts, recommendations, trends
+- Campaign: stats cards, delivery chart, drip progress, execution log, drip status
+- Actions: button, confirm dialog, bulk panel
+- Agentic query: input, progress, result
+- Briefing: notification banner, popup
+
+## API Routes (2)
+
+```
+/api/admission/consultants/template/route.ts  - CSV template download
+/api/admission/consultants/import/route.ts     - Bulk consultant import
+```
+
+---
+
+# WORKFLOW SPECIFICATIONS
 
 ---
 

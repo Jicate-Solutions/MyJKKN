@@ -18,7 +18,7 @@ interface ManualEntryFormProps {
   institutionId: string;
 }
 
-export function ManualEntryForm({ accountId, institutionId }: ManualEntryFormProps) {
+export function ManualEntryForm({ accountId, institutionId: _institutionId }: ManualEntryFormProps) {
   const [account, setAccount] = useState<SmAccount | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
