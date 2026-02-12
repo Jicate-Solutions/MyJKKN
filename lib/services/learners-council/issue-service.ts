@@ -235,6 +235,24 @@ export class LCIssueService {
       throw new Error(`Failed to assign issue: ${error.message}`);
     }
 
+    // Notify the assignee about the new assignment
+    try {
+      const ticket = data as any;
+      if (assigneeId) {
+        await LCNotificationService.createNotification({
+          user_id: assigneeId,
+          type: 'issue',
+          title: 'Issue Assigned to You',
+          message: `You have been assigned: "${ticket.subject}"`,
+          link: `/learners-council/issues/${issueId}`,
+          reference_id: issueId,
+          reference_type: 'issue',
+        });
+      }
+    } catch (notifErr) {
+      console.warn('[lc/issues] Failed to send assignment notification:', notifErr);
+    }
+
     return data as GrievanceTicket;
   }
 
