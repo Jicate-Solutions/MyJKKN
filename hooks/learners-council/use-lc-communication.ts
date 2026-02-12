@@ -744,13 +744,10 @@ export function useDeleteMessage() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({
-      messageId,
-      channelId
-    }: {
+    mutationFn: (vars: {
       messageId: string;
       channelId: string;
-    }) => LCCommunicationService.deleteMessage(messageId),
+    }) => LCCommunicationService.deleteMessage(vars.messageId),
     onSuccess: (_result, variables) => {
       toast.success('Message deleted');
       queryClient.invalidateQueries({
