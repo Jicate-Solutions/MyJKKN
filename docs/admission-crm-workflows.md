@@ -450,7 +450,7 @@ All in `lib/services/admission/`:
 | `types/admission.ts` | 1413 | All admission types (leads, apps, interviews, offers, etc.) |
 | `types/admission-workflow-config.ts` | 144 | Workflow config types, stage constants |
 
-## Hook Files (38+)
+## Hook Files (35)
 
 All in `hooks/admission/`:
 
