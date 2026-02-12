@@ -280,7 +280,15 @@ export function EventDetailClient({
         // Generate CSV from export data
         const headers = ['Name', 'Email', 'Status', 'Registered At', 'Attended At', 'Feedback', 'Rating'];
         const rows = data.participants.map((p) => [p.name, p.email, p.status, p.registered_at, p.attended_at, p.feedback, p.rating]);
-        const csv = [headers.join(','), ...rows.map((r) => r.map((c) => `"${c}"`).join(','))].join('\n');
+        // Escape CSV values: double-quote escaping + formula injection protection
+        const escapeCSV = (val: unknown): string => {
+          const str = String(val ?? '');
+          const escaped = str.replace(/"/g, '""');
+          // Prefix formula-triggering characters to prevent CSV injection
+          if (/^[=+\-@\t\r]/.test(escaped)) return `"'${escaped}"`;
+          return `"${escaped}"`;
+        };
+        const csv = [headers.join(','), ...rows.map((r) => r.map(escapeCSV).join(','))].join('\n');
         const blob = new Blob([csv], { type: 'text/csv' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
