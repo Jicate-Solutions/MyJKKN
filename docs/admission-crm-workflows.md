@@ -2557,8 +2557,6 @@ Multiple services use Supabase Realtime subscriptions:
 
 ---
 
-Now update the consultant tables section:
-
 ### Consultants (Extended)
 
 | Table | Service | Purpose |

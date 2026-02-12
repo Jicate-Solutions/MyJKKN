@@ -74,6 +74,33 @@ export function AccountDetail({ accountId, institutionId }: AccountDetailProps) 
     fetchData();
   }, [accountId, institutionId]);
 
+  const latestSnapshot = snapshots[0];
+
+  const chartData = useMemo(() => {
+    const now = Date.now();
+    const periodMs: Record<string, number> = {
+      '7d': 7 * 86400000,
+      '30d': 30 * 86400000,
+      '90d': 90 * 86400000,
+    };
+    const filtered = chartPeriod === 'all'
+      ? posts
+      : posts.filter(p => p.posted_at && now - new Date(p.posted_at).getTime() <= periodMs[chartPeriod]);
+    return filtered
+      .filter(p => p.posted_at)
+      .sort((a, b) => new Date(a.posted_at!).getTime() - new Date(b.posted_at!).getTime())
+      .map(p => ({
+        date: new Date(p.posted_at!).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+        likes: p.likes_count,
+        comments: p.comments_count,
+      }));
+  }, [posts, chartPeriod]);
+
+  const healthBreakdown = useMemo(() => {
+    if (!account) return { activity: 0, engagement: 0, growth: 0, profile: 0, total: 0 };
+    return computeHealthBreakdown(account, latestSnapshot);
+  }, [account, latestSnapshot]);
+
   if (loading) {
     return (
       <div className="space-y-6 mt-4">
@@ -100,29 +127,6 @@ export function AccountDetail({ accountId, institutionId }: AccountDetailProps) 
   }
 
   const healthColor = HEALTH_STATUS_COLORS[account.health_status];
-  const latestSnapshot = snapshots[0];
-
-  const chartData = useMemo(() => {
-    const now = Date.now();
-    const periodMs: Record<string, number> = {
-      '7d': 7 * 86400000,
-      '30d': 30 * 86400000,
-      '90d': 90 * 86400000,
-    };
-    const filtered = chartPeriod === 'all'
-      ? posts
-      : posts.filter(p => p.posted_at && now - new Date(p.posted_at).getTime() <= periodMs[chartPeriod]);
-    return filtered
-      .filter(p => p.posted_at)
-      .sort((a, b) => new Date(a.posted_at!).getTime() - new Date(b.posted_at!).getTime())
-      .map(p => ({
-        date: new Date(p.posted_at!).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-        likes: p.likes_count,
-        comments: p.comments_count,
-      }));
-  }, [posts, chartPeriod]);
-
-  const healthBreakdown = useMemo(() => computeHealthBreakdown(account, latestSnapshot), [account, latestSnapshot]);
 
   return (
     <div className="space-y-6 mt-4">
