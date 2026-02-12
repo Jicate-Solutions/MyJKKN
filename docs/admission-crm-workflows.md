@@ -442,7 +442,9 @@ All in `lib/services/admission/`:
 | parent-communication-service.ts | - | Parent engagement |
 | group-dashboard-service.ts | - | Multi-institution analytics |
 | naac-report-service.ts | - | NAAC compliance reporting |
+| application-service.ts | 290 | Application CRUD & processing |
 | admission-tqm-metrics-service.ts | - | Quality metrics |
+| index.ts | 205 | Barrel exports for all services |
 
 ## Type Definitions
 
