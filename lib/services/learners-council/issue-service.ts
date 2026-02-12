@@ -659,6 +659,24 @@ export class LCIssueService {
       attachments: []
     });
 
+    // Notify the assignee about the escalation
+    try {
+      const updatedTicket = data as any;
+      if (updatedTicket.assigned_to) {
+        await LCNotificationService.createNotification({
+          user_id: updatedTicket.assigned_to,
+          type: 'issue',
+          title: 'Issue Escalated',
+          message: `Issue "${updatedTicket.subject}" has been escalated to ${newPriority} priority. Reason: ${reason}`,
+          link: `/learners-council/issues/${ticketId}`,
+          reference_id: ticketId,
+          reference_type: 'issue',
+        });
+      }
+    } catch (notifErr) {
+      console.warn('[lc/issues] Failed to send escalation notification:', notifErr);
+    }
+
     return data as GrievanceTicket;
   }
 

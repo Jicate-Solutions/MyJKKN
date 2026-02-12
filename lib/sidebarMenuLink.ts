@@ -2436,6 +2436,13 @@ export function GetPages(pathname: string): MenuGroup[] {
             },
           ],
         },
+        {
+          href: '/social-media/analytics',
+          label: 'Analytics',
+          active: pathname === '/social-media/analytics',
+          icon: BarChart3,
+          submenus: [],
+        },
       ],
     },
     {
