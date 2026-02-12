@@ -549,6 +549,43 @@ export function EventDetailClient({
           </Card>
         </div>
       </div>
+
+      {/* Reject Event Dialog */}
+      <Dialog open={rejectDialogOpen} onOpenChange={setRejectDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reject Event</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label>Reason for Rejection</Label>
+              <Textarea
+                placeholder="Please provide a reason for rejecting this event..."
+                value={rejectComments}
+                onChange={(e) => setRejectComments(e.target.value)}
+                rows={3}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button variant="outline">Cancel</Button>
+            </DialogClose>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                rejectEvent.mutate(
+                  { eventId: event.id, approverId: userId, approverRole: userRole, comments: rejectComments || 'Rejected' },
+                  { onSuccess: () => { setRejectDialogOpen(false); setRejectComments(''); } }
+                );
+              }}
+              disabled={!rejectComments || rejectEvent.isPending}
+            >
+              {rejectEvent.isPending ? 'Rejecting...' : 'Confirm Rejection'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
