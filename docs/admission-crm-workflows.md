@@ -2030,7 +2030,7 @@ REWARD LIFECYCLE:
     |
     v
 [Submits new lead referral]
-    |-- full_name, phone, email, interested_programs (⚠️ DB column is `interested_programs`, NOT `program_interest`)
+    |-- full_name, phone, email, interested_programs
     |-- referral_code
     |
     v
