@@ -173,18 +173,20 @@ export class LCEventService {
 
   /**
    * Approve an event
+   * FIX: Added approver_role parameter — lc_event_approvals.approver_role is NOT NULL
    */
   static async approveEvent(
     eventId: string,
     approverId: string,
+    approverRole: string,
     comments?: string
   ): Promise<LCEvent> {
-    // Record the approval action
     const { error: approvalError } = await (this.supabase as any)
       .from('lc_event_approvals')
       .insert({
         event_id: eventId,
         approver_id: approverId,
+        approver_role: approverRole,
         action: 'approve',
         comments: comments || null,
         acted_at: new Date().toISOString(),
@@ -195,7 +197,6 @@ export class LCEventService {
       throw new Error(`Failed to record approval: ${approvalError.message}`);
     }
 
-    // Update event status to approved
     const { data, error } = await (this.supabase as any)
       .from('lc_events')
       .update({ status: 'approved' as EventStatus })
@@ -213,18 +214,22 @@ export class LCEventService {
 
   /**
    * Reject an event
+   * FIX: Added approver_role parameter — lc_event_approvals.approver_role is NOT NULL
+   * NOTE: DB CHECK constraint does not include 'rejected' as a valid status.
+   * Status is set to 'cancelled'; the rejection is tracked via lc_event_approvals action='reject'.
    */
   static async rejectEvent(
     eventId: string,
     approverId: string,
+    approverRole: string,
     comments: string
   ): Promise<LCEvent> {
-    // Record the rejection
     const { error: approvalError } = await (this.supabase as any)
       .from('lc_event_approvals')
       .insert({
         event_id: eventId,
         approver_id: approverId,
+        approver_role: approverRole,
         action: 'reject',
         comments,
         acted_at: new Date().toISOString(),
@@ -235,7 +240,7 @@ export class LCEventService {
       throw new Error(`Failed to record rejection: ${approvalError.message}`);
     }
 
-    // Update event status to cancelled
+    // 'cancelled' is the valid DB status for rejected events
     const { data, error } = await (this.supabase as any)
       .from('lc_events')
       .update({ status: 'cancelled' as EventStatus })
@@ -251,12 +256,52 @@ export class LCEventService {
     return data as unknown as LCEvent;
   }
 
+  /**
+   * Publish an approved event — transitions approved -> published
+   */
+  static async publishEvent(eventId: string): Promise<LCEvent> {
+    const { data, error } = await (this.supabase as any)
+      .from('lc_events')
+      .update({ status: 'published' as EventStatus })
+      .eq('id', eventId)
+      .eq('status', 'approved')
+      .select(EVENT_SELECT)
+      .single();
+
+    if (error) {
+      console.error('[learners-council/events] Error publishing event:', error);
+      throw new Error(`Failed to publish event: ${error.message}`);
+    }
+
+    return data as unknown as LCEvent;
+  }
+
+  /**
+   * Mark event as completed, triggers post-event phase
+   */
+  static async completeEvent(eventId: string): Promise<LCEvent> {
+    const { data, error } = await (this.supabase as any)
+      .from('lc_events')
+      .update({ status: 'completed' as EventStatus })
+      .eq('id', eventId)
+      .select(EVENT_SELECT)
+      .single();
+
+    if (error) {
+      console.error('[learners-council/events] Error completing event:', error);
+      throw new Error(`Failed to complete event: ${error.message}`);
+    }
+
+    return data as unknown as LCEvent;
+  }
+
   // ============================================================================
   // PARTICIPANT MANAGEMENT
   // ============================================================================
 
   /**
    * Register for an event
+   * FIX: Replaced nonexistent increment_event_participants RPC with direct update
    */
   static async registerForEvent(
     eventId: string,
@@ -278,14 +323,23 @@ export class LCEventService {
       throw new Error(`Failed to register for event: ${error.message}`);
     }
 
-    // Increment participant count
-    await (this.supabase as any).rpc('increment_event_participants', { event_id: eventId });
+    // Increment participant count via read + update
+    const { data: event } = await (this.supabase as any)
+      .from('lc_events')
+      .select('current_participants')
+      .eq('id', eventId)
+      .single();
+
+    await (this.supabase as any)
+      .from('lc_events')
+      .update({ current_participants: (event?.current_participants || 0) + 1 })
+      .eq('id', eventId);
 
     return data as unknown as LCEventParticipant;
   }
 
   /**
-   * Cancel event registration
+   * Cancel event registration — also decrements participant count
    */
   static async cancelRegistration(eventId: string, userId: string): Promise<void> {
     const { error } = await (this.supabase as any)
@@ -297,6 +351,20 @@ export class LCEventService {
     if (error) {
       console.error('[learners-council/events] Error cancelling registration:', error);
       throw new Error(`Failed to cancel registration: ${error.message}`);
+    }
+
+    // Decrement participant count
+    const { data: event } = await (this.supabase as any)
+      .from('lc_events')
+      .select('current_participants')
+      .eq('id', eventId)
+      .single();
+
+    if (event && event.current_participants > 0) {
+      await (this.supabase as any)
+        .from('lc_events')
+        .update({ current_participants: event.current_participants - 1 })
+        .eq('id', eventId);
     }
   }
 
@@ -324,6 +392,30 @@ export class LCEventService {
   }
 
   /**
+   * Bulk mark attendance for multiple attendees at once
+   */
+  static async bulkMarkAttendance(
+    eventId: string,
+    attendeeIds: string[]
+  ): Promise<void> {
+    const now = new Date().toISOString();
+
+    const { error } = await (this.supabase as any)
+      .from('lc_event_participants')
+      .update({
+        status: 'attended',
+        attended_at: now,
+      })
+      .eq('event_id', eventId)
+      .in('id', attendeeIds);
+
+    if (error) {
+      console.error('[learners-council/events] Error bulk marking attendance:', error);
+      throw new Error(`Failed to mark attendance: ${error.message}`);
+    }
+  }
+
+  /**
    * Submit feedback for an event
    */
   static async submitFeedback(
@@ -344,6 +436,199 @@ export class LCEventService {
     if (error) {
       console.error('[learners-council/events] Error submitting feedback:', error);
       throw new Error(`Failed to submit feedback: ${error.message}`);
+    }
+  }
+
+  // ============================================================================
+  // QUERY METHODS
+  // ============================================================================
+
+  /**
+   * Get events by date range — for calendar view
+   */
+  static async getEventsByDateRange(
+    startDate: string,
+    endDate: string,
+    filters?: { scope?: string; institution_id?: string; status?: string }
+  ): Promise<LCEvent[]> {
+    let query = (this.supabase as any)
+      .from('lc_events')
+      .select(EVENT_SELECT)
+      .gte('starts_at', startDate)
+      .lte('starts_at', endDate)
+      .order('starts_at', { ascending: true });
+
+    if (filters?.scope) query = query.eq('scope', filters.scope);
+    if (filters?.institution_id) query = query.eq('institution_id', filters.institution_id);
+    if (filters?.status) {
+      query = query.eq('status', filters.status);
+    } else {
+      // Default: show non-draft, non-cancelled events on calendar
+      query = query.in('status', ['pending_review', 'approved', 'published', 'in_progress', 'completed']);
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      console.error('[learners-council/events] Error fetching events by date range:', error);
+      throw new Error(`Failed to fetch events: ${error.message}`);
+    }
+
+    return (data || []) as unknown as LCEvent[];
+  }
+
+  /**
+   * Get events the user is registered for
+   */
+  static async getMyRegisteredEvents(userId: string): Promise<LCEventParticipant[]> {
+    const { data, error } = await (this.supabase as any)
+      .from('lc_event_participants')
+      .select(`
+        *,
+        event:lc_events(*, proposer:profiles!proposed_by(id, full_name, avatar_url), institution:institutions(id, name)),
+        user:profiles!user_id(id, full_name, email)
+      `)
+      .eq('user_id', userId)
+      .neq('status', 'cancelled')
+      .order('registered_at', { ascending: false });
+
+    if (error) {
+      console.error('[learners-council/events] Error fetching registered events:', error);
+      throw new Error(`Failed to fetch registered events: ${error.message}`);
+    }
+
+    return (data || []) as unknown as LCEventParticipant[];
+  }
+
+  /**
+   * Get aggregated feedback summary for an event
+   */
+  static async getEventFeedbackSummary(eventId: string): Promise<{
+    totalFeedback: number;
+    averageRating: number;
+    ratingDistribution: Record<number, number>;
+    recentFeedback: { userId: string; userName: string; feedback: string; rating: number }[];
+  }> {
+    const { data, error } = await (this.supabase as any)
+      .from('lc_event_participants')
+      .select('user_id, feedback, feedback_rating, user:profiles!user_id(id, full_name)')
+      .eq('event_id', eventId)
+      .not('feedback_rating', 'is', null);
+
+    if (error) {
+      console.error('[learners-council/events] Error fetching feedback summary:', error);
+      throw new Error(`Failed to fetch feedback summary: ${error.message}`);
+    }
+
+    const participants = (data || []) as any[];
+    const totalFeedback = participants.length;
+    const sumRating = participants.reduce((sum: number, p: any) => sum + (p.feedback_rating || 0), 0);
+    const averageRating = totalFeedback > 0 ? Math.round((sumRating / totalFeedback) * 10) / 10 : 0;
+
+    const ratingDistribution: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+    participants.forEach((p: any) => {
+      if (p.feedback_rating >= 1 && p.feedback_rating <= 5) {
+        ratingDistribution[p.feedback_rating]++;
+      }
+    });
+
+    const recentFeedback = participants
+      .filter((p: any) => p.feedback)
+      .slice(0, 10)
+      .map((p: any) => ({
+        userId: p.user_id,
+        userName: p.user?.full_name || 'Unknown',
+        feedback: p.feedback,
+        rating: p.feedback_rating,
+      }));
+
+    return { totalFeedback, averageRating, ratingDistribution, recentFeedback };
+  }
+
+  /**
+   * Export event data suitable for CSV generation
+   */
+  static async exportEventData(eventId: string): Promise<{
+    event: LCEvent;
+    participants: { name: string; email: string; status: string; registered_at: string; attended_at: string; feedback: string; rating: string }[];
+    approvals: { approver: string; role: string; action: string; comments: string; acted_at: string }[];
+  }> {
+    const event = await this.getEventById(eventId);
+    if (!event) throw new Error('Event not found');
+
+    const { data: participants } = await (this.supabase as any)
+      .from('lc_event_participants')
+      .select('*, user:profiles!user_id(id, full_name, email)')
+      .eq('event_id', eventId)
+      .order('registered_at', { ascending: true });
+
+    const { data: approvals } = await (this.supabase as any)
+      .from('lc_event_approvals')
+      .select('*, approver:profiles!approver_id(id, full_name)')
+      .eq('event_id', eventId)
+      .order('step_order', { ascending: true });
+
+    return {
+      event,
+      participants: (participants || []).map((p: any) => ({
+        name: p.user?.full_name || '',
+        email: p.user?.email || '',
+        status: p.status,
+        registered_at: p.registered_at || '',
+        attended_at: p.attended_at || '',
+        feedback: p.feedback || '',
+        rating: p.feedback_rating != null ? String(p.feedback_rating) : '',
+      })),
+      approvals: (approvals || []).map((a: any) => ({
+        approver: a.approver?.full_name || '',
+        role: a.approver_role || '',
+        action: a.action || '',
+        comments: a.comments || '',
+        acted_at: a.acted_at || '',
+      })),
+    };
+  }
+
+  /**
+   * Check venue availability — checks existing events with same venue_resource_id
+   * Returns available: true as fallback if resources table doesn't exist
+   */
+  static async checkVenueAvailability(
+    venueId: string,
+    date: string,
+    startTime: string,
+    endTime: string
+  ): Promise<{ available: boolean; conflicts?: { title: string; starts_at: string; ends_at: string }[] }> {
+    try {
+      const startDateTime = `${date}T${startTime}`;
+      const endDateTime = `${date}T${endTime}`;
+
+      const { data: conflicts, error } = await (this.supabase as any)
+        .from('lc_events')
+        .select('id, title, starts_at, ends_at')
+        .eq('venue_resource_id', venueId)
+        .in('status', ['approved', 'published', 'in_progress'])
+        .lte('starts_at', endDateTime)
+        .gte('ends_at', startDateTime);
+
+      if (error) {
+        return { available: true };
+      }
+
+      if (conflicts && conflicts.length > 0) {
+        return {
+          available: false,
+          conflicts: conflicts.map((c: any) => ({
+            title: c.title,
+            starts_at: c.starts_at,
+            ends_at: c.ends_at,
+          })),
+        };
+      }
+
+      return { available: true };
+    } catch {
+      return { available: true };
     }
   }
 }
