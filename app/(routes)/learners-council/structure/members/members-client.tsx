@@ -62,8 +62,15 @@ export function MembersClient({
   const [statusFilter, setStatusFilter] = useState('');
   const [institutionFilter, setInstitutionFilter] = useState('');
 
+  // Live-fetch members with current filters; falls back to server-provided initial data
+  const { data: liveMembers } = useLCMembers({
+    term_id: termFilter || undefined,
+    status: statusFilter || undefined,
+    institution_id: institutionFilter || undefined,
+  });
+
   const filteredMembers = useMemo(() => {
-    let result = initialMembers;
+    let result = liveMembers ?? initialMembers;
 
     if (termFilter) {
       result = result.filter((m) => m.term_id === termFilter);
