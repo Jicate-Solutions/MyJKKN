@@ -1025,7 +1025,7 @@ Trigger: Manual entry / Bulk import / Chatbot / Consultant referral / Website fo
 **Quick Actions available:**
 - `logCall(leadId, notes)` - Log a phone call, updates `last_contact_at`
 - `addQuickNote(leadId, note)` - Add note activity
-- `rescheduleFollowup(leadId, newDate)` - Move follow-up date
+- `rescheduleFollowup(leadId, newDate)` - Move follow-up date (⚠️ `next_followup_at` column doesn't exist - needs activity-based follow-up tracking)
 - `advanceStage(leadId, newStage)` - Progress lead in funnel
 - `assignLeads(leadIds[], counselorId)` - Bulk assign
 
