@@ -1,14 +1,33 @@
 'use client';
 
-import { use } from 'react';
+import { use, useState } from 'react';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Textarea } from '@/components/ui/textarea';
 import {
   Table,
   TableBody,
@@ -35,9 +54,11 @@ import { TRLBadge } from '../../_components/trl-badge';
 import { TRLProgress } from '../../_components/trl-progress';
 import { RDIFScorecard } from '../../_components/rdif-scorecard';
 import { format } from 'date-fns';
+import { toast } from 'sonner';
 import {
   useProduct,
   useRDIFPrerequisites,
+  useAddValidation,
   PRODUCT_STATUSES,
   DOMAIN_LABELS,
   PATENT_STATUS_LABELS,
@@ -63,6 +84,48 @@ export default function ProductDetailPage({ params }: ProductDetailPageProps) {
 
   const { data: product, isLoading, error } = useProduct(id);
   const { data: rdifPrerequisites } = useRDIFPrerequisites();
+  const addValidation = useAddValidation();
+
+  const [showAddValidation, setShowAddValidation] = useState(false);
+
+  const initialValidationForm = {
+    trl_level: '',
+    validation_type: '',
+    title: '',
+    evidence_description: '',
+    evidence_url: '',
+    validated_by: '',
+    validator_affiliation: '',
+    is_external: false,
+    validation_date: '',
+  };
+  const [validationForm, setValidationForm] = useState(initialValidationForm);
+
+  const handleAddValidation = async () => {
+    if (!validationForm.trl_level || !validationForm.validation_type || !validationForm.title) {
+      toast.error('Please fill in all required fields');
+      return;
+    }
+    try {
+      await addValidation.mutateAsync({
+        product_id: id,
+        trl_level: Number(validationForm.trl_level),
+        validation_type: validationForm.validation_type as any,
+        title: validationForm.title,
+        evidence_description: validationForm.evidence_description || undefined,
+        evidence_url: validationForm.evidence_url || undefined,
+        validated_by: validationForm.validated_by || undefined,
+        validator_affiliation: validationForm.validator_affiliation || undefined,
+        is_external: validationForm.is_external,
+        validation_date: validationForm.validation_date || undefined,
+      });
+      toast.success('Validation added successfully');
+      setShowAddValidation(false);
+      setValidationForm(initialValidationForm);
+    } catch (error) {
+      toast.error('Failed to add validation');
+    }
+  };
 
   if (isLoading) {
     return (
@@ -118,7 +181,7 @@ export default function ProductDetailPage({ params }: ProductDetailPageProps) {
   const validations = product.validations || [];
 
   // Map RDIF prerequisites to the shape RDIFScorecard expects
-  const rdifForScorecard = (rdifPrerequisites || []).map(p => ({
+  const rdifForScorecard = (rdifPrerequisites || []).map((p: { id: string; label: string; is_met: boolean; evidence?: string | null; target_date?: string | null; updated_at?: string | null }) => ({
     id: p.id,
     name: p.label,
     met: p.is_met,
@@ -237,7 +300,7 @@ export default function ProductDetailPage({ params }: ProductDetailPageProps) {
                   Documentation proving technology readiness at each level
                 </p>
               </div>
-              <Button>
+              <Button onClick={() => setShowAddValidation(true)}>
                 <Plus className="mr-2 h-4 w-4" />
                 Add Validation
               </Button>
@@ -272,7 +335,7 @@ export default function ProductDetailPage({ params }: ProductDetailPageProps) {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {validations.map((validation) => (
+                      {validations.map((validation: { id: string; title: string; evidence_url?: string | null; trl_level: number; validation_type: string; validation_date?: string | null; status: string; validated_by?: string | null; validator_affiliation?: string | null }) => (
                         <TableRow key={validation.id}>
                           <TableCell>
                             <div>
@@ -400,7 +463,7 @@ export default function ProductDetailPage({ params }: ProductDetailPageProps) {
                   </div>
                 ) : (
                   <div className="space-y-3">
-                    {product.originating_solution_ids.map((solutionId) => (
+                    {product.originating_solution_ids.map((solutionId: string) => (
                       <Link
                         key={solutionId}
                         href={`/solutions/${solutionId}`}
@@ -561,6 +624,177 @@ export default function ProductDetailPage({ params }: ProductDetailPageProps) {
           </TabsContent>
         </Tabs>
       </div>
+
+      {/* Add Validation Dialog */}
+      <Dialog open={showAddValidation} onOpenChange={setShowAddValidation}>
+        <DialogContent className="sm:max-w-[550px] max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Add TRL Validation</DialogTitle>
+            <DialogDescription>
+              Add evidence to validate a technology readiness level for this product.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-4 py-4">
+            <div className="grid gap-2">
+              <Label htmlFor="val-trl-level">TRL Level *</Label>
+              <Select
+                value={validationForm.trl_level}
+                onValueChange={(value) =>
+                  setValidationForm((prev) => ({ ...prev, trl_level: value }))
+                }
+              >
+                <SelectTrigger id="val-trl-level">
+                  <SelectValue placeholder="Select TRL level" />
+                </SelectTrigger>
+                <SelectContent>
+                  {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((level) => (
+                    <SelectItem key={level} value={String(level)}>
+                      TRL {level}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="grid gap-2">
+              <Label htmlFor="val-type">Validation Type *</Label>
+              <Select
+                value={validationForm.validation_type}
+                onValueChange={(value) =>
+                  setValidationForm((prev) => ({ ...prev, validation_type: value }))
+                }
+              >
+                <SelectTrigger id="val-type">
+                  <SelectValue placeholder="Select validation type" />
+                </SelectTrigger>
+                <SelectContent>
+                  {Object.entries(VALIDATION_TYPE_LABELS).map(([key, label]) => (
+                    <SelectItem key={key} value={key}>
+                      {label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="grid gap-2">
+              <Label htmlFor="val-title">Title *</Label>
+              <Input
+                id="val-title"
+                placeholder="e.g., Lab test results for prototype v2"
+                value={validationForm.title}
+                onChange={(e) =>
+                  setValidationForm((prev) => ({ ...prev, title: e.target.value }))
+                }
+              />
+            </div>
+
+            <div className="grid gap-2">
+              <Label htmlFor="val-description">Evidence Description</Label>
+              <Textarea
+                id="val-description"
+                placeholder="Describe the evidence supporting this validation..."
+                value={validationForm.evidence_description}
+                onChange={(e) =>
+                  setValidationForm((prev) => ({
+                    ...prev,
+                    evidence_description: e.target.value,
+                  }))
+                }
+                rows={3}
+              />
+            </div>
+
+            <div className="grid gap-2">
+              <Label htmlFor="val-url">Evidence URL</Label>
+              <Input
+                id="val-url"
+                placeholder="https://..."
+                value={validationForm.evidence_url}
+                onChange={(e) =>
+                  setValidationForm((prev) => ({
+                    ...prev,
+                    evidence_url: e.target.value,
+                  }))
+                }
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="grid gap-2">
+                <Label htmlFor="val-validated-by">Validated By</Label>
+                <Input
+                  id="val-validated-by"
+                  placeholder="Name of validator"
+                  value={validationForm.validated_by}
+                  onChange={(e) =>
+                    setValidationForm((prev) => ({
+                      ...prev,
+                      validated_by: e.target.value,
+                    }))
+                  }
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="val-affiliation">Validator Affiliation</Label>
+                <Input
+                  id="val-affiliation"
+                  placeholder="Organization name"
+                  value={validationForm.validator_affiliation}
+                  onChange={(e) =>
+                    setValidationForm((prev) => ({
+                      ...prev,
+                      validator_affiliation: e.target.value,
+                    }))
+                  }
+                />
+              </div>
+            </div>
+
+            <div className="grid gap-2">
+              <Label htmlFor="val-date">Validation Date</Label>
+              <Input
+                id="val-date"
+                type="date"
+                value={validationForm.validation_date}
+                onChange={(e) =>
+                  setValidationForm((prev) => ({
+                    ...prev,
+                    validation_date: e.target.value,
+                  }))
+                }
+              />
+            </div>
+
+            <div className="flex items-center gap-3">
+              <Switch
+                id="val-external"
+                checked={validationForm.is_external}
+                onCheckedChange={(checked) =>
+                  setValidationForm((prev) => ({ ...prev, is_external: checked }))
+                }
+              />
+              <Label htmlFor="val-external">External Validation</Label>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setShowAddValidation(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleAddValidation}
+              disabled={addValidation.isPending}
+            >
+              {addValidation.isPending ? 'Adding...' : 'Add Validation'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </ContentLayout>
   );
 }

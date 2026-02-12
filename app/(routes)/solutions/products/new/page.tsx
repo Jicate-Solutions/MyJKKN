@@ -18,15 +18,18 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { ArrowLeft, Save, Lightbulb } from 'lucide-react';
+import { ArrowLeft, Save, Lightbulb, X, Check } from 'lucide-react';
 import { TRL_LEVELS } from '../../_components/trl-badge';
 import { toast } from 'sonner';
 import { useCreateProduct } from '@/hooks/solutions/use-products';
+import { useSolutions } from '@/hooks/solutions/use-solutions';
 
 export default function NewProductPage() {
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const createProduct = useCreateProduct();
+  const { data: solutionsData } = useSolutions();
+  const allSolutions = solutionsData?.data ?? [];
 
   // Form state
   const [formData, setFormData] = useState({
@@ -55,6 +58,7 @@ export default function NewProductPage() {
         current_trl: Number(formData.initialTRL),
         notes: formData.notes || undefined,
         tags: formData.tags ? formData.tags.split(',').map(t => t.trim()).filter(Boolean) : undefined,
+        originating_solution_ids: formData.originatingSolutions.length > 0 ? formData.originatingSolutions : undefined,
       });
 
       toast.success('Product created successfully');
@@ -250,10 +254,69 @@ export default function NewProductPage() {
                 <p className="text-sm text-muted-foreground">
                   Link this product to the client solutions it originated from
                 </p>
-                <div className="flex flex-wrap gap-2 p-4 bg-muted rounded-lg min-h-[80px]">
-                  <Badge variant="secondary" className="flex items-center gap-1">
-                    No solutions selected
-                  </Badge>
+
+                {/* Selected solutions as removable badges */}
+                <div className="flex flex-wrap gap-2 p-3 bg-muted rounded-lg min-h-[48px]">
+                  {formData.originatingSolutions.length === 0 ? (
+                    <span className="text-sm text-muted-foreground">No solutions selected</span>
+                  ) : (
+                    formData.originatingSolutions.map((solId) => {
+                      const sol = allSolutions.find((s) => s.id === solId);
+                      return (
+                        <Badge key={solId} variant="secondary" className="flex items-center gap-1 pr-1">
+                          <span className="truncate max-w-[200px]">
+                            {sol ? `${sol.solution_code} - ${sol.title}` : solId}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setFormData({
+                                ...formData,
+                                originatingSolutions: formData.originatingSolutions.filter((id) => id !== solId),
+                              })
+                            }
+                            className="ml-1 rounded-full p-0.5 hover:bg-muted-foreground/20 transition-colors"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </Badge>
+                      );
+                    })
+                  )}
+                </div>
+
+                {/* Scrollable list of all solutions */}
+                <div className="border rounded-lg max-h-[200px] overflow-y-auto">
+                  {allSolutions.length === 0 ? (
+                    <p className="text-sm text-muted-foreground p-3">No solutions available</p>
+                  ) : (
+                    allSolutions.map((sol) => {
+                      const isSelected = formData.originatingSolutions.includes(sol.id);
+                      return (
+                        <button
+                          key={sol.id}
+                          type="button"
+                          onClick={() => {
+                            setFormData({
+                              ...formData,
+                              originatingSolutions: isSelected
+                                ? formData.originatingSolutions.filter((id) => id !== sol.id)
+                                : [...formData.originatingSolutions, sol.id],
+                            });
+                          }}
+                          className={`w-full flex items-center justify-between px-3 py-2 text-left text-sm hover:bg-muted transition-colors border-b last:border-b-0 ${
+                            isSelected ? 'bg-primary/5' : ''
+                          }`}
+                        >
+                          <div className="flex flex-col min-w-0">
+                            <span className="font-medium truncate">{sol.title}</span>
+                            <span className="text-xs text-muted-foreground">{sol.solution_code}</span>
+                          </div>
+                          {isSelected && <Check className="h-4 w-4 text-primary flex-shrink-0 ml-2" />}
+                        </button>
+                      );
+                    })
+                  )}
                 </div>
               </div>
             </CardContent>

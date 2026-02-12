@@ -1,9 +1,10 @@
 # Solutions Hub -- Complete Specification
 
 > **Status:** Active
-> **Created:** 2026-02-03 (consolidated 2026-02-12)
+> **Created:** 2026-02-03 (consolidated 2026-02-12, synced 2026-02-12)
 > **Sources:** Solutions Hub Merger Spec, MyJKKN Enhancement Spec, Products & TRL Spec, FST-Team Analysis
 > **Scope:** Everything needed to build, operate, and evolve the Solutions Hub within MyJKKN
+> **Last Sync:** 2026-02-12 — Spec verified against codebase. All Products/TRL pages use real hooks. RDIF dashboard built.
 
 ---
 
@@ -80,14 +81,14 @@ The recommended fix: a **licensing pivot** -- change one contract clause so clie
 | Category | Count | Notes |
 |----------|-------|-------|
 | Database tables | 45+ (Solutions Hub) + 3 (Products/TRL) | All prefixed with `sh_` |
-| Migrations | 19+ | ~1,500+ lines SQL |
+| Migrations | 22+ | ~2,000+ lines SQL (includes department tracker, networker, AI graduation gate) |
 | RLS policies | 20+ | Role-based access |
 | Enums | 20+ | Custom types |
 | Functions | 10+ | Triggers, helpers |
-| Routes/Pages | 70+ | Admin + 4 portals |
+| Routes/Pages | 90+ | Admin + 4 portals (see Section 7) |
 | Components | 114+ | Domain-organized |
-| Services | 35+ | Data layer |
-| Hooks | 30+ | Query integration |
+| Services | 24 files | Data layer (see Section 5) |
+| Hooks | 23 files | Query integration (see Section 6) |
 | Types | 4+ files | 50+ interfaces |
 
 ### 2.2 Shared Entities (Use MyJKKN)
@@ -110,10 +111,11 @@ app/(routes)/
     training/                   # Training module
     content/                    # Content module
     products/                   # Products & TRL module
-      page.tsx                  # Products list
-      new/page.tsx              # Create product
-      [id]/page.tsx             # Product detail with 5 tabs
-      rdif/                     # RDIF readiness dashboard (planned)
+      page.tsx                  # Products list (real hooks)
+      new/page.tsx              # Create product (real hooks)
+      [id]/page.tsx             # Product detail with 5 tabs (real hooks)
+      [id]/edit/page.tsx        # Edit product
+      rdif/page.tsx             # RDIF readiness dashboard (built)
     discovery/page.tsx          # Site visits
     payments/page.tsx           # Payments
     earnings/page.tsx           # Earnings ledger
@@ -365,11 +367,12 @@ All tables use `sh_` prefix to avoid name collisions with existing MyJKKN tables
 
 ### 5.1 Solutions Services
 
-All services extend `BaseService` and follow MyJKKN patterns.
+All services extend `BaseService` and follow MyJKKN patterns. **24 service files total.**
 
 | Service | File | Responsibility |
 |---------|------|----------------|
-| SolutionsService | `solutions-service.ts` | CRUD for solutions, phases, MOUs |
+| SolutionsService | `solutions-service.ts` | CRUD for solutions |
+| PhasesService | `phases-service.ts` | Phase management, status transitions |
 | ClientsService | `clients-service.ts` | Client management, referrals |
 | BuildersService | `builders-service.ts` | Builder talent pool, skills, assignments |
 | TrainingService | `training-service.ts` | Programs, sessions, cohort management |
@@ -378,6 +381,17 @@ All services extend `BaseService` and follow MyJKKN patterns.
 | EarningsService | `earnings-service.ts` | Earnings ledger, revenue splits |
 | DiscoveryService | `discovery-service.ts` | Client visits, communications |
 | PublicationsService | `publications-service.ts` | Papers, accreditation metrics |
+| BugsService | `bugs-service.ts` | Bug tracking for prototype iterations |
+| DeploymentsService | `deployments-service.ts` | Deployment records, environments |
+| IterationsService | `iterations-service.ts` | Prototype iteration tracking |
+| NotificationsService | `notifications-service.ts` | User notifications |
+| ProductionService | `production-service.ts` | Production learner workflows |
+| RevenueSplitService | `revenue-split-service.ts` | Revenue split model configuration |
+| UnifiedEarningsService | `unified-earnings-service.ts` | Cross-type earnings aggregation |
+| MOUService | `mou-service.ts` | MOU agreements management |
+| CohortService | `cohort-service.ts` | Cohort member management |
+| DepartmentTrackerService | `department-tracker-service.ts` | Department-level solution tracking |
+| ComplianceService | `compliance-service.ts` | Compliance dashboard data |
 
 ### 5.2 Products & TRL Services
 
@@ -447,8 +461,11 @@ All services extend `BaseService` and follow MyJKKN patterns.
 | `useUpdateProduct()` | products.all + detail cache |
 | `useDeleteProduct()` | products.all |
 | `useArchiveProduct()` | products.all + detail cache |
+| `useUpdateProductStatus()` | products.all + detail cache |
 | `useUpdateTRL()` | products.all + detail + trlHistory |
 | `useAddValidation()` | validations + detail + trlHistory + all |
+| `useUpdateValidation()` | validations + detail + trlHistory + all |
+| `useDeleteValidation()` | validations + detail + trlHistory + all |
 | `useUpdatePrerequisite()` | rdifPrerequisites + rdifScore + bridgeStatus + nextMilestones |
 
 ### 6.2 Query Key Hierarchy
@@ -495,11 +512,32 @@ All services extend `BaseService` and follow MyJKKN patterns.
 | `/solutions/payments` | Payments | Built |
 | `/solutions/earnings` | Earnings ledger | Built |
 | `/solutions/publications` | Publications | Built |
-| `/solutions/products` | Products list with stats | Built (mock data) |
-| `/solutions/products/new` | Create product form | Built (mock data) |
-| `/solutions/products/[id]` | Product detail with 5 tabs | Built (mock data) |
+| `/solutions/products` | Products list with stats | Built |
+| `/solutions/products/new` | Create product form | Built |
+| `/solutions/products/[id]` | Product detail with 5 tabs | Built |
 | `/solutions/products/[id]/edit` | Edit product | Planned |
-| `/solutions/products/rdif` | RDIF readiness dashboard | Planned |
+| `/solutions/products/rdif` | RDIF readiness dashboard | Built |
+| `/solutions/builders` | Top-level builders overview | Built |
+| `/solutions/builders/new` | Add new builder | Built |
+| `/solutions/builders/[id]` | Builder detail | Built |
+| `/solutions/compliance` | Compliance dashboard | Built |
+| `/solutions/departments` | Department tracker | Built |
+| `/solutions/departments/[id]` | Department detail | Built |
+| `/solutions/settings/types` | Solution type settings | Built |
+| `/solutions/content/orders` | Content orders list | Built |
+| `/solutions/content/production/new` | Add production learner | Built |
+| `/solutions/training/programs` | Training programs list | Built |
+| `/solutions/training/sessions` | Training sessions list | Built |
+| `/solutions/clients/new` | Add new client | Built |
+| `/solutions/clients/[id]` | Client detail | Built |
+| `/solutions/discovery/new` | New discovery visit | Built |
+| `/solutions/payments/new` | Record new payment | Built |
+| `/solutions/publications/new` | Add publication | Built |
+| `/solutions/software/builders/new` | Add software builder | Built |
+| `/solutions/software/builders/[id]` | Software builder detail | Built |
+| `/solutions/software/phases/[id]` | Phase detail | Built |
+| `/solutions/training/cohort/new` | Add cohort member | Built |
+| `/solutions/[id]/edit` | Edit solution | Built |
 
 ### 7.2 Portal Routes
 
@@ -509,16 +547,24 @@ All services extend `BaseService` and follow MyJKKN patterns.
 | `/talent/builder/assignments` | builder | My assignments | Built |
 | `/talent/builder/available` | builder | Available phases | Built |
 | `/talent/builder/earnings` | builder | My earnings | Built |
+| `/talent/builder/skills` | builder | Skill inventory | Built |
 | `/talent/cohort` | cohort_member | Cohort dashboard | Built |
 | `/talent/cohort/sessions` | cohort_member | Available sessions | Built |
 | `/talent/cohort/earnings` | cohort_member | My earnings | Built |
+| `/talent/cohort/level` | cohort_member | Level progression | Built |
+| `/talent/cohort/schedule` | cohort_member | Session schedule | Built |
 | `/talent/production` | production_learner | Production dashboard | Built |
 | `/talent/production/queue` | production_learner | Work queue | Built |
 | `/talent/production/earnings` | production_learner | My earnings | Built |
+| `/talent/production/my-work` | production_learner | Current work | Built |
+| `/talent/production/submit/[id]` | production_learner | Submit deliverable | Built |
+| `/talent/earnings` | all talent | Unified earnings view | Built |
 | `/portal/client` | client | Client dashboard | Built |
 | `/portal/client/projects` | client | Their solutions | Built |
+| `/portal/client/projects/[id]` | client | Solution detail | Built |
 | `/portal/client/deliverables` | client | Their content | Built |
 | `/portal/client/invoices` | client | Their invoices | Built |
+| `/portal/client/communications` | client | Communication log | Built |
 
 ---
 
@@ -998,7 +1044,7 @@ The Solutions Hub is one component of a broader MyJKKN enhancement that includes
 | Phase 4 | Solutions Hub Completion | P1 | **Completed** | Builder portal, Cohort portal, Production portal, Client portal, Earnings |
 | Phase 5 | TQM Modules | P2 | **Not Started** | NPS, Process Excellence, Grievance, Maturity Assessment, OKR extension, COPQ |
 
-**Totals:** 34 features | 23 completed | 5 in progress (Products/TRL mock-to-real) | 6 not started (TQM)
+**Totals:** 34 features | 31 completed | 3 remaining (product edit page, originating solutions multi-select, add validation dialog) | 6 not started (TQM)
 
 ### 11.2 CRM Workflows (Admission Module)
 
@@ -1045,17 +1091,15 @@ LEAD EVENT ──> RULE EVALUATION ──> SCORE CALCULATED ──> FACTOR BREAK
 | Week 3 | UI components migrated | Done |
 | Week 4 | Portal routes created | Done |
 | Week 5 | CRM + Campaign + AI features | Done |
-| Week 6 | Products & TRL module (mock data) | Done |
+| Week 6 | Products & TRL module (real hooks, RDIF dashboard) | Done |
 
 ### 12.2 Remaining Work
 
 | Item | Priority | Status |
 |------|----------|--------|
-| Wire Products pages to real hooks (replace mock data) | HIGH | TODO |
-| Product edit page (`/solutions/products/[id]/edit`) | HIGH | TODO |
-| RDIF dashboard page (`/solutions/products/rdif`) | HIGH | TODO |
-| Originating solutions multi-select on create form | MEDIUM | TODO |
-| Dashboard integration (wire stats to real hooks) | MEDIUM | TODO |
+| Product edit page (`/solutions/products/[id]/edit`) | HIGH | In Progress |
+| Originating solutions multi-select on create/edit forms | MEDIUM | In Progress |
+| Add Validation dialog on product detail page | MEDIUM | In Progress |
 | TQM: Stakeholder NPS | P2 | Not started |
 | TQM: Process Excellence | P2 | Not started |
 | TQM: Grievance Management | P2 | Not started |
@@ -1127,6 +1171,7 @@ LEAD EVENT ──> RULE EVALUATION ──> SCORE CALCULATED ──> FACTOR BREAK
 | `app/(routes)/solutions/products/page.tsx` | Products list page |
 | `app/(routes)/solutions/products/new/page.tsx` | Create product page |
 | `app/(routes)/solutions/products/[id]/page.tsx` | Product detail with 5 tabs |
+| `app/(routes)/solutions/products/rdif/page.tsx` | RDIF readiness dashboard |
 | `app/(routes)/solutions/_components/trl-badge.tsx` | TRL badge component |
 | `app/(routes)/solutions/_components/trl-progress.tsx` | TRL progress visualization |
 | `app/(routes)/solutions/_components/rdif-scorecard.tsx` | RDIF scorecard component |
@@ -1175,4 +1220,4 @@ If issues arise:
 
 *Consolidated: 2026-02-12*
 *Sources: SOLUTIONS-HUB-MERGER-SPEC.md (2026-02-03), MYJKKN-ENHANCEMENT-SPEC.md (2026-02-04), solutions-products-trl.md (2026-02-10)*
-*Module Status: Service layer and hooks production-ready. Products pages use mock data. TQM modules not started.*
+*Module Status: Service layer and hooks production-ready. Products pages use real hooks. RDIF dashboard built. TQM modules not started.*
