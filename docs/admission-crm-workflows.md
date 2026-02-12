@@ -14,7 +14,7 @@ This is the **single source of truth** for the Admission CRM module. When resumi
 1. Read THIS file first (sections P0-P1 for current status)
 2. Check which phase you're on and what's next
 3. The workflow documentation (sections 1-13) is the complete spec
-4. Database schema and known gotchas are in section P0
+4. Database schema is in its own top-level section [DATABASE SCHEMA REFERENCE](#database-schema-reference)
 5. Test plan with 30 test cases is in section P1
 
 ---
