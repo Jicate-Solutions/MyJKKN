@@ -301,6 +301,28 @@ export class LCIssueService {
       });
     }
 
+    // Notify the raiser and assignee about status change
+    try {
+      const ticket = data as any;
+      const notifyUserIds = new Set<string>();
+      if (ticket.raised_by_id) notifyUserIds.add(ticket.raised_by_id);
+      if (ticket.assigned_to) notifyUserIds.add(ticket.assigned_to);
+
+      for (const userId of notifyUserIds) {
+        await LCNotificationService.createNotification({
+          user_id: userId,
+          type: 'issue',
+          title: 'Issue Status Updated',
+          message: `Issue "${ticket.subject}" status changed to: ${status}`,
+          link: `/learners-council/issues/${issueId}`,
+          reference_id: issueId,
+          reference_type: 'issue',
+        });
+      }
+    } catch (notifErr) {
+      console.warn('[lc/issues] Failed to send status change notification:', notifErr);
+    }
+
     return data as GrievanceTicket;
   }
 

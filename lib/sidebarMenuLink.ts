@@ -444,6 +444,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/social-media': 'sm.monitoring.view',
   '/social-media/accounts': 'sm.monitoring.view',
   '/social-media/accounts/[id]': 'sm.monitoring.view',
+  '/social-media/analytics': 'sm.monitoring.view',
 
   // TQM (Total Quality Management) Module
   '/stakeholder-nps': 'tqm.nps.view',
