@@ -469,7 +469,7 @@ CREATE INDEX idx_lc_event_participants_user ON lc_event_participants(user_id);
 CREATE TABLE IF NOT EXISTS lc_event_approvals (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   event_id UUID NOT NULL REFERENCES lc_events(id) ON DELETE CASCADE,
-  approver_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE SET NULL,
+  approver_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE RESTRICT,
   approver_role VARCHAR(100) NOT NULL,
   step_order INTEGER DEFAULT 1,
   action VARCHAR(20) CHECK (action IS NULL OR action IN ('approve', 'reject', 'request_info', 'reassign')),
