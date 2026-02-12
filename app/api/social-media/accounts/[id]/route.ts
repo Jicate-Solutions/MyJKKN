@@ -84,13 +84,17 @@ export async function DELETE(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { error } = await supabase
+    const { error, count } = await supabase
       .from('sm_accounts')
-      .delete()
+      .delete({ count: 'exact' })
       .eq('id', id);
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    if (count === 0) {
+      return NextResponse.json({ error: 'Account not found' }, { status: 404 });
     }
 
     return NextResponse.json({ success: true });

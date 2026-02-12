@@ -65,7 +65,10 @@ export const smAccountFiltersSchema = z.object({
   platform: SmPlatformSchema.optional(),
   health_status: SmHealthStatusSchema.optional(),
   department_id: z.string().uuid().optional(),
-  is_connected: z.coerce.boolean().optional(),
+  is_connected: z.preprocess(
+    (val) => (val === 'true' ? true : val === 'false' ? false : val),
+    z.boolean().optional(),
+  ),
   search: z.string().max(100).optional(),
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(20),

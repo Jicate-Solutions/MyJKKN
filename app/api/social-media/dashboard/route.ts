@@ -57,7 +57,7 @@ export async function GET(request: NextRequest) {
       .select('*')
       .eq('institution_id', institutionId)
       .order('snapshot_date', { ascending: false })
-      .limit(200);
+      .limit(1000);
 
     const snapshots = latestSnapshots || [];
     const latestByAccount = new Map<string, any>();

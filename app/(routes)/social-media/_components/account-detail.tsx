@@ -202,8 +202,8 @@ export function AccountDetail({ accountId, institutionId }: AccountDetailProps) 
                       <td className="py-2 pr-4">{snap.snapshot_date}</td>
                       <td className="text-right py-2 px-2">{formatNum(snap.followers_count)}</td>
                       <td className="text-right py-2 px-2">
-                        <span className={snap.follower_growth >= 0 ? 'text-green-600' : 'text-red-600'}>
-                          {snap.follower_growth >= 0 ? '+' : ''}{snap.follower_growth}
+                        <span className={(snap.follower_growth ?? 0) >= 0 ? 'text-green-600' : 'text-red-600'}>
+                          {(snap.follower_growth ?? 0) >= 0 ? '+' : ''}{snap.follower_growth ?? 0}
                         </span>
                       </td>
                       <td className="text-right py-2 px-2">{snap.posts_count}</td>

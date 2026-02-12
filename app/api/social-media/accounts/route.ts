@@ -44,8 +44,13 @@ export async function GET(request: NextRequest) {
     if (filters.is_connected !== undefined) query = query.eq('is_connected', filters.is_connected);
     if (filters.search) {
       // Escape ILIKE special characters to prevent wildcard injection
-      const sanitized = filters.search.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
-      query = query.or(`username.ilike.%${sanitized}%,display_name.ilike.%${sanitized}%`);
+      const sanitized = filters.search
+        .replace(/\\/g, '\\\\')
+        .replace(/%/g, '\\%')
+        .replace(/_/g, '\\_')
+        .replace(/"/g, '');  // Strip quotes to prevent PostgREST quote breakout
+      // Wrap values in double quotes to prevent PostgREST comma/dot parsing issues
+      query = query.or(`username.ilike."%${sanitized}%",display_name.ilike."%${sanitized}%"`);
     }
 
     const { data, error, count } = await query;

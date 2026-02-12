@@ -25,6 +25,7 @@ import {
 } from '@/components/ui/select';
 import { Users, Filter, X, UserPlus, History } from 'lucide-react';
 import { AssignMemberDialog, MemberStatusSelect, PositionHistoryDialog } from './member-actions';
+import { useLCMembers } from '@/hooks/learners-council/use-lc-structure';
 import type { LCMember, LCPosition, LCTerm } from '@/types/learners-council';
 
 const statusColors: Record<string, string> = {
