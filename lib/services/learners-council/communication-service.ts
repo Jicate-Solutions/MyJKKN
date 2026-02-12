@@ -296,11 +296,25 @@ export class LCCommunicationService {
 
     const readCount = (reads || []).length;
 
-    // Get total active LC members as denominator for percentage
-    const { count: totalMembers } = await (this.supabase as any)
+    // Get total active LC members for the same institution as denominator for percentage
+    // First get the announcement to know its institution
+    const { data: announcement } = await (this.supabase as any)
+      .from('lc_announcements')
+      .select('institution_id')
+      .eq('id', announcementId)
+      .single();
+
+    const memberQuery = (this.supabase as any)
       .from('lc_members')
       .select('id', { count: 'exact', head: true })
       .eq('status', 'active');
+
+    // Scope to institution if announcement has one
+    if (announcement?.institution_id) {
+      memberQuery.eq('institution_id', announcement.institution_id);
+    }
+
+    const { count: totalMembers } = await memberQuery;
 
     const readPercentage =
       totalMembers && totalMembers > 0
