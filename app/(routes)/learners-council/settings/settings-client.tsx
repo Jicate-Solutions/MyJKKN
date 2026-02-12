@@ -21,7 +21,7 @@ import {
   Loader2,
   Check
 } from 'lucide-react';
-import { createClient } from '@/lib/supabase/client';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 import type { NotificationType } from '@/types/learners-council';
 
 interface NotificationPref {
