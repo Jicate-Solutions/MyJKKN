@@ -573,7 +573,7 @@ CREATE TABLE IF NOT EXISTS lc_elections (
   voting_open_at TIMESTAMPTZ,
   voting_close_at TIMESTAMPTZ,
   results_declared_at TIMESTAMPTZ,
-  created_by UUID NOT NULL REFERENCES auth.users(id) ON DELETE SET NULL,
+  created_by UUID NOT NULL REFERENCES auth.users(id) ON DELETE RESTRICT,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW(),
 
