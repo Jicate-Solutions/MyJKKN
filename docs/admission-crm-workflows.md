@@ -346,7 +346,7 @@ These were discovered during P1 verification. Services may still reference wrong
 /admission/settings/page.tsx           - Module settings (791 lines)
 ```
 
-### Consultant Portal (6 pages - COMPLETE)
+### Consultant Portal (7 pages - COMPLETE)
 ```
 /admission/consultants/page.tsx            - Consultant list
 /admission/consultants/new/page.tsx        - Add consultant
