@@ -724,7 +724,7 @@ export class LCODService {
       duration_hours: number;
       learner_ids: string[];
     },
-    creatorId: string,
+    _creatorId: string,
     institutionId: string
   ): Promise<{ created: LCODRequest[]; errors: { learner_id: string; error: string }[] }> {
     if (!data.learner_ids || data.learner_ids.length === 0) {
