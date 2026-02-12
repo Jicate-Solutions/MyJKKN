@@ -68,20 +68,20 @@ export class InstagramService {
   }
 
   /**
-   * Fetch with retry logic for rate limiting
+   * Fetch with single retry for rate limiting
    * Instagram returns 429 or 401 when rate limited from cloud IPs
+   * Keep retries minimal to stay within Vercel's 60s function timeout
    */
-  private async fetchWithRetry(url: string, maxRetries = 2): Promise<Response> {
+  private async fetchWithRetry(url: string, maxRetries = 1): Promise<Response> {
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       const resp = await fetch(url, { headers: IG_HEADERS, cache: 'no-store' });
       if (resp.ok) return resp;
       if (resp.status === 404) return resp; // Not found is not retryable
       if ((resp.status === 429 || resp.status === 401) && attempt < maxRetries) {
-        // Wait before retry: 10s, 20s
-        await new Promise(r => setTimeout(r, (attempt + 1) * 10000));
+        await new Promise(r => setTimeout(r, 5000)); // 5s wait before retry
         continue;
       }
-      return resp; // Return the error response after max retries
+      return resp;
     }
     throw new Error('Unexpected: retry loop exited without returning');
   }
