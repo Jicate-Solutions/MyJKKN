@@ -3005,7 +3005,7 @@ Multiple services use Supabase Realtime subscriptions:
 | Database views | 3 |
 | Database RPCs | 9 |
 | UI routes/pages | 49 |
-| React hooks | 35+ (in dedicated files) + 12 (in index.ts) |
+| React hooks | 35 files (34 dedicated + index.ts with 12 consolidated hooks) |
 | Service methods | 250+ |
 | **Workflows documented** | **61** |
 | External API integrations | 3 |
