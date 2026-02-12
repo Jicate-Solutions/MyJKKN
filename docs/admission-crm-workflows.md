@@ -284,7 +284,7 @@ last_contact_at       TIMESTAMPTZ
 total_messages_sent   INTEGER
 messages_this_week    INTEGER
 last_message_at       TIMESTAMPTZ
-preferred_channel     TEXT
+preferred_channel     ENUM `communication_channel_type` (whatsapp/sms/email/voice/push)
 tags                  TEXT[]
 is_hot_lead           BOOLEAN
 is_priority           BOOLEAN
