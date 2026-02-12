@@ -41,7 +41,11 @@ export function getLCRole(profileRole: string | null, membership: LCMembershipIn
   if (membership) {
     if (membership.position_category === 'executive') return 'lc_executive';
     if (membership.position_category === 'institution_president') return 'yuva_chair';
-    if (membership.yuva_role === 'co_chair') return 'yuva_co_chair';
+
+    // YUVA vertical-based roles (chapter_chair, stakeholder_chair, vertical_chair, etc.)
+    if (membership.yuva_role?.endsWith('_chair') && !membership.yuva_role.endsWith('_co_chair')) return 'yuva_chair';
+    if (membership.yuva_role?.endsWith('_co_chair')) return 'yuva_co_chair';
+
     if (membership.position_category === 'portfolio_head' || membership.position_category === 'at_large') return 'lc_member';
   }
 
