@@ -86,7 +86,7 @@ export default async function LearnersCouncilLayout({ children }: LCLayoutProps)
                 OD
               </Link>
             </TabsTrigger>
-            {isStaffOrAdmin && (
+            {showSelectionTab && (
               <TabsTrigger value="selection" asChild>
                 <Link href="/learners-council/selection" className="flex items-center gap-1.5 text-xs sm:text-sm">
                   <Vote className="h-3.5 w-3.5" />
