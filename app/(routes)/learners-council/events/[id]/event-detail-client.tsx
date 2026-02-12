@@ -348,6 +348,26 @@ export function EventDetailClient({
               {cancelRegistration.isPending ? 'Cancelling...' : 'Cancel Registration'}
             </Button>
           )}
+          {isStaffOrAdmin && event.status === 'pending_review' && (
+            <>
+              <Button
+                className="bg-green-600 hover:bg-green-700"
+                onClick={() => approveEvent.mutate({ eventId: event.id, approverId: userId, approverRole: userRole })}
+                disabled={approveEvent.isPending}
+              >
+                <CheckCircle2 className="h-4 w-4 mr-2" />
+                {approveEvent.isPending ? 'Approving...' : 'Approve'}
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={() => setRejectDialogOpen(true)}
+                disabled={rejectEvent.isPending}
+              >
+                <XCircle className="h-4 w-4 mr-2" />
+                Reject
+              </Button>
+            </>
+          )}
           {isProposer && event.status === 'approved' && (
             <Button
               onClick={() => publishEvent.mutate(event.id)}
