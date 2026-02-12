@@ -406,6 +406,31 @@ export class LCStructureService {
   }
 
   /**
+   * Update an existing YUVA chapter
+   */
+  static async updateChapter(
+    chapterId: string,
+    data: { name?: string; description?: string; academic_year?: string; is_active?: boolean }
+  ): Promise<YUVAChapter> {
+    const { data: chapter, error } = await (this.supabase as any)
+      .from('yuva_chapters')
+      .update(data)
+      .eq('id', chapterId)
+      .select(`
+        *,
+        institution:institutions(id, name)
+      `)
+      .single();
+
+    if (error) {
+      console.error('[lc/structure] Error updating chapter:', error);
+      throw new Error(`Failed to update chapter: ${error.message}`);
+    }
+
+    return chapter as YUVAChapter;
+  }
+
+  /**
    * Get a single term by ID with full details
    */
   static async getTermById(termId: string): Promise<LCTerm> {
