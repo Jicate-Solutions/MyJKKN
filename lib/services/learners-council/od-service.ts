@@ -198,10 +198,47 @@ export class LCODService {
       .single();
 
     if (!request) throw new Error('OD request not found');
+    if (request.status !== 'submitted' && request.status !== 'in_review') {
+      throw new Error('OD request is not in a reviewable state');
+    }
 
     const currentStep = request.current_step || 1;
     const chain = request.chain as any;
     const totalSteps = chain?.steps?.length || 1;
+
+    // Validate approver has the required role for this step
+    const steps = chain?.steps;
+    if (steps && steps.length >= currentStep) {
+      const stepConfig = steps[currentStep - 1];
+      if (stepConfig?.approver_role) {
+        const { data: approverMembership } = await (this.supabase as any)
+          .from('lc_members')
+          .select('position:lc_positions(title, category)')
+          .eq('user_id', approverId)
+          .eq('status', 'active')
+          .maybeSingle();
+
+        const approverProfile = await (this.supabase as any)
+          .from('profiles')
+          .select('role')
+          .eq('id', approverId)
+          .single();
+
+        const posTitle = (approverMembership?.position as any)?.title || '';
+        const posCategory = (approverMembership?.position as any)?.category || '';
+        const profileRole = approverProfile?.data?.role || '';
+
+        const requiredRole = stepConfig.approver_role.toLowerCase();
+        const hasRole =
+          posTitle.toLowerCase().includes(requiredRole) ||
+          posCategory.toLowerCase() === requiredRole ||
+          profileRole.toLowerCase() === requiredRole;
+
+        if (!hasRole) {
+          throw new Error(`You do not have the required role (${stepConfig.approver_role}) to approve at this step`);
+        }
+      }
+    }
 
     // Record the approval
     const { error: approvalError } = await (this.supabase as any)
