@@ -116,6 +116,14 @@ export function IssuesKanbanClient({
   // Detail view state
   const [detailTicket, setDetailTicket] = useState<GrievanceTicket | null>(null);
 
+  // Escalation state
+  const [escalateOpen, setEscalateOpen] = useState(false);
+  const [escalateReason, setEscalateReason] = useState('');
+  const [escalateTicketId, setEscalateTicketId] = useState('');
+
+  // Comment state
+  const [commentText, setCommentText] = useState('');
+
   const handleCreate = () => {
     if (!subject || !description || !category) return;
     createIssue.mutate(
