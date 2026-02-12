@@ -412,7 +412,7 @@ CREATE TABLE IF NOT EXISTS lc_events (
   type VARCHAR(100) DEFAULT 'general',
   scope VARCHAR(30) NOT NULL CHECK (scope IN ('campus', 'inter_campus', 'institution_wide')),
   status VARCHAR(30) DEFAULT 'draft' CHECK (status IN ('draft', 'pending_review', 'approved', 'published', 'in_progress', 'completed', 'cancelled')),
-  proposed_by UUID NOT NULL REFERENCES auth.users(id) ON DELETE SET NULL,
+  proposed_by UUID NOT NULL REFERENCES auth.users(id) ON DELETE RESTRICT,
   institution_id UUID REFERENCES institutions(id) ON DELETE SET NULL,
   venue_resource_id UUID, -- references resources table
   venue_name VARCHAR(300),
