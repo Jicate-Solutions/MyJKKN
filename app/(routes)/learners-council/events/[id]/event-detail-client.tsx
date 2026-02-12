@@ -559,7 +559,7 @@ export function EventDetailClient({
       </div>
 
       {/* Reject Event Dialog */}
-      <Dialog open={rejectDialogOpen} onOpenChange={setRejectDialogOpen}>
+      <Dialog open={rejectDialogOpen} onOpenChange={(open) => { setRejectDialogOpen(open); if (!open) setRejectComments(''); }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Reject Event</DialogTitle>
