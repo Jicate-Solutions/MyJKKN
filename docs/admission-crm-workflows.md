@@ -270,10 +270,10 @@ counselor_id          UUID (FK)
 assigned_counselor_id UUID (FK)
 assigned_at           TIMESTAMPTZ
 ownership_mode        TEXT
-engagement_score      NUMERIC
-quality_score         NUMERIC
-combined_score        NUMERIC
-score                 NUMERIC
+engagement_score      INTEGER
+quality_score         INTEGER
+combined_score        INTEGER
+score                 INTEGER
 score_category        TEXT (hot/warm/cold)
 score_breakdown       JSONB
 score_updated_at      TIMESTAMPTZ
