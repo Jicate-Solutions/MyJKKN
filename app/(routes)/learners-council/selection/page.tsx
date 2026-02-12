@@ -11,6 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import { Vote, Calendar, Users, Trophy, Clock } from 'lucide-react';
 import Link from 'next/link';
 import { SelectionClientActions } from './_components/selection-client-actions';
+import { canManageElections, getLCRole } from '@/lib/learners-council/lc-roles';
 
 /** Status badge styling helper */
 function getStatusConfig(status: string) {
