@@ -35,6 +35,7 @@ async function runSnapshotCollection(
     .single();
 
   const startTime = Date.now();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const results: { platform: string; processed: number; succeeded: number; failed: number; details: any[] }[] = [];
 
   // YouTube pull
@@ -81,10 +82,14 @@ async function runSnapshotCollection(
     }
   }
 
-  // Instagram pull (using Internal API — will switch to Graph API after Meta verification)
+  // Instagram pull — uses Graph API if credentials available, else Internal API
   if (platform === 'all' || platform === 'instagram') {
     try {
       const igService = new InstagramService();
+
+      // Try to initialize Graph API mode (works from Vercel)
+      const hasGraphApi = await igService.initGraphApi(institutionId);
+      const dataSource = hasGraphApi ? 'graph_api' : 'internal_api';
 
       if (accountId) {
         const { data: account } = await serviceSupabase
@@ -101,14 +106,17 @@ async function runSnapshotCollection(
             processed: 1,
             succeeded: result.success ? 1 : 0,
             failed: result.success ? 0 : 1,
-            details: [result],
+            details: [{ ...result, dataSource }],
           });
         }
       } else {
         const igResults = await igService.pullAllAccounts(institutionId);
         results.push({
           platform: 'instagram',
-          ...igResults,
+          processed: igResults.totalProcessed,
+          succeeded: igResults.totalSucceeded,
+          failed: igResults.totalFailed,
+          details: igResults.results,
         });
       }
     } catch (err) {
@@ -128,7 +136,9 @@ async function runSnapshotCollection(
   const totalSucceeded = results.reduce((sum, r) => sum + r.succeeded, 0);
   const totalFailed = results.reduce((sum, r) => sum + r.failed, 0);
   const errors = results
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     .flatMap(r => r.details.filter((d: any) => d.error))
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     .map((d: any) => ({ error: d.error, account: d.username || d.accountId }));
 
   if (cronLog) {
@@ -170,13 +180,13 @@ export async function GET(request: NextRequest) {
 
   // Check if this is a Vercel Cron call
   if (authHeader === `Bearer ${process.env.CRON_SECRET}` && process.env.CRON_SECRET) {
-    // Vercel Cron trigger — only YouTube for now
-    // Instagram Internal API is blocked from Vercel IPs (rate limiting)
-    // Instagram will be added back when Graph API or Apify is configured
+    // Vercel Cron trigger — pull all platforms
+    // YouTube: always works (API key)
+    // Instagram: works if Graph API credentials are connected (checked inside runSnapshotCollection)
     const result = await runSnapshotCollection(
       'a1111111-1111-1111-1111-111111111111',
       'cron',
-      'youtube'
+      'all'
     );
     return NextResponse.json(result);
   }

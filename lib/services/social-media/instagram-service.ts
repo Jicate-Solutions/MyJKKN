@@ -1,26 +1,39 @@
 /**
  * Instagram Monitoring Service
- * Pulls account stats and recent post metrics via Instagram Internal API
+ * Pulls account stats and recent post metrics via Instagram APIs
  *
- * Strategy (from SPECS):
- *   PRIMARY: Instagram Internal API (no auth, free, ~200 requests/hour)
- *   FUTURE:  Instagram Graph API (after Meta Business Verification)
- *   FALLBACK: Apify Instagram Scraper ($0.50/1000 posts)
+ * Strategy (in order of preference):
+ *   1. Instagram Graph API (Business Discovery) — works from Vercel, official, free
+ *   2. Instagram Internal API — only works from residential IPs (local dev fallback)
  *
- * Rate limiting: 3-second delay between accounts
- * 59 accounts × 3 seconds = ~3 minutes total
+ * Graph API: ONE connected Business account queries ALL other public Business accounts
+ * Rate limit: 200 calls/hour/connected account (59 accounts = ~30% of limit)
  */
 
 import { createClient } from '@supabase/supabase-js';
 
-const IG_API_BASE = 'https://www.instagram.com/api/v1/users/web_profile_info/';
-const IG_HEADERS: Record<string, string> = {
+// ─── Graph API Configuration ────────────────────────────────────────────────
+const GRAPH_API_VERSION = 'v21.0';
+const GRAPH_API_BASE = `https://graph.facebook.com/${GRAPH_API_VERSION}`;
+
+// ─── Internal API Configuration (local-only fallback) ───────────────────────
+const IG_INTERNAL_API_BASE = 'https://www.instagram.com/api/v1/users/web_profile_info/';
+const IG_INTERNAL_HEADERS: Record<string, string> = {
   'User-Agent': 'Instagram 219.0.0.12.117',
   'X-IG-App-ID': '936619743392459',
   'Sec-Fetch-Site': 'same-origin',
   'Sec-Fetch-Mode': 'cors',
   'Sec-Fetch-Dest': 'empty',
 };
+
+// ─── Shared Interfaces ──────────────────────────────────────────────────────
+
+interface GraphApiCredential {
+  accessToken: string;
+  igUserId: string;
+  pageId: string;
+  accountId: string; // sm_accounts.id of the connected account
+}
 
 interface InstagramProfile {
   username: string;
@@ -40,7 +53,7 @@ interface InstagramPost {
   caption: string;
   likeCount: number;
   commentCount: number;
-  viewCount: number; // for videos/reels
+  viewCount: number;
   isVideo: boolean;
   thumbnailUrl: string;
   publishedAt: string;
@@ -56,9 +69,12 @@ interface PullResult {
   postsStored?: number;
 }
 
+// ─── Service ────────────────────────────────────────────────────────────────
+
 export class InstagramService {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private supabase: any;
+  private graphCredential: GraphApiCredential | null = null;
 
   constructor() {
     this.supabase = createClient(
@@ -67,18 +83,198 @@ export class InstagramService {
     );
   }
 
+  /** Whether Graph API mode is active */
+  get isGraphApiMode(): boolean {
+    return this.graphCredential !== null;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Graph API Initialization
+  // ═══════════════════════════════════════════════════════════════════════════
+
   /**
-   * Fetch with single retry for rate limiting
-   * Instagram returns 429 or 401 when rate limited from cloud IPs
-   * Keep retries minimal to stay within Vercel's 60s function timeout
+   * Try to load Graph API credentials for the institution.
+   * Call this before pullAllAccounts() to enable Graph API mode.
+   * Returns true if Graph API credentials are available and valid.
+   */
+  async initGraphApi(institutionId: string): Promise<boolean> {
+    try {
+      // Find a connected Instagram account for this institution
+      const { data: connectedAccount } = await this.supabase
+        .from('sm_accounts')
+        .select('id')
+        .eq('institution_id', institutionId)
+        .eq('platform', 'instagram')
+        .eq('is_connected', true)
+        .limit(1)
+        .single();
+
+      if (!connectedAccount) return false;
+
+      // Get its Graph API credential
+      const { data: cred } = await this.supabase
+        .from('sm_account_credentials')
+        .select('access_token, platform_user_id, metadata')
+        .eq('account_id', connectedAccount.id)
+        .eq('credential_type', 'graph_api')
+        .eq('is_active', true)
+        .limit(1)
+        .single();
+
+      if (!cred?.access_token || !cred?.platform_user_id) return false;
+
+      this.graphCredential = {
+        accessToken: cred.access_token,
+        igUserId: cred.platform_user_id,
+        pageId: cred.metadata?.page_id || '',
+        accountId: connectedAccount.id,
+      };
+
+      // Validate the token with a simple API call
+      const valid = await this.validateGraphToken();
+      if (!valid) {
+        // Mark credential as needing reconnection
+        await this.supabase
+          .from('sm_account_credentials')
+          .update({ needs_reconnect: true })
+          .eq('account_id', connectedAccount.id)
+          .eq('credential_type', 'graph_api');
+        this.graphCredential = null;
+        return false;
+      }
+
+      // Update last_used_at
+      await this.supabase
+        .from('sm_account_credentials')
+        .update({ last_used_at: new Date().toISOString() })
+        .eq('account_id', connectedAccount.id)
+        .eq('credential_type', 'graph_api');
+
+      return true;
+    } catch {
+      this.graphCredential = null;
+      return false;
+    }
+  }
+
+  /**
+   * Validate the Graph API access token
+   */
+  private async validateGraphToken(): Promise<boolean> {
+    if (!this.graphCredential) return false;
+    try {
+      const url = `${GRAPH_API_BASE}/${this.graphCredential.igUserId}?fields=id&access_token=${this.graphCredential.accessToken}`;
+      const resp = await fetch(url, { cache: 'no-store' });
+      return resp.ok;
+    } catch {
+      return false;
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Data Fetching — Graph API (Primary)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Fetch profile + posts via Instagram Graph API Business Discovery
+   * Single API call per account — most efficient method
+   */
+  private async fetchViaGraphApi(
+    username: string
+  ): Promise<{ profile: InstagramProfile; posts: InstagramPost[] }> {
+    if (!this.graphCredential) throw new Error('Graph API credentials not loaded');
+
+    const fields = `business_discovery.username(${username}){username,name,profile_picture_url,biography,website,followers_count,follows_count,media_count,media.limit(25){id,caption,media_type,media_url,permalink,timestamp,like_count,comments_count}}`;
+
+    const params = new URLSearchParams({
+      fields,
+      access_token: this.graphCredential.accessToken,
+    });
+
+    const url = `${GRAPH_API_BASE}/${this.graphCredential.igUserId}?${params}`;
+    const resp = await fetch(url, { cache: 'no-store' });
+
+    if (!resp.ok) {
+      const errorData = await resp.json().catch(() => ({}));
+      const errorMsg = errorData?.error?.message || `Graph API error: ${resp.status}`;
+      const errorCode = errorData?.error?.code;
+
+      // Token expired
+      if (errorCode === 190) {
+        throw new Error('Access token expired — reconnect Instagram in settings');
+      }
+      // Not a business account
+      if (resp.status === 400 && errorMsg.includes('not a Business')) {
+        throw new Error(`@${username} is not a Business/Creator account — cannot query via Business Discovery`);
+      }
+      // Account not found
+      if (errorMsg.includes('does not exist') || errorMsg.includes('Invalid username')) {
+        throw new Error(`Account @${username} not found on Instagram`);
+      }
+      throw new Error(errorMsg);
+    }
+
+    const data = await resp.json();
+    const bd = data?.business_discovery;
+    if (!bd) throw new Error(`No business_discovery data for @${username}`);
+
+    // Parse profile
+    const profile: InstagramProfile = {
+      username: bd.username || username,
+      fullName: bd.name || '',
+      biography: bd.biography || '',
+      profilePicUrl: bd.profile_picture_url || '',
+      isVerified: false, // Not available via Business Discovery
+      isBusinessAccount: true, // Must be business/creator to be queried
+      categoryName: null, // Not available via Business Discovery
+      followerCount: bd.followers_count || 0,
+      followingCount: bd.follows_count || 0,
+      postCount: bd.media_count || 0,
+    };
+
+    // Parse posts
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const posts: InstagramPost[] = (bd.media?.data || []).map((post: any) => {
+      const mediaType = post.media_type; // IMAGE, VIDEO, CAROUSEL_ALBUM
+      let postType: InstagramPost['postType'] = 'image_post';
+      if (mediaType === 'VIDEO') postType = 'reel'; // Graph API VIDEO includes reels
+      else if (mediaType === 'CAROUSEL_ALBUM') postType = 'carousel';
+
+      // Extract shortcode from permalink: https://www.instagram.com/p/XXXX/ or /reel/XXXX/
+      const permalink = post.permalink || '';
+      const shortcodeMatch = permalink.match(/\/(?:p|reel)\/([^/]+)/);
+      const shortcode = shortcodeMatch?.[1] || post.id;
+
+      return {
+        shortcode,
+        caption: (post.caption || '').slice(0, 500),
+        likeCount: post.like_count || 0,
+        commentCount: post.comments_count || 0,
+        viewCount: 0, // Not available via Business Discovery for other accounts
+        isVideo: mediaType === 'VIDEO',
+        thumbnailUrl: post.media_url || '',
+        publishedAt: post.timestamp || new Date().toISOString(),
+        postType,
+      };
+    });
+
+    return { profile, posts };
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Data Fetching — Internal API (Local Fallback)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Fetch with single retry for rate limiting (Internal API)
    */
   private async fetchWithRetry(url: string, maxRetries = 1): Promise<Response> {
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
-      const resp = await fetch(url, { headers: IG_HEADERS, cache: 'no-store' });
+      const resp = await fetch(url, { headers: IG_INTERNAL_HEADERS, cache: 'no-store' });
       if (resp.ok) return resp;
-      if (resp.status === 404) return resp; // Not found is not retryable
+      if (resp.status === 404) return resp;
       if ((resp.status === 429 || resp.status === 401) && attempt < maxRetries) {
-        await new Promise(r => setTimeout(r, 5000)); // 5s wait before retry
+        await new Promise(r => setTimeout(r, 5000));
         continue;
       }
       return resp;
@@ -87,10 +283,13 @@ export class InstagramService {
   }
 
   /**
-   * Fetch profile data from Instagram Internal API
+   * Fetch profile + posts via Instagram Internal API (two HTTP calls)
+   * Only works from residential IPs — blocked from Vercel/cloud IPs
    */
-  async getProfile(username: string): Promise<InstagramProfile> {
-    const url = `${IG_API_BASE}?username=${encodeURIComponent(username)}`;
+  private async fetchViaInternalApi(
+    username: string
+  ): Promise<{ profile: InstagramProfile; posts: InstagramPost[] }> {
+    const url = `${IG_INTERNAL_API_BASE}?username=${encodeURIComponent(username)}`;
     const resp = await this.fetchWithRetry(url);
 
     if (!resp.ok) {
@@ -103,7 +302,8 @@ export class InstagramService {
     const user = data?.data?.user;
     if (!user) throw new Error(`No user data for @${username}`);
 
-    return {
+    // Parse profile
+    const profile: InstagramProfile = {
       username: user.username,
       fullName: user.full_name || '',
       biography: user.biography || '',
@@ -115,33 +315,17 @@ export class InstagramService {
       followingCount: user.edge_follow?.count || 0,
       postCount: user.edge_owner_to_timeline_media?.count || 0,
     };
-  }
 
-  /**
-   * Extract recent posts from the same API response
-   */
-  async getRecentPosts(username: string): Promise<InstagramPost[]> {
-    const url = `${IG_API_BASE}?username=${encodeURIComponent(username)}`;
-    const resp = await this.fetchWithRetry(url, 1);
-
-    if (!resp.ok) return [];
-
-    const data = await resp.json();
-    const user = data?.data?.user;
-    if (!user) return [];
-
+    // Parse posts
     const edges = user.edge_owner_to_timeline_media?.edges || [];
-
-    return edges.map((edge: Record<string, unknown>) => {
+    const posts: InstagramPost[] = edges.map((edge: Record<string, unknown>) => {
       const node = edge.node as Record<string, unknown>;
       const isVideo = node.__typename === 'GraphVideo' || node.is_video === true;
       const isCarousel = node.__typename === 'GraphSidecar';
 
-      // Detect post type
       let postType: InstagramPost['postType'] = 'image_post';
       if (isCarousel) postType = 'carousel';
       else if (isVideo) {
-        // Reels typically have product_type "clips"
         const productType = node.product_type as string | undefined;
         postType = productType === 'clips' ? 'reel' : 'video_post';
       }
@@ -163,10 +347,17 @@ export class InstagramService {
         postType,
       };
     });
+
+    return { profile, posts };
   }
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Pull Account (Shared Logic)
+  // ═══════════════════════════════════════════════════════════════════════════
+
   /**
-   * Pull data for a single Instagram account and store in database
+   * Pull data for a single Instagram account and store in database.
+   * Uses Graph API if available, falls back to Internal API.
    */
   async pullAccount(account: { id: string; username: string; institution_id: string }): Promise<PullResult> {
     const result: PullResult = {
@@ -176,11 +367,15 @@ export class InstagramService {
     };
 
     try {
-      // Fetch profile (includes posts in same request — single API call)
-      const profile = await this.getProfile(account.username);
+      // Fetch profile + posts using available API
+      let profile: InstagramProfile;
+      let posts: InstagramPost[];
 
-      // Get posts from same API response
-      const posts = await this.getRecentPosts(account.username);
+      if (this.graphCredential) {
+        ({ profile, posts } = await this.fetchViaGraphApi(account.username));
+      } else {
+        ({ profile, posts } = await this.fetchViaInternalApi(account.username));
+      }
 
       // Compute engagement rate
       const totalEngagement = posts.reduce((sum, p) => sum + p.likeCount + p.commentCount, 0);
@@ -275,6 +470,7 @@ export class InstagramService {
             post_count: profile.postCount,
             is_business_account: profile.isBusinessAccount,
             category_name: profile.categoryName,
+            data_source: this.graphCredential ? 'graph_api' : 'internal_api',
           },
         })
         .eq('id', account.id);
@@ -315,8 +511,12 @@ export class InstagramService {
     return result;
   }
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Health Score
+  // ═══════════════════════════════════════════════════════════════════════════
+
   /**
-   * Compute health score (0-100) matching the formula in types/social-media.ts
+   * Compute health score (0-100)
    *
    * Activity Score (0-30):   Based on posting frequency
    * Engagement Score (0-30): Based on engagement rate
@@ -329,7 +529,7 @@ export class InstagramService {
     engagementRate: number,
     growthRate: number
   ): number {
-    // Activity (0-30): how recently and frequently they post
+    // Activity (0-30)
     let activityScore = 0;
     if (posts.length > 0) {
       const daysSincePost = Math.floor(
@@ -342,7 +542,7 @@ export class InstagramService {
       else if (daysSincePost <= 90) activityScore = 5;
     }
 
-    // Engagement (0-30): engagement rate quality
+    // Engagement (0-30)
     let engagementScore = 0;
     if (engagementRate >= 6) engagementScore = 30;
     else if (engagementRate >= 4) engagementScore = 25;
@@ -351,14 +551,14 @@ export class InstagramService {
     else if (engagementRate >= 1) engagementScore = 10;
     else if (engagementRate > 0) engagementScore = 5;
 
-    // Growth (0-20): follower growth rate
+    // Growth (0-20)
     let growthScore = 0;
     if (growthRate >= 5) growthScore = 20;
     else if (growthRate >= 2) growthScore = 15;
     else if (growthRate >= 1) growthScore = 10;
     else if (growthRate > 0) growthScore = 5;
 
-    // Profile (0-20): completeness
+    // Profile (0-20)
     let profileScore = 0;
     if (profile.biography.length > 0) profileScore += 5;
     if (profile.profilePicUrl) profileScore += 5;
@@ -368,14 +568,20 @@ export class InstagramService {
     return Math.min(100, activityScore + engagementScore + growthScore + profileScore);
   }
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Pull All Accounts
+  // ═══════════════════════════════════════════════════════════════════════════
+
   /**
-   * Pull all Instagram accounts for an institution
+   * Pull all Instagram accounts for an institution.
+   * Uses Graph API if initGraphApi() was called successfully, else Internal API.
    */
   async pullAllAccounts(institutionId: string): Promise<{
-    processed: number;
-    succeeded: number;
-    failed: number;
-    details: PullResult[];
+    totalProcessed: number;
+    totalSucceeded: number;
+    totalFailed: number;
+    results: PullResult[];
+    dataSource: 'graph_api' | 'internal_api';
   }> {
     const { data: accounts, error } = await this.supabase
       .from('sm_accounts')
@@ -384,18 +590,23 @@ export class InstagramService {
       .eq('platform', 'instagram');
 
     if (error || !accounts) {
-      return { processed: 0, succeeded: 0, failed: 0, details: [] };
+      return { totalProcessed: 0, totalSucceeded: 0, totalFailed: 0, results: [], dataSource: this.graphCredential ? 'graph_api' : 'internal_api' };
     }
 
-    const details: PullResult[] = [];
+    const results: PullResult[] = [];
     let succeeded = 0;
     let failed = 0;
 
+    // Graph API mode: faster, no rate limit concerns (200/hr is plenty)
+    // Internal API mode: slower, rate limit detection needed
+    const delayBetweenAccounts = this.graphCredential ? 1000 : 5000;
+
     let rateLimited = false;
-    for (const account of accounts) {
+    for (let i = 0; i < accounts.length; i++) {
+      const account = accounts[i];
+
       if (rateLimited) {
-        // Skip remaining accounts if rate limited
-        details.push({
+        results.push({
           accountId: account.id,
           username: `@${account.username}`,
           success: false,
@@ -406,26 +617,138 @@ export class InstagramService {
       }
 
       const result = await this.pullAccount(account);
-      details.push(result);
+      results.push(result);
       if (result.success) succeeded++;
       else {
         failed++;
-        if (result.error?.includes('Rate limited')) {
+        // Only stop on rate limit for Internal API mode
+        if (!this.graphCredential && result.error?.includes('Rate limited')) {
           rateLimited = true;
         }
       }
 
-      // 5-second delay between requests to respect rate limits
-      if (accounts.indexOf(account) < accounts.length - 1 && !rateLimited) {
-        await new Promise(resolve => setTimeout(resolve, 5000));
+      // Delay between requests
+      if (i < accounts.length - 1 && !rateLimited) {
+        await new Promise(resolve => setTimeout(resolve, delayBetweenAccounts));
       }
     }
 
     return {
-      processed: accounts.length,
-      succeeded,
-      failed,
-      details,
+      totalProcessed: accounts.length,
+      totalSucceeded: succeeded,
+      totalFailed: failed,
+      results,
+      dataSource: this.graphCredential ? 'graph_api' : 'internal_api',
     };
   }
+}
+
+// ─── OAuth Helper Functions (used by API routes) ────────────────────────────
+
+/**
+ * Generate Facebook OAuth authorization URL
+ */
+export function getInstagramOAuthUrl(redirectUri: string, state: string): string {
+  const params = new URLSearchParams({
+    client_id: process.env.META_APP_ID!,
+    redirect_uri: redirectUri,
+    scope: 'instagram_basic,pages_show_list,pages_read_engagement',
+    response_type: 'code',
+    state,
+  });
+  return `https://www.facebook.com/${GRAPH_API_VERSION}/dialog/oauth?${params}`;
+}
+
+/**
+ * Exchange authorization code for access tokens.
+ * Returns the long-lived user access token.
+ */
+export async function exchangeCodeForToken(code: string, redirectUri: string): Promise<string> {
+  // Step 1: Exchange code for short-lived token
+  const tokenParams = new URLSearchParams({
+    client_id: process.env.META_APP_ID!,
+    client_secret: process.env.META_APP_SECRET!,
+    redirect_uri: redirectUri,
+    code,
+  });
+
+  const tokenResp = await fetch(
+    `${GRAPH_API_BASE}/oauth/access_token?${tokenParams}`,
+    { cache: 'no-store' }
+  );
+
+  if (!tokenResp.ok) {
+    const err = await tokenResp.json().catch(() => ({}));
+    throw new Error(err?.error?.message || 'Failed to exchange authorization code');
+  }
+
+  const tokenData = await tokenResp.json();
+  const shortLivedToken = tokenData.access_token;
+
+  // Step 2: Exchange short-lived token for long-lived token (60 days)
+  const longLivedParams = new URLSearchParams({
+    grant_type: 'fb_exchange_token',
+    client_id: process.env.META_APP_ID!,
+    client_secret: process.env.META_APP_SECRET!,
+    fb_exchange_token: shortLivedToken,
+  });
+
+  const longLivedResp = await fetch(
+    `${GRAPH_API_BASE}/oauth/access_token?${longLivedParams}`,
+    { cache: 'no-store' }
+  );
+
+  if (!longLivedResp.ok) {
+    const err = await longLivedResp.json().catch(() => ({}));
+    throw new Error(err?.error?.message || 'Failed to get long-lived token');
+  }
+
+  const longLivedData = await longLivedResp.json();
+  return longLivedData.access_token;
+}
+
+/**
+ * Get Facebook Pages with their Instagram Business accounts.
+ * Uses the long-lived user token. Returns Pages with IG accounts attached.
+ */
+export async function getInstagramBusinessAccounts(userAccessToken: string): Promise<Array<{
+  pageId: string;
+  pageName: string;
+  pageAccessToken: string;
+  igUserId: string;
+  igUsername: string;
+}>> {
+  // Get pages with their Instagram business accounts
+  const pagesResp = await fetch(
+    `${GRAPH_API_BASE}/me/accounts?fields=id,name,access_token,instagram_business_account{id,username}&access_token=${userAccessToken}`,
+    { cache: 'no-store' }
+  );
+
+  if (!pagesResp.ok) {
+    const err = await pagesResp.json().catch(() => ({}));
+    throw new Error(err?.error?.message || 'Failed to get Facebook Pages');
+  }
+
+  const pagesData = await pagesResp.json();
+  const results: Array<{
+    pageId: string;
+    pageName: string;
+    pageAccessToken: string;
+    igUserId: string;
+    igUsername: string;
+  }> = [];
+
+  for (const page of pagesData.data || []) {
+    if (page.instagram_business_account) {
+      results.push({
+        pageId: page.id,
+        pageName: page.name || '',
+        pageAccessToken: page.access_token,
+        igUserId: page.instagram_business_account.id,
+        igUsername: page.instagram_business_account.username || '',
+      });
+    }
+  }
+
+  return results;
 }
