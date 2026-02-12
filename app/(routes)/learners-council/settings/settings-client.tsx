@@ -118,7 +118,7 @@ export function SettingsClient({ userId, initialPreferences }: SettingsClientPro
 
   const handleSave = () => {
     startTransition(async () => {
-      const supabase = createClient();
+      const supabase = createClientSupabaseClient();
 
       for (const [type, pref] of Object.entries(preferences)) {
         await supabase
