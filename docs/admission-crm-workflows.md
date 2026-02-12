@@ -263,7 +263,7 @@ pincode               TEXT
 notes                 TEXT
 entry_date            TIMESTAMPTZ
 funnel_stage          TEXT (new/contacted/engaged/qualified/application_started/application_submitted/under_review/interview_scheduled/offered/accepted/enrolled/lost/dormant)
-stage                 ENUM (separate from funnel_stage — DB-level lifecycle enum)
+stage                 ENUM `admission_lead_stage` (19 values: new/contacted/engaged/qualified/applied/application_started/application_submitted/documents_pending/documents_verified/interview_scheduled/interview_completed/interviewed/offered/offer_sent/offer_accepted/token_paid/enrolled/lost/dormant)
 stage_changed_at      TIMESTAMPTZ
 previous_stage        TEXT
 counselor_id          UUID (FK)
