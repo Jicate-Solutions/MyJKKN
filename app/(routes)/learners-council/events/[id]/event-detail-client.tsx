@@ -258,6 +258,10 @@ export function EventDetailClient({
   const completeEvent = useCompleteEvent();
   const exportEventData = useExportEventData();
   const bulkMarkAttendance = useBulkMarkAttendance();
+  const approveEvent = useApproveEvent();
+  const rejectEvent = useRejectEvent();
+  const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
+  const [rejectComments, setRejectComments] = useState('');
 
   const statusCfg = statusConfig[event.status] || statusConfig.draft;
   const participants = (event.participants || []) as LCEventParticipant[];
