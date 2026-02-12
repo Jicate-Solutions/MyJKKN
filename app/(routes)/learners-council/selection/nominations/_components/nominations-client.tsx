@@ -606,6 +606,23 @@ export function NominationsClient({
                       {castVote.isPending ? 'Voting...' : 'Vote'}
                     </Button>
                   )}
+
+                  {/* Withdraw own nomination */}
+                  {((nom as any).nominee_id === userId || (nom.nominee as any)?.id === userId) &&
+                    nom.status !== 'withdrawn' && nom.status !== 'selected' && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="text-red-700 border-red-200 hover:bg-red-50"
+                      onClick={() => {
+                        setWithdrawNomId(nom.id);
+                        setWithdrawOpen(true);
+                      }}
+                    >
+                      <XCircle className="h-3.5 w-3.5 mr-1" />
+                      Withdraw
+                    </Button>
+                  )}
                 </div>
               </CardContent>
             </Card>
