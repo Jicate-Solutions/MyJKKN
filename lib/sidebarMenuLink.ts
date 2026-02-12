@@ -479,6 +479,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/learners-council/od': 'lc.od.view',
   '/learners-council/selection': 'lc.selection.view',
   '/learners-council/issues': 'lc.issues.view',
+  '/learners-council/settings': 'lc.view',
   '/maturity-assessment': 'tqm.maturity.view',
   '/maturity-assessment/assessments': 'tqm.maturity.assessments.view',
   '/maturity-assessment/assessments/new': 'tqm.maturity.assessments.create',
