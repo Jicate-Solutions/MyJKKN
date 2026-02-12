@@ -338,6 +338,20 @@ export class LCSelectionService {
     positionId: string,
     voterId: string
   ): Promise<LCElectionVote> {
+    // Validate election status is voting_open
+    const { data: election, error: electionError } = await (this.supabase as any)
+      .from('lc_elections')
+      .select('id, status')
+      .eq('id', electionId)
+      .single();
+
+    if (electionError || !election) {
+      throw new Error('Election not found');
+    }
+    if (election.status !== 'voting_open') {
+      throw new Error(`Voting is not open for this election. Current status: ${election.status}`);
+    }
+
     // Check if already voted for this position in this election
     const { data: existingVote } = await (this.supabase as any)
       .from('lc_election_votes')
