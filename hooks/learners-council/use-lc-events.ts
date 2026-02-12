@@ -282,6 +282,7 @@ export function useRegisterForEvent() {
       toast.success('Registered for event');
       queryClient.invalidateQueries({ queryKey: lcEventKeys.detail(variables.eventId) });
       queryClient.invalidateQueries({ queryKey: lcEventKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: lcEventKeys.myRegistered(variables.userId) });
     },
     onError: (error: Error) => {
       toast.error(error.message || 'Failed to register');
