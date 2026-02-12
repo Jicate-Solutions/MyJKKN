@@ -253,7 +253,7 @@ export default async function LCStructurePage() {
         {chapters && chapters.length > 0 ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {chapters.map((chapter) => (
-              <Link key={chapter.id} href={`/learners-council/structure/yuva?chapter=${chapter.id}`}>
+              <Link key={chapter.id} href={`/learners-council/structure/yuva/${chapter.id}`}>
                 <Card className="hover:shadow-md transition-shadow cursor-pointer">
                   <CardContent className="p-4">
                     <div className="flex items-center justify-between">
