@@ -36,6 +36,8 @@ import {
   usePublishEvent,
   useCompleteEvent,
   useExportEventData,
+  useApproveEvent,
+  useRejectEvent,
 } from '@/hooks/learners-council/use-lc-events';
 import type { LCEvent, LCEventParticipant, LCEventApproval } from '@/types/learners-council';
 
