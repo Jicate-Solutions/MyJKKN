@@ -724,6 +724,41 @@ export function NominationsClient({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Withdraw Nomination Dialog */}
+      <Dialog open={withdrawOpen} onOpenChange={setWithdrawOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Withdraw Nomination</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <p className="text-sm text-muted-foreground">
+              Are you sure you want to withdraw your nomination? This action cannot be undone.
+            </p>
+            <div className="space-y-2">
+              <Label>Reason (optional)</Label>
+              <Textarea
+                placeholder="Why are you withdrawing?"
+                value={withdrawReason}
+                onChange={(e) => setWithdrawReason(e.target.value)}
+                rows={3}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button variant="outline">Cancel</Button>
+            </DialogClose>
+            <Button
+              variant="destructive"
+              onClick={handleWithdraw}
+              disabled={withdrawNomination.isPending}
+            >
+              {withdrawNomination.isPending ? 'Withdrawing...' : 'Withdraw'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
