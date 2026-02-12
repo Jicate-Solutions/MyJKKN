@@ -156,3 +156,14 @@ export function useUpdateNotificationPreferences() {
     }
   });
 }
+
+/**
+ * Fetch a single notification by ID
+ */
+export function useNotificationDetail(id: string) {
+  return useQuery({
+    queryKey: lcNotificationKeys.detail(id),
+    queryFn: () => LCNotificationService.getNotificationById(id),
+    enabled: !!id,
+  });
+}
