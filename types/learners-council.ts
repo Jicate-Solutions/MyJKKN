@@ -276,6 +276,8 @@ export interface LCForumTopic {
   created_by: string;
   is_pinned: boolean;
   is_locked: boolean;
+  institution_id?: string;
+  scope?: 'institution' | 'lc_wide';
   post_count: number;
   last_post_at: string | null;
   created_at: string;
