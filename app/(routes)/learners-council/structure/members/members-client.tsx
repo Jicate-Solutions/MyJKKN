@@ -83,7 +83,7 @@ export function MembersClient({
     }
 
     return result;
-  }, [initialMembers, termFilter, statusFilter, institutionFilter]);
+  }, [liveMembers, initialMembers, termFilter, statusFilter, institutionFilter]);
 
   const hasFilters = termFilter || statusFilter || institutionFilter;
 
