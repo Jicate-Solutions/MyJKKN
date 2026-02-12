@@ -13,28 +13,40 @@ export default async function EventsPage() {
   if (!profile) redirect('/');
 
   const supabase = await createClient();
+  const isMD = profile.role === 'super_admin';
 
   // Fetch events server-side for initial render
+  // Non-MD users see institution-scoped events by default
   const now = new Date().toISOString();
+
+  let upcomingQuery = supabase
+    .from('lc_events')
+    .select('*, proposer:profiles!proposed_by(id, full_name, avatar_url), institution:institutions(id, name)', { count: 'exact' })
+    .in('status', ['approved', 'published', 'in_progress'])
+    .gte('ends_at', now)
+    .order('starts_at', { ascending: true })
+    .limit(20);
+
+  let pastQuery = supabase
+    .from('lc_events')
+    .select('*, proposer:profiles!proposed_by(id, full_name, avatar_url), institution:institutions(id, name)', { count: 'exact' })
+    .in('status', ['completed'])
+    .order('ends_at', { ascending: false })
+    .limit(20);
+
+  // Apply institution scope for non-MD users
+  if (!isMD && profile.institution_id) {
+    upcomingQuery = upcomingQuery.eq('institution_id', profile.institution_id);
+    pastQuery = pastQuery.eq('institution_id', profile.institution_id);
+  }
 
   const [
     { data: upcomingEvents, count: upcomingCount },
     { data: pastEvents, count: pastCount },
     { data: myEvents, count: myCount },
   ] = await Promise.all([
-    supabase
-      .from('lc_events')
-      .select('*, proposer:profiles!proposed_by(id, full_name, avatar_url), institution:institutions(id, name)', { count: 'exact' })
-      .in('status', ['approved', 'published', 'in_progress'])
-      .gte('ends_at', now)
-      .order('starts_at', { ascending: true })
-      .limit(20),
-    supabase
-      .from('lc_events')
-      .select('*, proposer:profiles!proposed_by(id, full_name, avatar_url), institution:institutions(id, name)', { count: 'exact' })
-      .in('status', ['completed'])
-      .order('ends_at', { ascending: false })
-      .limit(20),
+    upcomingQuery,
+    pastQuery,
     supabase
       .from('lc_events')
       .select('*, proposer:profiles!proposed_by(id, full_name, avatar_url), institution:institutions(id, name)', { count: 'exact' })
