@@ -3010,7 +3010,7 @@ Multiple services use Supabase Realtime subscriptions:
 | React hooks | 35 files (34 dedicated + index.ts with 12 consolidated hooks) |
 | Service methods | 250+ |
 | **Workflows documented** | **61** |
-| External API integrations | 3 |
+| External API integrations | 4 (Anthropic, MSG91/Twilio, Supabase Realtime, Supabase Storage) |
 | Communication channels | 3 (SMS, WhatsApp, Email) |
 | AI-powered features | 6 |
 | Consultant sub-workflows | 8 |
