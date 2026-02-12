@@ -47,7 +47,9 @@ import {
   useIssueStats,
   useCreateLCIssue,
   useUpdateIssueStatus,
-  useAssignIssue
+  useAssignIssue,
+  useEscalateIssue,
+  useAddComment
 } from '@/hooks/learners-council/use-lc-issues';
 import type { GrievanceTicket } from '@/types/grievance';
 
