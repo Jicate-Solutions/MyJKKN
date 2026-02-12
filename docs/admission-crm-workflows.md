@@ -312,7 +312,6 @@ These were discovered during P1 verification. Services may still reference wrong
 | What Code Says | What DB Actually Has | Fix |
 |----------------|---------------------|-----|
 | `priority` (enum) | `is_hot_lead` (bool) + `is_priority` (bool) | Use two booleans |
-| `next_followup_at` | DOES NOT EXIST | Use `last_contact_at` or add column |
 | `program_interest` | `interested_programs` (text[]) | Use correct name |
 | `is_duplicate` | DOES NOT EXIST | Not in schema |
 | `duplicate_of` | DOES NOT EXIST | Not in schema |
