@@ -556,6 +556,31 @@ export class LCStructureService {
     return vertical as YUVAVertical;
   }
 
+  /**
+   * Soft-delete a vertical by setting is_active=false
+   */
+  static async deleteVertical(verticalId: string): Promise<void> {
+    const { error } = await (this.supabase as any)
+      .from('yuva_verticals')
+      .update({ is_active: false })
+      .eq('id', verticalId);
+
+    if (error) {
+      console.error('[lc/structure] Error deleting vertical:', error);
+      throw new Error(`Failed to delete vertical: ${error.message}`);
+    }
+
+    // Also deactivate all members of this vertical
+    await (this.supabase as any)
+      .from('yuva_vertical_members')
+      .update({
+        is_active: false,
+        ended_at: new Date().toISOString()
+      })
+      .eq('vertical_id', verticalId)
+      .eq('is_active', true);
+  }
+
   // ============================================================================
   // YUVA VERTICAL MEMBER METHODS
   // ============================================================================
