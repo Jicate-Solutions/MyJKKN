@@ -87,6 +87,12 @@ export default async function LearnersCouncilLayout({ children }: LCLayoutProps)
                 Issues
               </Link>
             </TabsTrigger>
+            <TabsTrigger value="settings" asChild>
+              <Link href="/learners-council/settings" className="flex items-center gap-1.5 text-xs sm:text-sm">
+                <Settings className="h-3.5 w-3.5" />
+                Settings
+              </Link>
+            </TabsTrigger>
           </TabsList>
         </Tabs>
 
