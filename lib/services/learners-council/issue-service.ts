@@ -155,7 +155,7 @@ export class LCIssueService {
     },
     userId: string
   ): Promise<GrievanceTicket> {
-    // Look up category ID by name (or use provided category as id)
+    // Look up category ID - try by name first, then check if it's already a UUID
     let categoryId = data.category;
 
     // Attempt to find category by name first
@@ -168,6 +168,12 @@ export class LCIssueService {
 
     if (categoryData) {
       categoryId = categoryData.id;
+    } else {
+      // If not found by name, verify the provided value is a valid UUID (category ID)
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (!uuidRegex.test(data.category)) {
+        throw new Error(`Invalid category: "${data.category}" not found`);
+      }
     }
 
     // Get user profile for raiser info
