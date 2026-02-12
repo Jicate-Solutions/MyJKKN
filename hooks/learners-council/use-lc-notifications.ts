@@ -37,7 +37,8 @@ export function useNotifications(
     queryFn: () => LCNotificationService.getNotifications(userId, filters),
     enabled: !!userId,
     staleTime: 30 * 1000, // 30 seconds
-    refetchInterval: 30 * 1000 // Auto-refetch every 30 seconds
+    refetchInterval: 30 * 1000, // Auto-refetch every 30 seconds
+    refetchIntervalInBackground: false, // Don't poll when tab is inactive
   });
 }
 
@@ -50,7 +51,8 @@ export function useUnreadNotificationCount(userId: string) {
     queryFn: () => LCNotificationService.getUnreadCount(userId),
     enabled: !!userId,
     staleTime: 15 * 1000, // 15 seconds for badge freshness
-    refetchInterval: 15 * 1000 // Auto-refetch every 15 seconds
+    refetchInterval: 15 * 1000, // Auto-refetch every 15 seconds
+    refetchIntervalInBackground: false, // Don't poll when tab is inactive
   });
 }
 
