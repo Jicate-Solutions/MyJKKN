@@ -17,6 +17,8 @@ export const lcODKeys = {
   pendingApprovals: (approverId: string) => [...lcODKeys.all, 'pending-approvals', approverId] as const,
   chains: () => [...lcODKeys.all, 'chains'] as const,
   chainList: (institutionId: string) => [...lcODKeys.chains(), institutionId] as const,
+  academicConflicts: (userId: string, startDate: string, endDate: string) =>
+    [...lcODKeys.all, 'academic-conflicts', userId, startDate, endDate] as const,
 };
 
 /**
