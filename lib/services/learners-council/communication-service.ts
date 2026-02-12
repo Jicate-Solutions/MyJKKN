@@ -515,33 +515,7 @@ export class LCCommunicationService {
       throw new Error(`Failed to cast vote: ${voteError.message}`);
     }
 
-    // Increment option vote count
-    const { data: option } = await (this.supabase as any)
-      .from('lc_poll_options')
-      .select('vote_count')
-      .eq('id', optionId)
-      .single();
-
-    if (option) {
-      await (this.supabase as any)
-        .from('lc_poll_options')
-        .update({ vote_count: (option.vote_count || 0) + 1 })
-        .eq('id', optionId);
-    }
-
-    // Increment poll total votes
-    const { data: pollData } = await (this.supabase as any)
-      .from('lc_polls')
-      .select('total_votes')
-      .eq('id', pollId)
-      .single();
-
-    if (pollData) {
-      await (this.supabase as any)
-        .from('lc_polls')
-        .update({ total_votes: (pollData.total_votes || 0) + 1 })
-        .eq('id', pollId);
-    }
+    // vote_count and total_votes are auto-incremented by database trigger trg_poll_vote_count
 
     return vote as LCPollVote;
   }
