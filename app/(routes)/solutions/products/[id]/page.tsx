@@ -122,7 +122,8 @@ export default function ProductDetailPage({ params }: ProductDetailPageProps) {
       toast.success('Validation added successfully');
       setShowAddValidation(false);
       setValidationForm(initialValidationForm);
-    } catch (error) {
+    } catch (err) {
+      console.error('Failed to add validation:', err);
       toast.error('Failed to add validation');
     }
   };
@@ -626,7 +627,10 @@ export default function ProductDetailPage({ params }: ProductDetailPageProps) {
       </div>
 
       {/* Add Validation Dialog */}
-      <Dialog open={showAddValidation} onOpenChange={setShowAddValidation}>
+      <Dialog open={showAddValidation} onOpenChange={(open) => {
+        setShowAddValidation(open);
+        if (!open) setValidationForm(initialValidationForm);
+      }}>
         <DialogContent className="sm:max-w-[550px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Add TRL Validation</DialogTitle>

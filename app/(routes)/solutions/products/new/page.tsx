@@ -211,7 +211,7 @@ export default function NewProductPage() {
                 </Select>
                 {formData.initialTRL && (
                   <p className="text-sm text-muted-foreground">
-                    {TRL_LEVELS[Number(formData.initialTRL) as keyof typeof TRL_LEVELS].description}
+                    {TRL_LEVELS[Number(formData.initialTRL) as keyof typeof TRL_LEVELS]?.description}
                   </p>
                 )}
               </div>

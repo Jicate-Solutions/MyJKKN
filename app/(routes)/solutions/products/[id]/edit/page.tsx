@@ -469,8 +469,8 @@ export default function EditProductPage({ params }: EditProductPageProps) {
                 </p>
                 {formData.tags && (
                   <div className="flex flex-wrap gap-1.5 mt-2">
-                    {formData.tags.split(',').map(t => t.trim()).filter(Boolean).map((tag) => (
-                      <Badge key={tag} variant="secondary" className="text-xs">
+                    {formData.tags.split(',').map(t => t.trim()).filter(Boolean).map((tag, idx) => (
+                      <Badge key={`${tag}-${idx}`} variant="secondary" className="text-xs">
                         {tag}
                       </Badge>
                     ))}
