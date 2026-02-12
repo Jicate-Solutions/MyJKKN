@@ -3,6 +3,7 @@
 // Wraps the existing Grievance module with LC-specific views
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { LCNotificationService } from './notification-service';
 import type {
   GrievanceTicket,
   GrievanceComment,
