@@ -195,13 +195,20 @@ export class LCCommunicationService {
       throw new Error(`Failed to publish announcement: ${error.message}`);
     }
 
-    // Notify LC members about the new announcement
+    // Notify LC members about the new announcement (scoped to target audience)
     try {
       const announcement = data as LCAnnouncement;
-      const { data: members } = await (this.supabase as any)
+      let membersQuery = (this.supabase as any)
         .from('lc_members')
         .select('user_id')
         .eq('status', 'active');
+
+      // Filter members by announcement scope to avoid cross-institution notifications
+      if (announcement.scope === 'institution' && announcement.scope_id) {
+        membersQuery = membersQuery.eq('institution_id', announcement.scope_id);
+      }
+
+      const { data: members } = await membersQuery;
 
       if (members && members.length > 0) {
         const notifications = members.map((m: { user_id: string }) => ({
