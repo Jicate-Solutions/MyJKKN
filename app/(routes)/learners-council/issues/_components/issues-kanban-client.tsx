@@ -595,7 +595,34 @@ export function IssuesKanbanClient({
                 </div>
               )}
 
-              <div className="flex gap-2 pt-2 border-t">
+              {/* Add Comment */}
+              <div className="pt-2 border-t space-y-2">
+                <Label className="text-xs text-muted-foreground">Add Comment</Label>
+                <div className="flex gap-2">
+                  <Input
+                    placeholder="Write a comment..."
+                    value={commentText}
+                    onChange={(e) => setCommentText(e.target.value)}
+                    className="flex-1"
+                  />
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      if (!commentText.trim()) return;
+                      addComment.mutate(
+                        { ticketId: detailTicket.id, userId, content: commentText },
+                        { onSuccess: () => setCommentText('') }
+                      );
+                    }}
+                    disabled={!commentText.trim() || addComment.isPending}
+                  >
+                    {addComment.isPending ? 'Sending...' : 'Send'}
+                  </Button>
+                </div>
+              </div>
+
+              <div className="flex gap-2 pt-2 border-t flex-wrap">
                 {detailTicket.status === 'open' && (
                   <Button
                     size="sm"
@@ -643,6 +670,21 @@ export function IssuesKanbanClient({
                   >
                     <UserPlus className="h-3.5 w-3.5 mr-1" />
                     Assign
+                  </Button>
+                )}
+                {(detailTicket.status === 'open' || detailTicket.status === 'in_progress') && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="text-orange-700 border-orange-200 hover:bg-orange-50"
+                    onClick={() => {
+                      setEscalateTicketId(detailTicket.id);
+                      setEscalateOpen(true);
+                      setDetailTicket(null);
+                    }}
+                  >
+                    <TrendingUp className="h-3.5 w-3.5 mr-1" />
+                    Escalate
                   </Button>
                 )}
               </div>
