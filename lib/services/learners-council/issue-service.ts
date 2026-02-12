@@ -505,4 +505,169 @@ export class LCIssueService {
       resolved_this_month: resolvedMonthResult.count || 0
     };
   }
+
+  // ============================================================================
+  // COMMENT METHODS
+  // ============================================================================
+
+  /**
+   * Add a comment to a grievance ticket
+   */
+  static async addIssueComment(
+    ticketId: string,
+    userId: string,
+    content: string
+  ): Promise<GrievanceComment> {
+    // Get user profile for author info
+    const { data: profile } = await (this.supabase as any)
+      .from('profiles')
+      .select('full_name, role')
+      .eq('id', userId)
+      .single();
+
+    const authorType = profile?.role === 'student' ? 'learner' : (profile?.role || 'learner');
+
+    const { data, error } = await (this.supabase as any)
+      .from('grievance_comments')
+      .insert({
+        ticket_id: ticketId,
+        author_id: userId,
+        author_name: profile?.full_name || 'Unknown',
+        author_type: authorType as 'staff' | 'learner' | 'parent' | 'system',
+        content,
+        is_internal: false,
+        attachments: []
+      })
+      .select()
+      .single();
+
+    if (error) {
+      console.error('[lc/issues] Error adding comment:', error);
+      throw new Error(`Failed to add comment: ${error.message}`);
+    }
+
+    return data as GrievanceComment;
+  }
+
+  /**
+   * Get all comments for a ticket
+   */
+  static async getIssueComments(ticketId: string): Promise<GrievanceComment[]> {
+    const { data, error } = await (this.supabase as any)
+      .from('grievance_comments')
+      .select('*')
+      .eq('ticket_id', ticketId)
+      .eq('is_internal', false)
+      .order('created_at', { ascending: true });
+
+    if (error) {
+      console.error('[lc/issues] Error fetching comments:', error);
+      throw new Error(`Failed to fetch comments: ${error.message}`);
+    }
+
+    return (data || []) as GrievanceComment[];
+  }
+
+  /**
+   * Escalate an issue: bump priority and add escalation comment
+   */
+  static async escalateIssue(
+    ticketId: string,
+    escalatedBy: string,
+    reason: string
+  ): Promise<GrievanceTicket> {
+    // Get current ticket to determine escalation
+    const ticket = await this.getIssueById(ticketId);
+
+    // Escalate priority: low→medium, medium→high, high→urgent
+    const priorityMap: Record<string, GrievancePriority> = {
+      low: 'medium',
+      medium: 'high',
+      high: 'urgent',
+      urgent: 'urgent'
+    };
+    const newPriority = priorityMap[ticket.priority] || 'high';
+
+    const { data, error } = await (this.supabase as any)
+      .from('grievance_tickets')
+      .update({
+        priority: newPriority,
+        metadata: { ...ticket.metadata, escalated: true, escalated_by: escalatedBy, escalation_reason: reason }
+      })
+      .eq('id', ticketId)
+      .select(`
+        *,
+        category:grievance_categories!category_id(id, name),
+        assignee:profiles!assigned_to(id, full_name, email, avatar_url)
+      `)
+      .single();
+
+    if (error) {
+      console.error('[lc/issues] Error escalating issue:', error);
+      throw new Error(`Failed to escalate issue: ${error.message}`);
+    }
+
+    // Add escalation comment
+    await (this.supabase as any).from('grievance_comments').insert({
+      ticket_id: ticketId,
+      author_id: escalatedBy,
+      author_name: 'System',
+      author_type: 'system',
+      content: `Issue escalated from ${ticket.priority} to ${newPriority}. Reason: ${reason}`,
+      is_internal: false,
+      attachments: []
+    });
+
+    return data as GrievanceTicket;
+  }
+
+  // ============================================================================
+  // LEARNER-SPECIFIC METHODS
+  // ============================================================================
+
+  /**
+   * Get issues submitted by a specific user
+   */
+  static async getMyIssues(userId: string): Promise<GrievanceTicket[]> {
+    const { data, error } = await (this.supabase as any)
+      .from('grievance_tickets')
+      .select(`
+        *,
+        category:grievance_categories!category_id(id, name),
+        assignee:profiles!assigned_to(id, full_name, email, avatar_url)
+      `)
+      .eq('raised_by_id', userId)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('[lc/issues] Error fetching my issues:', error);
+      throw new Error(`Failed to fetch my issues: ${error.message}`);
+    }
+
+    return (data || []) as GrievanceTicket[];
+  }
+
+  /**
+   * Get LC-specific grievance categories for an institution
+   */
+  static async getLCCategories(institutionId?: string): Promise<GrievanceCategory[]> {
+    let query = (this.supabase as any)
+      .from('grievance_categories')
+      .select('*')
+      .eq('is_active', true)
+      .order('sort_order', { ascending: true });
+
+    if (institutionId) {
+      query = query.eq('institution_id', institutionId);
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      console.error('[lc/issues] Error fetching LC categories:', error);
+      throw new Error(`Failed to fetch LC categories: ${error.message}`);
+    }
+
+    return (data || []) as GrievanceCategory[];
+  }
 }
