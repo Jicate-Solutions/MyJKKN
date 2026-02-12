@@ -13,8 +13,6 @@ import type {
   LCForumTopic,
   LCForumPost,
   LCChatChannel,
-  LCChatMember,
-  LCChatMessage,
   CreateAnnouncementDto,
   UpdateAnnouncementDto,
   CreatePollDto,
