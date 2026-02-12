@@ -13,6 +13,7 @@ import type {
   LCForumTopic,
   LCForumPost,
   LCChatChannel,
+  LCChatMember,
   LCChatMessage,
   CreateAnnouncementDto,
   UpdateAnnouncementDto,
@@ -25,6 +26,7 @@ import type {
   AnnouncementStatus,
   PollScope,
   PollStatus,
+  ForumPostStatus,
   ForumReactionType,
   ModerationAction
 } from '@/types/learners-council';
@@ -38,7 +40,8 @@ export const lcAnnouncementKeys = {
   lists: () => [...lcAnnouncementKeys.all, 'list'] as const,
   list: (filters: { scope?: string; status?: string; page?: number; limit?: number }) =>
     [...lcAnnouncementKeys.lists(), filters] as const,
-  detail: (id: string) => [...lcAnnouncementKeys.all, 'detail', id] as const
+  detail: (id: string) => [...lcAnnouncementKeys.all, 'detail', id] as const,
+  readStats: (id: string) => [...lcAnnouncementKeys.all, 'readStats', id] as const
 };
 
 export const lcPollKeys = {
@@ -48,7 +51,8 @@ export const lcPollKeys = {
     [...lcPollKeys.lists(), filters] as const,
   detail: (id: string) => [...lcPollKeys.all, 'detail', id] as const,
   userVote: (pollId: string, userId: string) =>
-    [...lcPollKeys.all, 'vote', pollId, userId] as const
+    [...lcPollKeys.all, 'vote', pollId, userId] as const,
+  results: (pollId: string) => [...lcPollKeys.all, 'results', pollId] as const
 };
 
 export const lcForumKeys = {
@@ -58,7 +62,9 @@ export const lcForumKeys = {
     [...lcForumKeys.topics(), filters] as const,
   topicDetail: (id: string) => [...lcForumKeys.all, 'topic', id] as const,
   posts: (topicId: string, page?: number, limit?: number) =>
-    [...lcForumKeys.all, 'posts', topicId, page, limit] as const
+    [...lcForumKeys.all, 'posts', topicId, page, limit] as const,
+  flaggedPosts: (filters: { status?: string; page?: number; limit?: number }) =>
+    [...lcForumKeys.all, 'flagged', filters] as const
 };
 
 export const lcChatKeys = {
@@ -178,6 +184,38 @@ export function useMarkAnnouncementRead() {
   });
 }
 
+/**
+ * Fetch read statistics for an announcement
+ */
+export function useAnnouncementReadStats(announcementId: string) {
+  return useQuery({
+    queryKey: lcAnnouncementKeys.readStats(announcementId),
+    queryFn: () => LCCommunicationService.getAnnouncementReadStats(announcementId),
+    enabled: !!announcementId,
+    staleTime: 30 * 1000 // 30 seconds
+  });
+}
+
+/**
+ * Archive an announcement
+ */
+export function useArchiveAnnouncement() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (announcementId: string) =>
+      LCCommunicationService.archiveAnnouncement(announcementId),
+    onSuccess: (archived) => {
+      toast.success('Announcement archived');
+      queryClient.invalidateQueries({ queryKey: lcAnnouncementKeys.detail(archived.id) });
+      queryClient.invalidateQueries({ queryKey: lcAnnouncementKeys.lists() });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to archive announcement');
+    }
+  });
+}
+
 // ============================================================================
 // POLL HOOKS
 // ============================================================================
@@ -264,6 +302,9 @@ export function useVotePoll() {
       queryClient.invalidateQueries({
         queryKey: lcPollKeys.userVote(variables.pollId, variables.userId)
       });
+      queryClient.invalidateQueries({
+        queryKey: lcPollKeys.results(variables.pollId)
+      });
     },
     onError: (error: Error) => {
       toast.error(error.message || 'Failed to cast vote');
@@ -287,6 +328,75 @@ export function useClosePoll() {
     onError: (error: Error) => {
       toast.error(error.message || 'Failed to close poll');
     }
+  });
+}
+
+/**
+ * Activate a poll (draft -> active)
+ */
+export function useActivatePoll() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (pollId: string) => LCCommunicationService.activatePoll(pollId),
+    onSuccess: (poll) => {
+      toast.success('Poll activated');
+      queryClient.invalidateQueries({ queryKey: lcPollKeys.detail(poll.id) });
+      queryClient.invalidateQueries({ queryKey: lcPollKeys.lists() });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to activate poll');
+    }
+  });
+}
+
+/**
+ * Pause a poll (active -> paused)
+ */
+export function usePausePoll() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (pollId: string) => LCCommunicationService.pausePoll(pollId),
+    onSuccess: (poll) => {
+      toast.success('Poll paused');
+      queryClient.invalidateQueries({ queryKey: lcPollKeys.detail(poll.id) });
+      queryClient.invalidateQueries({ queryKey: lcPollKeys.lists() });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to pause poll');
+    }
+  });
+}
+
+/**
+ * Resume a poll (paused -> active)
+ */
+export function useResumePoll() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (pollId: string) => LCCommunicationService.resumePoll(pollId),
+    onSuccess: (poll) => {
+      toast.success('Poll resumed');
+      queryClient.invalidateQueries({ queryKey: lcPollKeys.detail(poll.id) });
+      queryClient.invalidateQueries({ queryKey: lcPollKeys.lists() });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to resume poll');
+    }
+  });
+}
+
+/**
+ * Fetch poll results with demographic breakdown
+ */
+export function usePollResultsWithDemographics(pollId: string) {
+  return useQuery({
+    queryKey: lcPollKeys.results(pollId),
+    queryFn: () => LCCommunicationService.getPollResultsWithDemographics(pollId),
+    enabled: !!pollId,
+    staleTime: 30 * 1000
   });
 }
 
@@ -375,6 +485,36 @@ export function useCreatePost() {
 }
 
 /**
+ * Edit a forum post
+ */
+export function useEditPost() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({
+      postId,
+      content,
+      editedBy,
+      topicId
+    }: {
+      postId: string;
+      content: string;
+      editedBy: string;
+      topicId: string;
+    }) => LCCommunicationService.editPost(postId, content, editedBy),
+    onSuccess: (_post, variables) => {
+      toast.success('Post updated');
+      queryClient.invalidateQueries({
+        queryKey: lcForumKeys.posts(variables.topicId)
+      });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to edit post');
+    }
+  });
+}
+
+/**
  * React to a post (toggle like/save/flag)
  */
 export function useReactToPost() {
@@ -426,10 +566,66 @@ export function useModeratePost() {
       queryClient.invalidateQueries({
         queryKey: lcForumKeys.posts(variables.topicId)
       });
+      queryClient.invalidateQueries({ queryKey: lcForumKeys.all });
     },
     onError: (error: Error) => {
       toast.error(error.message || 'Failed to moderate post');
     }
+  });
+}
+
+/**
+ * Pin or unpin a forum topic
+ */
+export function usePinTopic() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ topicId, pinned }: { topicId: string; pinned: boolean }) =>
+      LCCommunicationService.pinTopic(topicId, pinned),
+    onSuccess: (topic) => {
+      toast.success(topic.is_pinned ? 'Topic pinned' : 'Topic unpinned');
+      queryClient.invalidateQueries({ queryKey: lcForumKeys.topicDetail(topic.id) });
+      queryClient.invalidateQueries({ queryKey: lcForumKeys.topics() });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to update topic');
+    }
+  });
+}
+
+/**
+ * Lock or unlock a forum topic
+ */
+export function useLockTopic() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ topicId, locked }: { topicId: string; locked: boolean }) =>
+      LCCommunicationService.lockTopic(topicId, locked),
+    onSuccess: (topic) => {
+      toast.success(topic.is_locked ? 'Topic locked' : 'Topic unlocked');
+      queryClient.invalidateQueries({ queryKey: lcForumKeys.topicDetail(topic.id) });
+      queryClient.invalidateQueries({ queryKey: lcForumKeys.topics() });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to update topic');
+    }
+  });
+}
+
+/**
+ * Fetch flagged posts for moderator view
+ */
+export function useFlaggedPosts(filters: {
+  status?: ForumPostStatus;
+  page?: number;
+  limit?: number;
+}) {
+  return useQuery({
+    queryKey: lcForumKeys.flaggedPosts(filters),
+    queryFn: () => LCCommunicationService.getFlaggedPosts(filters),
+    staleTime: 30 * 1000
   });
 }
 
@@ -520,6 +716,116 @@ export function useMarkChannelRead() {
       queryClient.invalidateQueries({
         queryKey: lcChatKeys.channels(variables.userId)
       });
+    }
+  });
+}
+
+/**
+ * Edit a chat message
+ */
+export function useEditMessage() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({
+      messageId,
+      content,
+      channelId
+    }: {
+      messageId: string;
+      content: string;
+      channelId: string;
+    }) => LCCommunicationService.editMessage(messageId, content),
+    onSuccess: (_msg, variables) => {
+      toast.success('Message edited');
+      queryClient.invalidateQueries({
+        queryKey: lcChatKeys.messages(variables.channelId)
+      });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to edit message');
+    }
+  });
+}
+
+/**
+ * Delete (soft-delete) a chat message
+ */
+export function useDeleteMessage() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({
+      messageId,
+      channelId
+    }: {
+      messageId: string;
+      channelId: string;
+    }) => LCCommunicationService.deleteMessage(messageId),
+    onSuccess: (_result, variables) => {
+      toast.success('Message deleted');
+      queryClient.invalidateQueries({
+        queryKey: lcChatKeys.messages(variables.channelId)
+      });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to delete message');
+    }
+  });
+}
+
+/**
+ * Add a member to a chat channel
+ */
+export function useAddChannelMember() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({
+      channelId,
+      userId,
+      role
+    }: {
+      channelId: string;
+      userId: string;
+      role?: 'admin' | 'member';
+      currentUserId: string;
+    }) => LCCommunicationService.addChannelMember(channelId, userId, role),
+    onSuccess: (_member, variables) => {
+      toast.success('Member added to channel');
+      queryClient.invalidateQueries({
+        queryKey: lcChatKeys.channels(variables.currentUserId)
+      });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to add member');
+    }
+  });
+}
+
+/**
+ * Remove a member from a chat channel
+ */
+export function useRemoveChannelMember() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({
+      channelId,
+      userId
+    }: {
+      channelId: string;
+      userId: string;
+      currentUserId: string;
+    }) => LCCommunicationService.removeChannelMember(channelId, userId),
+    onSuccess: (_result, variables) => {
+      toast.success('Member removed from channel');
+      queryClient.invalidateQueries({
+        queryKey: lcChatKeys.channels(variables.currentUserId)
+      });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to remove member');
     }
   });
 }
