@@ -793,15 +793,53 @@ export class LCSelectionService {
 
     const winners = Object.values(winnersByPosition).filter((w) => w.vote_count > 0);
 
-    // Mark winning nominations as 'selected'
+    // Mark winning nominations as 'selected' and auto-assign positions
     for (const winner of winners) {
-      const { error: updateError } = await (this.supabase as any)
+      const { data: nomination, error: updateError } = await (this.supabase as any)
         .from('lc_nominations')
         .update({ status: 'selected' as NominationStatus })
-        .eq('id', winner.nomination_id);
+        .eq('id', winner.nomination_id)
+        .select('nominee_id, position_id')
+        .single();
 
       if (updateError) {
         console.error('[lc/selection] Error marking winner:', updateError);
+        continue;
+      }
+
+      // Auto-assign position in lc_members
+      if (nomination && nomination.position_id) {
+        try {
+          await (this.supabase as any)
+            .from('lc_members')
+            .upsert({
+              term_id: election.term_id,
+              user_id: nomination.nominee_id,
+              position_id: nomination.position_id,
+              institution_id: election.institution_id,
+              status: 'active',
+              appointed_at: new Date().toISOString(),
+            }, { onConflict: 'term_id,position_id,user_id' });
+        } catch (assignErr) {
+          console.warn('[lc/selection] Failed to auto-assign position:', assignErr);
+        }
+      }
+
+      // Notify the winner
+      try {
+        if (nomination?.nominee_id) {
+          await LCNotificationService.createNotification({
+            user_id: nomination.nominee_id,
+            type: 'election',
+            title: 'Election Results: You Won!',
+            message: `Congratulations! You have been selected for: ${winner.role_sought}`,
+            link: `/learners-council/selection`,
+            reference_id: electionId,
+            reference_type: 'election',
+          });
+        }
+      } catch (notifErr) {
+        console.warn('[lc/selection] Failed to send winner notification:', notifErr);
       }
     }
 
