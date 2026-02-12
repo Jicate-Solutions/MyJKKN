@@ -272,6 +272,24 @@ export class LCEventService {
       throw new Error(`Failed to reject event: ${error.message}`);
     }
 
+    // Notify the event proposer about the rejection
+    try {
+      const event = data as any;
+      if (event.proposed_by) {
+        await LCNotificationService.createNotification({
+          user_id: event.proposed_by,
+          type: 'event',
+          title: 'Event Rejected',
+          message: `Your event "${event.title}" was not approved. Reason: ${comments}`,
+          link: `/learners-council/events/${eventId}`,
+          reference_id: eventId,
+          reference_type: 'event',
+        });
+      }
+    } catch (notifErr) {
+      console.warn('[learners-council/events] Failed to send rejection notification:', notifErr);
+    }
+
     return data as unknown as LCEvent;
   }
 
