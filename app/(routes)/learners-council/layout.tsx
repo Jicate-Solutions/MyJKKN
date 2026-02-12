@@ -18,7 +18,7 @@ import {
   Kanban,
   Settings
 } from 'lucide-react';
-import { getEnhancedUserProfile } from '@/lib/supabase/server';
+import { getEnhancedUserProfile, createClient } from '@/lib/supabase/server';
 
 interface LCLayoutProps {
   children: React.ReactNode;
@@ -30,6 +30,19 @@ export default async function LearnersCouncilLayout({ children }: LCLayoutProps)
   const isStaffOrAdmin = ['admin', 'super_admin', 'staff', 'hod', 'principal'].includes(
     profile?.role || ''
   );
+
+  // Check if user is an active LC member (for Selection tab visibility)
+  let showSelectionTab = isStaffOrAdmin;
+  if (!isStaffOrAdmin && profile?.id) {
+    const supabase = await createClient();
+    const { data: lcMembership } = await supabase
+      .from('lc_members')
+      .select('id')
+      .eq('user_id', profile.id)
+      .eq('status', 'active')
+      .maybeSingle();
+    showSelectionTab = !!lcMembership;
+  }
 
   return (
     <ContentLayout title="Learners Council">
