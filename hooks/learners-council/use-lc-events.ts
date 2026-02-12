@@ -394,8 +394,6 @@ export function useSubmitFeedback() {
  * Hook to export event data (returns data for CSV generation)
  */
 export function useExportEventData() {
-  const queryClient = useQueryClient();
-
   return useMutation({
     mutationFn: (eventId: string) => LCEventService.exportEventData(eventId),
     onSuccess: () => {
