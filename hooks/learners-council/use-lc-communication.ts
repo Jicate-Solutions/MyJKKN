@@ -167,6 +167,8 @@ export function usePublishAnnouncement() {
  * Mark an announcement as read
  */
 export function useMarkAnnouncementRead() {
+  const queryClient = useQueryClient();
+
   return useMutation({
     mutationFn: ({
       announcementId,
@@ -175,6 +177,12 @@ export function useMarkAnnouncementRead() {
       announcementId: string;
       userId: string;
     }) => LCCommunicationService.markAnnouncementRead(announcementId, userId),
+    onSuccess: (_data, variables) => {
+      // Invalidate read stats so percentage updates
+      queryClient.invalidateQueries({ queryKey: lcAnnouncementKeys.readStats(variables.announcementId) });
+      // Invalidate announcement lists to update unread indicators
+      queryClient.invalidateQueries({ queryKey: lcAnnouncementKeys.lists() });
+    },
     // Silent - no toast for read tracking, but log for debugging
     onError: (error: Error) => {
       console.error('[lc/read-tracking] Failed to mark announcement as read:', error);
