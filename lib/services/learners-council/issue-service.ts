@@ -5,6 +5,8 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import type {
   GrievanceTicket,
+  GrievanceComment,
+  GrievanceCategory,
   GrievanceStatus,
   GrievancePriority
 } from '@/types/grievance';
