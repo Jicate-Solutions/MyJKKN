@@ -50,7 +50,6 @@ import {
   useVerticalMembers,
   useCreateVertical,
   useUpdateVertical,
-  useDeleteVertical,
   useAssignVerticalMember,
   useRemoveVerticalMember
 } from '@/hooks/learners-council/use-lc-structure';
