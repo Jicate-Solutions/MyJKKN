@@ -195,6 +195,30 @@ export class LCCommunicationService {
       throw new Error(`Failed to publish announcement: ${error.message}`);
     }
 
+    // Notify LC members about the new announcement
+    try {
+      const announcement = data as LCAnnouncement;
+      const { data: members } = await (this.supabase as any)
+        .from('lc_members')
+        .select('user_id')
+        .eq('status', 'active');
+
+      if (members && members.length > 0) {
+        const notifications = members.map((m: { user_id: string }) => ({
+          user_id: m.user_id,
+          type: 'announcement' as const,
+          title: 'New Announcement',
+          message: announcement.title,
+          link: '/learners-council/communication',
+          reference_id: announcement.id,
+          reference_type: 'announcement',
+        }));
+        await LCNotificationService.bulkCreateNotifications(notifications);
+      }
+    } catch (notifErr) {
+      console.warn('[lc/communication] Failed to send announcement notifications:', notifErr);
+    }
+
     return data as LCAnnouncement;
   }
 
