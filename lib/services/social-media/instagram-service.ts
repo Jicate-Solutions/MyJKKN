@@ -68,15 +68,34 @@ export class InstagramService {
   }
 
   /**
+   * Fetch with retry logic for rate limiting
+   * Instagram returns 429 or 401 when rate limited from cloud IPs
+   */
+  private async fetchWithRetry(url: string, maxRetries = 2): Promise<Response> {
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      const resp = await fetch(url, { headers: IG_HEADERS, cache: 'no-store' });
+      if (resp.ok) return resp;
+      if (resp.status === 404) return resp; // Not found is not retryable
+      if ((resp.status === 429 || resp.status === 401) && attempt < maxRetries) {
+        // Wait before retry: 10s, 20s
+        await new Promise(r => setTimeout(r, (attempt + 1) * 10000));
+        continue;
+      }
+      return resp; // Return the error response after max retries
+    }
+    throw new Error('Unexpected: retry loop exited without returning');
+  }
+
+  /**
    * Fetch profile data from Instagram Internal API
    */
   async getProfile(username: string): Promise<InstagramProfile> {
     const url = `${IG_API_BASE}?username=${encodeURIComponent(username)}`;
-    const resp = await fetch(url, { headers: IG_HEADERS, cache: 'no-store' });
+    const resp = await this.fetchWithRetry(url);
 
     if (!resp.ok) {
       if (resp.status === 404) throw new Error(`Account @${username} not found`);
-      if (resp.status === 429) throw new Error(`Rate limited — try again in 60s`);
+      if (resp.status === 429 || resp.status === 401) throw new Error(`Rate limited — try again in 60s`);
       throw new Error(`Instagram API error: ${resp.status}`);
     }
 
@@ -103,7 +122,7 @@ export class InstagramService {
    */
   async getRecentPosts(username: string): Promise<InstagramPost[]> {
     const url = `${IG_API_BASE}?username=${encodeURIComponent(username)}`;
-    const resp = await fetch(url, { headers: IG_HEADERS });
+    const resp = await this.fetchWithRetry(url, 1);
 
     if (!resp.ok) return [];
 
@@ -372,15 +391,33 @@ export class InstagramService {
     let succeeded = 0;
     let failed = 0;
 
+    let rateLimited = false;
     for (const account of accounts) {
+      if (rateLimited) {
+        // Skip remaining accounts if rate limited
+        details.push({
+          accountId: account.id,
+          username: `@${account.username}`,
+          success: false,
+          error: 'Skipped — rate limited on previous account',
+        });
+        failed++;
+        continue;
+      }
+
       const result = await this.pullAccount(account);
       details.push(result);
       if (result.success) succeeded++;
-      else failed++;
+      else {
+        failed++;
+        if (result.error?.includes('Rate limited')) {
+          rateLimited = true;
+        }
+      }
 
-      // 3-second delay between requests to respect rate limits
-      if (accounts.indexOf(account) < accounts.length - 1) {
-        await new Promise(resolve => setTimeout(resolve, 3000));
+      // 5-second delay between requests to respect rate limits
+      if (accounts.indexOf(account) < accounts.length - 1 && !rateLimited) {
+        await new Promise(resolve => setTimeout(resolve, 5000));
       }
     }
 
