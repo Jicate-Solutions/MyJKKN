@@ -244,21 +244,42 @@ export default async function LearnersCouncilDashboard({
 
   return (
     <div className="space-y-6">
-      {/* Active Term Banner */}
-      {stats.activeTerm && (
-        <div className="rounded-lg border bg-gradient-to-r from-amber-50 to-yellow-50 p-4">
-          <div className="flex items-center gap-3">
-            <Crown className="h-6 w-6 text-amber-600" />
-            <div>
-              <h2 className="font-semibold text-lg">{stats.activeTerm.name}</h2>
-              <p className="text-sm text-muted-foreground">
-                {new Date(stats.activeTerm.start_date).toLocaleDateString()} — {new Date(stats.activeTerm.end_date).toLocaleDateString()}
-              </p>
+      {/* Active Term Banner + Scope Toggle */}
+      <div className="flex items-center justify-between gap-4 flex-wrap">
+        {stats.activeTerm && (
+          <div className="rounded-lg border bg-gradient-to-r from-amber-50 to-yellow-50 p-4 flex-1">
+            <div className="flex items-center gap-3">
+              <Crown className="h-6 w-6 text-amber-600" />
+              <div>
+                <h2 className="font-semibold text-lg">{stats.activeTerm.name}</h2>
+                <p className="text-sm text-muted-foreground">
+                  {new Date(stats.activeTerm.start_date).toLocaleDateString()} — {new Date(stats.activeTerm.end_date).toLocaleDateString()}
+                </p>
+              </div>
+              <Badge variant="default" className="ml-auto bg-amber-600">Active Term</Badge>
             </div>
-            <Badge variant="default" className="ml-auto bg-amber-600">Active Term</Badge>
+          </div>
+        )}
+
+        {/* View Scope Toggle */}
+        <div className="flex items-center gap-2 shrink-0">
+          <span className="text-sm text-muted-foreground">Viewing:</span>
+          <div className="flex rounded-md border overflow-hidden">
+            <Link
+              href="/learners-council?scope=institution"
+              className={`px-3 py-1.5 text-sm ${!scopeAll ? 'bg-primary text-primary-foreground' : 'bg-background hover:bg-accent'}`}
+            >
+              My Institution
+            </Link>
+            <Link
+              href="/learners-council?scope=lc_wide"
+              className={`px-3 py-1.5 text-sm border-l ${scopeAll ? 'bg-primary text-primary-foreground' : 'bg-background hover:bg-accent'}`}
+            >
+              LC-Wide
+            </Link>
           </div>
         </div>
-      )}
+      </div>
 
       {/* Stats Grid */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
