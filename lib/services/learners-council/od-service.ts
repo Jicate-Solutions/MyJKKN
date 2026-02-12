@@ -600,6 +600,21 @@ export class LCODService {
       throw new Error(`Failed to fetch reassigned request: ${error.message}`);
     }
 
+    // Notify the new approver about the reassignment
+    try {
+      await LCNotificationService.createNotification({
+        user_id: newApproverId,
+        type: 'od_approval',
+        title: 'OD Request Reassigned to You',
+        message: `An OD request has been reassigned to you for review. Reason: ${reason}`,
+        link: `/learners-council/od/${requestId}`,
+        reference_id: requestId,
+        reference_type: 'od_request',
+      });
+    } catch (notifErr) {
+      console.warn('[learners-council/od] Failed to send reassignment notification:', notifErr);
+    }
+
     return data as unknown as LCODRequest;
   }
 
