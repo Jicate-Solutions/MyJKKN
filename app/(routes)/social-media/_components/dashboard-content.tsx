@@ -27,7 +27,7 @@ export function DashboardContent({ institutionId }: DashboardContentProps) {
   useEffect(() => {
     async function fetchDashboard() {
       try {
-        const res = await fetch(`/api/social-media/dashboard?institution_id=${institutionId}`);
+        const res = await fetch(`/api/social-media/dashboard?institution_id=${encodeURIComponent(institutionId)}`);
         if (!res.ok) throw new Error('Failed to load dashboard');
         const json = await res.json();
         setData(json);

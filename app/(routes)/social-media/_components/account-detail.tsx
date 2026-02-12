@@ -36,9 +36,9 @@ export function AccountDetail({ accountId, institutionId }: AccountDetailProps) 
       try {
         // Fetch account, snapshots, and posts in parallel
         const [accRes, snapRes, postsRes] = await Promise.all([
-          fetch(`/api/social-media/accounts/${accountId}`),
-          fetch(`/api/social-media/accounts/${accountId}/snapshots?institution_id=${institutionId}&limit=30`),
-          fetch(`/api/social-media/accounts/${accountId}/posts?institution_id=${institutionId}&limit=20`),
+          fetch(`/api/social-media/accounts/${encodeURIComponent(accountId)}`),
+          fetch(`/api/social-media/accounts/${encodeURIComponent(accountId)}/snapshots?limit=30`),
+          fetch(`/api/social-media/accounts/${encodeURIComponent(accountId)}/posts?limit=20`),
         ]);
 
         if (!accRes.ok) throw new Error('Failed to load account');

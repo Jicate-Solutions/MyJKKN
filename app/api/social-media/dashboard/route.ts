@@ -19,6 +19,11 @@ export async function GET(request: NextRequest) {
     if (!institutionId) {
       return NextResponse.json({ error: 'institution_id is required' }, { status: 400 });
     }
+    // Validate UUID format
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(institutionId)) {
+      return NextResponse.json({ error: 'institution_id must be a valid UUID' }, { status: 400 });
+    }
 
     // Fetch all accounts
     const { data: accounts, error: accError } = await supabase

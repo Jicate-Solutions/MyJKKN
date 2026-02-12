@@ -102,14 +102,25 @@ export class LCODService {
     institutionId: string
   ): Promise<LCODRequest> {
     // Find the active approval chain for this institution
-    const { data: chains } = await (this.supabase as any)
+    const { data: chains, error: chainError } = await (this.supabase as any)
       .from('lc_od_approval_chains')
       .select('id, name, steps')
       .eq('institution_id', institutionId)
       .eq('is_active', true)
       .limit(1);
 
-    const chainId = chains && chains.length > 0 ? chains[0].id : null;
+    if (chainError) {
+      console.error('[learners-council/od] Error fetching approval chains:', chainError);
+      throw new Error(`Failed to fetch approval chains: ${chainError.message}`);
+    }
+
+    if (!chains || chains.length === 0) {
+      throw new Error(
+        'No active approval chain configured for this institution. Please ask an administrator to set up an OD approval chain before submitting requests.'
+      );
+    }
+
+    const chainId = chains[0].id;
 
     // Generate request number
     const requestNumber = `OD-${Date.now().toString(36).toUpperCase()}`;

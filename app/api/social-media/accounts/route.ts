@@ -43,7 +43,9 @@ export async function GET(request: NextRequest) {
     if (filters.department_id) query = query.eq('department_id', filters.department_id);
     if (filters.is_connected !== undefined) query = query.eq('is_connected', filters.is_connected);
     if (filters.search) {
-      query = query.or(`username.ilike.%${filters.search}%,display_name.ilike.%${filters.search}%`);
+      // Escape ILIKE special characters to prevent wildcard injection
+      const sanitized = filters.search.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
+      query = query.or(`username.ilike.%${sanitized}%,display_name.ilike.%${sanitized}%`);
     }
 
     const { data, error, count } = await query;

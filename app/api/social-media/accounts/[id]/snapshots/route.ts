@@ -19,7 +19,8 @@ export async function GET(
     }
 
     const { searchParams } = new URL(request.url);
-    const limit = parseInt(searchParams.get('limit') || '30');
+    const parsedLimit = parseInt(searchParams.get('limit') || '30');
+    const limit = Number.isNaN(parsedLimit) || parsedLimit < 1 ? 30 : Math.min(parsedLimit, 200);
 
     const { data, error, count } = await supabase
       .from('sm_snapshots')

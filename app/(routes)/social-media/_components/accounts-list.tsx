@@ -40,7 +40,7 @@ export function AccountsList({ institutionId }: AccountsListProps) {
     async function fetchAccounts() {
       try {
         const res = await fetch(
-          `/api/social-media/accounts?institution_id=${institutionId}&limit=100`
+          `/api/social-media/accounts?institution_id=${encodeURIComponent(institutionId)}&limit=100`
         );
         if (!res.ok) throw new Error('Failed to load accounts');
         const json = await res.json();

@@ -19,8 +19,11 @@ export async function GET(
     }
 
     const { searchParams } = new URL(request.url);
-    const limit = parseInt(searchParams.get('limit') || '20');
-    const sortBy = searchParams.get('sort_by') || 'posted_at';
+    const parsedLimit = parseInt(searchParams.get('limit') || '20');
+    const limit = Number.isNaN(parsedLimit) || parsedLimit < 1 ? 20 : Math.min(parsedLimit, 100);
+    const ALLOWED_SORT_COLUMNS = ['posted_at', 'likes_count', 'comments_count', 'views_count', 'engagement_rate', 'created_at'];
+    const rawSort = searchParams.get('sort_by') || 'posted_at';
+    const sortBy = ALLOWED_SORT_COLUMNS.includes(rawSort) ? rawSort : 'posted_at';
 
     const { data, error, count } = await supabase
       .from('sm_post_metrics')
