@@ -19,7 +19,7 @@ import {
   Settings
 } from 'lucide-react';
 import { getEnhancedUserProfile, createClient } from '@/lib/supabase/server';
-import { getLCRole, canSeeSelectionTab, isStaffRole } from '@/lib/learners-council/lc-roles';
+import { getLCRole, canSeeSelectionTab } from '@/lib/learners-council/lc-roles';
 
 interface LCLayoutProps {
   children: React.ReactNode;
