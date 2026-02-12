@@ -292,3 +292,155 @@ export function useElectionResults(electionId: string) {
     staleTime: 30 * 1000 // 30 seconds for live results
   });
 }
+
+// ============================================================================
+// NOMINATION ACTION HOOKS
+// ============================================================================
+
+/**
+ * Hook to withdraw a nomination
+ */
+export function useWithdrawNomination() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({
+      nominationId,
+      reason,
+      electionId,
+    }: {
+      nominationId: string;
+      reason: string;
+      electionId: string;
+    }) => LCSelectionService.withdrawNomination(nominationId, reason),
+    onSuccess: (_, variables) => {
+      toast.success('Nomination withdrawn');
+      queryClient.invalidateQueries({
+        queryKey: lcSelectionKeys.nominations(variables.electionId)
+      });
+      queryClient.invalidateQueries({
+        queryKey: lcSelectionKeys.elections()
+      });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to withdraw nomination');
+    }
+  });
+}
+
+// ============================================================================
+// INTERVIEW ACTION HOOKS
+// ============================================================================
+
+/**
+ * Hook to cancel an interview
+ */
+export function useCancelInterview() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({
+      interviewId,
+      reason,
+      nominationId,
+    }: {
+      interviewId: string;
+      reason: string;
+      nominationId: string;
+    }) => LCSelectionService.cancelInterview(interviewId, reason),
+    onSuccess: (_, variables) => {
+      toast.success('Interview cancelled');
+      queryClient.invalidateQueries({
+        queryKey: lcSelectionKeys.interviews(variables.nominationId)
+      });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to cancel interview');
+    }
+  });
+}
+
+/**
+ * Hook to reschedule an interview
+ */
+export function useRescheduleInterview() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({
+      interviewId,
+      newDate,
+      newTime,
+      nominationId,
+    }: {
+      interviewId: string;
+      newDate: string;
+      newTime: string;
+      nominationId: string;
+    }) => LCSelectionService.rescheduleInterview(interviewId, newDate, newTime),
+    onSuccess: (_, variables) => {
+      toast.success('Interview rescheduled');
+      queryClient.invalidateQueries({
+        queryKey: lcSelectionKeys.interviews(variables.nominationId)
+      });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to reschedule interview');
+    }
+  });
+}
+
+// ============================================================================
+// PROGRESSION & ELIGIBILITY HOOKS
+// ============================================================================
+
+/**
+ * Hook to fetch progression history for a user (YUVA -> LC trail)
+ */
+export function useProgressionHistory(userId: string) {
+  return useQuery({
+    queryKey: lcSelectionKeys.progression(userId),
+    queryFn: () => LCSelectionService.getProgressionHistory(userId),
+    enabled: !!userId,
+    staleTime: 5 * 60 * 1000
+  });
+}
+
+/**
+ * Hook to fetch eligible nominees for an election
+ */
+export function useEligibleNominees(electionId: string) {
+  return useQuery({
+    queryKey: lcSelectionKeys.eligibleNominees(electionId),
+    queryFn: () => LCSelectionService.getEligibleNominees(electionId),
+    enabled: !!electionId,
+    staleTime: 2 * 60 * 1000
+  });
+}
+
+/**
+ * Hook to declare election results
+ */
+export function useDeclareResults() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (electionId: string) => LCSelectionService.declareResults(electionId),
+    onSuccess: (result) => {
+      toast.success(`Results declared! ${result.winners.length} winner(s) selected.`);
+      queryClient.invalidateQueries({ queryKey: lcSelectionKeys.elections() });
+      queryClient.invalidateQueries({
+        queryKey: lcSelectionKeys.electionDetail(result.election.id)
+      });
+      queryClient.invalidateQueries({
+        queryKey: lcSelectionKeys.results(result.election.id)
+      });
+      queryClient.invalidateQueries({
+        queryKey: lcSelectionKeys.nominations(result.election.id)
+      });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to declare results');
+    }
+  });
+}
