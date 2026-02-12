@@ -353,7 +353,7 @@ CREATE TABLE IF NOT EXISTS lc_chat_channels (
   description TEXT,
   reference_id UUID, -- chapter_id, vertical_id, etc.
   is_active BOOLEAN DEFAULT true,
-  created_by UUID NOT NULL REFERENCES auth.users(id) ON DELETE SET NULL,
+  created_by UUID NOT NULL REFERENCES auth.users(id) ON DELETE RESTRICT,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
