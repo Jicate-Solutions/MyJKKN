@@ -320,7 +320,7 @@ These were discovered during P1 verification. Services may still reference wrong
 
 # COMPLETE FILE INVENTORY
 
-## Route Pages (61 total)
+## Route Pages (49 total)
 
 ### Fully Complete (20 pages)
 ```
