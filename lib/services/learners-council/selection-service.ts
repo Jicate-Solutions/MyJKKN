@@ -173,6 +173,20 @@ export class LCSelectionService {
    * Submit a self-nomination
    */
   static async submitNomination(data: CreateNominationDto, userId: string): Promise<LCNomination> {
+    // Validate election status is nominations_open
+    const { data: election, error: electionError } = await (this.supabase as any)
+      .from('lc_elections')
+      .select('id, status')
+      .eq('id', data.election_id)
+      .single();
+
+    if (electionError || !election) {
+      throw new Error('Election not found');
+    }
+    if (election.status !== 'nominations_open') {
+      throw new Error(`Nominations are not open for this election. Current status: ${election.status}`);
+    }
+
     // Check for duplicate nomination
     const { data: existing } = await (this.supabase as any)
       .from('lc_nominations')
