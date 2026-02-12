@@ -346,8 +346,11 @@ export class LCIssueService {
 
     if (keywords.length === 0) return [];
 
+    // Sanitize keywords to escape special LIKE pattern characters
+    const sanitize = (s: string) => s.replace(/[%_\\]/g, '\\$&');
+
     // Build OR condition for keyword matching
-    const orCondition = keywords.map(kw => `subject.ilike.%${kw}%`).join(',');
+    const orCondition = keywords.map(kw => `subject.ilike.%${sanitize(kw)}%`).join(',');
 
     const { data, error } = await (this.supabase as any)
       .from('grievance_tickets')
