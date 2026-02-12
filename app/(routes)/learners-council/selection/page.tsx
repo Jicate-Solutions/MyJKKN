@@ -63,9 +63,8 @@ export default async function SelectionPage() {
 
   const electionsList = elections || [];
 
-  const isStaffOrAdmin = ['admin', 'super_admin', 'staff', 'hod', 'principal'].includes(
-    profile.role || ''
-  );
+  const lcRole = getLCRole(profile.role || null, null);
+  const showManageActions = canManageElections(lcRole);
 
   return (
     <div className="space-y-6">
@@ -80,7 +79,7 @@ export default async function SelectionPage() {
             Manage nominations, interviews, and elections for Learners Council positions
           </p>
         </div>
-        {isStaffOrAdmin && (
+        {showManageActions && (
           <SelectionClientActions userId={profile.id} />
         )}
       </div>

@@ -53,7 +53,7 @@ import {
   useAssignVerticalMember,
   useRemoveVerticalMember
 } from '@/hooks/learners-council/use-lc-structure';
-import type { YUVAChapter, YUVAVertical, YUVAVerticalMember } from '@/types/learners-council';
+// Types used via inline casting where needed
 
 const roleLabels: Record<string, string> = {
   chapter_chair: 'Chapter Chair',
