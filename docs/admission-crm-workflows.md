@@ -3004,7 +3004,7 @@ Multiple services use Supabase Realtime subscriptions:
 |--------|-------|
 | Service files | 43 |
 | Database tables | 50+ |
-| Database views | 3 |
+| Database views | 2 (`admission_process_metrics`, `v_admission_funnel`) |
 | Database RPCs | 9 |
 | UI routes/pages | 49 |
 | React hooks | 35 files (34 dedicated + index.ts with 12 consolidated hooks) |
