@@ -405,6 +405,84 @@ export class LCStructureService {
     return chapter as YUVAChapter;
   }
 
+  /**
+   * Get a single term by ID with full details
+   */
+  static async getTermById(termId: string): Promise<LCTerm> {
+    const { data, error } = await (this.supabase as any)
+      .from('lc_terms')
+      .select('*')
+      .eq('id', termId)
+      .single();
+
+    if (error) {
+      console.error('[lc/structure] Error fetching term by id:', error);
+      if (error.code === 'PGRST116') {
+        throw new Error('Term not found');
+      }
+      throw new Error(`Failed to fetch term: ${error.message}`);
+    }
+
+    return data as LCTerm;
+  }
+
+  /**
+   * Handover workflow: deactivate old term members and transition to new term
+   */
+  static async handoverWorkflow(oldTermId: string, newTermId: string): Promise<void> {
+    // 1. Deactivate all active members of the old term
+    const { error: membersError } = await (this.supabase as any)
+      .from('lc_members')
+      .update({
+        status: 'inactive' as LCMemberStatus,
+        ended_at: new Date().toISOString()
+      })
+      .eq('term_id', oldTermId)
+      .eq('status', 'active');
+
+    if (membersError) {
+      console.error('[lc/structure] Error deactivating old term members:', membersError);
+      throw new Error(`Failed to deactivate old term members: ${membersError.message}`);
+    }
+
+    // 2. Close position history records for old term
+    const { error: historyError } = await (this.supabase as any)
+      .from('lc_position_history')
+      .update({
+        ended_at: new Date().toISOString(),
+        end_reason: 'term_handover'
+      })
+      .eq('term_id', oldTermId)
+      .is('ended_at', null);
+
+    if (historyError) {
+      console.error('[lc/structure] Error closing position history:', historyError);
+      throw new Error(`Failed to close position history: ${historyError.message}`);
+    }
+
+    // 3. Mark old term as completed
+    const { error: oldTermError } = await (this.supabase as any)
+      .from('lc_terms')
+      .update({ status: 'completed' as TermStatus })
+      .eq('id', oldTermId);
+
+    if (oldTermError) {
+      console.error('[lc/structure] Error completing old term:', oldTermError);
+      throw new Error(`Failed to complete old term: ${oldTermError.message}`);
+    }
+
+    // 4. Activate new term
+    const { error: newTermError } = await (this.supabase as any)
+      .from('lc_terms')
+      .update({ status: 'active' as TermStatus })
+      .eq('id', newTermId);
+
+    if (newTermError) {
+      console.error('[lc/structure] Error activating new term:', newTermError);
+      throw new Error(`Failed to activate new term: ${newTermError.message}`);
+    }
+  }
+
   // ============================================================================
   // YUVA VERTICAL METHODS
   // ============================================================================
