@@ -313,6 +313,7 @@ These were discovered during P1 verification. Services may still reference wrong
 |----------------|---------------------|-----|
 | `priority` (enum) | `is_hot_lead` (bool) + `is_priority` (bool) | Use two booleans |
 | `program_interest` | `interested_programs` (text[]) | Use correct name |
+| `funnel_stage` (text, 13 vals) | `stage` (enum, 19 vals) also exists | Clarify which to use — enum has more granular stages (documents_pending, token_paid, etc.) |
 | `is_duplicate` | DOES NOT EXIST | Not in schema |
 | `duplicate_of` | DOES NOT EXIST | Not in schema |
 | `type` (on templates) | `channel` (sms/email/whatsapp) | Use `channel` |
