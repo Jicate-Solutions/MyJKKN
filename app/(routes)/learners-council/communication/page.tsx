@@ -28,19 +28,23 @@ export default async function AnnouncementsPage() {
     .order('created_at', { ascending: false })
     .limit(20);
 
-  // Check if user is an LC member (for showing create button)
+  // Check if user is an LC member and their position category
   const { data: lcMembership } = await supabase
     .from('lc_members')
-    .select('id, position_id')
+    .select('id, position_id, position:lc_positions(id, category)')
     .eq('user_id', profile.id)
     .eq('status', 'active')
     .maybeSingle();
 
-  const isLCMember = !!lcMembership;
   const isStaffOrAdmin = ['admin', 'super_admin', 'staff', 'hod', 'principal'].includes(
     profile.role || ''
   );
-  const canCreate = isLCMember || isStaffOrAdmin;
+
+  // Only LC Executive members, Institution Presidents (YUVA Chairs), and staff can create announcements
+  const positionCategory = (lcMembership?.position as any)?.category;
+  const canCreate = isStaffOrAdmin ||
+    positionCategory === 'executive' ||
+    positionCategory === 'institution_president';
 
   return (
     <AnnouncementsClient
