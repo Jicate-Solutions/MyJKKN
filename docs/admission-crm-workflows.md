@@ -269,7 +269,7 @@ previous_stage        ENUM `admission_lead_stage`
 counselor_id          UUID (FK)
 assigned_counselor_id UUID (FK)
 assigned_at           TIMESTAMPTZ
-ownership_mode        TEXT
+ownership_mode        ENUM `lead_ownership_mode` (permanent/flexible/stage_based/pool)
 engagement_score      INTEGER
 quality_score         INTEGER
 combined_score        INTEGER
