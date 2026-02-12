@@ -1096,3 +1096,63 @@ ON CONFLICT DO NOTHING;
 
 -- Institution President positions will be created dynamically when institutions are configured
 -- At-Large Representative positions will be created dynamically per term
+
+-- ============================================================================
+-- DEFERRED FK: lc_event_participants.od_request_id → lc_od_requests
+-- (lc_od_requests is defined after lc_event_participants)
+-- ============================================================================
+ALTER TABLE lc_event_participants
+  ADD CONSTRAINT lc_event_participants_od_request_fkey
+  FOREIGN KEY (od_request_id) REFERENCES lc_od_requests(id) ON DELETE SET NULL;
+
+-- ============================================================================
+-- TRIGGERS: Auto-increment counters (eliminates race conditions)
+-- ============================================================================
+
+-- Poll vote count: auto-increment option vote_count and poll total_votes on INSERT
+CREATE OR REPLACE FUNCTION increment_poll_vote_count() RETURNS TRIGGER AS $$
+BEGIN
+  UPDATE lc_poll_options SET vote_count = vote_count + 1 WHERE id = NEW.option_id;
+  UPDATE lc_polls SET total_votes = total_votes + 1
+    WHERE id = (SELECT poll_id FROM lc_poll_options WHERE id = NEW.option_id);
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_poll_vote_count
+  AFTER INSERT ON lc_poll_votes
+  FOR EACH ROW EXECUTE FUNCTION increment_poll_vote_count();
+
+-- Forum post count: auto-increment topic post_count and update last_post_at on INSERT
+CREATE OR REPLACE FUNCTION increment_forum_post_count() RETURNS TRIGGER AS $$
+BEGIN
+  UPDATE lc_forum_topics
+    SET post_count = post_count + 1, last_post_at = NOW()
+    WHERE id = NEW.topic_id;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_forum_post_count
+  AFTER INSERT ON lc_forum_posts
+  FOR EACH ROW EXECUTE FUNCTION increment_forum_post_count();
+
+-- Event participant count: auto-increment/decrement current_participants on INSERT/UPDATE
+CREATE OR REPLACE FUNCTION update_event_participant_count() RETURNS TRIGGER AS $$
+BEGIN
+  IF TG_OP = 'INSERT' AND NEW.status IN ('registered', 'confirmed') THEN
+    UPDATE lc_events SET current_participants = current_participants + 1 WHERE id = NEW.event_id;
+  ELSIF TG_OP = 'UPDATE' THEN
+    IF OLD.status IN ('registered', 'confirmed', 'attended') AND NEW.status = 'cancelled' THEN
+      UPDATE lc_events SET current_participants = GREATEST(current_participants - 1, 0) WHERE id = NEW.event_id;
+    ELSIF OLD.status = 'cancelled' AND NEW.status IN ('registered', 'confirmed') THEN
+      UPDATE lc_events SET current_participants = current_participants + 1 WHERE id = NEW.event_id;
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_event_participant_count
+  AFTER INSERT OR UPDATE ON lc_event_participants
+  FOR EACH ROW EXECUTE FUNCTION update_event_participant_count();
