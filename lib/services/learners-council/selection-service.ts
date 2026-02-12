@@ -254,6 +254,24 @@ export class LCSelectionService {
       throw new Error(`Failed to review nomination: ${error.message}`);
     }
 
+    // Notify the nominee about the review result
+    try {
+      const nomination = data as any;
+      if (nomination.nominee_id) {
+        await LCNotificationService.createNotification({
+          user_id: nomination.nominee_id,
+          type: 'election',
+          title: 'Nomination Review Update',
+          message: `Your nomination has been updated to: ${status}`,
+          link: `/learners-council/selection`,
+          reference_id: id,
+          reference_type: 'nomination',
+        });
+      }
+    } catch (notifErr) {
+      console.warn('[lc/selection] Failed to send nomination review notification:', notifErr);
+    }
+
     return data as LCNomination;
   }
 
