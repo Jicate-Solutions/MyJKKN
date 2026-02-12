@@ -491,7 +491,7 @@ CREATE TABLE IF NOT EXISTS lc_od_approval_chains (
   event_scope VARCHAR(30) NOT NULL CHECK (event_scope IN ('campus', 'inter_campus', 'institution_wide')),
   steps JSONB NOT NULL DEFAULT '[]', -- array of ODApprovalStep objects
   is_active BOOLEAN DEFAULT true,
-  created_by UUID NOT NULL REFERENCES auth.users(id) ON DELETE SET NULL,
+  created_by UUID NOT NULL REFERENCES auth.users(id) ON DELETE RESTRICT,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW(),
 
