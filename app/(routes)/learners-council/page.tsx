@@ -24,8 +24,16 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 
-async function getDashboardStats(userId: string) {
+async function getDashboardStats(userId: string, institutionId: string | null, scopeAll: boolean) {
   const supabase = await createClient();
+
+  // Build institution-scoped queries when not viewing LC-wide
+  const applyScope = (query: any) => {
+    if (!scopeAll && institutionId) {
+      return query.eq('institution_id', institutionId);
+    }
+    return query;
+  };
 
   const [
     { count: lcMemberCount },
@@ -36,9 +44,9 @@ async function getDashboardStats(userId: string) {
     { count: unreadNotifications },
     { data: activeTerm }
   ] = await Promise.all([
-    supabase.from('lc_members').select('*', { count: 'exact', head: true }).eq('status', 'active'),
+    applyScope(supabase.from('lc_members').select('*', { count: 'exact', head: true }).eq('status', 'active')),
     supabase.from('lc_announcements').select('*', { count: 'exact', head: true }).eq('status', 'published'),
-    supabase.from('lc_events').select('*', { count: 'exact', head: true }).in('status', ['approved', 'published']),
+    applyScope(supabase.from('lc_events').select('*', { count: 'exact', head: true }).in('status', ['approved', 'published'])),
     supabase.from('lc_od_requests').select('*', { count: 'exact', head: true }).eq('status', 'submitted'),
     supabase.from('lc_polls').select('*', { count: 'exact', head: true }).eq('status', 'active'),
     supabase.from('lc_notifications').select('*', { count: 'exact', head: true }).eq('user_id', userId).eq('is_read', false),
