@@ -2,7 +2,7 @@
 
 > **Last Updated:** 2026-02-12
 > **Module:** Admission CRM (`/admission/*`)
-> **Services:** 43 files | **Routes:** 49 pages | **Hooks:** 38+ | **Tables:** 50+ | **Workflows:** 61
+> **Services:** 43 files | **Routes:** 49 pages | **Hooks:** 35 files | **Tables:** 50+ | **Workflows:** 61
 > **Status:** Phase 0 COMPLETE (Supabase wiring) | Phase 1 IN PROGRESS (Verification & Repair)
 
 ---
