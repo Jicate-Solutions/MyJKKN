@@ -1019,7 +1019,7 @@ Trigger: Manual entry / Bulk import / Chatbot / Consultant referral / Website fo
     |      |-- Conversions this week
     |
     |--> [Follow-up Queue]
-    |      |-- Leads with follow-ups due today (⚠️ NOTE: `next_followup_at` column does NOT exist in DB - use `last_contact_at` + follow-up interval or activities table)
+    |      |-- Leads with follow-ups due today (uses `next_followup_at` column)
     |      |-- Click to call / message / reschedule
     |
     |--> [Mini Pipeline]
