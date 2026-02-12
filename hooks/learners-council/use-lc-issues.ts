@@ -288,3 +288,14 @@ export function useMyIssues(userId: string) {
     staleTime: 1 * 60 * 1000
   });
 }
+
+/**
+ * Hook to fetch LC issue categories
+ */
+export function useLCCategories(institutionId?: string) {
+  return useQuery({
+    queryKey: [...lcIssueKeys.all, 'categories', institutionId],
+    queryFn: () => LCIssueService.getLCCategories(institutionId),
+    enabled: !!institutionId,
+  });
+}
