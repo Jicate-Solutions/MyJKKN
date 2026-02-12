@@ -189,7 +189,7 @@ CREATE TABLE IF NOT EXISTS lc_announcements (
   status VARCHAR(20) DEFAULT 'draft' CHECK (status IN ('draft', 'pending_review', 'published', 'archived')),
   scope VARCHAR(20) NOT NULL CHECK (scope IN ('lc_wide', 'institution', 'chapter', 'vertical')),
   scope_id UUID, -- institution_id, chapter_id, or vertical_id depending on scope
-  created_by UUID NOT NULL REFERENCES auth.users(id) ON DELETE SET NULL,
+  created_by UUID NOT NULL REFERENCES auth.users(id) ON DELETE RESTRICT,
   reviewed_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
   reviewed_at TIMESTAMPTZ,
   published_at TIMESTAMPTZ,
