@@ -175,9 +175,9 @@ export function useMarkAnnouncementRead() {
       announcementId: string;
       userId: string;
     }) => LCCommunicationService.markAnnouncementRead(announcementId, userId),
-    // Silent - no toast for read tracking
-    onError: () => {
-      // Silent fail for read tracking
+    // Silent - no toast for read tracking, but log for debugging
+    onError: (error: Error) => {
+      console.error('[lc/read-tracking] Failed to mark announcement as read:', error);
     }
   });
 }
