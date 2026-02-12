@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { ArrowLeft, ExternalLink, Instagram, Youtube, Calendar, TrendingUp } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -18,6 +18,15 @@ import {
   HEALTH_STATUS_COLORS,
   CONTENT_TYPE_LABELS,
 } from '@/types/social-media';
+import {
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+} from 'recharts';
 
 interface AccountDetailProps {
   accountId: string;
@@ -30,6 +39,7 @@ export function AccountDetail({ accountId, institutionId }: AccountDetailProps) 
   const [posts, setPosts] = useState<SmPostMetric[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [chartPeriod, setChartPeriod] = useState<'7d' | '30d' | '90d' | 'all'>('30d');
 
   useEffect(() => {
     async function fetchData() {
@@ -92,6 +102,28 @@ export function AccountDetail({ accountId, institutionId }: AccountDetailProps) 
   const healthColor = HEALTH_STATUS_COLORS[account.health_status];
   const latestSnapshot = snapshots[0];
 
+  const chartData = useMemo(() => {
+    const now = Date.now();
+    const periodMs: Record<string, number> = {
+      '7d': 7 * 86400000,
+      '30d': 30 * 86400000,
+      '90d': 90 * 86400000,
+    };
+    const filtered = chartPeriod === 'all'
+      ? posts
+      : posts.filter(p => p.posted_at && now - new Date(p.posted_at).getTime() <= periodMs[chartPeriod]);
+    return filtered
+      .filter(p => p.posted_at)
+      .sort((a, b) => new Date(a.posted_at!).getTime() - new Date(b.posted_at!).getTime())
+      .map(p => ({
+        date: new Date(p.posted_at!).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+        likes: p.likes_count,
+        comments: p.comments_count,
+      }));
+  }, [posts, chartPeriod]);
+
+  const healthBreakdown = useMemo(() => computeHealthBreakdown(account, latestSnapshot), [account, latestSnapshot]);
+
   return (
     <div className="space-y-6 mt-4">
       {/* Back button + Header */}
@@ -147,6 +179,56 @@ export function AccountDetail({ accountId, institutionId }: AccountDetailProps) 
         </Card>
       )}
 
+      {/* Engagement Chart */}
+      {chartData.length > 0 && (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base">Engagement Over Time</CardTitle>
+              <div className="flex gap-1">
+                {(['7d', '30d', '90d', 'all'] as const).map(period => (
+                  <Button
+                    key={period}
+                    variant={chartPeriod === period ? 'default' : 'outline'}
+                    size="sm"
+                    className="text-xs h-7 px-2"
+                    onClick={() => setChartPeriod(period)}
+                  >
+                    {period === 'all' ? 'All' : period}
+                  </Button>
+                ))}
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={250}>
+              <AreaChart data={chartData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
+                <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                <XAxis dataKey="date" tick={{ fontSize: 11 }} />
+                <YAxis tick={{ fontSize: 11 }} />
+                <Tooltip />
+                <Area type="monotone" dataKey="likes" stackId="1" stroke="#E1306C" fill="#E1306C" fillOpacity={0.3} name="Likes" />
+                <Area type="monotone" dataKey="comments" stackId="1" stroke="#6366F1" fill="#6366F1" fillOpacity={0.3} name="Comments" />
+              </AreaChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Health Score Breakdown */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Health Score Breakdown</CardTitle>
+          <CardDescription>Score: {account.health_score}/100</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <HealthBar label="Activity" value={healthBreakdown.activity} max={30} />
+          <HealthBar label="Engagement" value={healthBreakdown.engagement} max={30} />
+          <HealthBar label="Growth" value={healthBreakdown.growth} max={20} />
+          <HealthBar label="Profile" value={healthBreakdown.profile} max={20} />
+        </CardContent>
+      </Card>
+
       {/* Account Info */}
       <Card>
         <CardHeader>
@@ -160,7 +242,11 @@ export function AccountDetail({ accountId, institutionId }: AccountDetailProps) 
             <InfoRow label="Connected" value={account.is_connected ? 'Yes (API)' : 'No'} />
             <InfoRow
               label="Last Post"
-              value={account.last_post_at ? new Date(account.last_post_at).toLocaleDateString() : 'Unknown'}
+              value={
+                account.last_post_at
+                  ? `${new Date(account.last_post_at).toLocaleDateString()} (${Math.floor((Date.now() - new Date(account.last_post_at).getTime()) / 86400000)} days ago)`
+                  : 'Unknown'
+              }
             />
             <InfoRow
               label="Last Snapshot"
@@ -331,4 +417,72 @@ function formatNum(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
   return n.toString();
+}
+
+function HealthBar({ label, value, max }: { label: string; value: number; max: number }) {
+  const pct = Math.round((value / max) * 100);
+  return (
+    <div>
+      <div className="flex justify-between text-sm mb-1">
+        <span className="text-muted-foreground">{label}</span>
+        <span className="font-medium">{value}/{max}</span>
+      </div>
+      <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+        <div
+          className="h-full bg-blue-500 rounded-full transition-all"
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function computeHealthBreakdown(
+  account: SmAccount,
+  snapshot: SmSnapshot | undefined
+): { activity: number; engagement: number; growth: number; profile: number; total: number } {
+  let activity = 0;
+  let engagement = 0;
+  let growth = 0;
+  let profile = 0;
+
+  // Activity: out of 30 (posting recency 20 + consistency 10)
+  if (account.last_post_at) {
+    const days = Math.floor((Date.now() - new Date(account.last_post_at).getTime()) / 86400000);
+    if (days <= 3) activity += 20;
+    else if (days <= 7) activity += 15;
+    else if (days <= 14) activity += 8;
+    else if (days <= 30) activity += 3;
+  }
+  if (snapshot) {
+    if (snapshot.posts_last_30_days >= 12) activity += 10;
+    else if (snapshot.posts_last_30_days >= 8) activity += 7;
+    else if (snapshot.posts_last_30_days >= 4) activity += 4;
+  }
+
+  // Engagement: out of 30
+  if (snapshot) {
+    const rate = Number(snapshot.engagement_rate);
+    if (rate >= 0.06) engagement = 30;
+    else if (rate >= 0.03) engagement = 22;
+    else if (rate >= 0.01) engagement = 15;
+    else if (rate > 0) engagement = 5;
+  }
+
+  // Growth: out of 20
+  if (snapshot) {
+    const pct = Number(snapshot.follower_growth_pct);
+    if (pct > 5) growth = 20;
+    else if (pct > 2) growth = 14;
+    else if (pct > 0) growth = 7;
+  }
+
+  // Profile: out of 20 (completeness)
+  if (account.display_name) profile += 4;
+  if (account.bio) profile += 5;
+  if (account.profile_url) profile += 4;
+  if (account.website_url) profile += 3;
+  if (account.is_verified) profile += 4;
+
+  return { activity, engagement, growth, profile, total: activity + engagement + growth + profile };
 }

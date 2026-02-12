@@ -1,12 +1,13 @@
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useCallback } from 'react';
 import Link from 'next/link';
-import { ExternalLink, Instagram, Youtube, Search, Filter } from 'lucide-react';
+import { ExternalLink, Instagram, Youtube, Search, Plus, Building2, Loader2 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
 import {
   Select,
   SelectContent,
@@ -14,6 +15,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+  DialogDescription,
+} from '@/components/ui/dialog';
 import {
   type SmAccount,
   type SmPlatform,
@@ -28,6 +37,12 @@ interface AccountsListProps {
   institutionId: string;
 }
 
+const ALL_PLATFORMS: SmPlatform[] = [
+  'instagram', 'youtube', 'facebook', 'linkedin',
+  'google_business', 'twitter', 'pinterest', 'snapchat',
+  'threads', 'reddit', 'tumblr', 'quora',
+];
+
 export function AccountsList({ institutionId }: AccountsListProps) {
   const [accounts, setAccounts] = useState<SmAccount[]>([]);
   const [loading, setLoading] = useState(true);
@@ -35,24 +50,37 @@ export function AccountsList({ institutionId }: AccountsListProps) {
   const [search, setSearch] = useState('');
   const [platformFilter, setPlatformFilter] = useState<string>('all');
   const [healthFilter, setHealthFilter] = useState<string>('all');
+  const [departmentFilter, setDepartmentFilter] = useState<string>('all');
+  const [dialogOpen, setDialogOpen] = useState(false);
+
+  const fetchAccounts = useCallback(async () => {
+    try {
+      setLoading(true);
+      const res = await fetch(
+        `/api/social-media/accounts?institution_id=${encodeURIComponent(institutionId)}&limit=100`
+      );
+      if (!res.ok) throw new Error('Failed to load accounts');
+      const json = await res.json();
+      setAccounts(json.data || []);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [institutionId]);
 
   useEffect(() => {
-    async function fetchAccounts() {
-      try {
-        const res = await fetch(
-          `/api/social-media/accounts?institution_id=${encodeURIComponent(institutionId)}&limit=100`
-        );
-        if (!res.ok) throw new Error('Failed to load accounts');
-        const json = await res.json();
-        setAccounts(json.data || []);
-      } catch (err: any) {
-        setError(err.message);
-      } finally {
-        setLoading(false);
-      }
-    }
     fetchAccounts();
-  }, [institutionId]);
+  }, [fetchAccounts]);
+
+  // Get unique department IDs for filter
+  const departments = useMemo(() => {
+    const set = new Set<string>();
+    accounts.forEach(a => {
+      if (a.department_id) set.add(a.department_id);
+    });
+    return Array.from(set).sort();
+  }, [accounts]);
 
   const filtered = useMemo(() => {
     return accounts.filter(account => {
@@ -67,9 +95,30 @@ export function AccountsList({ institutionId }: AccountsListProps) {
       }
       if (platformFilter !== 'all' && account.platform !== platformFilter) return false;
       if (healthFilter !== 'all' && account.health_status !== healthFilter) return false;
+      if (departmentFilter !== 'all') {
+        if (departmentFilter === 'institution' && account.department_id !== null) return false;
+        if (departmentFilter !== 'institution' && account.department_id !== departmentFilter) return false;
+      }
       return true;
     });
-  }, [accounts, search, platformFilter, healthFilter]);
+  }, [accounts, search, platformFilter, healthFilter, departmentFilter]);
+
+  // Group filtered accounts by department
+  const grouped = useMemo(() => {
+    const map = new Map<string | null, SmAccount[]>();
+    for (const account of filtered) {
+      const key = account.department_id;
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(account);
+    }
+    // Sort: institution-level (null) first, then department IDs alphabetically
+    const sorted = Array.from(map.entries()).sort(([a], [b]) => {
+      if (a === null) return -1;
+      if (b === null) return 1;
+      return a.localeCompare(b);
+    });
+    return sorted;
+  }, [filtered]);
 
   // Get unique platforms for filter
   const platforms = useMemo(() => {
@@ -82,7 +131,7 @@ export function AccountsList({ institutionId }: AccountsListProps) {
 
   return (
     <div className="space-y-4">
-      {/* Filters */}
+      {/* Filters + Add button */}
       <div className="flex flex-col sm:flex-row gap-3">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -118,6 +167,47 @@ export function AccountsList({ institutionId }: AccountsListProps) {
             <SelectItem value="dormant">Dormant</SelectItem>
           </SelectContent>
         </Select>
+        {departments.length > 0 && (
+          <Select value={departmentFilter} onValueChange={setDepartmentFilter}>
+            <SelectTrigger className="w-[180px]">
+              <SelectValue placeholder="Department" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Departments</SelectItem>
+              <SelectItem value="institution">Institution-Level</SelectItem>
+              {departments.map(d => (
+                <SelectItem key={d} value={d}>
+                  {d.substring(0, 8)}...
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+
+        {/* Add Account Dialog */}
+        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+          <DialogTrigger asChild>
+            <Button size="sm" className="gap-1.5">
+              <Plus className="h-4 w-4" />
+              Add Account
+            </Button>
+          </DialogTrigger>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Add Social Media Account</DialogTitle>
+              <DialogDescription>
+                Register a new social media account for monitoring.
+              </DialogDescription>
+            </DialogHeader>
+            <AddAccountForm
+              institutionId={institutionId}
+              onSuccess={() => {
+                setDialogOpen(false);
+                fetchAccounts();
+              }}
+            />
+          </DialogContent>
+        </Dialog>
       </div>
 
       {/* Results count */}
@@ -125,12 +215,25 @@ export function AccountsList({ institutionId }: AccountsListProps) {
         Showing {filtered.length} of {accounts.length} accounts
       </p>
 
-      {/* Accounts grid */}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {filtered.map(account => (
-          <AccountCard key={account.id} account={account} />
-        ))}
-      </div>
+      {/* Grouped accounts */}
+      {grouped.map(([deptId, deptAccounts]) => (
+        <div key={deptId ?? '__institution'} className="space-y-3">
+          <div className="flex items-center gap-2 pt-2">
+            <Building2 className="h-4 w-4 text-muted-foreground" />
+            <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+              {deptId === null ? 'Institution-Level Accounts' : `Department ${deptId.substring(0, 8)}...`}
+            </h3>
+            <Badge variant="secondary" className="text-[10px]">
+              {deptAccounts.length}
+            </Badge>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {deptAccounts.map(account => (
+              <AccountCard key={account.id} account={account} />
+            ))}
+          </div>
+        </div>
+      ))}
 
       {filtered.length === 0 && (
         <div className="text-center py-12 text-muted-foreground">
@@ -142,8 +245,117 @@ export function AccountsList({ institutionId }: AccountsListProps) {
 }
 
 
+// ─── Add Account Form ──────────────────────────────────────────────────────
+
+interface AddAccountFormProps {
+  institutionId: string;
+  onSuccess: () => void;
+}
+
+function AddAccountForm({ institutionId, onSuccess }: AddAccountFormProps) {
+  const [platform, setPlatform] = useState<string>('');
+  const [username, setUsername] = useState('');
+  const [displayName, setDisplayName] = useState('');
+  const [profileUrl, setProfileUrl] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!platform || !username.trim()) {
+      setFormError('Platform and username are required.');
+      return;
+    }
+    setFormError(null);
+    setSubmitting(true);
+    try {
+      const body: Record<string, string> = {
+        institution_id: institutionId,
+        platform,
+        username: username.trim(),
+      };
+      if (displayName.trim()) body.display_name = displayName.trim();
+      if (profileUrl.trim()) body.profile_url = profileUrl.trim();
+
+      const res = await fetch('/api/social-media/accounts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        throw new Error(json.error || 'Failed to add account');
+      }
+      onSuccess();
+    } catch (err: any) {
+      setFormError(err.message);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4">
+      <div className="space-y-2">
+        <Label htmlFor="add-platform">Platform *</Label>
+        <Select value={platform} onValueChange={setPlatform}>
+          <SelectTrigger id="add-platform">
+            <SelectValue placeholder="Select platform" />
+          </SelectTrigger>
+          <SelectContent>
+            {ALL_PLATFORMS.map(p => (
+              <SelectItem key={p} value={p}>
+                {PLATFORM_LABELS[p]}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="space-y-2">
+        <Label htmlFor="add-username">Username *</Label>
+        <Input
+          id="add-username"
+          placeholder="e.g. jkkn_official"
+          value={username}
+          onChange={(e) => setUsername(e.target.value)}
+        />
+      </div>
+      <div className="space-y-2">
+        <Label htmlFor="add-display-name">Display Name</Label>
+        <Input
+          id="add-display-name"
+          placeholder="e.g. JKKN Group of Institutions"
+          value={displayName}
+          onChange={(e) => setDisplayName(e.target.value)}
+        />
+      </div>
+      <div className="space-y-2">
+        <Label htmlFor="add-profile-url">Profile URL</Label>
+        <Input
+          id="add-profile-url"
+          type="url"
+          placeholder="https://instagram.com/jkkn_official"
+          value={profileUrl}
+          onChange={(e) => setProfileUrl(e.target.value)}
+        />
+      </div>
+      {formError && (
+        <p className="text-sm text-red-500">{formError}</p>
+      )}
+      <div className="flex justify-end gap-2 pt-2">
+        <Button type="submit" disabled={submitting} className="gap-1.5">
+          {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
+          {submitting ? 'Adding...' : 'Add Account'}
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+
+// ─── Account Card ──────────────────────────────────────────────────────────
+
 function AccountCard({ account }: { account: SmAccount }) {
-  const platformColor = PLATFORM_COLORS[account.platform] || '#6B7280';
   const healthColor = HEALTH_STATUS_COLORS[account.health_status];
   const healthLabel = HEALTH_STATUS_LABELS[account.health_status];
 

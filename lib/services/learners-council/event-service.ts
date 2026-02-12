@@ -310,6 +310,31 @@ export class LCEventService {
       throw new Error(`Failed to publish event: ${error.message}`);
     }
 
+    // Notify registered participants that the event is now published
+    try {
+      const event = data as any;
+      const { data: participants } = await (this.supabase as any)
+        .from('lc_event_participants')
+        .select('user_id')
+        .eq('event_id', eventId)
+        .neq('status', 'cancelled');
+
+      if (participants && participants.length > 0) {
+        const notifications = participants.map((p: { user_id: string }) => ({
+          user_id: p.user_id,
+          type: 'event' as const,
+          title: 'Event Published',
+          message: `The event "${event.title}" is now published and confirmed.`,
+          link: `/learners-council/events/${eventId}`,
+          reference_id: eventId,
+          reference_type: 'event',
+        }));
+        await LCNotificationService.bulkCreateNotifications(notifications);
+      }
+    } catch (notifErr) {
+      console.warn('[learners-council/events] Failed to send publish notifications:', notifErr);
+    }
+
     return data as unknown as LCEvent;
   }
 
