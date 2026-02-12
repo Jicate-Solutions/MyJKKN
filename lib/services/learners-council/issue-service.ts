@@ -186,7 +186,11 @@ export class LCIssueService {
         description: data.description,
         priority: data.priority as GrievancePriority,
         status: 'open' as GrievanceStatus,
-        raised_by_type: (profile?.role === 'student' ? 'learner' : profile?.role || 'learner') as 'learner' | 'parent' | 'staff' | 'alumni',
+        raised_by_type: (['admin', 'super_admin', 'staff', 'hod', 'principal', 'teacher'].includes(profile?.role || '')
+          ? 'staff'
+          : profile?.role === 'parent' ? 'parent'
+          : profile?.role === 'alumni' ? 'alumni'
+          : 'learner') as 'learner' | 'parent' | 'staff' | 'alumni',
         raised_by_id: userId,
         raised_by_name: profile?.full_name || 'Unknown',
         raised_by_email: profile?.email || null,
