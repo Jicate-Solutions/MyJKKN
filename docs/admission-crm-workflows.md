@@ -454,7 +454,7 @@ All in `hooks/admission/`:
 
 ## Component Files (23)
 
-All in `app/(routes)/admission/_components/`:
+All in `components/admission/`:
 - Lead scoring: badge, card, factors list
 - AI: suggested responses, personalizer, insight cards, anomaly alerts, recommendations, trends
 - Campaign: stats cards, delivery chart, drip progress, execution log, drip status
@@ -2182,7 +2182,7 @@ REFUND:
 
 ---
 
-## 8. Automation & Rules Workflows
+## 8. Automation, Rules & Configuration Workflows
 
 ### 8.1 Workflow Automation Engine
 
