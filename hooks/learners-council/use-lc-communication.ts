@@ -682,7 +682,7 @@ export function useSendMessage() {
   return useMutation({
     mutationFn: ({ data, userId }: { data: SendChatMessageDto; userId: string }) =>
       LCCommunicationService.sendMessage(data, userId),
-    onSuccess: (message, variables) => {
+    onSuccess: (_message, variables) => {
       queryClient.invalidateQueries({
         queryKey: lcChatKeys.messages(variables.data.channel_id)
       });
