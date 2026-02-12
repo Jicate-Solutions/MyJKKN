@@ -55,6 +55,8 @@ type SortDir = 'asc' | 'desc';
 
 interface DashboardContentProps {
   institutionId: string;
+  userRole?: string;
+  departmentId?: string | null;
 }
 
 
@@ -85,7 +87,7 @@ function formatNumber(num: number): string {
 
 // ─── Main Component ─────────────────────────────────────────────────────────
 
-export function DashboardContent({ institutionId }: DashboardContentProps) {
+export function DashboardContent({ institutionId, userRole, departmentId }: DashboardContentProps) {
   const [data, setData] = useState<SmDashboardOverview | null>(null);
   const [accounts, setAccounts] = useState<SmAccount[]>([]);
   const [loading, setLoading] = useState(true);

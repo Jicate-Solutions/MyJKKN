@@ -1,6 +1,7 @@
 /**
  * Social Media Analytics API
  * GET /api/social-media/analytics - Get analytics deep dive data
+ * RBAC: All roles can view; data scoped by RLS
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -14,6 +15,17 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    // Fetch profile for institution validation
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('institution_id, role, department_id')
+      .eq('id', user.id)
+      .single();
+
+    if (!profile?.institution_id) {
+      return NextResponse.json({ error: 'User not assigned to institution' }, { status: 403 });
+    }
+
     const { searchParams } = new URL(request.url);
     const institutionId = searchParams.get('institution_id');
     const period = searchParams.get('period') || '30d';
@@ -25,6 +37,11 @@ export async function GET(request: NextRequest) {
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     if (!uuidRegex.test(institutionId)) {
       return NextResponse.json({ error: 'institution_id must be a valid UUID' }, { status: 400 });
+    }
+
+    // Prevent horizontal privilege escalation
+    if (profile.role !== 'super_admin' && institutionId !== profile.institution_id) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
     // Calculate date cutoff

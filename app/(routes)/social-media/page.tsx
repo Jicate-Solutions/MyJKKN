@@ -14,9 +14,14 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { getEnhancedUserProfile } from '@/lib/supabase/server';
 import { DashboardContent } from './_components/dashboard-content';
 
+const ADMIN_ROLES = ['super_admin', 'admin', 'principal'];
+
 export default async function SocialMediaDashboardPage() {
   const { profile } = await getEnhancedUserProfile();
   const institutionId = profile?.institution_id;
+  const userRole = profile?.role || 'student';
+  const departmentId = profile?.department_id || null;
+  const isAdmin = ADMIN_ROLES.includes(userRole);
 
   if (!institutionId) {
     return (
@@ -49,14 +54,16 @@ export default async function SocialMediaDashboardPage() {
           <div>
             <h1 className="text-2xl font-bold py-1">Social Media Dashboard</h1>
             <p className="text-sm sm:text-base text-muted-foreground">
-              Monitor engagement and health across all department accounts
+              {isAdmin
+                ? 'Monitor engagement and health across all department accounts'
+                : 'Monitor engagement and health for your department accounts'}
             </p>
           </div>
           <div className="flex gap-2">
             <Link href="/social-media/accounts">
               <Button variant="outline" size="sm">
                 <Eye className="h-4 w-4 mr-2" />
-                Manage Accounts
+                {isAdmin ? 'Manage Accounts' : 'View Accounts'}
               </Button>
             </Link>
           </div>
@@ -64,7 +71,11 @@ export default async function SocialMediaDashboardPage() {
 
         {/* Dashboard Content */}
         <Suspense fallback={<DashboardSkeleton />}>
-          <DashboardContent institutionId={institutionId} />
+          <DashboardContent
+            institutionId={institutionId}
+            userRole={userRole}
+            departmentId={departmentId}
+          />
         </Suspense>
       </div>
     </ContentLayout>

@@ -31,6 +31,7 @@ import {
 interface AccountDetailProps {
   accountId: string;
   institutionId: string;
+  userRole?: string;
 }
 
 export function AccountDetail({ accountId, institutionId }: AccountDetailProps) {

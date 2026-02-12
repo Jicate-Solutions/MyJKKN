@@ -17,6 +17,7 @@ export default async function AccountDetailPage({
   const { id } = await params;
   const { profile } = await getEnhancedUserProfile();
   const institutionId = profile?.institution_id;
+  const userRole = profile?.role || 'student';
 
   if (!institutionId) {
     return (
@@ -43,7 +44,7 @@ export default async function AccountDetailPage({
         ]}
       />
 
-      <AccountDetail accountId={id} institutionId={institutionId} />
+      <AccountDetail accountId={id} institutionId={institutionId} userRole={userRole} />
     </ContentLayout>
   );
 }

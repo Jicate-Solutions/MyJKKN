@@ -20,6 +20,8 @@ type Period = '7d' | '30d' | '90d' | 'all';
 
 interface AnalyticsContentProps {
   institutionId: string;
+  userRole?: string;
+  departmentId?: string | null;
 }
 
 interface WeeklyTrend {
@@ -36,7 +38,7 @@ interface DepartmentScore {
   accountCount: number;
 }
 
-export function AnalyticsContent({ institutionId }: AnalyticsContentProps) {
+export function AnalyticsContent({ institutionId, userRole, departmentId }: AnalyticsContentProps) {
   const [period, setPeriod] = useState<Period>('30d');
   const [dashboard, setDashboard] = useState<SmDashboardOverview | null>(null);
   const [accounts, setAccounts] = useState<SmAccount[]>([]);

@@ -1,12 +1,14 @@
 /**
  * Social Media Accounts API
- * GET /api/social-media/accounts - List accounts
- * POST /api/social-media/accounts - Create account
+ * GET /api/social-media/accounts - List accounts (all roles, RLS-scoped)
+ * POST /api/social-media/accounts - Create account (admin+ only)
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { smAccountFiltersSchema, createSmAccountSchema } from '@/lib/validations/social-media';
+
+const ADMIN_ROLES = ['super_admin', 'admin', 'principal'];
 
 export async function GET(request: NextRequest) {
   try {
@@ -16,9 +18,26 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    // Fetch profile for institution validation
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('institution_id, role, department_id')
+      .eq('id', user.id)
+      .single();
+
+    if (!profile?.institution_id) {
+      return NextResponse.json({ error: 'User not assigned to institution' }, { status: 403 });
+    }
+
     const { searchParams } = new URL(request.url);
+    // Prevent horizontal privilege escalation
+    const requestedInstitution = searchParams.get('institution_id');
+    if (profile.role !== 'super_admin' && requestedInstitution && requestedInstitution !== profile.institution_id) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
     const filters = smAccountFiltersSchema.parse({
-      institution_id: searchParams.get('institution_id'),
+      institution_id: requestedInstitution || profile.institution_id,
       platform: searchParams.get('platform') || undefined,
       health_status: searchParams.get('health_status') || undefined,
       department_id: searchParams.get('department_id') || undefined,
@@ -81,6 +100,17 @@ export async function POST(request: NextRequest) {
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     if (authError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // Only admins can create accounts
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('institution_id, role')
+      .eq('id', user.id)
+      .single();
+
+    if (!profile || !ADMIN_ROLES.includes(profile.role)) {
+      return NextResponse.json({ error: 'Only administrators can create accounts' }, { status: 403 });
     }
 
     const body = await request.json();

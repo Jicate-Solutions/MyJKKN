@@ -34,7 +34,11 @@ import {
 
 interface AccountsListProps {
   institutionId: string;
+  userRole?: string;
+  departmentId?: string | null;
 }
+
+const ADMIN_ROLES = ['super_admin', 'admin', 'principal'];
 
 const ALL_PLATFORMS: SmPlatform[] = [
   'instagram', 'youtube', 'facebook', 'linkedin',
@@ -42,7 +46,8 @@ const ALL_PLATFORMS: SmPlatform[] = [
   'threads', 'reddit', 'tumblr', 'quora',
 ];
 
-export function AccountsList({ institutionId }: AccountsListProps) {
+export function AccountsList({ institutionId, userRole, departmentId }: AccountsListProps) {
+  const isAdmin = ADMIN_ROLES.includes(userRole || '');
   const [accounts, setAccounts] = useState<SmAccount[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -183,30 +188,32 @@ export function AccountsList({ institutionId }: AccountsListProps) {
           </Select>
         )}
 
-        {/* Add Account Dialog */}
-        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          <DialogTrigger asChild>
-            <Button size="sm" className="gap-1.5">
-              <Plus className="h-4 w-4" />
-              Add Account
-            </Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Add Social Media Account</DialogTitle>
-              <DialogDescription>
-                Register a new social media account for monitoring.
-              </DialogDescription>
-            </DialogHeader>
-            <AddAccountForm
-              institutionId={institutionId}
-              onSuccess={() => {
-                setDialogOpen(false);
-                fetchAccounts();
-              }}
-            />
-          </DialogContent>
-        </Dialog>
+        {/* Add Account Dialog — visible only to admins */}
+        {isAdmin && (
+          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+            <DialogTrigger asChild>
+              <Button size="sm" className="gap-1.5">
+                <Plus className="h-4 w-4" />
+                Add Account
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Add Social Media Account</DialogTitle>
+                <DialogDescription>
+                  Register a new social media account for monitoring.
+                </DialogDescription>
+              </DialogHeader>
+              <AddAccountForm
+                institutionId={institutionId}
+                onSuccess={() => {
+                  setDialogOpen(false);
+                  fetchAccounts();
+                }}
+              />
+            </DialogContent>
+          </Dialog>
+        )}
       </div>
 
       {/* Results count */}

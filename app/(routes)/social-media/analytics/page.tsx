@@ -17,6 +17,8 @@ import { AnalyticsContent } from '../_components/analytics-content';
 export default async function AnalyticsDeepDivePage() {
   const { profile } = await getEnhancedUserProfile();
   const institutionId = profile?.institution_id;
+  const userRole = profile?.role || 'student';
+  const departmentId = profile?.department_id || null;
 
   if (!institutionId) {
     return (
@@ -65,7 +67,11 @@ export default async function AnalyticsDeepDivePage() {
 
         {/* Analytics Content */}
         <Suspense fallback={<AnalyticsSkeleton />}>
-          <AnalyticsContent institutionId={institutionId} />
+          <AnalyticsContent
+            institutionId={institutionId}
+            userRole={userRole}
+            departmentId={departmentId}
+          />
         </Suspense>
       </div>
     </ContentLayout>

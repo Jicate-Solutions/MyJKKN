@@ -1,6 +1,7 @@
 /**
  * Social Media Dashboard API
  * GET /api/social-media/dashboard - Get dashboard overview
+ * RBAC: All roles can view; data scoped by RLS (admins=institution, HOD/faculty=department)
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -14,6 +15,17 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    // Fetch user's profile for institution validation
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('institution_id, role, department_id')
+      .eq('id', user.id)
+      .single();
+
+    if (!profile?.institution_id) {
+      return NextResponse.json({ error: 'User not assigned to institution' }, { status: 403 });
+    }
+
     const { searchParams } = new URL(request.url);
     const institutionId = searchParams.get('institution_id');
     if (!institutionId) {
@@ -25,7 +37,13 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'institution_id must be a valid UUID' }, { status: 400 });
     }
 
-    // Fetch all accounts
+    // Prevent horizontal privilege escalation: user can only query their own institution
+    if (profile.role !== 'super_admin' && institutionId !== profile.institution_id) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
+    // Fetch accounts — RLS automatically scopes by role:
+    // admins/principals see all institution accounts, HOD/faculty see department + shared
     const { data: accounts, error: accError } = await supabase
       .from('sm_accounts')
       .select('*')

@@ -14,6 +14,8 @@ import { AccountsList } from '../_components/accounts-list';
 export default async function SocialMediaAccountsPage() {
   const { profile } = await getEnhancedUserProfile();
   const institutionId = profile?.institution_id;
+  const userRole = profile?.role || 'student';
+  const departmentId = profile?.department_id || null;
 
   if (!institutionId) {
     return (
@@ -50,7 +52,11 @@ export default async function SocialMediaAccountsPage() {
         </div>
 
         <Suspense fallback={<AccountsSkeleton />}>
-          <AccountsList institutionId={institutionId} />
+          <AccountsList
+            institutionId={institutionId}
+            userRole={userRole}
+            departmentId={departmentId}
+          />
         </Suspense>
       </div>
     </ContentLayout>
