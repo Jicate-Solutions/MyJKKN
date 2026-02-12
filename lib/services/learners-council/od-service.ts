@@ -297,12 +297,13 @@ export class LCODService {
   }
 
   /**
-   * Get OD requests pending this user's approval
+   * Get OD requests pending this user's approval.
+   * Checks the approval chain steps to determine if approverId matches
+   * the expected approver_role at the request's current_step.
    */
   static async getMyPendingApprovals(approverId: string): Promise<LCODRequest[]> {
-    // Get requests where status is submitted or in_review
-    // In a full implementation, this would also check the approval chain step
-    const { data, error } = await (this.supabase as any)
+    // Fetch all submitted/in_review requests with chain info
+    const { data: requests, error } = await (this.supabase as any)
       .from('lc_od_requests')
       .select(OD_REQUEST_SELECT)
       .in('status', ['submitted', 'in_review'])
@@ -313,7 +314,55 @@ export class LCODService {
       throw new Error(`Failed to fetch pending approvals: ${error.message}`);
     }
 
-    return (data || []) as unknown as LCODRequest[];
+    if (!requests || requests.length === 0) return [];
+
+    // Get the LC member roles for this approver to match against chain steps
+    const { data: memberRoles } = await (this.supabase as any)
+      .from('lc_members')
+      .select('position_id, lc_positions:position_id(title, category)')
+      .eq('user_id', approverId)
+      .eq('status', 'active');
+
+    // Get YUVA vertical member roles for this approver
+    const { data: yuvaRoles } = await (this.supabase as any)
+      .from('yuva_vertical_members')
+      .select('role, vertical_id')
+      .eq('user_id', approverId)
+      .eq('is_active', true);
+
+    // Build a set of approver role strings this user holds
+    const approverRoles = new Set<string>();
+    approverRoles.add(approverId); // Direct user ID match
+
+    if (memberRoles) {
+      for (const m of memberRoles) {
+        const pos = m.lc_positions as any;
+        if (pos?.title) approverRoles.add(pos.title.toLowerCase().replace(/\s+/g, '_'));
+        if (pos?.category) approverRoles.add(pos.category);
+      }
+    }
+    if (yuvaRoles) {
+      for (const y of yuvaRoles) {
+        if (y.role) approverRoles.add(y.role);
+      }
+    }
+
+    // Filter requests where the current step's approver_role matches this user's roles
+    const filtered = (requests as any[]).filter((req) => {
+      const chain = req.chain as any;
+      const steps = chain?.steps;
+      if (!Array.isArray(steps) || steps.length === 0) return false;
+
+      const currentStep = req.current_step || 1;
+      const step = steps.find((s: any) => s.step_order === currentStep);
+      if (!step) return false;
+
+      // Check if the approver_role in the step matches any role the user holds
+      const stepRole = (step.approver_role || '').toLowerCase().replace(/\s+/g, '_');
+      return approverRoles.has(stepRole) || approverRoles.has(step.approver_role);
+    });
+
+    return filtered as unknown as LCODRequest[];
   }
 
   // ============================================================================
