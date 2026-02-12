@@ -211,3 +211,140 @@ export function useUpdateApprovalChain() {
     },
   });
 }
+
+/**
+ * Hook to soft-delete an approval chain
+ */
+export function useDeleteApprovalChain() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (chainId: string) => LCODService.deleteApprovalChain(chainId),
+    onSuccess: (deletedChain) => {
+      toast.success('Approval chain deleted');
+      queryClient.invalidateQueries({ queryKey: lcODKeys.chainList(deletedChain.institution_id) });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to delete approval chain');
+    },
+  });
+}
+
+/**
+ * Hook to cancel an OD request
+ */
+export function useCancelODRequest() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ requestId, reason }: { requestId: string; reason: string }) =>
+      LCODService.cancelODRequest(requestId, reason),
+    onSuccess: (updatedRequest) => {
+      toast.success('OD request cancelled');
+      queryClient.invalidateQueries({ queryKey: lcODKeys.requestDetail(updatedRequest.id) });
+      queryClient.invalidateQueries({ queryKey: lcODKeys.requests() });
+      queryClient.invalidateQueries({ queryKey: lcODKeys.all });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to cancel OD request');
+    },
+  });
+}
+
+/**
+ * Hook to reassign an OD request to a new approver
+ */
+export function useReassignODRequest() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({
+      requestId,
+      newApproverId,
+      reason,
+    }: {
+      requestId: string;
+      newApproverId: string;
+      reason: string;
+    }) => LCODService.reassignODRequest(requestId, newApproverId, reason),
+    onSuccess: (updatedRequest) => {
+      toast.success('OD request reassigned');
+      queryClient.invalidateQueries({ queryKey: lcODKeys.requestDetail(updatedRequest.id) });
+      queryClient.invalidateQueries({ queryKey: lcODKeys.requests() });
+      queryClient.invalidateQueries({ queryKey: lcODKeys.all });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to reassign OD request');
+    },
+  });
+}
+
+/**
+ * Hook to check academic conflicts for a user and date range
+ */
+export function useCheckAcademicConflicts(userId: string, startDate: string, endDate: string) {
+  return useQuery({
+    queryKey: lcODKeys.academicConflicts(userId, startDate, endDate),
+    queryFn: () => LCODService.checkAcademicConflicts(userId, startDate, endDate),
+    enabled: !!userId && !!startDate && !!endDate,
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+/**
+ * Hook to auto-update attendance for an approved OD request
+ */
+export function useAutoUpdateAttendance() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (requestId: string) => LCODService.autoUpdateAttendance(requestId),
+    onSuccess: (result) => {
+      if (result.success) {
+        toast.success(result.message);
+      } else {
+        toast.error(result.message);
+      }
+      queryClient.invalidateQueries({ queryKey: lcODKeys.all });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to auto-update attendance');
+    },
+  });
+}
+
+/**
+ * Hook to create bulk OD requests for multiple learners
+ */
+export function useBulkODRequest() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({
+      data,
+      creatorId,
+      institutionId,
+    }: {
+      data: {
+        event_id?: string;
+        reason: string;
+        start_date: string;
+        end_date: string;
+        duration_hours: number;
+        learner_ids: string[];
+      };
+      creatorId: string;
+      institutionId: string;
+    }) => LCODService.bulkODRequest(data, creatorId, institutionId),
+    onSuccess: (result) => {
+      toast.success(`${result.created.length} OD request(s) created`);
+      if (result.errors.length > 0) {
+        toast.error(`${result.errors.length} request(s) failed`);
+      }
+      queryClient.invalidateQueries({ queryKey: lcODKeys.requests() });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to create bulk OD requests');
+    },
+  });
+}
