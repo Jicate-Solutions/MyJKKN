@@ -720,15 +720,11 @@ export function useEditMessage() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({
-      messageId,
-      content,
-      channelId
-    }: {
+    mutationFn: (vars: {
       messageId: string;
       content: string;
       channelId: string;
-    }) => LCCommunicationService.editMessage(messageId, content),
+    }) => LCCommunicationService.editMessage(vars.messageId, vars.content),
     onSuccess: (_msg, variables) => {
       toast.success('Message edited');
       queryClient.invalidateQueries({
