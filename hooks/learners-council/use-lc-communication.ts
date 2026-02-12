@@ -489,17 +489,12 @@ export function useEditPost() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({
-      postId,
-      content,
-      editedBy,
-      _topicId
-    }: {
+    mutationFn: (vars: {
       postId: string;
       content: string;
       editedBy: string;
-      _topicId: string;
-    }) => LCCommunicationService.editPost(postId, content, editedBy),
+      topicId: string;
+    }) => LCCommunicationService.editPost(vars.postId, vars.content, vars.editedBy),
     onSuccess: (_post, variables) => {
       toast.success('Post updated');
       queryClient.invalidateQueries({
