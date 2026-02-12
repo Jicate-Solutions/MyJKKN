@@ -238,7 +238,7 @@ CREATE TABLE IF NOT EXISTS lc_polls (
   max_selections INTEGER,
   starts_at TIMESTAMPTZ NOT NULL,
   ends_at TIMESTAMPTZ NOT NULL,
-  created_by UUID NOT NULL REFERENCES auth.users(id) ON DELETE SET NULL,
+  created_by UUID NOT NULL REFERENCES auth.users(id) ON DELETE RESTRICT,
   total_votes INTEGER DEFAULT 0,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW(),
