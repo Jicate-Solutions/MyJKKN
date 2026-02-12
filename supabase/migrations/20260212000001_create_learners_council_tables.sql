@@ -386,7 +386,7 @@ CREATE INDEX idx_lc_chat_members_user ON lc_chat_members(user_id);
 CREATE TABLE IF NOT EXISTS lc_chat_messages (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   channel_id UUID NOT NULL REFERENCES lc_chat_channels(id) ON DELETE CASCADE,
-  sender_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE SET NULL,
+  sender_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE RESTRICT,
   content TEXT NOT NULL,
   reply_to_id UUID REFERENCES lc_chat_messages(id) ON DELETE SET NULL,
   attachments JSONB DEFAULT '[]',
