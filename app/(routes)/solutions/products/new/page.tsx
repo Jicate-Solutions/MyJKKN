@@ -48,6 +48,12 @@ export default function NewProductPage() {
     e.preventDefault();
     setIsSubmitting(true);
 
+    if (!formData.domain) {
+      toast.error('Please select a domain');
+      setIsSubmitting(false);
+      return;
+    }
+
     try {
       // Product creation uses the form data to create a new record
       await createProduct.mutateAsync({
@@ -261,7 +267,7 @@ export default function NewProductPage() {
                     <span className="text-sm text-muted-foreground">No solutions selected</span>
                   ) : (
                     formData.originatingSolutions.map((solId) => {
-                      const sol = allSolutions.find((s) => s.id === solId);
+                      const sol = allSolutions.find((s: { id: string }) => s.id === solId);
                       return (
                         <Badge key={solId} variant="secondary" className="flex items-center gap-1 pr-1">
                           <span className="truncate max-w-[200px]">
@@ -290,7 +296,7 @@ export default function NewProductPage() {
                   {allSolutions.length === 0 ? (
                     <p className="text-sm text-muted-foreground p-3">No solutions available</p>
                   ) : (
-                    allSolutions.map((sol) => {
+                    allSolutions.map((sol: { id: string; title: string; solution_code: string }) => {
                       const isSelected = formData.originatingSolutions.includes(sol.id);
                       return (
                         <button

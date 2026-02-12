@@ -786,7 +786,10 @@ export default function ProductDetailPage({ params }: ProductDetailPageProps) {
           <DialogFooter>
             <Button
               variant="outline"
-              onClick={() => setShowAddValidation(false)}
+              onClick={() => {
+                setShowAddValidation(false);
+                setValidationForm(initialValidationForm);
+              }}
             >
               Cancel
             </Button>
