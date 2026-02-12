@@ -15,7 +15,8 @@ import {
   CalendarCheck,
   ClipboardSignature,
   Vote,
-  Kanban
+  Kanban,
+  Settings
 } from 'lucide-react';
 import { getEnhancedUserProfile } from '@/lib/supabase/server';
 
