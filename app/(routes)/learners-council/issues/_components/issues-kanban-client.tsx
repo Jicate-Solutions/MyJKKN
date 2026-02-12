@@ -94,6 +94,8 @@ export function IssuesKanbanClient({
   const createIssue = useCreateLCIssue();
   const updateStatus = useUpdateIssueStatus();
   const assignIssue = useAssignIssue();
+  const escalateIssue = useEscalateIssue();
+  const addComment = useAddComment();
 
   // Create dialog state
   const [createOpen, setCreateOpen] = useState(false);
