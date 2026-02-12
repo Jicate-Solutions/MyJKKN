@@ -45,7 +45,8 @@ interface PullResult {
 
 export class YouTubeService {
   private apiKey: string;
-  private supabase: ReturnType<typeof createClient>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private supabase: any;
 
   constructor() {
     const apiKey = process.env.YOUTUBE_API_KEY;
