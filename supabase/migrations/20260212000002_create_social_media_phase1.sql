@@ -414,8 +414,16 @@ DO $$
 DECLARE
   jkkn_id UUID;
 BEGIN
-  -- Get JKKN institution ID (the primary institution)
-  SELECT id INTO jkkn_id FROM institutions ORDER BY created_at ASC LIMIT 1;
+  -- Get JKKN institution ID from the Super Admin's profile (most reliable)
+  SELECT p.institution_id INTO jkkn_id
+  FROM profiles p
+  WHERE p.role = 'super_admin' AND p.institution_id IS NOT NULL
+  LIMIT 1;
+
+  -- Fallback: get first institution by creation date
+  IF jkkn_id IS NULL THEN
+    SELECT id INTO jkkn_id FROM institutions ORDER BY created_at ASC LIMIT 1;
+  END IF;
 
   IF jkkn_id IS NULL THEN
     RAISE NOTICE 'No institution found — skipping seed data';
