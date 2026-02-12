@@ -98,7 +98,7 @@ All ~50 admission CRM pages wired from mock/placeholder data to real Supabase qu
 
 ## P1: Module Verification & Repair (IN PROGRESS)
 
-**Status:** 3/30 test cases done
+**Status:** 2/30 test cases done (1 more in progress)
 **Goal:** Every page loads, every button works, every service hits real DB correctly
 
 ### Test Environment
