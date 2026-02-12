@@ -210,6 +210,24 @@ export class LCEventService {
       throw new Error(`Failed to approve event: ${error.message}`);
     }
 
+    // Notify the event proposer about the approval
+    try {
+      const event = data as any;
+      if (event.proposed_by) {
+        await LCNotificationService.createNotification({
+          user_id: event.proposed_by,
+          type: 'event',
+          title: 'Event Approved',
+          message: `Your event "${event.title}" has been approved.`,
+          link: `/learners-council/events/${eventId}`,
+          reference_id: eventId,
+          reference_type: 'event',
+        });
+      }
+    } catch (notifErr) {
+      console.warn('[learners-council/events] Failed to send approval notification:', notifErr);
+    }
+
     return data as unknown as LCEvent;
   }
 
