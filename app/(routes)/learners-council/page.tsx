@@ -172,17 +172,21 @@ export default async function LearnersCouncilDashboard({
 
   const supabase = await createClient();
 
-  // Check LC membership from DB
+  // Check LC membership from DB with position details
   const { data: lcMembership } = await supabase
     .from('lc_members')
-    .select('id, position_id, status')
+    .select('id, position_id, status, position:lc_positions(category, tier)')
     .eq('user_id', profile.id)
     .eq('status', 'active')
     .maybeSingle();
-  const isLCMember = !!lcMembership;
 
-  const isStaffOrAdmin = ['admin', 'super_admin', 'staff', 'hod', 'principal'].includes(profile.role || '');
-  const isMD = profile.role === 'super_admin';
+  const membershipInfo = lcMembership
+    ? { position_category: (lcMembership.position as any)?.category, tier: (lcMembership.position as any)?.tier }
+    : null;
+  const lcRole = getLCRole(profile.role || null, membershipInfo);
+  const isLCMember = !!lcMembership;
+  const isStaffOrAdmin = isStaffRole(lcRole);
+  const isMD = lcRole === 'md';
 
   // Resolve scope: MD/super_admin defaults to lc_wide, others default to institution
   const params = searchParams ? await searchParams : {};
