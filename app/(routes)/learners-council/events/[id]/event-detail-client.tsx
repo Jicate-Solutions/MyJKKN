@@ -54,6 +54,8 @@ interface EventDetailClientProps {
   userId: string;
   isRegistered: boolean;
   isProposer: boolean;
+  isStaffOrAdmin?: boolean;
+  userRole?: string;
 }
 
 const statusConfig: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline'; color: string }> = {
