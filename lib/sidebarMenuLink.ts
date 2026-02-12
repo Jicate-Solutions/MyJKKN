@@ -2196,6 +2196,16 @@ export function GetPages(pathname: string): MenuGroup[] {
               href: '/learners-council/selection/nominations',
               label: 'Nominations',
               active: pathname === '/learners-council/selection/nominations'
+            },
+            {
+              href: '/learners-council/selection/nominations?tab=interviews',
+              label: 'Interviews',
+              active: pathname === '/learners-council/selection/nominations' && pathname.includes('interviews')
+            },
+            {
+              href: '/learners-council/selection?tab=elections',
+              label: 'Elections',
+              active: pathname === '/learners-council/selection' && pathname.includes('elections')
             }
           ]
         },
@@ -2204,6 +2214,13 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'Issues',
           active: pathname.startsWith('/learners-council/issues'),
           icon: Kanban,
+          submenus: []
+        },
+        {
+          href: '/learners-council/settings',
+          label: 'Settings',
+          active: pathname.startsWith('/learners-council/settings'),
+          icon: Settings,
           submenus: []
         }
       ]
