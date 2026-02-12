@@ -54,8 +54,13 @@ export default async function AnnouncementsPage({
     .order('created_at', { ascending: false })
     .limit(20);
 
-  if (!scopeAll && profile.institution_id) {
-    query = query.eq('institution_id', profile.institution_id);
+  if (!scopeAll) {
+    if (profile.institution_id) {
+      query = query.eq('institution_id', profile.institution_id);
+    } else {
+      // If no institution_id, only show LC-wide announcements to prevent data leak
+      query = query.eq('scope', 'lc_wide');
+    }
   }
 
   const { data: announcements } = await query;
