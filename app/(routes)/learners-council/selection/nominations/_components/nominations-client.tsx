@@ -214,6 +214,20 @@ export function NominationsClient({
     });
   };
 
+  const handleWithdraw = () => {
+    if (!withdrawNomId) return;
+    withdrawNomination.mutate(
+      { nominationId: withdrawNomId, reason: withdrawReason || 'Withdrawn by nominee', electionId: activeElectionId },
+      {
+        onSuccess: () => {
+          setWithdrawOpen(false);
+          setWithdrawNomId('');
+          setWithdrawReason('');
+        }
+      }
+    );
+  };
+
   const isNominationsOpen = election?.status === 'nominations_open';
   const isVotingOpen = election?.status === 'voting_open';
   const isResultsDeclared = election?.status === 'results_declared';
