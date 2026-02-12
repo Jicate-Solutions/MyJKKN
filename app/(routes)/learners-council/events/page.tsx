@@ -7,16 +7,25 @@ import { createClient } from '@/lib/supabase/server';
 import { getEnhancedUserProfile } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
 import { EventListClient } from './event-list-client';
+import Link from 'next/link';
 
-export default async function EventsPage() {
+export default async function EventsPage({
+  searchParams
+}: {
+  searchParams?: Promise<{ scope?: string }>;
+}) {
   const { profile } = await getEnhancedUserProfile();
   if (!profile) redirect('/');
 
   const supabase = await createClient();
   const isMD = profile.role === 'super_admin';
 
+  // Resolve scope: MD defaults to lc_wide, others default to institution
+  const params = searchParams ? await searchParams : {};
+  const scopeParam = params.scope;
+  const scopeAll = isMD ? (scopeParam !== 'institution') : (scopeParam === 'lc_wide');
+
   // Fetch events server-side for initial render
-  // Non-MD users see institution-scoped events by default
   const now = new Date().toISOString();
 
   let upcomingQuery = supabase
@@ -34,8 +43,8 @@ export default async function EventsPage() {
     .order('ends_at', { ascending: false })
     .limit(20);
 
-  // Apply institution scope for non-MD users
-  if (!isMD && profile.institution_id) {
+  // Apply institution scope when not viewing LC-wide
+  if (!scopeAll && profile.institution_id) {
     upcomingQuery = upcomingQuery.eq('institution_id', profile.institution_id);
     pastQuery = pastQuery.eq('institution_id', profile.institution_id);
   }
@@ -57,6 +66,27 @@ export default async function EventsPage() {
 
   return (
     <div className="space-y-6">
+      {/* Scope Toggle */}
+      <div className="flex justify-end">
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-muted-foreground">Viewing:</span>
+          <div className="flex rounded-md border overflow-hidden">
+            <Link
+              href="/learners-council/events?scope=institution"
+              className={`px-3 py-1.5 text-sm ${!scopeAll ? 'bg-primary text-primary-foreground' : 'bg-background hover:bg-accent'}`}
+            >
+              My Institution
+            </Link>
+            <Link
+              href="/learners-council/events?scope=lc_wide"
+              className={`px-3 py-1.5 text-sm border-l ${scopeAll ? 'bg-primary text-primary-foreground' : 'bg-background hover:bg-accent'}`}
+            >
+              LC-Wide
+            </Link>
+          </div>
+        </div>
+      </div>
+
       <EventListClient
         initialUpcoming={upcomingEvents || []}
         upcomingCount={upcomingCount || 0}
