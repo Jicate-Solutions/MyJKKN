@@ -2148,9 +2148,9 @@ export function GetPages(pathname: string): MenuGroup[] {
           icon: CalendarCheck,
           submenus: [
             {
-              href: '/learners-council/events',
+              href: '/learners-council/events/calendar',
               label: 'Calendar',
-              active: pathname === '/learners-council/events'
+              active: pathname === '/learners-council/events/calendar'
             },
             {
               href: '/learners-council/events/proposals',
