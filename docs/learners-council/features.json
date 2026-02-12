@@ -2,14 +2,27 @@
   "module": "learners-council",
   "version": "1.0.0",
   "total_features": 6,
-  "status": "spec_complete",
+  "status": "implementation_complete",
   "features": [
     {
       "id": "LC-001",
       "name": "LC/YUVA Structure Management",
       "description": "Core organizational structure: terms, positions, YUVA chapters, verticals, member assignments, and progression tracking",
-      "status": "pending",
+      "status": "implemented",
       "priority": 1,
+      "implementation": {
+        "types": "types/learners-council.ts (LCTerm, LCPosition, LCMember, YUVAChapter, YUVAVertical, etc.)",
+        "database": "30 tables with RLS, 54 indexes, 17 triggers",
+        "service": "lib/services/learners-council/structure-service.ts (734 lines, 15+ methods)",
+        "hooks": "hooks/learners-council/use-lc-structure.ts (481 lines, 15+ hooks)",
+        "pages": [
+          "/learners-council/structure/",
+          "/learners-council/structure/members/",
+          "/learners-council/structure/terms/",
+          "/learners-council/structure/yuva/",
+          "/learners-council/structure/yuva/[id]/"
+        ]
+      },
       "sub_features": [
         "Term management (create, track, archive, handover)",
         "LC position management (27 positions across 4 categories)",
@@ -38,8 +51,20 @@
       "id": "LC-002",
       "name": "Communication Hub",
       "description": "Announcements, polls, discussion forums, internal chat (LC/YUVA only Phase 1), and notifications",
-      "status": "pending",
+      "status": "implemented",
       "priority": 2,
+      "implementation": {
+        "types": "types/learners-council.ts (LCAnnouncement, LCPoll, LCForumTopic, LCForumPost, LCChatChannel, etc.)",
+        "database": "lc_announcements, lc_announcement_reads, lc_polls, lc_poll_votes, lc_forum_topics, lc_forum_posts, lc_post_reactions, lc_chat_channels, lc_chat_members, lc_chat_messages + Realtime",
+        "service": "lib/services/learners-council/communication-service.ts (1468 lines, 30+ methods)",
+        "hooks": "hooks/learners-council/use-lc-communication.ts (817 lines, 25+ hooks)",
+        "pages": [
+          "/learners-council/communication/",
+          "/learners-council/communication/chat/",
+          "/learners-council/communication/forums/",
+          "/learners-council/communication/polls/"
+        ]
+      },
       "sub_features": [
         "Announcements (draft, review, publish with scope)",
         "Polls & Surveys (yes/no, multiple choice, demographic breakdown)",
@@ -78,8 +103,20 @@
       "id": "LC-003",
       "name": "Event Coordination",
       "description": "Event lifecycle from proposal to post-event reporting, with calendar view, tiered approvals, and Resource Management integration",
-      "status": "pending",
+      "status": "implemented",
       "priority": 3,
+      "implementation": {
+        "types": "types/learners-council.ts (LCEvent, LCEventApproval, LCEventParticipant, LCEventFeedback)",
+        "database": "lc_events, lc_event_approvals, lc_event_participants, lc_event_feedback",
+        "service": "lib/services/learners-council/event-service.ts (634 lines, 18+ methods incl. 8 new)",
+        "hooks": "hooks/learners-council/use-lc-events.ts (406 lines, 18+ hooks)",
+        "pages": [
+          "/learners-council/events/",
+          "/learners-council/events/[id]/",
+          "/learners-council/events/calendar/",
+          "/learners-council/events/proposals/"
+        ]
+      },
       "sub_features": [
         "Event proposal submission (any learner)",
         "Tiered approval workflow (campus/inter-campus/institution-wide)",
@@ -115,8 +152,19 @@
       "id": "LC-004",
       "name": "Permission & OD Management",
       "description": "Automated OD and permission workflows with configurable approval chains, academic integration, and attendance auto-update",
-      "status": "pending",
+      "status": "implemented",
       "priority": 4,
+      "implementation": {
+        "types": "types/learners-council.ts (LCODRequest, LCApprovalChain, LCApprovalStep, LCODApproval)",
+        "database": "lc_approval_chains, lc_approval_chain_steps, lc_od_requests, lc_od_approvals",
+        "service": "lib/services/learners-council/od-service.ts (727 lines, 18+ methods incl. 6 new)",
+        "hooks": "hooks/learners-council/use-lc-od.ts (350 lines, 18+ hooks)",
+        "pages": [
+          "/learners-council/od/",
+          "/learners-council/od/approvals/",
+          "/learners-council/od/chains/"
+        ]
+      },
       "sub_features": [
         "Smart form submission (rule-based, AI-ready)",
         "Configurable approval chains per institution",
@@ -152,8 +200,18 @@
       "id": "LC-005",
       "name": "Selection & Elections",
       "description": "YUVA chair/co-chair selection interviews, LC member progression, and 6-month executive rotation",
-      "status": "pending",
+      "status": "implemented",
       "priority": 5,
+      "implementation": {
+        "types": "types/learners-council.ts (LCNomination, LCInterview, LCInterviewScore, LCElection, LCElectionVote, LCProgression)",
+        "database": "lc_nominations, lc_interviews, lc_interview_scores, lc_elections, lc_election_votes, lc_progression",
+        "service": "lib/services/learners-council/selection-service.ts (805 lines, 18+ methods incl. 6 new)",
+        "hooks": "hooks/learners-council/use-lc-selection.ts (446 lines, 18+ hooks)",
+        "pages": [
+          "/learners-council/selection/",
+          "/learners-council/selection/nominations/"
+        ]
+      },
       "sub_features": [
         "YUVA nomination submission",
         "Interview scheduling and management",
@@ -187,8 +245,17 @@
       "id": "LC-006",
       "name": "Issue Management (Grievance Enhancement)",
       "description": "LC-specific issue view linking to enhanced Grievance module, Kanban board, OKR integration, and bulk issue detection",
-      "status": "pending",
+      "status": "implemented",
       "priority": 6,
+      "implementation": {
+        "types": "types/learners-council.ts (LCIssue, LCIssueComment, LCIssueMerge)",
+        "database": "lc_issues, lc_issue_comments, lc_issue_merges",
+        "service": "lib/services/learners-council/issue-service.ts (673 lines, 15+ methods incl. 5 new)",
+        "hooks": "hooks/learners-council/use-lc-issues.ts (290 lines, 12+ hooks)",
+        "pages": [
+          "/learners-council/issues/"
+        ]
+      },
       "sub_features": [
         "LC-specific issue view within LC module",
         "LC categories added to Grievance module",
@@ -218,6 +285,8 @@
   "cross_cutting": {
     "dashboard": {
       "description": "LC Dashboard at /learners-council/ + widgets on MyJKKN home page",
+      "status": "implemented",
+      "implementation": "Enhanced dashboard with stats, recent announcements, active polls, upcoming events, role-specific content",
       "test_steps": [
         "Navigate to /learners-council/ — verify dashboard loads with all sections",
         "Verify role-specific dashboard content (learner vs LC member vs principal)",
@@ -227,14 +296,27 @@
     },
     "sidebar_navigation": {
       "description": "Add LC module to MyJKKN sidebar with nested navigation",
+      "status": "implemented",
+      "implementation": "Added to lib/sidebarMenuLink.ts with nested items for all sub-sections",
       "test_steps": [
         "Verify 'Learners Council' appears in sidebar for all authenticated users",
         "Verify sub-navigation matches URL structure",
         "Verify active state highlights current section"
       ]
     },
+    "notifications": {
+      "description": "Full notification service with preferences",
+      "status": "implemented",
+      "implementation": "lib/services/learners-council/notification-service.ts (313 lines) + hooks/learners-council/use-lc-notifications.ts (158 lines) + settings page",
+      "test_steps": [
+        "Navigate to /learners-council/settings/ — verify notification preferences load",
+        "Toggle notification channels — verify saved",
+        "Verify notifications created on key actions"
+      ]
+    },
     "terminology": {
       "description": "JKKN terminology used throughout: Learner, Senior Learner",
+      "status": "implemented",
       "test_steps": [
         "Search all LC module files for 'student' — verify zero occurrences",
         "Search all LC module files for 'teacher'/'faculty' — verify zero occurrences (except technical column names)",
