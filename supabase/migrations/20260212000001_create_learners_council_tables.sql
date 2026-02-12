@@ -289,7 +289,7 @@ CREATE TABLE IF NOT EXISTS lc_forum_topics (
   title VARCHAR(500) NOT NULL,
   category VARCHAR(100) NOT NULL,
   description TEXT,
-  created_by UUID NOT NULL REFERENCES auth.users(id) ON DELETE SET NULL,
+  created_by UUID NOT NULL REFERENCES auth.users(id) ON DELETE RESTRICT,
   is_pinned BOOLEAN DEFAULT false,
   is_locked BOOLEAN DEFAULT false,
   post_count INTEGER DEFAULT 0,
