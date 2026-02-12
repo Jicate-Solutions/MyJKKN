@@ -23007,6 +23007,554 @@ export type Database = {
           },
         ]
       }
+      sm_account_credentials: {
+        Row: {
+          access_token: string | null
+          account_id: string
+          created_at: string | null
+          created_by: string | null
+          credential_type: string
+          expires_at: string | null
+          id: string
+          is_active: boolean | null
+          last_used_at: string | null
+          metadata: Json | null
+          needs_reconnect: boolean | null
+          platform_user_id: string | null
+          refresh_token: string | null
+          scopes: string[] | null
+          token_expires_at: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          access_token?: string | null
+          account_id: string
+          created_at?: string | null
+          created_by?: string | null
+          credential_type: string
+          expires_at?: string | null
+          id?: string
+          is_active?: boolean | null
+          last_used_at?: string | null
+          metadata?: Json | null
+          needs_reconnect?: boolean | null
+          platform_user_id?: string | null
+          refresh_token?: string | null
+          scopes?: string[] | null
+          token_expires_at?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          access_token?: string | null
+          account_id?: string
+          created_at?: string | null
+          created_by?: string | null
+          credential_type?: string
+          expires_at?: string | null
+          id?: string
+          is_active?: boolean | null
+          last_used_at?: string | null
+          metadata?: Json | null
+          needs_reconnect?: boolean | null
+          platform_user_id?: string | null
+          refresh_token?: string | null
+          scopes?: string[] | null
+          token_expires_at?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sm_account_credentials_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "sm_accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sm_account_credentials_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "sm_account_credentials_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sm_accounts: {
+        Row: {
+          account_type: string | null
+          bio: string | null
+          connected_by: string | null
+          created_at: string | null
+          created_by: string | null
+          department_id: string | null
+          display_name: string | null
+          health_score: number | null
+          health_status: Database["public"]["Enums"]["sm_health_status"] | null
+          id: string
+          institution_id: string
+          is_connected: boolean | null
+          is_verified: boolean | null
+          last_post_at: string | null
+          last_snapshot_at: string | null
+          metadata: Json | null
+          platform: Database["public"]["Enums"]["sm_platform"]
+          platform_account_id: string | null
+          profile_pic_url: string | null
+          profile_url: string | null
+          updated_at: string | null
+          username: string
+          website_url: string | null
+        }
+        Insert: {
+          account_type?: string | null
+          bio?: string | null
+          connected_by?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          department_id?: string | null
+          display_name?: string | null
+          health_score?: number | null
+          health_status?: Database["public"]["Enums"]["sm_health_status"] | null
+          id?: string
+          institution_id: string
+          is_connected?: boolean | null
+          is_verified?: boolean | null
+          last_post_at?: string | null
+          last_snapshot_at?: string | null
+          metadata?: Json | null
+          platform: Database["public"]["Enums"]["sm_platform"]
+          platform_account_id?: string | null
+          profile_pic_url?: string | null
+          profile_url?: string | null
+          updated_at?: string | null
+          username: string
+          website_url?: string | null
+        }
+        Update: {
+          account_type?: string | null
+          bio?: string | null
+          connected_by?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          department_id?: string | null
+          display_name?: string | null
+          health_score?: number | null
+          health_status?: Database["public"]["Enums"]["sm_health_status"] | null
+          id?: string
+          institution_id?: string
+          is_connected?: boolean | null
+          is_verified?: boolean | null
+          last_post_at?: string | null
+          last_snapshot_at?: string | null
+          metadata?: Json | null
+          platform?: Database["public"]["Enums"]["sm_platform"]
+          platform_account_id?: string | null
+          profile_pic_url?: string | null
+          profile_url?: string | null
+          updated_at?: string | null
+          username?: string
+          website_url?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sm_accounts_connected_by_fkey"
+            columns: ["connected_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "sm_accounts_connected_by_fkey"
+            columns: ["connected_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sm_accounts_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "sm_accounts_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sm_accounts_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sm_accounts_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "maturity_dashboard_summary"
+            referencedColumns: ["department_id"]
+          },
+          {
+            foreignKeyName: "sm_accounts_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sm_accounts_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+        ]
+      }
+      sm_cron_log: {
+        Row: {
+          accounts_failed: number | null
+          accounts_processed: number | null
+          accounts_succeeded: number | null
+          completed_at: string | null
+          created_at: string
+          cron_type: string
+          duration_seconds: number | null
+          errors: Json | null
+          id: string
+          institution_id: string
+          metadata: Json | null
+          started_at: string
+          status: string
+          triggered_by: string | null
+        }
+        Insert: {
+          accounts_failed?: number | null
+          accounts_processed?: number | null
+          accounts_succeeded?: number | null
+          completed_at?: string | null
+          created_at?: string
+          cron_type?: string
+          duration_seconds?: number | null
+          errors?: Json | null
+          id?: string
+          institution_id: string
+          metadata?: Json | null
+          started_at?: string
+          status?: string
+          triggered_by?: string | null
+        }
+        Update: {
+          accounts_failed?: number | null
+          accounts_processed?: number | null
+          accounts_succeeded?: number | null
+          completed_at?: string | null
+          created_at?: string
+          cron_type?: string
+          duration_seconds?: number | null
+          errors?: Json | null
+          id?: string
+          institution_id?: string
+          metadata?: Json | null
+          started_at?: string
+          status?: string
+          triggered_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sm_cron_log_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sm_cron_log_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+        ]
+      }
+      sm_manual_entries: {
+        Row: {
+          account_id: string
+          created_at: string | null
+          entered_by: string
+          entry_date: string
+          followers_count: number | null
+          id: string
+          likes_count: number | null
+          notes: string | null
+          posts_count: number | null
+        }
+        Insert: {
+          account_id: string
+          created_at?: string | null
+          entered_by: string
+          entry_date: string
+          followers_count?: number | null
+          id?: string
+          likes_count?: number | null
+          notes?: string | null
+          posts_count?: number | null
+        }
+        Update: {
+          account_id?: string
+          created_at?: string | null
+          entered_by?: string
+          entry_date?: string
+          followers_count?: number | null
+          id?: string
+          likes_count?: number | null
+          notes?: string | null
+          posts_count?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sm_manual_entries_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "sm_accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sm_manual_entries_entered_by_fkey"
+            columns: ["entered_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "sm_manual_entries_entered_by_fkey"
+            columns: ["entered_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sm_post_metrics: {
+        Row: {
+          account_id: string
+          caption: string | null
+          comments_count: number | null
+          created_at: string | null
+          engagement_rate: number | null
+          hashtags: string[] | null
+          id: string
+          impressions: number | null
+          institution_id: string
+          is_pinned: boolean | null
+          likes_count: number | null
+          media_url: string | null
+          mentions: string[] | null
+          metadata: Json | null
+          permalink: string | null
+          platform_post_id: string
+          post_type: Database["public"]["Enums"]["sm_content_type"] | null
+          posted_at: string | null
+          reach: number | null
+          saves_count: number | null
+          shares_count: number | null
+          snapshot_id: string | null
+          thumbnail_url: string | null
+          updated_at: string | null
+          views_count: number | null
+        }
+        Insert: {
+          account_id: string
+          caption?: string | null
+          comments_count?: number | null
+          created_at?: string | null
+          engagement_rate?: number | null
+          hashtags?: string[] | null
+          id?: string
+          impressions?: number | null
+          institution_id: string
+          is_pinned?: boolean | null
+          likes_count?: number | null
+          media_url?: string | null
+          mentions?: string[] | null
+          metadata?: Json | null
+          permalink?: string | null
+          platform_post_id: string
+          post_type?: Database["public"]["Enums"]["sm_content_type"] | null
+          posted_at?: string | null
+          reach?: number | null
+          saves_count?: number | null
+          shares_count?: number | null
+          snapshot_id?: string | null
+          thumbnail_url?: string | null
+          updated_at?: string | null
+          views_count?: number | null
+        }
+        Update: {
+          account_id?: string
+          caption?: string | null
+          comments_count?: number | null
+          created_at?: string | null
+          engagement_rate?: number | null
+          hashtags?: string[] | null
+          id?: string
+          impressions?: number | null
+          institution_id?: string
+          is_pinned?: boolean | null
+          likes_count?: number | null
+          media_url?: string | null
+          mentions?: string[] | null
+          metadata?: Json | null
+          permalink?: string | null
+          platform_post_id?: string
+          post_type?: Database["public"]["Enums"]["sm_content_type"] | null
+          posted_at?: string | null
+          reach?: number | null
+          saves_count?: number | null
+          shares_count?: number | null
+          snapshot_id?: string | null
+          thumbnail_url?: string | null
+          updated_at?: string | null
+          views_count?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sm_post_metrics_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "sm_accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sm_post_metrics_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sm_post_metrics_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "sm_post_metrics_snapshot_id_fkey"
+            columns: ["snapshot_id"]
+            isOneToOne: false
+            referencedRelation: "sm_snapshots"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sm_snapshots: {
+        Row: {
+          account_id: string
+          avg_comments_per_post: number | null
+          avg_likes_per_post: number | null
+          created_at: string | null
+          engagement_rate: number | null
+          follower_growth: number | null
+          follower_growth_pct: number | null
+          followers_count: number | null
+          following_count: number | null
+          health_score: number | null
+          health_status: Database["public"]["Enums"]["sm_health_status"] | null
+          id: string
+          institution_id: string
+          posts_count: number | null
+          posts_last_30_days: number | null
+          posts_last_7_days: number | null
+          raw_data: Json | null
+          snapshot_date: string
+          source: string
+          total_comments: number | null
+          total_likes: number | null
+          total_views: number | null
+        }
+        Insert: {
+          account_id: string
+          avg_comments_per_post?: number | null
+          avg_likes_per_post?: number | null
+          created_at?: string | null
+          engagement_rate?: number | null
+          follower_growth?: number | null
+          follower_growth_pct?: number | null
+          followers_count?: number | null
+          following_count?: number | null
+          health_score?: number | null
+          health_status?: Database["public"]["Enums"]["sm_health_status"] | null
+          id?: string
+          institution_id: string
+          posts_count?: number | null
+          posts_last_30_days?: number | null
+          posts_last_7_days?: number | null
+          raw_data?: Json | null
+          snapshot_date: string
+          source: string
+          total_comments?: number | null
+          total_likes?: number | null
+          total_views?: number | null
+        }
+        Update: {
+          account_id?: string
+          avg_comments_per_post?: number | null
+          avg_likes_per_post?: number | null
+          created_at?: string | null
+          engagement_rate?: number | null
+          follower_growth?: number | null
+          follower_growth_pct?: number | null
+          followers_count?: number | null
+          following_count?: number | null
+          health_score?: number | null
+          health_status?: Database["public"]["Enums"]["sm_health_status"] | null
+          id?: string
+          institution_id?: string
+          posts_count?: number | null
+          posts_last_30_days?: number | null
+          posts_last_7_days?: number | null
+          raw_data?: Json | null
+          snapshot_date?: string
+          source?: string
+          total_comments?: number | null
+          total_likes?: number | null
+          total_views?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sm_snapshots_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "sm_accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sm_snapshots_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sm_snapshots_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+        ]
+      }
       staff: {
         Row: {
           address: string | null
@@ -29289,6 +29837,14 @@ export type Database = {
       }
       sh_user_department_id: { Args: never; Returns: string }
       sh_user_institution_id: { Args: never; Returns: string }
+      sm_has_management_access: { Args: never; Returns: boolean }
+      sm_is_admin: { Args: never; Returns: boolean }
+      sm_is_contributor: { Args: never; Returns: boolean }
+      sm_is_hod: { Args: never; Returns: boolean }
+      sm_is_principal: { Args: never; Returns: boolean }
+      sm_is_super_admin: { Args: never; Returns: boolean }
+      sm_user_department_id: { Args: never; Returns: string }
+      sm_user_institution_id: { Args: never; Returns: string }
       sync_attendance_with_timetable: {
         Args: {
           p_attendance_date: string
@@ -29963,6 +30519,45 @@ export type Database = {
         | "direct"
         | "yi"
         | "intent"
+      sm_approval_tier: "fast" | "careful" | "strict"
+      sm_content_type:
+        | "image_post"
+        | "video_post"
+        | "carousel"
+        | "reel"
+        | "story"
+        | "youtube_video"
+        | "youtube_short"
+        | "tweet"
+        | "thread"
+        | "article"
+        | "gmb_update"
+        | "gmb_offer"
+        | "gmb_event"
+      sm_health_status: "green" | "yellow" | "red" | "dormant"
+      sm_platform:
+        | "instagram"
+        | "youtube"
+        | "facebook"
+        | "linkedin"
+        | "google_business"
+        | "twitter"
+        | "pinterest"
+        | "snapchat"
+        | "threads"
+        | "reddit"
+        | "tumblr"
+        | "quora"
+      sm_post_status:
+        | "draft"
+        | "pending_review"
+        | "approved"
+        | "scheduled"
+        | "publishing"
+        | "published"
+        | "failed"
+        | "rejected"
+        | "deleted"
       sms_delivery_status:
         | "pending"
         | "queued"
@@ -30702,6 +31297,48 @@ export const Constants = {
         "direct",
         "yi",
         "intent",
+      ],
+      sm_approval_tier: ["fast", "careful", "strict"],
+      sm_content_type: [
+        "image_post",
+        "video_post",
+        "carousel",
+        "reel",
+        "story",
+        "youtube_video",
+        "youtube_short",
+        "tweet",
+        "thread",
+        "article",
+        "gmb_update",
+        "gmb_offer",
+        "gmb_event",
+      ],
+      sm_health_status: ["green", "yellow", "red", "dormant"],
+      sm_platform: [
+        "instagram",
+        "youtube",
+        "facebook",
+        "linkedin",
+        "google_business",
+        "twitter",
+        "pinterest",
+        "snapchat",
+        "threads",
+        "reddit",
+        "tumblr",
+        "quora",
+      ],
+      sm_post_status: [
+        "draft",
+        "pending_review",
+        "approved",
+        "scheduled",
+        "publishing",
+        "published",
+        "failed",
+        "rejected",
+        "deleted",
       ],
       sms_delivery_status: [
         "pending",
