@@ -892,22 +892,7 @@ export class LCCommunicationService {
       throw new Error(`Failed to create post: ${error.message}`);
     }
 
-    // Update topic post_count and last_post_at
-    const { data: topic } = await (this.supabase as any)
-      .from('lc_forum_topics')
-      .select('post_count')
-      .eq('id', data.topic_id)
-      .single();
-
-    if (topic) {
-      await (this.supabase as any)
-        .from('lc_forum_topics')
-        .update({
-          post_count: (topic.post_count || 0) + 1,
-          last_post_at: new Date().toISOString()
-        })
-        .eq('id', data.topic_id);
-    }
+    // post_count and last_post_at are auto-updated by database trigger trg_forum_post_count
 
     return post as LCForumPost;
   }
