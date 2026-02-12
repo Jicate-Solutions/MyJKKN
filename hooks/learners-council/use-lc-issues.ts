@@ -19,7 +19,12 @@ export const lcIssueKeys = {
   detail: (id: string) => [...lcIssueKeys.all, 'detail', id] as const,
   kanban: (institutionId: string, assignedTo?: string) =>
     [...lcIssueKeys.all, 'kanban', institutionId, assignedTo] as const,
-  stats: (institutionId: string) => [...lcIssueKeys.all, 'stats', institutionId] as const
+  stats: (institutionId: string) => [...lcIssueKeys.all, 'stats', institutionId] as const,
+  similar: (subject: string, institutionId: string) =>
+    [...lcIssueKeys.all, 'similar', subject, institutionId] as const,
+  comments: (ticketId: string) => [...lcIssueKeys.all, 'comments', ticketId] as const,
+  myIssues: (userId: string) => [...lcIssueKeys.all, 'my-issues', userId] as const,
+  categories: () => [...lcIssueKeys.all, 'categories'] as const
 };
 
 // ============================================================================
