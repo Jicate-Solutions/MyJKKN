@@ -272,6 +272,24 @@ export class LCStructureService {
       throw new Error(`Failed to update member status: ${error.message}`);
     }
 
+    // Close position history when member becomes inactive/graduated/removed
+    if (['inactive', 'graduated', 'removed'].includes(status) && member) {
+      try {
+        await (this.supabase as any)
+          .from('lc_position_history')
+          .update({
+            ended_at: new Date().toISOString(),
+            end_reason: status
+          })
+          .eq('user_id', member.user_id)
+          .eq('position_id', member.position_id)
+          .eq('term_id', member.term_id)
+          .is('ended_at', null);
+      } catch (historyErr) {
+        console.warn('[lc/structure] Failed to close position history:', historyErr);
+      }
+    }
+
     return member as LCMember;
   }
 
