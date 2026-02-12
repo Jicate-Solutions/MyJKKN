@@ -455,7 +455,7 @@ CREATE TABLE IF NOT EXISTS lc_event_participants (
   attended_at TIMESTAMPTZ,
   feedback TEXT,
   feedback_rating INTEGER CHECK (feedback_rating IS NULL OR (feedback_rating >= 1 AND feedback_rating <= 5)),
-  od_request_id UUID REFERENCES lc_od_requests(id) ON DELETE SET NULL, -- linked OD request
+  od_request_id UUID, -- linked OD request; FK added via ALTER TABLE after lc_od_requests exists
 
   CONSTRAINT lc_event_participants_unique UNIQUE (event_id, user_id)
 );
