@@ -2,6 +2,7 @@
 // LC-005: Selection & Elections - Service Layer
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { LCNotificationService } from './notification-service';
 import type {
   LCElection,
   LCNomination,
