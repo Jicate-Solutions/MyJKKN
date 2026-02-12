@@ -277,6 +277,7 @@ score                 NUMERIC
 score_category        TEXT (hot/warm/cold)
 score_breakdown       JSONB
 score_updated_at      TIMESTAMPTZ
+next_followup_at      TIMESTAMPTZ
 conversion_probability NUMERIC
 last_activity_at      TIMESTAMPTZ
 last_contact_at       TIMESTAMPTZ
