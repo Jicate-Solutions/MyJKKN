@@ -36,7 +36,7 @@ export type PollType = 'yes_no' | 'multiple_choice' | 'survey';
 export type PollScope = 'lc_wide' | 'institution' | 'chapter' | 'vertical';
 
 // Forum
-export type ForumPostStatus = 'published' | 'flagged' | 'hidden' | 'deleted';
+export type ForumPostStatus = 'published' | 'pending_review' | 'flagged' | 'hidden' | 'deleted';
 export type ForumReactionType = 'like' | 'save' | 'flag';
 export type ModerationAction = 'approve' | 'hide' | 'delete' | 'escalate';
 
