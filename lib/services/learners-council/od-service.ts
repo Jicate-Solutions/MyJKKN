@@ -244,6 +244,36 @@ export class LCODService {
       throw new Error(`Failed to update OD request: ${error.message}`);
     }
 
+    // Auto-update attendance if fully approved
+    if (isFullyApproved) {
+      try {
+        await this.autoUpdateAttendance(requestId);
+      } catch (err) {
+        console.warn('[learners-council/od] Auto attendance update failed:', err);
+        // Don't fail the approval if attendance update fails
+      }
+    }
+
+    // Notify the requestor about approval progress
+    try {
+      if (request.requester_id) {
+        const statusMsg = isFullyApproved
+          ? 'Your OD request has been fully approved.'
+          : `Your OD request has been approved at step ${currentStep}. Awaiting next approval.`;
+        await LCNotificationService.createNotification({
+          user_id: request.requester_id,
+          type: 'od_approval',
+          title: isFullyApproved ? 'OD Request Approved' : 'OD Request Progress',
+          message: statusMsg,
+          link: `/learners-council/od/${requestId}`,
+          reference_id: requestId,
+          reference_type: 'od_request',
+        });
+      }
+    } catch (notifErr) {
+      console.warn('[learners-council/od] Failed to send approval notification:', notifErr);
+    }
+
     return data as unknown as LCODRequest;
   }
 
