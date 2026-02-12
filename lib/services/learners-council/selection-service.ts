@@ -703,18 +703,29 @@ export class LCSelectionService {
     let eligibleUsers: { id: string; full_name: string; email: string; avatar_url: string | null; reason: string }[] = [];
 
     if (election.type === 'yuva_selection') {
-      // Get users from the institution who are not already nominated
-      // For YUVA selection, eligible users are learners at the institution
+      // Get student users from the institution who are not already nominated
+      // For YUVA selection, eligible users are learners (students) at the institution
       const { data: profiles } = await (this.supabase as any)
         .from('profiles')
         .select('id, full_name, email, avatar_url')
         .eq('institution_id', election.institution_id)
-        .limit(100);
+        .eq('role', 'student')
+        .limit(200);
 
-      eligibleUsers = (profiles || []).map((p: any) => ({
-        ...p,
-        reason: 'Learner at this institution',
-      }));
+      // Exclude users already nominated for this election
+      const { data: existingNominations } = await (this.supabase as any)
+        .from('lc_nominations')
+        .select('nominee_id')
+        .eq('election_id', electionId);
+
+      const nominatedIds = new Set((existingNominations || []).map((n: any) => n.nominee_id));
+
+      eligibleUsers = (profiles || [])
+        .filter((p: any) => !nominatedIds.has(p.id))
+        .map((p: any) => ({
+          ...p,
+          reason: 'Student at this institution',
+        }));
     } else if (election.type === 'lc_progression') {
       // Past YUVA chairs who can progress to LC
       const { data: pastChairs } = await (this.supabase as any)
