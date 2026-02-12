@@ -25,7 +25,8 @@ import type {
 export const lcStructureKeys = {
   terms: {
     all: ['lc-terms'] as const,
-    active: () => ['lc-terms', 'active'] as const
+    active: () => ['lc-terms', 'active'] as const,
+    detail: (id: string) => ['lc-terms', 'detail', id] as const
   },
   positions: {
     all: ['lc-positions'] as const,
@@ -46,7 +47,8 @@ export const lcStructureKeys = {
     all: ['yuva-verticals'] as const,
     filtered: (filters: Record<string, unknown>) => ['yuva-verticals', 'filtered', filters] as const,
     members: (chapterId: string) => ['yuva-vertical-members', chapterId] as const
-  }
+  },
+  progression: (userId: string) => ['lc-progression', userId] as const
 };
 
 // ============================================================================
