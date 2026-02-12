@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { YouTubeService } from '@/lib/services/social-media/youtube-service';
+import { InstagramService } from '@/lib/services/social-media/instagram-service';
 import { createClient as createServiceClient } from '@supabase/supabase-js';
 
 function getServiceSupabase() {
@@ -80,15 +81,45 @@ async function runSnapshotCollection(
     }
   }
 
-  // Instagram pull (placeholder — requires Meta Business Verification)
+  // Instagram pull (using Internal API — will switch to Graph API after Meta verification)
   if (platform === 'all' || platform === 'instagram') {
-    results.push({
-      platform: 'instagram',
-      processed: 0,
-      succeeded: 0,
-      failed: 0,
-      details: [{ message: 'Instagram auto-pull not yet configured. Awaiting Meta Business Verification.' }],
-    });
+    try {
+      const igService = new InstagramService();
+
+      if (accountId) {
+        const { data: account } = await serviceSupabase
+          .from('sm_accounts')
+          .select('id, username, institution_id')
+          .eq('id', accountId)
+          .eq('platform', 'instagram')
+          .single();
+
+        if (account) {
+          const result = await igService.pullAccount(account);
+          results.push({
+            platform: 'instagram',
+            processed: 1,
+            succeeded: result.success ? 1 : 0,
+            failed: result.success ? 0 : 1,
+            details: [result],
+          });
+        }
+      } else {
+        const igResults = await igService.pullAllAccounts(institutionId);
+        results.push({
+          platform: 'instagram',
+          ...igResults,
+        });
+      }
+    } catch (err) {
+      results.push({
+        platform: 'instagram',
+        processed: 0,
+        succeeded: 0,
+        failed: 1,
+        details: [{ error: err instanceof Error ? err.message : 'Instagram pull failed' }],
+      });
+    }
   }
 
   // Update cron log
