@@ -2199,14 +2199,14 @@ export function GetPages(pathname: string): MenuGroup[] {
               active: pathname === '/learners-council/selection/nominations'
             },
             {
-              href: '/learners-council/selection/nominations?tab=interviews',
+              href: '/learners-council/selection/nominations',
               label: 'Interviews',
-              active: pathname === '/learners-council/selection/nominations' && pathname.includes('interviews')
+              active: pathname === '/learners-council/selection/nominations'
             },
             {
-              href: '/learners-council/selection?tab=elections',
+              href: '/learners-council/selection',
               label: 'Elections',
-              active: pathname === '/learners-council/selection' && pathname.includes('elections')
+              active: pathname === '/learners-council/selection'
             }
           ]
         },
