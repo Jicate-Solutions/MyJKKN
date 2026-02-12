@@ -389,3 +389,93 @@ export function useRemoveVerticalMember() {
     }
   });
 }
+
+// ============================================================================
+// NEW STRUCTURE HOOKS
+// ============================================================================
+
+/**
+ * Soft-delete a vertical
+ */
+export function useDeleteVertical() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (verticalId: string) =>
+      LCStructureService.deleteVertical(verticalId),
+    onSuccess: () => {
+      toast.success('Vertical deleted');
+      queryClient.invalidateQueries({ queryKey: lcStructureKeys.verticals.all });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to delete vertical');
+    }
+  });
+}
+
+/**
+ * Fetch a single term by ID
+ */
+export function useGetTermById(id: string) {
+  return useQuery({
+    queryKey: lcStructureKeys.terms.detail(id),
+    queryFn: () => LCStructureService.getTermById(id),
+    enabled: !!id,
+    staleTime: 5 * 60 * 1000
+  });
+}
+
+/**
+ * Execute handover workflow between terms
+ */
+export function useHandoverWorkflow() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ oldTermId, newTermId }: { oldTermId: string; newTermId: string }) =>
+      LCStructureService.handoverWorkflow(oldTermId, newTermId),
+    onSuccess: () => {
+      toast.success('Term handover completed');
+      queryClient.invalidateQueries({ queryKey: lcStructureKeys.terms.all });
+      queryClient.invalidateQueries({ queryKey: lcStructureKeys.members.all });
+      queryClient.invalidateQueries({ queryKey: lcStructureKeys.positions.all });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to complete handover');
+    }
+  });
+}
+
+/**
+ * Update a YUVA chapter
+ */
+export function useUpdateChapter() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ chapterId, data }: {
+      chapterId: string;
+      data: { name?: string; description?: string; academic_year?: string; is_active?: boolean };
+    }) => LCStructureService.updateChapter(chapterId, data),
+    onSuccess: (chapter) => {
+      toast.success('Chapter updated');
+      queryClient.invalidateQueries({ queryKey: lcStructureKeys.chapters.all });
+      queryClient.invalidateQueries({ queryKey: lcStructureKeys.chapters.detail(chapter.id) });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to update chapter');
+    }
+  });
+}
+
+/**
+ * Fetch a user's progression tracking (LC + YUVA history)
+ */
+export function useProgressionTracking(userId: string) {
+  return useQuery({
+    queryKey: lcStructureKeys.progression(userId),
+    queryFn: () => LCStructureService.getProgressionTracking(userId),
+    enabled: !!userId,
+    staleTime: 5 * 60 * 1000
+  });
+}
