@@ -1211,28 +1211,33 @@ export class LCCommunicationService {
       throw new Error(`Failed to fetch channels: ${error.message}`);
     }
 
-    // Fetch last message for each channel
-    const enrichedChannels: LCChatChannel[] = [];
-    for (const channel of channels || []) {
-      const { data: lastMsg } = await (this.supabase as any)
+    // Batch fetch last messages for all channels (avoids N+1 query)
+    const channelIds2 = (channels || []).map((c: any) => c.id);
+    let lastMessageMap: Record<string, any> = {};
+
+    if (channelIds2.length > 0) {
+      const { data: allMessages } = await (this.supabase as any)
         .from('lc_chat_messages')
-        .select(
-          `
+        .select(`
           *,
           sender:profiles!lc_chat_messages_sender_id_fkey(id, full_name, avatar_url)
-        `
-        )
-        .eq('channel_id', channel.id)
+        `)
+        .in('channel_id', channelIds2)
         .eq('is_deleted', false)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+        .order('created_at', { ascending: false });
 
-      enrichedChannels.push({
-        ...channel,
-        last_message: lastMsg || null
-      } as LCChatChannel);
+      // Keep only the latest message per channel
+      for (const msg of allMessages || []) {
+        if (!lastMessageMap[msg.channel_id]) {
+          lastMessageMap[msg.channel_id] = msg;
+        }
+      }
     }
+
+    const enrichedChannels: LCChatChannel[] = (channels || []).map((channel: any) => ({
+      ...channel,
+      last_message: lastMessageMap[channel.id] || null
+    } as LCChatChannel));
 
     return enrichedChannels;
   }
