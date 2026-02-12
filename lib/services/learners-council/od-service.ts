@@ -324,6 +324,23 @@ export class LCODService {
       throw new Error(`Failed to reject OD request: ${error.message}`);
     }
 
+    // Notify the requestor about the rejection
+    try {
+      if (request?.requester_id) {
+        await LCNotificationService.createNotification({
+          user_id: request.requester_id,
+          type: 'od_approval',
+          title: 'OD Request Rejected',
+          message: `Your OD request was rejected. Reason: ${comments}`,
+          link: `/learners-council/od/${requestId}`,
+          reference_id: requestId,
+          reference_type: 'od_request',
+        });
+      }
+    } catch (notifErr) {
+      console.warn('[learners-council/od] Failed to send rejection notification:', notifErr);
+    }
+
     return data as unknown as LCODRequest;
   }
 
