@@ -252,7 +252,18 @@ full_name             TEXT
 email                 TEXT
 phone                 TEXT
 source                TEXT (website/referral/social_media/walk_in/consultant/etc.)
+alternate_phone       TEXT
+date_of_birth         TEXT
+gender                TEXT
+address_line1         TEXT
+city                  TEXT
+state                 TEXT
+district              TEXT
+pincode               TEXT
+notes                 TEXT
+entry_date            TIMESTAMPTZ
 funnel_stage          TEXT (new/contacted/engaged/qualified/application_started/application_submitted/under_review/interview_scheduled/offered/accepted/enrolled/lost/dormant)
+stage                 ENUM (separate from funnel_stage — DB-level lifecycle enum)
 stage_changed_at      TIMESTAMPTZ
 previous_stage        TEXT
 counselor_id          UUID (FK)
