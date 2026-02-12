@@ -158,18 +158,38 @@ function formatRelativeTime(dateStr: string): string {
   return date.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
 }
 
-export default async function LearnersCouncilDashboard() {
+export default async function LearnersCouncilDashboard({
+  searchParams
+}: {
+  searchParams?: Promise<{ scope?: string }>;
+}) {
   const { profile } = await getEnhancedUserProfile();
 
   if (!profile) {
     redirect('/');
   }
 
-  const stats = await getDashboardStats(profile.id);
-  const liveData = await getLiveData(profile.id, profile.role || '');
+  const supabase = await createClient();
+
+  // Check LC membership from DB
+  const { data: lcMembership } = await supabase
+    .from('lc_members')
+    .select('id, position_id, status')
+    .eq('user_id', profile.id)
+    .eq('status', 'active')
+    .maybeSingle();
+  const isLCMember = !!lcMembership;
 
   const isStaffOrAdmin = ['admin', 'super_admin', 'staff', 'hod', 'principal'].includes(profile.role || '');
-  const isLCMember = !isStaffOrAdmin; // simplified check
+  const isMD = profile.role === 'super_admin';
+
+  // Resolve scope: MD/super_admin defaults to lc_wide, others default to institution
+  const params = searchParams ? await searchParams : {};
+  const scopeParam = params.scope;
+  const scopeAll = isMD ? (scopeParam !== 'institution') : (scopeParam === 'lc_wide');
+
+  const stats = await getDashboardStats(profile.id, profile.institution_id || null, scopeAll);
+  const liveData = await getLiveData(profile.id, profile.role || '');
 
   const dashboardCards = [
     {
