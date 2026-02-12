@@ -194,6 +194,7 @@ Pages identified as PARTIAL that need completion:
 | `/admission/lateral-entry` | Polish lateral entry processing |
 | `/admission/templates` | Template create/edit forms |
 | `/admission/campaigns` | Campaign creation and management |
+| `/admission/campaigns/monitoring` | Campaign monitoring dashboard |
 | `/admission/reminders` | Reminder management dashboard |
 | `/admission/chatbot` | Chatbot interface and FAQ management |
 | `/admission/counselors` | Counselor management page |
