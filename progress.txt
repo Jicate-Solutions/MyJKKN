@@ -34,14 +34,25 @@
 - All CHECK constraints verified (scope, status, type enums)
 - Service-to-schema audit: 100% alignment across all 7 services
 
+**FK Constraint Fix (2026-02-12 session 2):**
+- ROOT CAUSE: All 28 user-referencing FK constraints on LC tables pointed to `auth.users` instead of `profiles`
+- PostgREST joins like `profiles!lc_announcements_created_by_fkey(id, full_name)` require FK to reference `profiles`
+- FIX: Dropped all 28 FKs, recreated them pointing to `profiles(id)`
+- Migration saved: `supabase/migrations/fix_lc_fk_constraints_to_profiles.sql`
+- Also updated all seed data UUIDs to match test super admin user (`5aa8cd3d-...`)
+
 **Browser Test Results (Live at myjkkn-omm-dev.vercel.app):**
-- All 8 tabs load without errors
-- Dashboard shows seed data (announcements, polls, events, stats)
-- Selection tab shows elections with seed data
-- Structure tab shows YUVA Chapter 2025-26
+- All 8 tabs load with data — NO empty states
+- **Dashboard** - Stats cards, recent announcements, upcoming events
+- **Structure** - Two-tier governance: LC-wide + YUVA Chapters, positions filled
+- **Communication** - Announcements showing (Urgent x2, General x1) with creator profiles
+- **Events** - "Annual Techno-Cultural Fest 2026" with tags (techfest, cultural, annual)
+- **OD** - "OD-2026-001" linked to Techno-Cultural Fest, Pending status
+- **Selection** - "YUVA Chapter Lead Election 2025-26", Nominations Open
+- **Issues** - Kanban board with Open/In Progress/Resolved columns
+- **Settings** - Notification preferences (In-App, Email, Push)
 - All 4 dialog forms tested: New Announcement, New OD Request, Report Issue, Self-Nominate
 - No JavaScript console errors
-- Empty states for Communication/Events/OD are expected (RLS filters by user context)
 
 **Build Status:** Passes (660+ pages, 0 errors)
 **Deployment:** Live on Vercel (myjkkn-omm-dev.vercel.app)
