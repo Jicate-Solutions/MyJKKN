@@ -504,6 +504,18 @@ export class LCCommunicationService {
       throw new Error('This poll is not currently active');
     }
 
+    // Verify that the option belongs to this poll
+    const { data: optionCheck, error: optionError } = await (this.supabase as any)
+      .from('lc_poll_options')
+      .select('id')
+      .eq('id', optionId)
+      .eq('poll_id', pollId)
+      .maybeSingle();
+
+    if (optionError || !optionCheck) {
+      throw new Error('Invalid poll option');
+    }
+
     if (!poll.allows_multiple) {
       // Single-choice: block if user already voted on ANY option
       const { data: existingVote } = await (this.supabase as any)
