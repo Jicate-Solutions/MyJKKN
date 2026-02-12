@@ -26,7 +26,9 @@ export const lcSelectionKeys = {
   electionDetail: (id: string) => [...lcSelectionKeys.elections(), 'detail', id] as const,
   nominations: (electionId: string) => [...lcSelectionKeys.all, 'nominations', electionId] as const,
   interviews: (nominationId: string) => [...lcSelectionKeys.all, 'interviews', nominationId] as const,
-  results: (electionId: string) => [...lcSelectionKeys.all, 'results', electionId] as const
+  results: (electionId: string) => [...lcSelectionKeys.all, 'results', electionId] as const,
+  progression: (userId: string) => [...lcSelectionKeys.all, 'progression', userId] as const,
+  eligibleNominees: (electionId: string) => [...lcSelectionKeys.all, 'eligible-nominees', electionId] as const,
 };
 
 // ============================================================================
