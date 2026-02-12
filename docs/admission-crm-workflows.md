@@ -2957,19 +2957,6 @@ Multiple services use Supabase Realtime subscriptions:
 | `document_types` | DocumentService | Required document definitions |
 | `application_documents` | DocumentService | Uploaded documents |
 
----
-
-## 13. External API Dependencies
-
-| API | Service | Purpose |
-|-----|---------|---------|
-| **Anthropic Claude** (claude-3-5-haiku-20241022) | AIResponseService, AgenticQueryService, AdmissionAIService | Response suggestions, NLP queries, dashboard insights |
-| **MSG91 / Twilio** | SmsCampaignService | SMS delivery |
-| **Supabase Realtime** | CampaignMonitoringService | Live dashboard updates |
-| **Supabase Storage** | InsightActionsService | CSV export storage |
-
----
-
 ### RPCs (Complete)
 
 | RPC Name | Service | Purpose |
@@ -2983,6 +2970,17 @@ Multiple services use Supabase Realtime subscriptions:
 | `find_cross_campus_duplicates` | GroupDashboardService | Cross-institution duplicate detection |
 | `get_admission_stage_durations` | AdmissionTQMMetricsService | Time-per-stage analysis |
 | `increment_consultant_lead_count` | ConsultantService | Update consultant referral count |
+
+---
+
+## 13. External API Dependencies
+
+| API | Service | Purpose |
+|-----|---------|---------|
+| **Anthropic Claude** (claude-3-5-haiku-20241022) | AIResponseService, AgenticQueryService, AdmissionAIService | Response suggestions, NLP queries, dashboard insights |
+| **MSG91 / Twilio** | SmsCampaignService | SMS delivery |
+| **Supabase Realtime** | CampaignMonitoringService | Live dashboard updates |
+| **Supabase Storage** | InsightActionsService | CSV export storage |
 
 ---
 

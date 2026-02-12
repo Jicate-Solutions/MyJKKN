@@ -224,6 +224,7 @@ export class YouTubeService {
         .single();
 
       if (snapError) throw new Error(`Snapshot insert failed: ${snapError.message}`);
+      if (!snapshot) throw new Error('Snapshot insert returned no data');
 
       // 5. Compute follower growth vs previous snapshot
       const { data: prevSnapshot } = await this.supabase
