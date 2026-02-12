@@ -302,7 +302,7 @@ export class LCIssueService {
         assignee:profiles!assigned_to(id, full_name, email, avatar_url)
       `)
       .eq('institution_id', institutionId)
-      .in('status', ['open', 'in_progress', 'resolved', 'closed'])
+      .in('status', ['open', 'in_progress', 'pending_info', 'resolved', 'closed'])
       .order('created_at', { ascending: false });
 
     if (assignedTo) {
@@ -321,6 +321,7 @@ export class LCIssueService {
     const columns: KanbanBoard['columns'] = [
       { id: 'open', title: 'New', items: tickets.filter(t => t.status === 'open') },
       { id: 'in_progress', title: 'In Progress', items: tickets.filter(t => t.status === 'in_progress') },
+      { id: 'pending_info', title: 'Awaiting Response', items: tickets.filter(t => t.status === 'pending_info') },
       { id: 'resolved', title: 'Resolved', items: tickets.filter(t => t.status === 'resolved') },
       { id: 'closed', title: 'Closed', items: tickets.filter(t => t.status === 'closed') }
     ];
