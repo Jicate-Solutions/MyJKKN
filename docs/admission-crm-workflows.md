@@ -1064,7 +1064,7 @@ EXECUTION:
     |-- lead_id, total_score, engagement_score, quality_score, category
     |
     v
-[Update lead.lead_score on admission_leads]
+[Update lead.score on admission_leads] (⚠️ Column is `score`, NOT `lead_score`. Also available: `combined_score`, `engagement_score`, `quality_score` in admission_lead_scores)
 
 BULK:
 [calculateBulkScores(leadIds[])] --> Parallel batches of 10
