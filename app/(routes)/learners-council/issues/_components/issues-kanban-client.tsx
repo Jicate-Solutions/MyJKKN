@@ -692,6 +692,52 @@ export function IssuesKanbanClient({
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Escalate Dialog */}
+      <Dialog open={escalateOpen} onOpenChange={setEscalateOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Escalate Issue</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <p className="text-sm text-muted-foreground">
+              Escalating will bring this issue to the attention of senior staff for priority handling.
+            </p>
+            <div className="space-y-2">
+              <Label>Reason for Escalation</Label>
+              <Textarea
+                placeholder="Why does this issue need to be escalated?"
+                value={escalateReason}
+                onChange={(e) => setEscalateReason(e.target.value)}
+                rows={3}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button variant="outline">Cancel</Button>
+            </DialogClose>
+            <Button
+              onClick={() => {
+                if (!escalateTicketId || !escalateReason) return;
+                escalateIssue.mutate(
+                  { ticketId: escalateTicketId, escalatedBy: userId, reason: escalateReason },
+                  {
+                    onSuccess: () => {
+                      setEscalateOpen(false);
+                      setEscalateTicketId('');
+                      setEscalateReason('');
+                    }
+                  }
+                );
+              }}
+              disabled={!escalateReason || escalateIssue.isPending}
+            >
+              {escalateIssue.isPending ? 'Escalating...' : 'Escalate Issue'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
