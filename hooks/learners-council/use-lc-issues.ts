@@ -183,3 +183,108 @@ export function useUpdateIssueStatus() {
     }
   });
 }
+
+/**
+ * Hook to fetch similar issues based on subject keywords
+ */
+export function useSimilarIssues(subject: string, institutionId: string) {
+  return useQuery({
+    queryKey: lcIssueKeys.similar(subject, institutionId),
+    queryFn: () => LCIssueService.getSimilarIssues(subject, institutionId),
+    enabled: !!subject && !!institutionId && subject.length > 3,
+    staleTime: 5 * 60 * 1000
+  });
+}
+
+/**
+ * Hook to merge duplicate issues into a primary issue
+ */
+export function useMergeIssues() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ primaryId, duplicateIds }: { primaryId: string; duplicateIds: string[] }) =>
+      LCIssueService.mergeIssues(primaryId, duplicateIds),
+    onSuccess: (ticket) => {
+      toast.success('Issues merged successfully');
+      queryClient.invalidateQueries({ queryKey: lcIssueKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: lcIssueKeys.detail(ticket.id) });
+      queryClient.invalidateQueries({
+        queryKey: lcIssueKeys.kanban(ticket.institution_id)
+      });
+      queryClient.invalidateQueries({
+        queryKey: lcIssueKeys.stats(ticket.institution_id)
+      });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to merge issues');
+    }
+  });
+}
+
+/**
+ * Hook to fetch comments for a ticket
+ */
+export function useIssueComments(ticketId: string) {
+  return useQuery({
+    queryKey: lcIssueKeys.comments(ticketId),
+    queryFn: () => LCIssueService.getIssueComments(ticketId),
+    enabled: !!ticketId,
+    staleTime: 30 * 1000
+  });
+}
+
+/**
+ * Hook to add a comment to a ticket
+ */
+export function useAddComment() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ ticketId, userId, content }: { ticketId: string; userId: string; content: string }) =>
+      LCIssueService.addIssueComment(ticketId, userId, content),
+    onSuccess: (comment) => {
+      toast.success('Comment added');
+      queryClient.invalidateQueries({ queryKey: lcIssueKeys.comments(comment.ticket_id) });
+      queryClient.invalidateQueries({ queryKey: lcIssueKeys.detail(comment.ticket_id) });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to add comment');
+    }
+  });
+}
+
+/**
+ * Hook to escalate an issue
+ */
+export function useEscalateIssue() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ ticketId, escalatedBy, reason }: { ticketId: string; escalatedBy: string; reason: string }) =>
+      LCIssueService.escalateIssue(ticketId, escalatedBy, reason),
+    onSuccess: (ticket) => {
+      toast.success('Issue escalated');
+      queryClient.invalidateQueries({ queryKey: lcIssueKeys.detail(ticket.id) });
+      queryClient.invalidateQueries({ queryKey: lcIssueKeys.lists() });
+      queryClient.invalidateQueries({
+        queryKey: lcIssueKeys.kanban(ticket.institution_id)
+      });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to escalate issue');
+    }
+  });
+}
+
+/**
+ * Hook to fetch issues submitted by the current user
+ */
+export function useMyIssues(userId: string) {
+  return useQuery({
+    queryKey: lcIssueKeys.myIssues(userId),
+    queryFn: () => LCIssueService.getMyIssues(userId),
+    enabled: !!userId,
+    staleTime: 1 * 60 * 1000
+  });
+}
