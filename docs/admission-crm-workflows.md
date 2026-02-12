@@ -461,6 +461,404 @@ All in `app/(routes)/admission/_components/`:
 
 ---
 
+# SOURCE DOCUMENTS & COMPETITIVE INTELLIGENCE
+
+> **These documents were the original basis for the CRM design. Cross-reference here when planning new features.**
+
+## Source Document Registry
+
+| # | Document | Location | What It Contains |
+|---|----------|----------|-----------------|
+| 1 | FST-Admission-CRM.md | `/Users/omm/Vaults/Claude Setup/Capture/FST-Admission-CRM.md` | First-principles strategic analysis of what to build |
+| 2 | Gap-Analysis-2026.md | `/Users/omm/Vaults/JKKNKB/MyJKKN/Admissions/Gap-Analysis-2026.md` | Competitive gap analysis vs ExtraaEdge, LeadSquared, Meritto |
+| 3 | SR-Group Analysis | `/Users/omm/Vaults/JKKNKB/JICATE-Solutions/Clients/Sri-Ramakrishna-Institutions/Archive/SR-Group-JKKN-vs-Meritto-FSU-Analysis.md` | JKKN vs Meritto competitive positioning for SR Group deal |
+| 4 | Meritto PDFs (8 files) | `/Users/omm/Downloads/` (Publisher, Campaign, Lead Mgmt, Lead Nurturing, Mobile App, Marketing Automation, User Mgmt, WhatsApp) | 143 competitor features extracted |
+| 5 | Meritto Analysis (saved) | `/Users/omm/PROJECTS/MyJKKN/docs/research/meritto-competitor-analysis.md` | Consolidated extraction from all 8 PDFs |
+
+## Strategic Context (From FST Analysis)
+
+**Core Insight:** JKKN doesn't need to BUILD an Admission CRM from scratch — it already HAS one (35+ routes, 24 tables). The challenge is **activation, adoption, and integration.**
+
+**The Single Most Important Question:** "Are JKKN counselors using the admission module today?" — the answer determines the entire strategy.
+
+### Leverage Points (Ranked by Impact)
+
+| # | Leverage Point | Impact | Effort | Status |
+|---|---------------|--------|--------|--------|
+| 1 | Counselor Daily View (one-page dashboard) | MASSIVE | Low | Page exists, needs polish |
+| 2 | WhatsApp-first stage notifications | HIGH | Medium | NOT BUILT (external API) |
+| 3 | Cross-campus dedup at capture | HIGH | Low | Service exists, needs verification |
+| 4 | Auto-assignment with capacity limits | HIGH | Low | Assignment rules exist, needs verification |
+| 5 | NAAC Criteria 2 report generator | STRATEGIC | Medium | Service stub exists |
+
+### TQM Integration Points
+
+| CRM Metric | TQM Module | How It Feeds |
+|------------|------------|-------------|
+| Stage conversion rates | Process Excellence | Value-add ratio per stage |
+| Lead response time | Process Excellence | SLA compliance |
+| Funnel drop-off rate | COPQ | Cost of lost leads |
+| Counselor time on cold leads | COPQ | Hidden waste cost |
+| Student satisfaction | Stakeholder NPS | Post-admission survey |
+| Admission cycle time | Process Excellence | Speed metric |
+
+### NAAC Criteria 2 Data Points
+
+| Criterion | Data Required | Source in CRM |
+|-----------|--------------|---------------|
+| 2.1.1 Average Enrollment % | Enrollment count vs sanctioned intake | admission_leads (enrolled stage) |
+| 2.1.2 Reserved Category Seats | Category-wise admission data | Lead category fields |
+| Student Demand Ratio | Total leads/applications vs seats | Lead + application counts |
+| Transparency Evidence | Complete audit trail | admission_lead_activities |
+| ICT Integration | CRM + online portal | The module itself |
+
+## Competitive Gap Analysis (MyJKKN vs Meritto/ExtraaEdge/LeadSquared)
+
+### Maturity Assessment
+
+| Dimension | Competitors | MyJKKN | Gap |
+|-----------|-------------|--------|-----|
+| Lead Philosophy | Living, scored entities with lifecycle | Database records | **CRITICAL** |
+| Communication | Omni-channel conversation | Notification push | **CRITICAL** |
+| Automation | Event-driven workflows | Manual triggers | **SEVERE** |
+| Intelligence | Predictive insights | Reports only | **SEVERE** |
+| Student Experience | Self-service journey | Admin portal | **MODERATE** |
+
+### Feature Comparison Matrix
+
+#### Lead Management
+
+| Feature | Competitors | MyJKKN | Gap Level |
+|---------|------------|--------|-----------|
+| Multi-channel capture (web, WhatsApp, FB, IG, Google) | Full | Basic (manual entry) | CRITICAL |
+| Lead scoring (engagement signals) | Full | Service exists, needs wiring | HIGH |
+| Lead scoring (AI-predicted conversion) | Full | AI service stub exists | HIGH |
+| Multi-touch source attribution with UTM | Full | Basic text field | SEVERE |
+| Fuzzy deduplication (name/phone/email variations) | Smart/Auto | Basic exact-match | HIGH |
+| Automated distribution (round-robin, capacity, skill) | Full | Assignment rules exist, unverified | HIGH |
+| Speed-to-lead optimization (<5 min) | Full | No SLA tracking | SEVERE |
+| Lead strength scoring | Full | Service exists | HIGH |
+| 360-degree lead profile | Full | Lead detail page exists | MODERATE |
+| Geographic benchmarking | Meritto only | Not built | LOW |
+| Lead masking (for publishers) | Meritto only | Not built | LOW |
+
+#### Communication
+
+| Feature | Competitors | MyJKKN | Gap Level |
+|---------|------------|--------|-----------|
+| WhatsApp Business API | Full (Meta partner) | NOT BUILT | **CRITICAL** |
+| SMS bulk + automated triggers | Full | Service exists, no gateway | **CRITICAL** |
+| Email campaign builder | Full | Templates exist, no builder | SEVERE |
+| Cloud telephony (click-to-call, recording) | Full | NOT BUILT | SEVERE |
+| AI chatbot (24/7, NLP, course recommendations) | Full (Meritto "Niaa") | Chatbot page exists, AI stub | HIGH |
+| Push notifications | Full | NOT BUILT | MODERATE |
+| Video calls | ExtraaEdge only | NOT BUILT | LOW |
+
+#### Automation
+
+| Feature | Competitors | MyJKKN | Gap Level |
+|---------|------------|--------|-----------|
+| Workflow builder (event-driven triggers) | Full | Workflow service exists, basic | HIGH |
+| Rule engine (IF/THEN logic) | Full | Scoring/assignment rules exist | HIGH |
+| Auto follow-ups with escalation | Full | NOT BUILT | SEVERE |
+| Auto task creation | Full | NOT BUILT | SEVERE |
+| Document verification with OCR | Full | Document service exists, no OCR | HIGH |
+| Interview scheduling (self-booking, calendar sync) | Full | Interview page exists, basic | HIGH |
+
+#### Analytics
+
+| Feature | Competitors | MyJKKN | Gap Level |
+|---------|------------|--------|-----------|
+| Funnel analytics with drop-off diagnostics | Full | Dashboard exists, basic | HIGH |
+| Counselor performance dashboards | Full | Analytics page exists | HIGH |
+| Marketing ROI analytics (cost per lead/enrollment) | Full | NOT BUILT | SEVERE |
+| Campaign ROI by channel | Full | NOT BUILT | SEVERE |
+| Real-time dashboards | Full | AI insights service exists | MODERATE |
+
+#### Student Experience
+
+| Feature | Competitors | MyJKKN | Gap Level |
+|---------|------------|--------|-----------|
+| Student admission portal (self-service) | Full | `/admission/apply` exists, basic | HIGH |
+| Online application (multi-step, save & resume) | Full | Application page exists | HIGH |
+| Document upload (drag-drop, mobile camera) | Full | Document page exists, basic | HIGH |
+| Multiple payment options | Full | NOT BUILT (separate billing module) | MODERATE |
+| Real-time status tracking | Full | Status page exists | MODERATE |
+| Interview self-booking | Full | NOT BUILT | HIGH |
+| Mobile app / offline mode | Full | NOT BUILT | MODERATE |
+
+## Financial Impact of Gaps (From Gap Analysis)
+
+**Assumptions:** 10,000 annual enquiries | 15% current conversion | Avg fee ₹1,50,000 | 10 counselors
+
+| Gap | Annual Impact (₹) | Priority |
+|-----|-------------------|----------|
+| No lead scoring | 6.75 - 11.25 Crore | CRITICAL |
+| Manual follow-ups | 7.65 Crore | CRITICAL |
+| No WhatsApp integration | 5.85 Crore per cycle | CRITICAL |
+| No counselor analytics | 7.5 Crore | HIGH |
+| No source attribution | 3 Crore | HIGH |
+| Document delays | 2.25 Crore | HIGH |
+| **Estimated Total** | **25-35 Crore/year** | |
+
+## Build vs Buy Decisions (DECIDED)
+
+| Component | Decision | Rationale |
+|-----------|----------|-----------|
+| WhatsApp | **BUY** (Wati/Interakt) | Simple, data stays with JKKN |
+| Lead Scoring | **BUILD** | Competitive advantage, already have service stubs |
+| Document Portal | **BUILD** | Core experience |
+| Email Campaigns | **BUY** (SendGrid) | Commodity service |
+| Cloud Telephony | **BUY** (Exotel) | Specialized infrastructure |
+| Analytics | **BUILD** | Proprietary data |
+| Automation Engine | **BUILD** | Core workflow |
+| AI Chatbot | **BUILD** | Already have AI infrastructure |
+| Student Portal | **BUILD** | Core experience |
+
+## 30 Planned Features NOT YET BUILT
+
+These features were identified across all source documents as needed but have no working implementation:
+
+| # | Feature | Source Doc | Priority | Build/Buy |
+|---|---------|-----------|----------|-----------|
+| 1 | Lead scoring (engagement-based) | Gap Analysis | CRITICAL | BUILD |
+| 2 | WhatsApp Business API integration | Gap Analysis | CRITICAL | BUY |
+| 3 | SMS gateway integration | Gap Analysis | CRITICAL | BUY |
+| 4 | Automated lead assignment (round-robin + capacity) | FST + Gap | CRITICAL | BUILD |
+| 5 | Auto follow-ups with escalation | Gap Analysis | CRITICAL | BUILD |
+| 6 | Cloud telephony (click-to-call, recording, IVR) | Gap Analysis | HIGH | BUY |
+| 7 | AI chatbot 24/7 (NLP, course recs, qualification) | Gap + Meritto | HIGH | BUILD |
+| 8 | Workflow automation engine (event-driven triggers) | Gap Analysis | HIGH | BUILD |
+| 9 | Email campaign builder | Gap Analysis | HIGH | BUY |
+| 10 | Student self-service admission portal | Gap Analysis | HIGH | BUILD |
+| 11 | Online application form (multi-step, save & resume) | Gap Analysis | HIGH | BUILD |
+| 12 | Document upload portal with verification + OCR | Gap Analysis | HIGH | BUILD |
+| 13 | Interview self-scheduling with calendar sync | Gap Analysis | HIGH | BUILD |
+| 14 | Funnel analytics with drop-off diagnostics | Gap Analysis | HIGH | BUILD |
+| 15 | Counselor performance dashboard (calls, conversion, SLA) | Gap Analysis | HIGH | BUILD |
+| 16 | Marketing ROI analytics (cost per lead/enrollment) | Gap Analysis | HIGH | BUILD |
+| 17 | Source attribution with UTM tracking | Gap Analysis | HIGH | BUILD |
+| 18 | Fuzzy deduplication (name/phone/email variations) | Gap + Meritto | HIGH | BUILD |
+| 19 | Lead scoring (AI-predicted conversion probability) | Gap Analysis | HIGH | BUILD |
+| 20 | "Suggest Another Course" automation | Gap Analysis | MEDIUM | BUILD |
+| 21 | Token fee seat release automation | Gap Analysis | MEDIUM | BUILD |
+| 22 | Rejection feedback collection workflow | Gap Analysis | MEDIUM | BUILD |
+| 23 | Parent communication portal | Gap Analysis | MEDIUM | BUILD |
+| 24 | Alumni activation for admissions | Gap Analysis | MEDIUM | BUILD |
+| 25 | NAAC Criteria 2 report generator | FST | MEDIUM | BUILD |
+| 26 | TQM integration (Process Excellence + COPQ) | FST | MEDIUM | BUILD |
+| 27 | Counselor Daily View (adoption dashboard) | FST | HIGH | BUILD |
+| 28 | Screening exam management (new DB table) | Gap Analysis | MEDIUM | BUILD |
+| 29 | Payment tracking (application fee, token fee, full fee) | Gap Analysis | MEDIUM | BUILD |
+| 30 | Compliance/audit automation (UGC, AICTE, DPDP) | Gap Analysis | LOW | BUILD |
+
+## 90-Day Roadmap (From Gap Analysis)
+
+### Phase A: Foundation (Days 1-30)
+
+**Week 1-2: Quick Wins**
+- Days 1-3: WhatsApp Business API setup (BUY)
+- Days 4-5: Auto-responder for enquiries
+- Days 6-7: Call tracking setup
+- Days 8-10: Source attribution standardization
+- Days 11-14: Basic lead scoring activation
+
+**Week 3-4: Core Systems**
+- Days 15-17: Document upload portal
+- Days 18-20: Student status tracking polish
+- Days 21-23: Counselor assignment automation
+- Days 24-26: Email campaign connection (BUY)
+- Days 27-30: Leads dashboard polish
+
+### Phase B: Intelligence (Days 31-60)
+- Days 31-33: Funnel analytics
+- Days 34-36: Source ROI tracking
+- Days 37-40: Counselor performance dashboard
+- Days 41-44: Lead engagement scoring
+- Days 45-47: Workflow engine enhancement
+- Days 48-50: Auto follow-up reminders
+- Days 51-58: SLA tracking + escalation
+
+### Phase C: Experience (Days 61-90)
+- Days 61-66: Student application portal
+- Days 67-74: Document verification + interview scheduling
+- Days 75-84: Mobile optimization + training
+- Days 85-90: Soft launch + full rollout
+
+### Success Metrics by Day 90
+
+| Metric | Current | Target | Improvement |
+|--------|---------|--------|-------------|
+| Response time | ~6 hours | < 30 min | 12x |
+| WhatsApp reach | 0% | 80% | From zero |
+| Application completion | 35% | 65% | 1.9x |
+| Counselor calls/day | 30 | 60 | 2x |
+| Source attribution | 10% | 90% | 9x |
+| Conversion rate | 15% | 22% | 1.5x |
+
+## Meritto Feature Catalog (143 Features from PDFs)
+
+### Publisher Panel (14 features)
+- 3-level source attribution (source → sub-source → campaign)
+- Geographic benchmarking across publishers
+- Publisher lead masking (privacy)
+- Real-time publisher performance dashboards
+- Publisher-specific conversion funnels
+- Commission tracking & automated payouts
+- Lead quality scoring per publisher
+- Publisher portal with self-service
+- Campaign-level ROI per publisher
+- Geographic lead distribution maps
+- Publisher tier management
+- Automated publisher reports
+- Lead response time tracking per publisher
+- Publisher onboarding workflow
+
+### Campaign Management (18 features)
+- MEI (Mutually Exclusive Impact) attribution
+- Non-editable source attribution
+- Dynamic Lead Flow Algorithm
+- Multi-channel campaign execution (email + SMS + WhatsApp)
+- Campaign ROI tracking
+- A/B testing for campaigns
+- Drip campaign sequences
+- Campaign scheduling & automation
+- Audience segmentation
+- Campaign templates library
+- Real-time delivery tracking
+- Click/open rate analytics
+- Campaign budget tracking
+- Geographic campaign targeting
+- Campaign cloning/templating
+- Dynamic content personalization
+- Triggered campaigns (event-based)
+- Campaign approval workflows
+
+### Lead Management (28 features)
+- Lead Strength scoring (engagement-based)
+- Smart lead distribution (capacity + skill)
+- Cross-platform deduplication
+- 360-degree lead profile
+- Lead timeline/activity feed
+- Bulk lead import (CSV/Excel)
+- Lead transfer between counselors
+- Lead merge with field selection
+- Custom lead fields
+- Lead stages (customizable)
+- Lead tags & segments
+- Lead source tracking
+- Speed-to-lead alerts
+- Lead priority flags
+- Lead ownership rules
+- Dead lead reactivation
+- Lead export with filters
+- Lead notes & attachments
+- Lead qualification criteria
+- Lead conversion tracking
+- Lead status automation
+- Bulk lead operations
+- Lead field validation
+- Lead API for external capture
+- Multi-campus lead routing
+- Lead capacity management per counselor
+- Lead SLA monitoring
+- Lead activity scoring
+
+### Lead Nurturing (25 features)
+- Multi-channel nurturing (Email/SMS/WhatsApp/Push)
+- Dynamic content based on lead attributes
+- Journey builder (visual workflow)
+- A/B testing for nurture sequences
+- Nurture track assignment rules
+- Engagement scoring during nurture
+- Exit criteria per nurture track
+- Conditional branching in nurture
+- Time-delay actions
+- Lead re-engagement sequences
+- Personalized content recommendations
+- Behavioral trigger actions
+- Nurture analytics dashboard
+- Best-time-to-send optimization
+- Nurture template library
+- Multi-language nurture content
+- Nurture goal tracking
+- Nurture attribution
+- Cross-channel nurture orchestration
+- Nurture A/B winner auto-selection
+- Lead warming sequences
+- Event-based nurture triggers
+- Custom nurture KPIs
+- Nurture fatigue management
+- Progressive profiling during nurture
+
+### Mobile App (22 features)
+- Offline mode with sync
+- Biometric attendance tracking
+- GPS tracking for field counselors
+- Lead capture at education fairs
+- Push notification for new leads
+- In-app calling with recording
+- Photo upload for documents
+- QR code lead capture
+- Walk-in registration kiosk mode
+- Mobile dashboard
+- Task management on mobile
+- Calendar view
+- Quick lead entry
+- Lead follow-up reminders (mobile)
+- Voice notes on leads
+- Location check-in
+- Mobile reports
+- Team chat
+- Document scanner
+- Offline form filling
+- Mobile approval workflows
+- Event check-in mode
+
+### Marketing Automation (12 features)
+- Drip campaign builder
+- Behavioral triggers
+- Cross-channel orchestration
+- Dynamic list segmentation
+- Marketing analytics
+- Landing page builder
+- Form builder
+- UTM parameter tracking
+- Marketing attribution models
+- Lead scoring from marketing engagement
+- Marketing budget tracking
+- Marketing ROI dashboard
+
+### User Management (8 features)
+- Role-based access control
+- Activity audit logs
+- Team hierarchy management
+- User permissions (granular)
+- User groups
+- Login session management
+- User performance tracking
+- Multi-campus user management
+
+### WhatsApp Business API (16 features)
+- Official Meta Technology Partner
+- Template message management
+- Quick reply buttons
+- Interactive list messages
+- Document sharing via WhatsApp
+- WhatsApp chatbot flows
+- Green tick verification
+- WhatsApp broadcast lists
+- Read receipt tracking
+- WhatsApp analytics dashboard
+- Auto-reply outside business hours
+- WhatsApp lead capture
+- WhatsApp payment links
+- Media sharing (images, PDFs)
+- WhatsApp catalog sharing
+- Conversation tagging
+
+---
+
 # WORKFLOW SPECIFICATIONS
 
 ---
