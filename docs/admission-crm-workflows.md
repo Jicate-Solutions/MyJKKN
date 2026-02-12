@@ -357,7 +357,7 @@ These were discovered during P1 verification. Services may still reference wrong
 /admission/consultants/rewards/page.tsx    - Rewards management (1338 lines)
 ```
 
-### Partial / Need Polish (35 pages)
+### Partial / Need Polish (22 pages)
 ```
 /admission/applications/page.tsx       - Application list
 /admission/status/page.tsx             - Status tracking
