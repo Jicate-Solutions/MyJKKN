@@ -682,4 +682,53 @@ export class LCStructureService {
       throw new Error(`Failed to remove vertical member: ${error.message}`);
     }
   }
+
+  // ============================================================================
+  // PROGRESSION TRACKING
+  // ============================================================================
+
+  /**
+   * Get a user's progression path: YUVA roles + LC position history
+   */
+  static async getProgressionTracking(userId: string): Promise<{
+    lc_history: LCPositionHistory[];
+    yuva_history: YUVAVerticalMember[];
+  }> {
+    // Fetch LC position history
+    const { data: lcHistory, error: lcError } = await (this.supabase as any)
+      .from('lc_position_history')
+      .select(`
+        *,
+        position:lc_positions(id, title, category, tier),
+        term:lc_terms(id, name, start_date, end_date, status)
+      `)
+      .eq('user_id', userId)
+      .order('started_at', { ascending: false });
+
+    if (lcError) {
+      console.error('[lc/structure] Error fetching LC history:', lcError);
+      throw new Error(`Failed to fetch LC history: ${lcError.message}`);
+    }
+
+    // Fetch YUVA vertical member history (including inactive)
+    const { data: yuvaHistory, error: yuvaError } = await (this.supabase as any)
+      .from('yuva_vertical_members')
+      .select(`
+        *,
+        chapter:yuva_chapters(id, name, institution_id),
+        vertical:yuva_verticals(id, name, type)
+      `)
+      .eq('user_id', userId)
+      .order('appointed_at', { ascending: false });
+
+    if (yuvaError) {
+      console.error('[lc/structure] Error fetching YUVA history:', yuvaError);
+      throw new Error(`Failed to fetch YUVA history: ${yuvaError.message}`);
+    }
+
+    return {
+      lc_history: (lcHistory || []) as LCPositionHistory[],
+      yuva_history: (yuvaHistory || []) as YUVAVerticalMember[]
+    };
+  }
 }
