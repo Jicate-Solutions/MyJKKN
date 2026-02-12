@@ -170,11 +170,13 @@ export async function GET(request: NextRequest) {
 
   // Check if this is a Vercel Cron call
   if (authHeader === `Bearer ${process.env.CRON_SECRET}` && process.env.CRON_SECRET) {
-    // Vercel Cron trigger — run snapshot collection
+    // Vercel Cron trigger — only YouTube for now
+    // Instagram Internal API is blocked from Vercel IPs (rate limiting)
+    // Instagram will be added back when Graph API or Apify is configured
     const result = await runSnapshotCollection(
       'a1111111-1111-1111-1111-111111111111',
       'cron',
-      'all'
+      'youtube'
     );
     return NextResponse.json(result);
   }
