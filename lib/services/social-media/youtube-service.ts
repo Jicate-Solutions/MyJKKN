@@ -317,7 +317,7 @@ export class YouTubeService {
             institution_id: account.institution_id,
             account_id: account.id,
             platform_post_id: video.videoId,
-            post_type: 'video',
+            post_type: 'youtube_video',
             caption: video.title,
             thumbnail_url: video.thumbnailUrl,
             permalink: `https://www.youtube.com/watch?v=${video.videoId}`,

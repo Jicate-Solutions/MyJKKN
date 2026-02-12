@@ -59,6 +59,7 @@ const PUBLIC_API_ROUTES = new Set([
   '/api/parent-portal/auth/register',
   '/api/parent-portal/auth/csrf',
   '/api/courses', // Public course listings (prefix)
+  '/api/social-media/cron', // Vercel Cron trigger (auth via CRON_SECRET header)
 ]);
 
 // Helper to check if API route is public
