@@ -33,6 +33,16 @@ This is the **single source of truth** for the Admission CRM module. When resumi
 - [Known Schema Mismatches](#known-schema-mismatches-critical)
 - [Complete File Inventory](#complete-file-inventory)
 
+**SOURCE DOCUMENTS & COMPETITIVE INTELLIGENCE:**
+- [Source Document Registry](#source-document-registry)
+- [Strategic Context (FST Analysis)](#strategic-context-from-fst-analysis)
+- [Competitive Gap Analysis](#competitive-gap-analysis-myjkkn-vs-merittoextraaedgeleadsquared)
+- [Financial Impact of Gaps](#financial-impact-of-gaps-from-gap-analysis)
+- [Build vs Buy Decisions](#build-vs-buy-decisions-decided)
+- [30 Planned Features NOT YET BUILT](#30-planned-features-not-yet-built)
+- [90-Day Roadmap](#90-day-roadmap-from-gap-analysis)
+- [Meritto Feature Catalog (143 Features)](#meritto-feature-catalog-143-features-from-pdfs)
+
 **WORKFLOW SPECIFICATIONS (61 workflows):**
 1. [Master Lifecycle Workflow](#1-master-lifecycle-workflow)
 2. [Lead Management Workflows](#2-lead-management-workflows) (7 workflows)
