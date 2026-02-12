@@ -240,7 +240,7 @@ Pages identified as PARTIAL that need completion:
 
 # DATABASE SCHEMA REFERENCE
 
-## `admission_leads` Table (47 columns)
+## `admission_leads` Table (58 columns)
 
 The central table. Every service touches this.
 
