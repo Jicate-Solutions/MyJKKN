@@ -381,15 +381,33 @@ export class LCStructureService {
       throw new Error(`Failed to fetch chapter: ${error.message}`);
     }
 
-    // Also fetch verticals separately (cleaner than deeply nested join)
-    const { data: verticals } = await (this.supabase as any)
+    // Fetch verticals for this specific chapter
+    const { data: verticalMembers } = await (this.supabase as any)
+      .from('yuva_vertical_members')
+      .select(`
+        vertical_id,
+        vertical:yuva_verticals(*)
+      `)
+      .eq('chapter_id', id)
+      .eq('is_active', true);
+
+    // Deduplicate verticals (multiple members per vertical)
+    const verticalMap = new Map<string, YUVAVertical>();
+    for (const vm of verticalMembers || []) {
+      if (vm.vertical && !verticalMap.has(vm.vertical.id)) {
+        verticalMap.set(vm.vertical.id, vm.vertical);
+      }
+    }
+
+    // Also fetch all active verticals as reference (for assigning new ones)
+    const { data: allVerticals } = await (this.supabase as any)
       .from('yuva_verticals')
       .select('*')
       .eq('is_active', true)
       .order('sort_order', { ascending: true });
 
     const chapter = data as YUVAChapter;
-    chapter.verticals = (verticals || []) as YUVAVertical[];
+    chapter.verticals = (allVerticals || []) as YUVAVertical[];
 
     return chapter;
   }
