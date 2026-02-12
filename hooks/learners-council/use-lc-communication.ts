@@ -493,12 +493,12 @@ export function useEditPost() {
       postId,
       content,
       editedBy,
-      topicId
+      _topicId
     }: {
       postId: string;
       content: string;
       editedBy: string;
-      topicId: string;
+      _topicId: string;
     }) => LCCommunicationService.editPost(postId, content, editedBy),
     onSuccess: (_post, variables) => {
       toast.success('Post updated');
