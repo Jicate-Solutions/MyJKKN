@@ -32,7 +32,7 @@ CREATE TABLE IF NOT EXISTS lc_terms (
   term_type VARCHAR(30) NOT NULL CHECK (term_type IN ('annual', 'executive_rotation')),
   description TEXT,
   handover_notes TEXT,
-  created_by UUID NOT NULL REFERENCES auth.users(id) ON DELETE SET NULL,
+  created_by UUID NOT NULL REFERENCES auth.users(id) ON DELETE RESTRICT,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW(),
 
