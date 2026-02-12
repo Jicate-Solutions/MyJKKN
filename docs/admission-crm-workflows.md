@@ -295,7 +295,7 @@ is_lost               BOOLEAN
 lost_reason           TEXT
 lost_at               TIMESTAMPTZ
 interested_programs   TEXT[]
-preferred_campus      TEXT
+preferred_campus      UUID (FK to institutions)
 parent_name           TEXT
 parent_phone          TEXT
 parent_email          TEXT
