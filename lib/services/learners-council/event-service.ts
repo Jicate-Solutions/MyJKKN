@@ -2,6 +2,7 @@
 // LC-003: Event Coordination - Service Layer
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { LCNotificationService } from './notification-service';
 import type {
   LCEvent,
   LCEventParticipant,
