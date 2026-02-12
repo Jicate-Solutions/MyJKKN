@@ -285,10 +285,10 @@ export class LCODService {
     approverId: string,
     comments: string
   ): Promise<LCODRequest> {
-    // Get current step
+    // Get current step and requester
     const { data: request } = await (this.supabase as any)
       .from('lc_od_requests')
-      .select('current_step')
+      .select('current_step, requester_id')
       .eq('id', requestId)
       .single();
 
