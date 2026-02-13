@@ -380,7 +380,7 @@ export default function EditProductPage({ params }: EditProductPageProps) {
                 <Label htmlFor="patentStatus">Patent Status</Label>
                 <Select
                   value={formData.patentStatus}
-                  onValueChange={(value) => setFormData({ ...formData, patentStatus: value })}
+                  onValueChange={(value) => setFormData({ ...formData, patentStatus: value, patentNumber: value === 'none' ? '' : formData.patentNumber })}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Select patent status" />
