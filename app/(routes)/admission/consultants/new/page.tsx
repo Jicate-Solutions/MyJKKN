@@ -91,10 +91,7 @@ function NewConsultantForm() {
 
   const createMutation = useMutation({
     mutationFn: (data: CreateConsultantInput) =>
-      ConsultantService.createConsultant({
-        ...data,
-        institution_id: institutionId!
-      }),
+      ConsultantService.createConsultant(data),
     onSuccess: (consultant) => {
       toast.success('Consultant created successfully');
       queryClient.invalidateQueries({ queryKey: ['consultants'] });
@@ -107,7 +104,25 @@ function NewConsultantForm() {
   });
 
   const onSubmit = (data: CreateConsultantInput) => {
-    createMutation.mutate(data);
+    // Transform form field names to match DB column names
+    const { address, notes, website, bank_account_holder, geographic_coverage, specializations, programs_handled, ...rest } = data as any;
+    const dbData: Record<string, any> = {
+      ...rest,
+      institution_id: institutionId!,
+      // address → address_line1
+      ...(address ? { address_line1: address } : {}),
+      // notes → internal_notes
+      ...(notes ? { internal_notes: notes } : {}),
+      // Map array fields to DB columns
+      ...(geographic_coverage?.length ? { covered_states: geographic_coverage } : {}),
+      ...(specializations?.length ? { specialized_degrees: specializations } : {}),
+      ...(programs_handled?.length ? { specialized_programs: programs_handled } : {}),
+    };
+    // Remove fields that don't exist in DB
+    delete dbData.website;
+    delete dbData.bank_account_holder;
+
+    createMutation.mutate(dbData as CreateConsultantInput);
   };
 
   const consultantType = form.watch('consultant_type');

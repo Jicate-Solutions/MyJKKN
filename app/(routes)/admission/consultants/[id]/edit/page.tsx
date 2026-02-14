@@ -137,34 +137,38 @@ function EditConsultantForm() {
   });
 
   // Populate form when consultant data is loaded
+  // Map DB column names to form field names
   useEffect(() => {
     if (consultant) {
+      const c = consultant as any;
       form.reset({
-        id: consultant.id,
-        name: consultant.name || '',
-        email: consultant.email || '',
-        phone: consultant.phone || '',
-        alternate_phone: consultant.alternate_phone || '',
-        consultant_type: consultant.consultant_type || 'external',
-        status: consultant.status || 'active',
-        contact_person: consultant.contact_person || '',
-        website: consultant.website || '',
-        gst_number: consultant.gst_number || '',
-        pan_number: consultant.pan_number || '',
-        address: consultant.address || '',
-        city: consultant.city || '',
-        state: consultant.state || '',
-        country: consultant.country || 'India',
-        pincode: consultant.pincode || '',
-        bank_name: consultant.bank_name || '',
-        bank_account_number: consultant.bank_account_number || '',
-        bank_ifsc: consultant.bank_ifsc || '',
-        bank_account_holder: consultant.bank_account_holder || '',
-        contract_start_date: consultant.contract_start_date || '',
-        contract_end_date: consultant.contract_end_date || '',
-        notes: consultant.notes || '',
-        tier: consultant.tier || 'bronze',
-        relationship_score: consultant.relationship_score || 50
+        id: c.id,
+        name: c.name || '',
+        email: c.email || '',
+        phone: c.phone || '',
+        alternate_phone: c.alternate_phone || '',
+        consultant_type: c.consultant_type || 'external',
+        status: c.status || 'active',
+        contact_person: c.contact_person || '',
+        website: '', // No DB column for website
+        gst_number: c.gst_number || '',
+        pan_number: c.pan_number || '',
+        // DB column is address_line1, form field is address
+        address: c.address_line1 || '',
+        city: c.city || '',
+        state: c.state || '',
+        country: c.country || 'India',
+        pincode: c.pincode || '',
+        bank_name: c.bank_name || '',
+        bank_account_number: c.bank_account_number || '',
+        bank_ifsc: c.bank_ifsc || '',
+        bank_account_holder: '', // No DB column for bank_account_holder
+        contract_start_date: c.contract_start_date || '',
+        contract_end_date: c.contract_end_date || '',
+        // DB column is internal_notes, form field is notes
+        notes: c.internal_notes || '',
+        tier: c.tier || 'bronze',
+        relationship_score: c.relationship_score || 50
       });
     }
   }, [consultant, form]);
@@ -185,7 +189,25 @@ function EditConsultantForm() {
   });
 
   const onSubmit = (data: UpdateConsultantInput) => {
-    updateMutation.mutate({ ...data, id: consultantId });
+    // Transform form field names to match DB column names
+    const { address, notes, website, bank_account_holder, geographic_coverage, specializations, programs_handled, id: _id, ...rest } = data as any;
+    const dbData: Record<string, any> = {
+      ...rest,
+      id: consultantId,
+      // address → address_line1
+      ...(address ? { address_line1: address } : {}),
+      // notes → internal_notes
+      ...(notes ? { internal_notes: notes } : {}),
+      // Map array fields to DB columns
+      ...(geographic_coverage?.length ? { covered_states: geographic_coverage } : {}),
+      ...(specializations?.length ? { specialized_degrees: specializations } : {}),
+      ...(programs_handled?.length ? { specialized_programs: programs_handled } : {}),
+    };
+    // Remove fields that don't exist in DB
+    delete dbData.website;
+    delete dbData.bank_account_holder;
+
+    updateMutation.mutate(dbData as UpdateConsultantInput);
   };
 
   if (isLoading) {

@@ -5,44 +5,82 @@ import { z } from 'zod';
 // CONSULTANT VALIDATION
 // ============================================
 
-// Alias for backward compatibility
+// Helper: transform empty strings to null for optional fields
+const emptyToNull = z.string().transform(v => v === '' ? null : v);
+const optionalString = emptyToNull.nullable().optional();
+const optionalEmail = z.string()
+  .transform(v => v === '' ? null : v)
+  .pipe(z.string().email('Invalid email address').nullable())
+  .optional();
+
 export const createConsultantSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters'),
-  email: z.string().email('Invalid email address').optional().nullable(),
+  email: optionalEmail,
   phone: z.string().min(10, 'Phone must be at least 10 digits'),
   consultant_type: z.enum(['external', 'internal', 'institutional', 'alumni', 'student']).default('external'),
-  contact_person: z.string().optional().nullable(),
-  address: z.string().optional().nullable(),
-  city: z.string().optional().nullable(),
-  state: z.string().optional().nullable(),
-  pincode: z.string().optional().nullable()
+  alternate_phone: optionalString,
+  contact_person: optionalString,
+
+  // Address (maps to address_line1 in DB)
+  address: optionalString,
+  city: optionalString,
+  state: optionalString,
+  country: optionalString,
+  pincode: optionalString,
+
+  // Business
+  website: optionalString,
+  gst_number: optionalString,
+  pan_number: optionalString,
+
+  // Banking
+  bank_name: optionalString,
+  bank_account_number: optionalString,
+  bank_ifsc: optionalString,
+  bank_account_holder: optionalString,
+
+  // Contract
+  contract_start_date: optionalString,
+  contract_end_date: optionalString,
+
+  // Notes
+  notes: optionalString,
+
+  // Arrays
+  geographic_coverage: z.array(z.string()).default([]),
+  specializations: z.array(z.string()).default([]),
+  programs_handled: z.array(z.string()).default([]),
+  tags: z.array(z.string()).default([])
 });
 
 export const consultantSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters'),
-  email: z.string().email('Invalid email address').optional().nullable(),
+  email: optionalEmail,
   phone: z.string().min(10, 'Phone must be at least 10 digits'),
-  alternate_phone: z.string().optional().nullable(),
+  alternate_phone: optionalString,
   consultant_type: z.enum(['external', 'internal', 'institutional', 'alumni', 'student']),
   status: z.enum(['active', 'inactive', 'suspended', 'pending_verification', 'contract_expired']).default('pending_verification'),
 
   // Contact person
-  contact_person: z.string().optional().nullable(),
+  contact_person: optionalString,
 
   // Address
-  address: z.string().optional().nullable(),
-  city: z.string().optional().nullable(),
-  state: z.string().optional().nullable(),
-  country: z.string().default('India').optional().nullable(),
-  pincode: z.string().optional().nullable(),
+  address: optionalString,
+  city: optionalString,
+  state: optionalString,
+  country: optionalString,
+  pincode: optionalString,
+
+  // Business
+  website: optionalString,
+  gst_number: optionalString,
+  pan_number: optionalString,
 
   // Banking
-  bank_name: z.string().optional().nullable(),
-  bank_account_number: z.string().optional().nullable(),
-  bank_ifsc: z.string().optional().nullable(),
-  bank_account_holder: z.string().optional().nullable(),
-  pan_number: z.string().optional().nullable(),
-  gst_number: z.string().optional().nullable(),
+  bank_name: optionalString,
+  bank_account_number: optionalString,
+  bank_ifsc: optionalString,
+  bank_account_holder: optionalString,
 
   // Coverage
   geographic_coverage: z.array(z.string()).default([]),
@@ -50,11 +88,11 @@ export const consultantSchema = z.object({
   programs_handled: z.array(z.string()).default([]),
 
   // Contract
-  contract_start_date: z.string().optional().nullable(),
-  contract_end_date: z.string().optional().nullable(),
+  contract_start_date: optionalString,
+  contract_end_date: optionalString,
 
   // Notes
-  notes: z.string().optional().nullable(),
+  notes: optionalString,
   tags: z.array(z.string()).default([])
 });
 
@@ -109,8 +147,12 @@ export const rewardConfigSchema = z.object({
 
 export type RewardConfigFormData = z.infer<typeof rewardConfigSchema>;
 
-// Update schema (same as create but all fields optional)
-export const updateConsultantSchema = consultantSchema.partial();
+// Update schema (same as consultant but all fields optional + edit-specific fields)
+export const updateConsultantSchema = consultantSchema.extend({
+  id: z.string().optional(),
+  tier: z.enum(['bronze', 'silver', 'gold', 'platinum', 'diamond']).optional(),
+  relationship_score: z.number().min(0).max(100).optional(),
+}).partial();
 
 // Parser utility functions
 export function parseArrayField(value: any): string[] {

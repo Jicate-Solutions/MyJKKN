@@ -248,9 +248,12 @@ export class ConsultantService {
   ): Promise<EducationConsultant> {
     const supabase = createClientSupabaseClient();
 
+    // Remove 'id' from update payload - it's used in the .eq() filter, not in SET
+    const { id: _inputId, ...updatePayload } = input as any;
+
     const { data, error } = await (supabase as any)
       .from('education_consultants')
-      .update({ ...input, updated_at: new Date().toISOString() } as any)
+      .update({ ...updatePayload, updated_at: new Date().toISOString() } as any)
       .eq('id', id)
       .select()
       .single();
@@ -276,7 +279,6 @@ export class ConsultantService {
       .from('education_consultants')
       .update({
         status: 'inactive',
-        status_reason: 'Deleted by admin',
         updated_at: new Date().toISOString(),
       } as any)
       .eq('id', id);

@@ -47,27 +47,36 @@ export interface EducationConsultant {
   email: string | null;
   phone: string;
   alternate_phone: string | null;
-  website: string | null;
 
-  // Address
-  address: string | null;
+  // Company
+  company_name: string | null;
+  company_registration_no: string | null;
+
+  // Address (DB columns)
+  address_line1: string | null;
+  address_line2: string | null;
   city: string | null;
   state: string | null;
   country: string | null;
   pincode: string | null;
 
-  // Banking Details
+  // Banking Details (DB columns)
   bank_name: string | null;
   bank_account_number: string | null;
   bank_ifsc: string | null;
-  bank_account_holder: string | null;
+  bank_branch: string | null;
+  upi_id: string | null;
+  payment_preference: string | null;
   pan_number: string | null;
   gst_number: string | null;
 
-  // Coverage & Specializations
-  geographic_coverage: string[];
-  specializations: string[];
-  programs_handled: string[];
+  // Coverage & Specializations (DB columns)
+  covered_states: any;
+  covered_cities: any;
+  covered_regions: any;
+  specialized_degrees: string[] | null;
+  specialized_departments: string[] | null;
+  specialized_programs: string[] | null;
 
   // Scoring & Performance
   relationship_score: number;
@@ -77,36 +86,47 @@ export interface EducationConsultant {
   total_conversions: number;
   conversion_rate: number;
   total_commission_earned: number;
+  total_commission_paid: number;
   pending_commission: number;
 
   // Contract Info
   contract_start_date: string | null;
   contract_end_date: string | null;
+  contract_status: string | null;
   contract_document_url: string | null;
+  contract_terms: any;
+
+  // Profile
+  profile_photo_url: string | null;
+  learner_profile_id: string | null;
 
   // Status
   status: ConsultantStatus;
-  status_reason: string | null;
-  verified_at: string | null;
-  verified_by: string | null;
+  onboarded_at: string | null;
+  onboarded_by: string | null;
 
   // For internal referrers (students/alumni)
   referrer_user_id: string | null;
-  referrer_learner_id: string | null;
 
   // Metadata
-  notes: string | null;
-  tags: string[];
+  internal_notes: string | null;
+  tags: any;
   created_at: string;
   updated_at: string;
   created_by: string | null;
+  updated_by: string | null;
 
   // Relationships (optional populated)
   commission_structures?: ConsultantCommissionStructure[];
   communications?: ConsultantCommunication[];
   documents?: ConsultantDocument[];
+
+  // Allow dynamic DB fields
+  [key: string]: any;
 }
 
+// CreateConsultantInput accepts both form field names and DB column names
+// The form pages transform form names → DB names in their onSubmit handlers
 export interface CreateConsultantInput {
   institution_id: string;
   consultant_type: ConsultantType;
@@ -115,34 +135,43 @@ export interface CreateConsultantInput {
   email?: string | null;
   contact_person?: string | null;
   alternate_phone?: string | null;
-  website?: string | null;
-  address?: string | null;
+  // DB columns for address
+  address_line1?: string | null;
+  address_line2?: string | null;
   city?: string | null;
   state?: string | null;
   country?: string | null;
   pincode?: string | null;
+  // Banking (DB columns)
   bank_name?: string | null;
   bank_account_number?: string | null;
   bank_ifsc?: string | null;
-  bank_account_holder?: string | null;
+  bank_branch?: string | null;
   pan_number?: string | null;
   gst_number?: string | null;
-  geographic_coverage?: string[];
-  specializations?: string[];
-  programs_handled?: string[];
+  // Coverage (DB columns)
+  covered_states?: any;
+  covered_cities?: any;
+  covered_regions?: any;
+  specialized_degrees?: string[] | null;
+  specialized_departments?: string[] | null;
+  specialized_programs?: string[] | null;
+  // Contract
   contract_start_date?: string | null;
   contract_end_date?: string | null;
-  notes?: string | null;
-  tags?: string[];
+  // Metadata (DB columns)
+  internal_notes?: string | null;
+  tags?: any;
   // For internal referrers
   referrer_user_id?: string | null;
-  referrer_learner_id?: string | null;
+  learner_profile_id?: string | null;
+  // Allow additional DB fields
+  [key: string]: any;
 }
 
 export interface UpdateConsultantInput extends Partial<CreateConsultantInput> {
   id: string;
   status?: ConsultantStatus;
-  status_reason?: string | null;
   tier?: ConsultantTier;
   relationship_score?: number;
 }

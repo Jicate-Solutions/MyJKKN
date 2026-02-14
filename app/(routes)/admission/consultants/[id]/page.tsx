@@ -44,7 +44,6 @@ import {
   MoreHorizontal,
   FileText,
   CreditCard,
-  Globe,
   Award,
   Star
 } from 'lucide-react';
@@ -389,20 +388,11 @@ function ConsultantDetailContent() {
                     <span>{consultant.alternate_phone} (Alt)</span>
                   </div>
                 )}
-                {consultant.website && (
-                  <div className="flex items-center gap-3">
-                    <Globe className="h-4 w-4 text-muted-foreground" />
-                    <a href={consultant.website} target="_blank" rel="noopener noreferrer"
-                       className="text-blue-600 hover:underline">
-                      {consultant.website}
-                    </a>
-                  </div>
-                )}
-                {(consultant.address || consultant.city) && (
+                {(consultant.address_line1 || consultant.city) && (
                   <div className="flex items-start gap-3">
                     <MapPin className="h-4 w-4 text-muted-foreground mt-1" />
                     <span>
-                      {[consultant.address, consultant.city, consultant.state, consultant.country, consultant.pincode]
+                      {[consultant.address_line1, consultant.city, consultant.state, consultant.country, consultant.pincode]
                         .filter(Boolean)
                         .join(', ')}
                     </span>
@@ -430,19 +420,19 @@ function ConsultantDetailContent() {
                     </span>
                   </div>
                 )}
-                {consultant.geographic_coverage && consultant.geographic_coverage.length > 0 && (
+                {consultant.covered_states && (Array.isArray(consultant.covered_states) ? consultant.covered_states : []).length > 0 && (
                   <div className="flex justify-between items-start">
                     <span className="text-muted-foreground">Geographic Coverage</span>
                     <span className="font-medium text-right max-w-[60%]">
-                      {consultant.geographic_coverage.join(', ')}
+                      {(Array.isArray(consultant.covered_states) ? consultant.covered_states : []).join(', ')}
                     </span>
                   </div>
                 )}
-                {consultant.specializations && consultant.specializations.length > 0 && (
+                {consultant.specialized_degrees && consultant.specialized_degrees.length > 0 && (
                   <div className="flex justify-between items-start">
                     <span className="text-muted-foreground">Specializations</span>
                     <span className="font-medium text-right max-w-[60%]">
-                      {consultant.specializations.join(', ')}
+                      {consultant.specialized_degrees.join(', ')}
                     </span>
                   </div>
                 )}
@@ -489,10 +479,10 @@ function ConsultantDetailContent() {
                     <span className="text-muted-foreground">Bank Name</span>
                     <span className="font-medium">{consultant.bank_name}</span>
                   </div>
-                  {consultant.bank_account_holder && (
+                  {consultant.bank_branch && (
                     <div className="flex justify-between">
-                      <span className="text-muted-foreground">Account Holder</span>
-                      <span className="font-medium">{consultant.bank_account_holder}</span>
+                      <span className="text-muted-foreground">Bank Branch</span>
+                      <span className="font-medium">{consultant.bank_branch}</span>
                     </div>
                   )}
                   {consultant.bank_account_number && (
@@ -553,14 +543,14 @@ function ConsultantDetailContent() {
           </div>
 
           {/* Notes */}
-          {consultant.notes && (
+          {consultant.internal_notes && (
             <Card>
               <CardHeader>
                 <CardTitle className="text-base">Internal Notes</CardTitle>
               </CardHeader>
               <CardContent>
                 <p className="text-sm text-muted-foreground whitespace-pre-wrap">
-                  {consultant.notes}
+                  {consultant.internal_notes}
                 </p>
               </CardContent>
             </Card>
@@ -606,13 +596,13 @@ function ConsultantDetailContent() {
                   </p>
                 </div>
               </div>
-              {consultant.verified_at && (
+              {consultant.onboarded_at && (
                 <div className="flex items-center gap-3">
                   <CheckCircle2 className="h-4 w-4 text-green-600" />
                   <div>
-                    <p className="text-sm text-muted-foreground">Verified</p>
+                    <p className="text-sm text-muted-foreground">Onboarded</p>
                     <p className="font-medium">
-                      {format(new Date(consultant.verified_at), 'PPP')}
+                      {format(new Date(consultant.onboarded_at), 'PPP')}
                     </p>
                   </div>
                 </div>
