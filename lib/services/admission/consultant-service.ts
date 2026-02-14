@@ -1099,6 +1099,79 @@ export class ConsultantService {
   // ─────────────────────────────────────────────────────────────────────────
 
   /**
+   * Get paginated reward configs for institution (used by DataTable)
+   */
+  static async getRewardConfigsPaginated(params: {
+    institution_id: string;
+    page?: number;
+    limit?: number;
+    search?: string;
+    sort_by?: string;
+    sort_order?: 'asc' | 'desc';
+    status_filter?: 'active' | 'inactive' | 'all';
+    reward_type_filter?: string;
+  }): Promise<{
+    data: ReferralRewardConfig[];
+    metadata: { total: number; page: number; limit: number; totalPages: number };
+  }> {
+    const supabase = createClientSupabaseClient();
+    const {
+      institution_id,
+      page = 1,
+      limit = 20,
+      search,
+      sort_by = 'created_at',
+      sort_order = 'desc',
+      status_filter = 'all',
+      reward_type_filter,
+    } = params;
+
+    let query = (supabase as any)
+      .from('referral_reward_configs')
+      .select('*', { count: 'exact' })
+      .eq('institution_id', institution_id);
+
+    if (search) {
+      query = query.or(
+        `name.ilike.%${search}%,description.ilike.%${search}%`
+      );
+    }
+
+    if (status_filter === 'active') {
+      query = query.eq('is_active', true);
+    } else if (status_filter === 'inactive') {
+      query = query.eq('is_active', false);
+    }
+
+    if (reward_type_filter && reward_type_filter !== 'all') {
+      query = query.eq('reward_type', reward_type_filter);
+    }
+
+    query = query.order(sort_by, { ascending: sort_order === 'asc' });
+
+    const from = (page - 1) * limit;
+    const to = from + limit - 1;
+    query = query.range(from, to);
+
+    const { data, error, count } = await query;
+
+    if (error) {
+      console.error('[admission/consultants] Failed to fetch reward configs:', error);
+      throw new Error(error.message);
+    }
+
+    return {
+      data: data || [],
+      metadata: {
+        total: count || 0,
+        page,
+        limit,
+        totalPages: Math.ceil((count || 0) / limit),
+      },
+    };
+  }
+
+  /**
    * Get reward configs for institution
    */
   static async getRewardConfigs(

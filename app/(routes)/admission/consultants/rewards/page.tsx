@@ -53,7 +53,6 @@ import {
   XCircle,
   MoreHorizontal,
   Search,
-  Filter,
   RefreshCw,
   Plus,
   Eye,
@@ -61,15 +60,6 @@ import {
   X,
   Loader2,
   TrendingUp,
-  Users,
-  Percent,
-  DollarSign,
-  CreditCard,
-  Tag,
-  ShoppingBag,
-  Edit,
-  Trash2,
-  Power,
   AlertTriangle,
 } from 'lucide-react';
 import { format } from 'date-fns';
@@ -82,8 +72,6 @@ import {
   useRewardConfigs,
   useCreateRewardConfig,
   useUpdateRewardConfig,
-  useDeleteRewardConfig,
-  useToggleRewardConfigActive,
   useRewards,
   useApproveReward,
   useRejectReward,
@@ -106,15 +94,8 @@ import {
   FormLabel,
   FormMessage,
 } from '@/components/ui/form';
-
-// Reward type configuration
-const rewardTypeConfig: Record<RewardType, { label: string; icon: React.ElementType; color: string }> = {
-  discount: { label: 'Discount', icon: Percent, color: 'text-blue-500' },
-  cashback: { label: 'Cashback', icon: DollarSign, color: 'text-green-500' },
-  credit: { label: 'Credit', icon: CreditCard, color: 'text-purple-500' },
-  voucher: { label: 'Voucher', icon: Tag, color: 'text-orange-500' },
-  merchandise: { label: 'Merchandise', icon: ShoppingBag, color: 'text-pink-500' },
-};
+import { RewardsConfigDataTable } from './_components/rewards-config-data-table';
+import { rewardTypeConfig, defaultTypeConfig } from './_components/columns';
 
 // Status badge configuration
 const statusConfig: Record<RewardStatus, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline'; icon: React.ElementType }> = {
@@ -130,7 +111,7 @@ const statusConfig: Record<RewardStatus, { label: string; variant: 'default' | '
 const rewardConfigSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters'),
   description: z.string().optional(),
-  reward_type: z.enum(['discount', 'cashback', 'credit', 'voucher', 'merchandise']),
+  reward_type: z.enum(['discount', 'fee_discount', 'cashback', 'cash', 'credit', 'credits', 'voucher', 'merchandise']),
   reward_value: z.number().min(0, 'Value must be positive'),
   reward_value_type: z.enum(['percentage', 'flat']),
   min_referrals: z.number().min(1, 'Minimum 1 referral required'),
@@ -152,9 +133,6 @@ export default function RewardsManagementPage() {
   // Tab state
   const [activeTab, setActiveTab] = useState<'configs' | 'rewards'>('configs');
 
-  // Config filters
-  const [configSearchTerm, setConfigSearchTerm] = useState('');
-
   // Reward filters
   const [rewardSearchTerm, setRewardSearchTerm] = useState('');
   const [selectedRewardStatus, setSelectedRewardStatus] = useState<RewardStatus | 'all'>('all');
@@ -169,7 +147,6 @@ export default function RewardsManagementPage() {
   const [approveNotes, setApproveNotes] = useState('');
   const [rejectDialog, setRejectDialog] = useState<ReferralReward | null>(null);
   const [rejectReason, setRejectReason] = useState('');
-  const [deleteConfigDialog, setDeleteConfigDialog] = useState<ReferralRewardConfig | null>(null);
 
   // Form
   const form = useForm<RewardConfigFormData>({
@@ -201,7 +178,6 @@ export default function RewardsManagementPage() {
   // Queries
   const {
     data: rewardConfigs,
-    isLoading: isLoadingConfigs,
     refetch: refetchConfigs,
   } = useRewardConfigs(institutionId || '');
 
@@ -211,27 +187,13 @@ export default function RewardsManagementPage() {
     refetch: refetchRewards,
   } = useRewards(rewardFilters);
 
-  const { data: rewardStats, isLoading: isLoadingStats } = useRewardStats(institutionId || '');
+  const { data: rewardStats } = useRewardStats(institutionId || '');
 
   // Mutations
   const createConfigMutation = useCreateRewardConfig();
   const updateConfigMutation = useUpdateRewardConfig();
-  const deleteConfigMutation = useDeleteRewardConfig();
-  const toggleConfigMutation = useToggleRewardConfigActive();
   const approveMutation = useApproveReward();
   const rejectMutation = useRejectReward();
-
-  // Filter configs by search
-  const filteredConfigs = useMemo(() => {
-    if (!rewardConfigs) return [];
-    if (!configSearchTerm.trim()) return rewardConfigs;
-
-    const term = configSearchTerm.toLowerCase();
-    return rewardConfigs.filter((c) =>
-      c.name.toLowerCase().includes(term) ||
-      c.description?.toLowerCase().includes(term)
-    );
-  }, [rewardConfigs, configSearchTerm]);
 
   // Filter rewards by search
   const filteredRewards = useMemo(() => {
@@ -271,26 +233,18 @@ export default function RewardsManagementPage() {
       reward_type: config.reward_type,
       reward_value: config.reward_value,
       reward_value_type: config.reward_value_type,
-      min_referrals: config.min_referrals,
-      max_referrals: config.max_rewards_per_referrer || undefined,
+      min_referrals: config.min_referrals_required || 1,
+      max_referrals: config.max_referrals_per_year || undefined,
       valid_days: config.valid_to ? Math.ceil((new Date(config.valid_to).getTime() - new Date(config.valid_from).getTime()) / (1000 * 60 * 60 * 24)) : 30,
       is_active: config.is_active,
-      applicable_to: 'both',
-      terms_conditions: '',
+      applicable_to: (config.referrer_type as 'student' | 'alumni' | 'both') || 'both',
+      terms_conditions: config.terms_conditions || '',
     });
     setConfigDialog({ mode: 'edit', config });
   };
 
   const handleSubmitConfig = async (data: RewardConfigFormData) => {
     if (!institutionId || !userId) return;
-
-    // Map applicable_to to referrer_types (valid ConsultantType values)
-    const referrerTypes: ('student' | 'alumni')[] =
-      data.applicable_to === 'both'
-        ? ['student', 'alumni']
-        : data.applicable_to === 'student'
-          ? ['student']
-          : ['alumni'];
 
     try {
       if (configDialog?.mode === 'create') {
@@ -302,10 +256,11 @@ export default function RewardsManagementPage() {
             reward_type: data.reward_type,
             reward_value: data.reward_value,
             reward_value_type: data.reward_value_type,
-            min_referrals: data.min_referrals,
-            max_rewards_per_referrer: data.max_referrals || null,
-            referrer_types: referrerTypes,
-            trigger_stage: 'enrollment_completed',
+            min_referrals_required: data.min_referrals,
+            max_referrals_per_year: data.max_referrals || null,
+            referrer_type: data.applicable_to,
+            terms_conditions: data.terms_conditions || null,
+            trigger_stage: 'enrolled',
             valid_from: new Date().toISOString().split('T')[0],
             valid_to: data.valid_days
               ? new Date(Date.now() + data.valid_days * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
@@ -323,9 +278,10 @@ export default function RewardsManagementPage() {
             reward_type: data.reward_type,
             reward_value: data.reward_value,
             reward_value_type: data.reward_value_type,
-            referrer_types: referrerTypes,
-            min_referrals: data.min_referrals,
-            max_rewards_per_referrer: data.max_referrals || null,
+            referrer_type: data.applicable_to,
+            min_referrals_required: data.min_referrals,
+            max_referrals_per_year: data.max_referrals || null,
+            terms_conditions: data.terms_conditions || null,
             is_active: data.is_active,
           },
         });
@@ -335,32 +291,6 @@ export default function RewardsManagementPage() {
     } catch (error) {
       console.error('[admission/consultants/rewards] Config save error:', error);
       toast.error('Failed to save reward configuration');
-    }
-  };
-
-  const handleDeleteConfig = async () => {
-    if (!deleteConfigDialog) return;
-
-    try {
-      await deleteConfigMutation.mutateAsync(deleteConfigDialog.id);
-      toast.success('Reward configuration deleted');
-      setDeleteConfigDialog(null);
-    } catch (error) {
-      console.error('[admission/consultants/rewards] Config delete error:', error);
-      toast.error('Failed to delete reward configuration');
-    }
-  };
-
-  const handleToggleConfig = async (config: ReferralRewardConfig) => {
-    try {
-      await toggleConfigMutation.mutateAsync({
-        id: config.id,
-        isActive: !config.is_active,
-      });
-      toast.success(`Reward ${config.is_active ? 'deactivated' : 'activated'}`);
-    } catch (error) {
-      console.error('[admission/consultants/rewards] Toggle error:', error);
-      toast.error('Failed to toggle reward status');
     }
   };
 
@@ -409,13 +339,6 @@ export default function RewardsManagementPage() {
     }).format(amount);
   };
 
-  const formatRewardValue = (config: ReferralRewardConfig) => {
-    if (config.reward_value_type === 'percentage') {
-      return `${config.reward_value}%`;
-    }
-    return formatCurrency(config.reward_value);
-  };
-
   if (isAuthLoading) {
     return (
       <ContentLayout title="Referral Rewards">
@@ -447,10 +370,6 @@ export default function RewardsManagementPage() {
             <Button variant="outline" size="sm" onClick={() => { refetchConfigs(); refetchRewards(); }}>
               <RefreshCw className="mr-2 h-4 w-4" />
               Refresh
-            </Button>
-            <Button size="sm" onClick={handleCreateConfig}>
-              <Plus className="mr-2 h-4 w-4" />
-              New Reward Config
             </Button>
           </div>
         </div>
@@ -523,140 +442,15 @@ export default function RewardsManagementPage() {
             </TabsTrigger>
           </TabsList>
 
-          {/* Configurations Tab */}
+          {/* Configurations Tab — uses DataTable */}
           <TabsContent value="configs" className="space-y-4">
-            {/* Config Filters */}
-            <Card>
-              <CardContent className="pt-6">
-                <div className="relative max-w-md">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    placeholder="Search configurations..."
-                    value={configSearchTerm}
-                    onChange={(e) => setConfigSearchTerm(e.target.value)}
-                    className="pl-9"
-                  />
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Configs Table */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg flex items-center gap-2">
-                  <Settings className="h-4 w-4" />
-                  Reward Configurations
-                </CardTitle>
-                <CardDescription>
-                  Define reward tiers and types for student/alumni referrals
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                {isLoadingConfigs ? (
-                  <div className="space-y-3">
-                    {[1, 2, 3].map((i) => (
-                      <Skeleton key={i} className="h-12 w-full" />
-                    ))}
-                  </div>
-                ) : filteredConfigs.length === 0 ? (
-                  <div className="text-center py-12 text-muted-foreground">
-                    <Gift className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                    <p>No reward configurations found</p>
-                    <p className="text-sm">Create your first reward configuration to get started</p>
-                    <Button className="mt-4" onClick={handleCreateConfig}>
-                      <Plus className="mr-2 h-4 w-4" />
-                      Create Configuration
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="rounded-md border">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Name</TableHead>
-                          <TableHead>Type</TableHead>
-                          <TableHead>Value</TableHead>
-                          <TableHead>Referrals Required</TableHead>
-                          <TableHead>Applicable To</TableHead>
-                          <TableHead>Status</TableHead>
-                          <TableHead className="text-right">Actions</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {filteredConfigs.map((config) => {
-                          const typeConfig = rewardTypeConfig[config.reward_type];
-                          const TypeIcon = typeConfig.icon;
-                          return (
-                            <TableRow key={config.id}>
-                              <TableCell>
-                                <div className="font-medium">{config.name}</div>
-                                {config.description && (
-                                  <div className="text-xs text-muted-foreground line-clamp-1">
-                                    {config.description}
-                                  </div>
-                                )}
-                              </TableCell>
-                              <TableCell>
-                                <div className="flex items-center gap-2">
-                                  <TypeIcon className={`h-4 w-4 ${typeConfig.color}`} />
-                                  <span>{typeConfig.label}</span>
-                                </div>
-                              </TableCell>
-                              <TableCell className="font-medium">
-                                {formatRewardValue(config)}
-                              </TableCell>
-                              <TableCell>
-                                {config.min_referrals}
-                                {config.max_rewards_per_referrer ? ` - ${config.max_rewards_per_referrer}` : '+'}
-                              </TableCell>
-                              <TableCell>
-                                <Badge variant="outline" className="capitalize">
-                                  {config.referrer_types?.join(', ') || 'All'}
-                                </Badge>
-                              </TableCell>
-                              <TableCell>
-                                <Badge variant={config.is_active ? 'default' : 'secondary'}>
-                                  {config.is_active ? 'Active' : 'Inactive'}
-                                </Badge>
-                              </TableCell>
-                              <TableCell className="text-right">
-                                <DropdownMenu>
-                                  <DropdownMenuTrigger asChild>
-                                    <Button variant="ghost" size="icon">
-                                      <MoreHorizontal className="h-4 w-4" />
-                                    </Button>
-                                  </DropdownMenuTrigger>
-                                  <DropdownMenuContent align="end">
-                                    <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                                    <DropdownMenuSeparator />
-                                    <DropdownMenuItem onClick={() => handleEditConfig(config)}>
-                                      <Edit className="mr-2 h-4 w-4" />
-                                      Edit
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem onClick={() => handleToggleConfig(config)}>
-                                      <Power className="mr-2 h-4 w-4" />
-                                      {config.is_active ? 'Deactivate' : 'Activate'}
-                                    </DropdownMenuItem>
-                                    <DropdownMenuSeparator />
-                                    <DropdownMenuItem
-                                      onClick={() => setDeleteConfigDialog(config)}
-                                      className="text-destructive"
-                                    >
-                                      <Trash2 className="mr-2 h-4 w-4" />
-                                      Delete
-                                    </DropdownMenuItem>
-                                  </DropdownMenuContent>
-                                </DropdownMenu>
-                              </TableCell>
-                            </TableRow>
-                          );
-                        })}
-                      </TableBody>
-                    </Table>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+            {institutionId && (
+              <RewardsConfigDataTable
+                institutionId={institutionId}
+                onCreateConfig={handleCreateConfig}
+                onEditConfig={handleEditConfig}
+              />
+            )}
           </TabsContent>
 
           {/* Rewards Tab */}
@@ -697,8 +491,11 @@ export default function RewardsManagementPage() {
                     <SelectContent>
                       <SelectItem value="all">All Types</SelectItem>
                       <SelectItem value="discount">Discount</SelectItem>
+                      <SelectItem value="fee_discount">Fee Discount</SelectItem>
                       <SelectItem value="cashback">Cashback</SelectItem>
+                      <SelectItem value="cash">Cash</SelectItem>
                       <SelectItem value="credit">Credit</SelectItem>
+                      <SelectItem value="credits">Credits</SelectItem>
                       <SelectItem value="voucher">Voucher</SelectItem>
                       <SelectItem value="merchandise">Merchandise</SelectItem>
                     </SelectContent>
@@ -761,7 +558,7 @@ export default function RewardsManagementPage() {
                         </TableHeader>
                         <TableBody>
                           {filteredRewards.map((reward) => {
-                            const typeConfig = rewardTypeConfig[reward.reward_type];
+                            const typeConfig = rewardTypeConfig[reward.reward_type] || defaultTypeConfig;
                             const TypeIcon = typeConfig.icon;
                             const statusCfg = statusConfig[reward.status];
                             const StatusIcon = statusCfg.icon;
@@ -874,7 +671,7 @@ export default function RewardsManagementPage() {
 
       {/* Config Create/Edit Dialog */}
       <Dialog open={!!configDialog} onOpenChange={() => setConfigDialog(null)}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>
               {configDialog?.mode === 'create' ? 'Create' : 'Edit'} Reward Configuration
@@ -884,7 +681,7 @@ export default function RewardsManagementPage() {
             </DialogDescription>
           </DialogHeader>
           <Form {...form}>
-            <form onSubmit={form.handleSubmit(handleSubmitConfig)} className="space-y-4">
+            <form onSubmit={form.handleSubmit(handleSubmitConfig)} className="space-y-4 overflow-y-auto scroll-smooth flex-1 pr-1">
               <div className="grid gap-4 md:grid-cols-2">
                 <FormField
                   control={form.control}
@@ -914,8 +711,11 @@ export default function RewardsManagementPage() {
                         </FormControl>
                         <SelectContent>
                           <SelectItem value="discount">Discount</SelectItem>
+                          <SelectItem value="fee_discount">Fee Discount</SelectItem>
                           <SelectItem value="cashback">Cashback</SelectItem>
+                          <SelectItem value="cash">Cash</SelectItem>
                           <SelectItem value="credit">Credit</SelectItem>
+                          <SelectItem value="credits">Credits</SelectItem>
                           <SelectItem value="voucher">Voucher</SelectItem>
                           <SelectItem value="merchandise">Merchandise</SelectItem>
                         </SelectContent>
@@ -1298,37 +1098,6 @@ export default function RewardsManagementPage() {
             >
               {rejectMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Reject
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Delete Config Dialog */}
-      <Dialog open={!!deleteConfigDialog} onOpenChange={() => setDeleteConfigDialog(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle className="text-destructive">Delete Configuration</DialogTitle>
-            <DialogDescription>
-              Are you sure you want to delete this reward configuration? This action cannot be undone.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="p-4 bg-destructive/10 border border-destructive/20 rounded-lg">
-            <p className="font-medium">{deleteConfigDialog?.name}</p>
-            <p className="text-sm text-muted-foreground mt-1">
-              {deleteConfigDialog?.description || 'No description'}
-            </p>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteConfigDialog(null)}>
-              Cancel
-            </Button>
-            <Button
-              onClick={handleDeleteConfig}
-              disabled={deleteConfigMutation.isPending}
-              variant="destructive"
-            >
-              {deleteConfigMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Delete
             </Button>
           </DialogFooter>
         </DialogContent>
