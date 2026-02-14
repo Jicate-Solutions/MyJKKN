@@ -227,5 +227,6 @@
     "chrome-devtools",
     "next-devtools"
   ],
-  "hooks": {}
+  "hooks": {},
+  "outputStyle": "Explanatory"
 }
