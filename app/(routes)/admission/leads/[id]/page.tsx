@@ -1096,7 +1096,7 @@ function LeadDetailPageContent() {
                       <Tag className="h-4 w-4" />
                       Tags
                     </CardTitle>
-                    <Dialog open={showTagDialog} onOpenChange={setShowTagDialog}>
+                    <Dialog open={showTagDialog} onOpenChange={(open) => { setShowTagDialog(open); if (!open) setNewTag(''); }}>
                       <DialogTrigger asChild>
                         <Button variant="ghost" size="sm">
                           + Add
@@ -1157,7 +1157,7 @@ function LeadDetailPageContent() {
                 </CardHeader>
                 <CardContent className="space-y-2">
                   {/* Log Activity Button + Dialog */}
-                  <Dialog open={showActivityDialog} onOpenChange={setShowActivityDialog}>
+                  <Dialog open={showActivityDialog} onOpenChange={(open) => { setShowActivityDialog(open); if (!open) { setActivityType('note'); setActivitySubject(''); setActivityDescription(''); setActivityOutcome(''); } }}>
                     <DialogTrigger asChild>
                       <Button variant="outline" className="w-full justify-start" size="sm">
                         <Activity className="h-4 w-4 mr-2" />
@@ -1230,7 +1230,7 @@ function LeadDetailPageContent() {
                   </Dialog>
 
                   {/* Schedule Follow-up Button + Dialog */}
-                  <Dialog open={showFollowupDialog} onOpenChange={setShowFollowupDialog}>
+                  <Dialog open={showFollowupDialog} onOpenChange={(open) => { setShowFollowupDialog(open); if (!open) { setFollowupDate(''); setFollowupNotes(''); } }}>
                     <DialogTrigger asChild>
                       <Button variant="outline" className="w-full justify-start" size="sm">
                         <Calendar className="h-4 w-4 mr-2" />
@@ -1276,7 +1276,7 @@ function LeadDetailPageContent() {
                   </Dialog>
 
                   {/* Assign Counselor Dialog */}
-                  <Dialog open={showAssignCounselorDialog} onOpenChange={setShowAssignCounselorDialog}>
+                  <Dialog open={showAssignCounselorDialog} onOpenChange={(open) => { setShowAssignCounselorDialog(open); if (!open) setSelectedCounselorId(''); }}>
                     <DialogTrigger asChild>
                       <Button variant="outline" className="w-full justify-start" size="sm">
                         <User className="h-4 w-4 mr-2" />
@@ -1326,7 +1326,7 @@ function LeadDetailPageContent() {
                   </Dialog>
 
                   {/* Create Application Dialog */}
-                  <Dialog open={showCreateAppDialog} onOpenChange={setShowCreateAppDialog}>
+                  <Dialog open={showCreateAppDialog} onOpenChange={(open) => { setShowCreateAppDialog(open); if (!open) setSelectedProgramId(''); }}>
                     <DialogTrigger asChild>
                       <Button variant="outline" className="w-full justify-start" size="sm">
                         <Send className="h-4 w-4 mr-2" />

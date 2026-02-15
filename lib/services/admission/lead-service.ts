@@ -305,13 +305,36 @@ export class LeadService {
    * Delete a lead (soft delete by marking as lost)
    */
   static async deleteLead(id: string): Promise<void> {
+    const { data: { user } } = await (this.supabase as any).auth.getUser();
+
+    // Get current stage for history logging
+    const { data: current } = await (this.supabase as any).from('admission_leads')
+      .select('funnel_stage')
+      .eq('id', id)
+      .single();
+
+    const oldStage = current?.funnel_stage;
+
     const { error } = await (this.supabase as any).from('admission_leads')
-      .update({ funnel_stage: 'lost' as FunnelStage })
+      .update({
+        funnel_stage: 'lost' as FunnelStage,
+        is_lost: true,
+        lost_at: new Date().toISOString(),
+        is_active: false,
+        stage_changed_at: new Date().toISOString(),
+        previous_stage: oldStage || null,
+        updated_at: new Date().toISOString(),
+      })
       .eq('id', id);
 
     if (error) {
       console.error('[LeadService] Error deleting lead:', error);
       throw new Error(`Failed to delete lead: ${error.message}`);
+    }
+
+    // Log stage history
+    if (oldStage && oldStage !== 'lost') {
+      await this.logStageHistory(id, oldStage, 'lost', user?.id);
     }
   }
 
@@ -337,9 +360,8 @@ export class LeadService {
       updated_at: new Date().toISOString()
     };
 
-    // Set last_contact_at if moving from new to contacted
-    // Note: production DB uses last_contact_at, migration uses last_contacted_at
-    if (newStage === 'contacted' && current?.funnel_stage === 'new') {
+    // Set last_contact_at when moving to 'contacted' stage from any stage
+    if (newStage === 'contacted') {
       updateData.last_contact_at = new Date().toISOString();
     }
 
@@ -432,7 +454,7 @@ export class LeadService {
    * Toggle hot lead status
    */
   static async toggleHotLead(leadId: string, isHot: boolean): Promise<AdmissionLead> {
-    return this.updatePriority(leadId, isHot ? 'hot' : 'warm');
+    return this.updatePriority(leadId, isHot ? 'hot' : 'cold');
   }
 
   // ============================================================================
@@ -569,6 +591,7 @@ export class LeadService {
     const updatePayload: any = {
       next_followup_at: followupDate,
       last_contact_at: new Date().toISOString(),
+      last_activity_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     };
 

@@ -82,10 +82,13 @@ const INTEREST_LEVEL_CONFIG: Record<string, { color: string; label: string }> = 
   none: { color: 'bg-gray-100 text-gray-500 border-gray-200', label: 'None' },
 };
 
-// Parent decision status config
+// Parent decision status config - must match values from leads/new/page.tsx
 const PARENT_STATUS_CONFIG: Record<string, { icon: typeof CheckCircle2; color: string; label: string }> = {
   supportive: { icon: CheckCircle2, color: 'text-green-600', label: 'Parent Supportive' },
   considering: { icon: Clock, color: 'text-yellow-600', label: 'Parent Considering' },
+  neutral: { icon: Minus, color: 'text-gray-400', label: 'Parent Neutral' },
+  reluctant: { icon: Clock, color: 'text-orange-500', label: 'Parent Reluctant' },
+  opposed: { icon: XCircle, color: 'text-red-500', label: 'Parent Opposed' },
   against: { icon: XCircle, color: 'text-red-500', label: 'Parent Against' },
   not_involved: { icon: Minus, color: 'text-gray-400', label: 'Parent Not Involved' },
   unknown: { icon: HelpCircle, color: 'text-gray-400', label: 'Parent Status Unknown' },
@@ -261,10 +264,12 @@ export function FollowupCard({
             variant="outline"
             className="h-7 text-xs"
             onClick={() => {
+              if (!lead.phone) return;
               const phone = lead.phone.replace(/\D/g, '');
               const formattedPhone = phone.startsWith('91') ? phone : `91${phone}`;
               window.open(`https://wa.me/${formattedPhone}`, '_blank');
             }}
+            disabled={!lead.phone}
           >
             <MessageCircle className="h-3 w-3 mr-1" />
             WhatsApp

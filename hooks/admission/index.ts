@@ -390,6 +390,7 @@ export function useLeadMutations() {
     onSuccess: () => {
       toast.success('Tag added');
       queryClient.invalidateQueries({ queryKey: ['admission-lead'] });
+      queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
     },
     onError: (error: Error) => {
       toast.error(error.message || 'Failed to add tag');
@@ -403,6 +404,7 @@ export function useLeadMutations() {
     onSuccess: () => {
       toast.success('Tag removed');
       queryClient.invalidateQueries({ queryKey: ['admission-lead'] });
+      queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
     },
     onError: (error: Error) => {
       toast.error(error.message || 'Failed to remove tag');
@@ -434,6 +436,7 @@ export function useLeadMutations() {
       toast.success('Counselor assigned');
       queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
       queryClient.invalidateQueries({ queryKey: ['admission-lead'] });
+      queryClient.invalidateQueries({ queryKey: ['counselor-performance'] });
     },
     onError: (error: Error) => {
       toast.error(error.message || 'Failed to assign counselor');

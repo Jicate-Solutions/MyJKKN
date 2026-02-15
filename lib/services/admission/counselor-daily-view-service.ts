@@ -197,10 +197,25 @@ export class CounselorDailyViewService {
    * Quick reschedule follow-up
    */
   static async rescheduleFollowup(leadId: string, newDate: string): Promise<void> {
+    const { data: { user } } = await (this.supabase as any).auth.getUser();
+
+    // Log reschedule as activity for audit trail
+    await (this.supabase as any)
+      .from('admission_lead_activities')
+      .insert({
+        lead_id: leadId,
+        activity_type: 'task',
+        title: 'Follow-up Rescheduled',
+        description: `Follow-up rescheduled to ${new Date(newDate).toLocaleDateString()}`,
+        metadata: { scheduled_at: newDate },
+        performed_by: user?.id || null,
+      });
+
     const { error } = await (this.supabase as any)
       .from('admission_leads')
       .update({
         next_followup_at: newDate,
+        last_activity_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       })
       .eq('id', leadId);
@@ -233,13 +248,17 @@ export class CounselorDailyViewService {
     }
 
     // Update last_activity_at on lead
-    await (this.supabase as any)
+    const { error: updateError } = await (this.supabase as any)
       .from('admission_leads')
       .update({
         last_activity_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       })
       .eq('id', leadId);
+
+    if (updateError) {
+      console.error('[CounselorDailyViewService] Error updating lead timestamp:', updateError);
+    }
   }
 
   /**
@@ -264,7 +283,7 @@ export class CounselorDailyViewService {
     }
 
     // Update contact timestamps
-    await (this.supabase as any)
+    const { error: updateError } = await (this.supabase as any)
       .from('admission_leads')
       .update({
         last_contact_at: new Date().toISOString(),
@@ -272,6 +291,10 @@ export class CounselorDailyViewService {
         updated_at: new Date().toISOString(),
       })
       .eq('id', leadId);
+
+    if (updateError) {
+      console.error('[CounselorDailyViewService] Error updating lead timestamps:', updateError);
+    }
   }
 
   /**
@@ -311,7 +334,7 @@ export class CounselorDailyViewService {
     }
 
     // Log stage change in history
-    await (this.supabase as any)
+    const { error: historyError } = await (this.supabase as any)
       .from('admission_lead_stage_history')
       .insert({
         lead_id: leadId,
@@ -320,8 +343,12 @@ export class CounselorDailyViewService {
         changed_by: user?.id || null,
       });
 
+    if (historyError) {
+      console.error('[CounselorDailyViewService] Error logging stage history:', historyError);
+    }
+
     // Log activity
-    await (this.supabase as any)
+    const { error: activityError } = await (this.supabase as any)
       .from('admission_lead_activities')
       .insert({
         lead_id: leadId,
@@ -330,6 +357,10 @@ export class CounselorDailyViewService {
         description: `Stage changed from ${oldStage} to ${newStage}`,
         performed_by: user?.id || null,
       });
+
+    if (activityError) {
+      console.error('[CounselorDailyViewService] Error logging stage activity:', activityError);
+    }
   }
 
   /**
