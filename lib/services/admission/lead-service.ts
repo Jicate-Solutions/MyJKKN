@@ -332,6 +332,8 @@ export class LeadService {
 
     const updateData: any = {
       funnel_stage: newStage,
+      stage_changed_at: new Date().toISOString(),
+      previous_stage: current?.funnel_stage || null,
       updated_at: new Date().toISOString()
     };
 

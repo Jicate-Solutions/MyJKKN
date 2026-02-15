@@ -181,6 +181,7 @@ export class CounselorDailyViewService {
       .from('admission_leads')
       .update({
         counselor_id: counselorId,
+        assigned_counselor_id: counselorId,
         assigned_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       })

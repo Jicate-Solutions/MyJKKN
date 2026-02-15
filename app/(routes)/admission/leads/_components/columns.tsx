@@ -12,6 +12,10 @@ import { DataTableRowActions } from './row-actions';
 export const FUNNEL_STAGES = [
   { value: 'new', label: 'New' },
   { value: 'contacted', label: 'Contacted' },
+  { value: 'not_reachable', label: 'Not Reachable' },
+  { value: 'interested', label: 'Interested' },
+  { value: 'follow_up_scheduled', label: 'Follow-up Scheduled' },
+  { value: 'engaged', label: 'Engaged' },
   { value: 'qualified', label: 'Qualified' },
   { value: 'application_started', label: 'Application Started' },
   { value: 'application_submitted', label: 'Application Submitted' },
@@ -22,14 +26,22 @@ export const FUNNEL_STAGES = [
   { value: 'offer_sent', label: 'Offer Sent' },
   { value: 'offer_accepted', label: 'Offer Accepted' },
   { value: 'token_paid', label: 'Token Paid' },
+  { value: 'applied', label: 'Applied' },
+  { value: 'interviewed', label: 'Interviewed' },
+  { value: 'offered', label: 'Offered' },
   { value: 'enrolled', label: 'Enrolled' },
-  { value: 'lost', label: 'Lost' }
+  { value: 'lost', label: 'Lost' },
+  { value: 'dormant', label: 'Dormant' }
 ];
 
 export function getStageColor(stage: string | null): string {
   const colors: Record<string, string> = {
     new: 'bg-blue-100 text-blue-800',
     contacted: 'bg-indigo-100 text-indigo-800',
+    not_reachable: 'bg-slate-100 text-slate-800',
+    interested: 'bg-sky-100 text-sky-800',
+    follow_up_scheduled: 'bg-violet-100 text-violet-800',
+    engaged: 'bg-fuchsia-100 text-fuchsia-800',
     qualified: 'bg-purple-100 text-purple-800',
     application_started: 'bg-pink-100 text-pink-800',
     application_submitted: 'bg-rose-100 text-rose-800',
@@ -40,8 +52,12 @@ export function getStageColor(stage: string | null): string {
     offer_sent: 'bg-green-100 text-green-800',
     offer_accepted: 'bg-emerald-100 text-emerald-800',
     token_paid: 'bg-teal-100 text-teal-800',
+    applied: 'bg-violet-100 text-violet-800',
+    interviewed: 'bg-rose-100 text-rose-800',
+    offered: 'bg-orange-100 text-orange-800',
     enrolled: 'bg-cyan-100 text-cyan-800',
-    lost: 'bg-gray-100 text-gray-800'
+    lost: 'bg-gray-100 text-gray-800',
+    dormant: 'bg-stone-100 text-stone-800'
   };
   return colors[stage || 'new'] || 'bg-gray-100 text-gray-800';
 }
