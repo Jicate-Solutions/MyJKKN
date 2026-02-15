@@ -383,14 +383,18 @@ created_by            UUID
 
 These were discovered during P1 verification. Services may still reference wrong column names:
 
-| What Code Says | What DB Actually Has | Fix |
-|----------------|---------------------|-----|
-| `priority` (enum) | `is_hot_lead` (bool) + `is_priority` (bool) | Use two booleans |
-| `program_interest` | `interested_programs` (text[]) | Use correct name |
-| `funnel_stage` (text, 13 vals) | `stage` (enum, 19 vals) also exists | Clarify which to use — enum has more granular stages (documents_pending, token_paid, etc.) |
-| `is_duplicate` | DOES NOT EXIST | Not in schema |
-| `duplicate_of` | DOES NOT EXIST | Not in schema |
-| `type` (on templates) | `channel` (sms/email/whatsapp) | Use `channel` |
+| What Code Says | What DB Actually Has | Fix | Status |
+|----------------|---------------------|-----|--------|
+| `priority` (enum) | `is_hot_lead` (bool) + `is_priority` (bool) | Use two booleans | OPEN |
+| `program_interest` | `interested_programs` (text[]) | Use correct name | OPEN |
+| `funnel_stage` (text, 13 vals) | `stage` (enum, 19 vals) also exists | Clarify which to use — enum has more granular stages | OPEN |
+| `is_duplicate` | DOES NOT EXIST | Not in schema | OPEN |
+| `duplicate_of` | DOES NOT EXIST | Not in schema | OPEN |
+| `type` (on templates) | `channel` (sms/email/whatsapp) | Use `channel` | OPEN |
+
+**DB-Verified (2026-02-15):** The `admission_lead_stage` enum has exactly 19 values: new, contacted, engaged, qualified, application_started, application_submitted, documents_pending, documents_verified, interview_scheduled, interview_completed, offer_sent, offer_accepted, token_paid, applied, interviewed, offered, enrolled, lost, dormant.
+
+**JKKN wants 11 stages:** New → Contacted → Not Reachable → Interested → Not Interested → Follow-up Scheduled → Hot → Warm → Cold → Dropped → Converted to Applicant. Three of these (`not_reachable`, `interested`, `follow_up_scheduled`) are NOT in the current enum. Hot/Warm/Cold are implemented as `score_category` VARCHAR, not as stages.
 
 **Pattern:** All services may reference non-existent columns. Every service must be audited against actual DB schema during P1.
 
