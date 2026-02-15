@@ -402,10 +402,14 @@ These were discovered during P1 verification. Services may still reference wrong
 
 | Table | Key Info |
 |-------|----------|
-| `admission_counselors` | Simple: id, name, email, institution_id, created_at (5 cols only) |
-| `education_consultants` | Separate from counselors. ConsultantService uses this table |
+| `admission_counselors` | 7 columns: id, name, email, institution_id, created_at, user_id, is_active (NOT 5 as previously stated) |
+| `education_consultants` | Separate from counselors. 50+ columns including bank_name, bank_account_number, bank_ifsc, bank_branch, upi_id, pan_number (financial details EXIST) |
 | `admission_communication_templates` | Uses `channel` column (NOT `type`) for sms/email/whatsapp |
 | `admission_scoring_rules` | Has flat columns (field, operator, value, points) AND `criteria` JSONB |
+| `admission_payments` | Has `fee_breakdown JSONB`, `payment_type` enum (application_fee, token_fee, full_fee, hostel_fee, other), discount fields, scholarship linking |
+| `admission_workflow_configs` | Has quota config: has_government_quota, has_management_quota, has_nri_quota, quota_config JSONB, merit_criteria JSONB |
+| `admission_tasks` | Task management for leads: task_type enum, priority, due_at, reminder_at, outcome tracking |
+| `admission_process_metrics` | Materialized view: monthly aggregates for conversion rate, cycle time, response time, SLA compliance |
 
 ---
 
