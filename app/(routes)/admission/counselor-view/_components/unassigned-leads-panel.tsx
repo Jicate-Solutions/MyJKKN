@@ -137,6 +137,19 @@ export function UnassignedLeadsPanel({
                   </span>
                 ) : null}
               </div>
+              {lead.student_interest_level && lead.student_interest_level !== 'none' && (
+                <Badge
+                  variant="outline"
+                  className={`text-[10px] px-1.5 py-0 ${
+                    lead.student_interest_level === 'very_high' ? 'bg-green-50 text-green-700 border-green-200' :
+                    lead.student_interest_level === 'high' ? 'bg-blue-50 text-blue-700 border-blue-200' :
+                    lead.student_interest_level === 'medium' ? 'bg-yellow-50 text-yellow-700 border-yellow-200' :
+                    'bg-orange-50 text-orange-700 border-orange-200'
+                  }`}
+                >
+                  {lead.student_interest_level.replace('_', ' ')}
+                </Badge>
+              )}
               {lead.source && (
                 <Badge variant="outline" className="text-[10px] px-1.5 py-0">
                   {lead.source}

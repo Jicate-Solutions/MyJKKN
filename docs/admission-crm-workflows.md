@@ -2,7 +2,7 @@
 
 > **Last Updated:** 2026-02-15
 > **Module:** Admission CRM (`/admission/*`)
-> **Services:** 43 files | **Routes:** 49 pages | **Hooks:** 35 files | **Tables:** 23 admission + 8 consultant + 13 hostel + 2 scholarship = **46 tables** | **Workflows:** 61
+> **Services:** 43 files | **Routes:** 49 pages | **Hooks:** 35 files | **Tables:** 23 admission + 8 consultant + 13 hostel + 2 scholarship + 1 transport = **47 tables** | **Workflows:** 61
 > **Status:** Phase 0 COMPLETE (Supabase wiring) | Phase 1 IN PROGRESS (Verification & Repair)
 
 ---
@@ -31,21 +31,25 @@
 | Consultant System | 8 tables + 2 views | education_consultants, consultant_commission_*, consultant_communications, etc. |
 | Hostel System | 13 tables + 2 views | hostels, hostel_rooms, hostel_beds, hostel_allocations, etc. |
 | Scholarship | 2 tables | scholarships, scholarship_applications |
-| **Total** | **46 tables + 4 views** | |
+| Transport | 1 table | transport_allocations (added 2026-02-15) |
+| **Total** | **47 tables + 4 views** | |
 
-### Confirmed Missing Items (25 — JKKN Requirements Not in DB)
+### Previously Missing Items (NOW RESOLVED — Tier 1 Migration Applied 2026-02-15)
 
-#### Priority: HIGH (Counselor Daily Workflow)
-| # | Missing Item | Table | Fix Effort |
-|---|-------------|-------|------------|
-| 1 | `academic_year` on leads (exists on applications, NOT on leads) | admission_leads | ALTER TABLE |
-| 2 | `student_interest_level` field | admission_leads | ALTER TABLE |
-| 3 | `parent_decision_status` field | admission_leads | ALTER TABLE |
-| 4 | Lead stage: `not_reachable` | admission_lead_stage enum | ALTER TYPE |
-| 5 | Lead stage: `interested` | admission_lead_stage enum | ALTER TYPE |
-| 6 | Lead stage: `follow_up_scheduled` | admission_lead_stage enum | ALTER TYPE |
+> All 3 tiers of missing items were identified and Tier 1 (HIGH priority) was applied via migration on 2026-02-15.
+> Tier 2 (MEDIUM) and Tier 3 (LOW) remain pending for future sprints.
 
-#### Priority: MEDIUM (Application & Enrollment)
+#### Tier 1: HIGH Priority — COMPLETED (Migration Applied 2026-02-15)
+| # | Item | Table | Status |
+|---|------|-------|--------|
+| 1 | `academic_year` column on leads | admission_leads | MIGRATED |
+| 2 | `student_interest_level` column | admission_leads | MIGRATED |
+| 3 | `parent_decision_status` column | admission_leads | MIGRATED |
+| 4 | Lead stage: `not_reachable` | admission_lead_stage enum | MIGRATED |
+| 5 | Lead stage: `interested` | admission_lead_stage enum | MIGRATED |
+| 6 | Lead stage: `follow_up_scheduled` | admission_lead_stage enum | MIGRATED |
+
+#### Tier 2: MEDIUM Priority — Pending
 | # | Missing Item | Table | Fix Effort |
 |---|-------------|-------|------------|
 | 7 | `quota`/`seat_type` on individual applications (exists at workflow config level only) | admission_applications | ALTER TABLE |
@@ -58,7 +62,7 @@
 | 14 | Multi-level scholarship approval workflow | scholarship_applications | New columns/table |
 | 15 | Auto fee deduction for scholarships | admission_payments | Logic, not schema |
 
-#### Priority: LOW (Reporting & Admin)
+#### Tier 3: LOW Priority — Pending
 | # | Missing Item | Where | Fix Effort |
 |---|-------------|-------|------------|
 | 16 | Revenue on admin dashboard | Dashboard UI | Query + UI |
@@ -70,14 +74,14 @@
 | 22 | Counselor phone number | admission_counselors | ALTER TABLE |
 | 23 | ID card generated flag | admissions | ALTER TABLE |
 | 24 | LMS access given flag | admissions | ALTER TABLE |
-| 25 | Transport allocation | ZERO tables exist | New table design |
+| 25 | Transport allocation | transport_allocations (NEW table created 2026-02-15) | MIGRATED |
 
 ### Over-Engineered Items (Built But Not Requested by JKKN)
 - 33-column `consultant_commission_transactions` (JKKN wants simple fixed-amount commissions)
 - 5-tier consultant system (bronze→diamond) via `consultant_tier` enum
 - 13 hostel tables (comprehensive but not requested in admission requirements)
 - AI briefing/drip/insight tables (6 AI workflows, 0 user requests)
-- 8 extra lead stages beyond what JKKN counselors use
+- Lead stages: 22 total (19 original + 3 JKKN-specific added 2026-02-15). JKKN counselors primarily use ~8 stages; the rest support advanced workflows
 
 ---
 
@@ -317,7 +321,7 @@ Pages identified as PARTIAL that need completion:
 
 # DATABASE SCHEMA REFERENCE
 
-## `admission_leads` Table (56 columns — DB-verified 2026-02-15)
+## `admission_leads` Table (59 columns — DB-verified 2026-02-15, updated with Tier-1 migration)
 
 The central table. Every service touches this. **Note:** `interested_programs` is `UUID[]` in DB (not TEXT[] as previously documented).
 
@@ -339,10 +343,13 @@ district              TEXT
 pincode               TEXT
 notes                 TEXT
 entry_date            TIMESTAMPTZ
-funnel_stage          TEXT (new/contacted/engaged/qualified/application_started/application_submitted/under_review/interview_scheduled/offered/accepted/enrolled/lost/dormant)
-stage                 ENUM `admission_lead_stage` (19 values: new/contacted/engaged/qualified/applied/application_started/application_submitted/documents_pending/documents_verified/interview_scheduled/interview_completed/interviewed/offered/offer_sent/offer_accepted/token_paid/enrolled/lost/dormant)
+funnel_stage          TEXT (new/contacted/not_reachable/interested/follow_up_scheduled/engaged/qualified/application_started/application_submitted/under_review/interview_scheduled/offered/accepted/enrolled/lost/dormant)
+stage                 ENUM `admission_lead_stage` (22 values: new/contacted/not_reachable/interested/follow_up_scheduled/engaged/qualified/applied/application_started/application_submitted/documents_pending/documents_verified/interview_scheduled/interview_completed/interviewed/offered/offer_sent/offer_accepted/token_paid/enrolled/lost/dormant)
 stage_changed_at      TIMESTAMPTZ
 previous_stage        ENUM `admission_lead_stage`
+student_interest_level TEXT (very_high/high/medium/low/none) -- Added 2026-02-15, Tier-1 migration
+parent_decision_status TEXT (supportive/considering/against/not_involved/unknown) -- Added 2026-02-15, Tier-1 migration
+academic_year         TEXT (e.g., "2025-26") -- Added 2026-02-15, Tier-1 migration
 counselor_id          UUID (FK)
 assigned_counselor_id UUID (FK)
 assigned_at           TIMESTAMPTZ
@@ -395,7 +402,7 @@ These were discovered during P1 verification. Services may still reference wrong
 | `duplicate_of` | DOES NOT EXIST | Not in schema | OPEN |
 | `type` (on templates) | `channel` (sms/email/whatsapp) | Use `channel` | OPEN |
 
-**DB-Verified (2026-02-15):** The `admission_lead_stage` enum has exactly 19 values: new, contacted, engaged, qualified, application_started, application_submitted, documents_pending, documents_verified, interview_scheduled, interview_completed, offer_sent, offer_accepted, token_paid, applied, interviewed, offered, enrolled, lost, dormant.
+**DB-Verified (2026-02-15, updated):** The `admission_lead_stage` enum has exactly **22 values** (19 original + 3 JKKN-specific added via Tier-1 migration): new, contacted, **not_reachable**, **interested**, **follow_up_scheduled**, engaged, qualified, application_started, application_submitted, documents_pending, documents_verified, interview_scheduled, interview_completed, offer_sent, offer_accepted, token_paid, applied, interviewed, offered, enrolled, lost, dormant.
 
 **JKKN wants 11 stages:** New → Contacted → Not Reachable → Interested → Not Interested → Follow-up Scheduled → Hot → Warm → Cold → Dropped → Converted to Applicant. Three of these (`not_reachable`, `interested`, `follow_up_scheduled`) are NOT in the current enum. Hot/Warm/Cold are implemented as `score_category` VARCHAR, not as stages.
 

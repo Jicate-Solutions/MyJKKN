@@ -21,6 +21,10 @@ export type LeadSource =
 export type FunnelStage =
   | 'new'
   | 'contacted'
+  | 'not_reachable'
+  | 'interested'
+  | 'follow_up_scheduled'
+  | 'engaged'
   | 'qualified'
   | 'application_started'
   | 'application_submitted'
@@ -31,8 +35,12 @@ export type FunnelStage =
   | 'offer_sent'
   | 'offer_accepted'
   | 'token_paid'
+  | 'applied'
+  | 'interviewed'
+  | 'offered'
   | 'enrolled'
-  | 'lost';
+  | 'lost'
+  | 'dormant';
 
 export type LeadPriority = 'hot' | 'warm' | 'cold';
 
@@ -116,20 +124,26 @@ export interface AdmissionLead {
   full_name: string;
   email: string | null;
   phone: string;
-  // FIX: alternate_phone, date_of_birth, gender, address, city, state,
-  // pincode, country do not exist in admission_leads table - removed
+  // Personal details
+  alternate_phone: string | null;
+  date_of_birth: string | null;
+  gender: string | null;
+  address_line1: string | null;
+  city: string | null;
+  state: string | null;
+  district: string | null;
+  pincode: string | null;
 
   // Academic details
-  // FIX: program_interest does not exist in DB → use interested_programs (text array)
   interested_programs: string[] | null;
   preferred_campus: string | null;
+  academic_year: string | null;
 
   // Source & Attribution
   source: LeadSource;
 
   // Status & Scoring
   funnel_stage: FunnelStage;
-  // DB stores is_hot_lead + is_priority booleans; service layer computes priority
   is_hot_lead: boolean;
   is_priority: boolean;
   // Virtual/computed field: populated by LeadService.normalizeLead() from is_hot_lead/is_priority
@@ -143,14 +157,17 @@ export interface AdmissionLead {
   score_breakdown: Record<string, unknown> | null;
   conversion_probability: number | null;
 
+  // JKKN Tier-1 fields
+  student_interest_level: string | null;
+  parent_decision_status: string | null;
+
   // Assignment
   counselor_id: string | null;
   assigned_at: string | null;
   assigned_counselor_id: string | null;
   ownership_mode: string | null;
-  // FIX: last_contacted_at does not exist → correct column is last_contact_at
   last_contact_at: string | null;
-  // FIX: next_followup_at does not exist in DB - removed
+  next_followup_at: string | null;
   last_activity_at: string | null;
 
   // Communication
@@ -165,16 +182,19 @@ export interface AdmissionLead {
   parent_email: string | null;
   parent_opted_in: boolean | null;
 
+  // Notes
+  notes: string | null;
+
   // Metadata
   learner_profile_id: string | null;
   tags: string[];
-  // FIX: is_duplicate and duplicate_of do not exist in DB - removed
   is_active: boolean;
   is_dormant: boolean | null;
   dormant_at: string | null;
   is_lost: boolean | null;
   lost_reason: string | null;
   lost_at: string | null;
+  entry_date: string | null;
   stage: string | null;
   stage_changed_at: string | null;
   previous_stage: string | null;
@@ -202,6 +222,7 @@ export interface CreateLeadInput {
   pincode?: string | null;
   interested_programs?: string[] | null;
   preferred_campus?: string | null;
+  academic_year?: string | null;
   source: LeadSource;
   tags?: string[];
   counselor_id?: string | null;
@@ -210,17 +231,23 @@ export interface CreateLeadInput {
   parent_phone?: string | null;
   parent_email?: string | null;
   entry_date?: string | null;
+  notes?: string | null;
+  // JKKN Tier-1 fields
+  student_interest_level?: string | null;
+  parent_decision_status?: string | null;
 }
 
 export interface UpdateLeadInput extends Partial<CreateLeadInput> {
   id: string;
   funnel_stage?: FunnelStage;
-  // FIX: priority enum does not exist → use is_hot_lead + is_priority booleans
   is_hot_lead?: boolean;
   is_priority?: boolean;
   counselor_id?: string | null;
-  // FIX: next_followup_at does not exist in DB - removed
+  next_followup_at?: string | null;
   last_contact_at?: string | null;
+  student_interest_level?: string | null;
+  parent_decision_status?: string | null;
+  academic_year?: string | null;
 }
 
 export interface LeadFilters {

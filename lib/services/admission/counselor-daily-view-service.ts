@@ -33,6 +33,10 @@ export interface FollowupLead {
   urgency: 'overdue' | 'today' | 'upcoming';
   counselor_id?: string;
   counselor_name?: string;
+  source: string | null;
+  student_interest_level: string | null;
+  parent_decision_status: string | null;
+  academic_year: string | null;
   last_activity: {
     type: string;
     description: string;
@@ -75,6 +79,9 @@ export interface UnassignedLead {
   score: number | null;
   created_at: string;
   funnel_stage: string;
+  student_interest_level: string | null;
+  parent_decision_status: string | null;
+  academic_year: string | null;
 }
 
 // ============================================================================
@@ -151,7 +158,7 @@ export class CounselorDailyViewService {
   static async getUnassignedLeads(institutionId: string): Promise<UnassignedLead[]> {
     const { data, error } = await (this.supabase as any)
       .from('admission_leads')
-      .select('id, full_name, phone, email, interested_programs, source, score, created_at, funnel_stage')
+      .select('id, full_name, phone, email, interested_programs, source, score, created_at, funnel_stage, student_interest_level, parent_decision_status, academic_year')
       .eq('institution_id', institutionId)
       .is('counselor_id', null)
       .eq('funnel_stage', 'new')

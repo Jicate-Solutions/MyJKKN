@@ -6,6 +6,10 @@ import type { PipelineStage } from '@/lib/services/admission/counselor-daily-vie
 const STAGE_LABELS: Record<string, string> = {
   new: 'New',
   contacted: 'Contacted',
+  not_reachable: 'Not Reachable',
+  interested: 'Interested',
+  follow_up_scheduled: 'Follow-up Set',
+  engaged: 'Engaged',
   qualified: 'Qualified',
   application_started: 'App Started',
   application_submitted: 'App Submitted',
@@ -16,18 +20,29 @@ const STAGE_LABELS: Record<string, string> = {
   offer_sent: 'Offer Sent',
   offer_accepted: 'Offer Accepted',
   token_paid: 'Token Paid',
+  applied: 'Applied',
+  interviewed: 'Interviewed',
+  offered: 'Offered',
   enrolled: 'Enrolled',
+  lost: 'Lost',
+  dormant: 'Dormant',
 };
 
 const STAGE_ORDER = [
-  'new', 'contacted', 'qualified', 'application_started', 'application_submitted',
+  'new', 'contacted', 'not_reachable', 'interested', 'follow_up_scheduled',
+  'engaged', 'qualified', 'application_started', 'application_submitted',
   'documents_pending', 'documents_verified', 'interview_scheduled',
-  'interview_completed', 'offer_sent', 'offer_accepted', 'token_paid', 'enrolled',
+  'interview_completed', 'offer_sent', 'offer_accepted', 'token_paid',
+  'applied', 'interviewed', 'offered', 'enrolled', 'lost', 'dormant',
 ];
 
 const STAGE_COLORS: Record<string, string> = {
   new: 'bg-gray-200 text-gray-700',
   contacted: 'bg-blue-100 text-blue-700',
+  not_reachable: 'bg-red-100 text-red-700',
+  interested: 'bg-green-100 text-green-700',
+  follow_up_scheduled: 'bg-sky-100 text-sky-700',
+  engaged: 'bg-cyan-100 text-cyan-700',
   qualified: 'bg-cyan-100 text-cyan-700',
   application_started: 'bg-indigo-100 text-indigo-700',
   application_submitted: 'bg-violet-100 text-violet-700',
@@ -38,7 +53,12 @@ const STAGE_COLORS: Record<string, string> = {
   offer_sent: 'bg-orange-100 text-orange-700',
   offer_accepted: 'bg-lime-100 text-lime-700',
   token_paid: 'bg-emerald-100 text-emerald-700',
+  applied: 'bg-violet-100 text-violet-700',
+  interviewed: 'bg-rose-100 text-rose-700',
+  offered: 'bg-orange-100 text-orange-700',
   enrolled: 'bg-green-200 text-green-800',
+  lost: 'bg-red-200 text-red-800',
+  dormant: 'bg-gray-300 text-gray-700',
 };
 
 interface MiniPipelineProps {

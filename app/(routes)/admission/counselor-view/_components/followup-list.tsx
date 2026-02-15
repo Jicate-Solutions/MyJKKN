@@ -46,20 +46,13 @@ export function FollowupList({
   });
 
   if (leads.length === 0) {
-    return (
-      <div className="text-center py-8 text-muted-foreground">
-        <p className="text-sm">No follow-ups scheduled.</p>
-        <p className="text-xs mt-1">Great job staying on top of things!</p>
-      </div>
-    );
+    return null;
   }
 
   return (
     <div>
       <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-semibold">
-          Follow-ups ({leads.length})
-        </h3>
+        <span className="text-xs text-muted-foreground">{leads.length} leads</span>
         <div className="flex items-center gap-1">
           {(['urgency', 'name', 'score'] as SortMode[]).map((mode) => (
             <Button

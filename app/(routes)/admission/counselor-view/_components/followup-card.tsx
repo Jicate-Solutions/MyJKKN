@@ -17,6 +17,12 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover';
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
+import {
   Phone,
   MessageCircle,
   ChevronDown,
@@ -26,19 +32,29 @@ import {
   Star,
   Clock,
   AlertTriangle,
+  CheckCircle2,
+  XCircle,
+  HelpCircle,
+  Minus,
 } from 'lucide-react';
 import type { FollowupLead } from '@/lib/services/admission/counselor-daily-view-service';
 
-// Forward-only stages for advancement
+// Complete stage order including new JKKN stages
 const STAGE_ORDER = [
-  'new', 'contacted', 'qualified', 'application_started', 'application_submitted',
+  'new', 'contacted', 'not_reachable', 'interested', 'follow_up_scheduled',
+  'engaged', 'qualified', 'application_started', 'application_submitted',
   'documents_pending', 'documents_verified', 'interview_scheduled',
-  'interview_completed', 'offer_sent', 'offer_accepted', 'token_paid', 'enrolled',
+  'interview_completed', 'offer_sent', 'offer_accepted', 'token_paid',
+  'applied', 'interviewed', 'offered', 'enrolled', 'lost', 'dormant',
 ];
 
 const STAGE_LABELS: Record<string, string> = {
   new: 'New',
   contacted: 'Contacted',
+  not_reachable: 'Not Reachable',
+  interested: 'Interested',
+  follow_up_scheduled: 'Follow-up Set',
+  engaged: 'Engaged',
   qualified: 'Qualified',
   application_started: 'App Started',
   application_submitted: 'App Submitted',
@@ -49,7 +65,30 @@ const STAGE_LABELS: Record<string, string> = {
   offer_sent: 'Offer Sent',
   offer_accepted: 'Offer Accepted',
   token_paid: 'Token Paid',
+  applied: 'Applied',
+  interviewed: 'Interviewed',
+  offered: 'Offered',
   enrolled: 'Enrolled',
+  lost: 'Lost',
+  dormant: 'Dormant',
+};
+
+// Interest level badge config
+const INTEREST_LEVEL_CONFIG: Record<string, { color: string; label: string }> = {
+  very_high: { color: 'bg-green-100 text-green-700 border-green-200', label: 'Very High' },
+  high: { color: 'bg-blue-100 text-blue-700 border-blue-200', label: 'High' },
+  medium: { color: 'bg-yellow-100 text-yellow-700 border-yellow-200', label: 'Medium' },
+  low: { color: 'bg-orange-100 text-orange-700 border-orange-200', label: 'Low' },
+  none: { color: 'bg-gray-100 text-gray-500 border-gray-200', label: 'None' },
+};
+
+// Parent decision status config
+const PARENT_STATUS_CONFIG: Record<string, { icon: typeof CheckCircle2; color: string; label: string }> = {
+  supportive: { icon: CheckCircle2, color: 'text-green-600', label: 'Parent Supportive' },
+  considering: { icon: Clock, color: 'text-yellow-600', label: 'Parent Considering' },
+  against: { icon: XCircle, color: 'text-red-500', label: 'Parent Against' },
+  not_involved: { icon: Minus, color: 'text-gray-400', label: 'Parent Not Involved' },
+  unknown: { icon: HelpCircle, color: 'text-gray-400', label: 'Parent Status Unknown' },
 };
 
 interface FollowupCardProps {
@@ -74,6 +113,7 @@ export function FollowupCard({
   const [rescheduleDate, setRescheduleDate] = useState('');
 
   const currentStageIdx = STAGE_ORDER.indexOf(lead.funnel_stage);
+  // Only show forward stages that aren't terminal (lost/dormant shown separately)
   const forwardStages = STAGE_ORDER.slice(currentStageIdx + 1);
 
   const urgencyConfig = {
@@ -100,6 +140,14 @@ export function FollowupCard({
       })
     : null;
 
+  const interestConfig = lead.student_interest_level
+    ? INTEREST_LEVEL_CONFIG[lead.student_interest_level]
+    : null;
+
+  const parentConfig = lead.parent_decision_status
+    ? PARENT_STATUS_CONFIG[lead.parent_decision_status]
+    : null;
+
   const handleSubmitNote = () => {
     if (noteText.trim()) {
       onAddNote(lead.id, noteText.trim());
@@ -118,13 +166,32 @@ export function FollowupCard({
   return (
     <Card className={`transition-colors ${lead.urgency === 'overdue' ? 'border-red-200' : ''}`}>
       <CardContent className="p-4">
-        {/* Top row: Name, program, stage */}
+        {/* Top row: Name, indicators, stage */}
         <div className="flex items-start justify-between gap-2 mb-2">
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
               {lead.is_hot_lead && <Flame className="h-4 w-4 text-orange-500 flex-shrink-0" />}
               {lead.is_priority && !lead.is_hot_lead && <Star className="h-4 w-4 text-yellow-500 flex-shrink-0" />}
               <span className="font-semibold text-sm truncate">{lead.full_name}</span>
+              {/* Interest level badge */}
+              {interestConfig && (
+                <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${interestConfig.color}`}>
+                  {interestConfig.label}
+                </Badge>
+              )}
+              {/* Parent decision indicator */}
+              {parentConfig && (
+                <TooltipProvider delayDuration={200}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <parentConfig.icon className={`h-3.5 w-3.5 flex-shrink-0 ${parentConfig.color}`} />
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="text-xs">
+                      {parentConfig.label}
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              )}
             </div>
             <div className="flex items-center gap-2 mt-0.5">
               {programDisplay && (
@@ -133,6 +200,9 @@ export function FollowupCard({
               <Badge variant="outline" className="text-[10px] px-1.5 py-0">
                 {STAGE_LABELS[lead.funnel_stage] || lead.funnel_stage}
               </Badge>
+              {lead.source && (
+                <span className="text-[10px] text-muted-foreground">via {lead.source}</span>
+              )}
             </div>
           </div>
           <div className="flex items-center gap-1 flex-shrink-0">
@@ -206,7 +276,7 @@ export function FollowupCard({
                 <ChevronDown className="h-3 w-3 ml-1" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start">
+            <DropdownMenuContent align="start" className="max-h-[300px] overflow-y-auto">
               {forwardStages.map((stage) => (
                 <DropdownMenuItem
                   key={stage}

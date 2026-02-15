@@ -703,7 +703,7 @@ export function useCounselorPerformance(institutionId?: string, dateRange?: any)
       // Get leads grouped by counselor
       let leadsQuery = (supabase as any)
         .from('admission_leads')
-        .select('counselor_id, funnel_stage, score, is_hot_lead, total_messages_sent, created_at, counselor:admission_counselors(id, name, email)')
+        .select('counselor_id, stage, funnel_stage, score, is_hot_lead, total_messages_sent, created_at, counselor:admission_counselors(id, name, email)')
         .eq('institution_id', institutionId)
         .not('counselor_id', 'is', null);
       if (dateRange?.from) leadsQuery = leadsQuery.gte('created_at', dateRange.from);
@@ -728,7 +728,8 @@ export function useCounselorPerformance(institutionId?: string, dateRange?: any)
         }
         const c = counselorMap[cId];
         c.totalLeads++;
-        if (lead.funnel_stage === 'enrolled') c.convertedLeads++;
+        const leadStage = lead.stage || lead.funnel_stage;
+        if (leadStage === 'enrolled') c.convertedLeads++;
         if (lead.is_hot_lead) c.hotLeads++;
         c.scoreSum += lead.score || 0;
         c.messagesSent += lead.total_messages_sent || 0;
@@ -770,7 +771,7 @@ export function useSourceROI(filters?: any) {
       const supabase = createClientSupabaseClient();
       let query = (supabase as any)
         .from('admission_leads')
-        .select('source, funnel_stage')
+        .select('source, stage, funnel_stage')
         .eq('institution_id', institutionId);
       if (filters?.dateFrom) query = query.gte('created_at', filters.dateFrom);
       if (filters?.dateTo) query = query.lte('created_at', filters.dateTo);
@@ -782,7 +783,8 @@ export function useSourceROI(filters?: any) {
         const src = lead.source || 'unknown';
         if (!sourceMap[src]) sourceMap[src] = { source: src, totalLeads: 0, converted: 0 };
         sourceMap[src].totalLeads++;
-        if (lead.funnel_stage === 'enrolled') sourceMap[src].converted++;
+        const leadStage = lead.stage || lead.funnel_stage;
+        if (leadStage === 'enrolled') sourceMap[src].converted++;
       });
       return Object.values(sourceMap).map(s => ({
         ...s,
@@ -921,7 +923,12 @@ export function useFunnelAnalyticsDashboard(filtersOrId?: string | any) {
     queryFn: async () => {
       if (!institutionId) return { enhanced: [], dropOff: [], stuckLeads: [], bottlenecks: [] };
 
-      const STAGES = ['new', 'contacted', 'engaged', 'qualified', 'applied', 'interviewed', 'offered', 'enrolled'];
+      const STAGES = [
+        'new', 'contacted', 'not_reachable', 'interested', 'follow_up_scheduled',
+        'engaged', 'qualified', 'application_started', 'application_submitted',
+        'documents_pending', 'documents_verified', 'interview_scheduled',
+        'interview_completed', 'offer_sent', 'offer_accepted', 'token_paid', 'enrolled'
+      ];
 
       // Fetch leads with stage info
       const { data: leads } = await (supabase as any)

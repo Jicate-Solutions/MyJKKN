@@ -84,6 +84,10 @@ import type { FunnelStage } from '@/types/admission';
 const FUNNEL_STAGES = [
   { value: 'new', label: 'New' },
   { value: 'contacted', label: 'Contacted' },
+  { value: 'not_reachable', label: 'Not Reachable' },
+  { value: 'interested', label: 'Interested' },
+  { value: 'follow_up_scheduled', label: 'Follow-up Scheduled' },
+  { value: 'engaged', label: 'Engaged' },
   { value: 'qualified', label: 'Qualified' },
   { value: 'application_started', label: 'Application Started' },
   { value: 'application_submitted', label: 'Application Submitted' },
@@ -94,8 +98,12 @@ const FUNNEL_STAGES = [
   { value: 'offer_sent', label: 'Offer Sent' },
   { value: 'offer_accepted', label: 'Offer Accepted' },
   { value: 'token_paid', label: 'Token Paid' },
+  { value: 'applied', label: 'Applied' },
+  { value: 'interviewed', label: 'Interviewed' },
+  { value: 'offered', label: 'Offered' },
   { value: 'enrolled', label: 'Enrolled' },
-  { value: 'lost', label: 'Lost' }
+  { value: 'lost', label: 'Lost' },
+  { value: 'dormant', label: 'Dormant' },
 ];
 
 const LEAD_SOURCES = [
@@ -122,6 +130,10 @@ function getStageColor(stage: string | null): string {
   const colors: Record<string, string> = {
     new: 'bg-blue-100 text-blue-800 border-blue-200',
     contacted: 'bg-indigo-100 text-indigo-800 border-indigo-200',
+    not_reachable: 'bg-red-100 text-red-800 border-red-200',
+    interested: 'bg-sky-100 text-sky-800 border-sky-200',
+    follow_up_scheduled: 'bg-violet-100 text-violet-800 border-violet-200',
+    engaged: 'bg-fuchsia-100 text-fuchsia-800 border-fuchsia-200',
     qualified: 'bg-purple-100 text-purple-800 border-purple-200',
     application_started: 'bg-pink-100 text-pink-800 border-pink-200',
     application_submitted: 'bg-rose-100 text-rose-800 border-rose-200',
@@ -132,8 +144,12 @@ function getStageColor(stage: string | null): string {
     offer_sent: 'bg-green-100 text-green-800 border-green-200',
     offer_accepted: 'bg-emerald-100 text-emerald-800 border-emerald-200',
     token_paid: 'bg-teal-100 text-teal-800 border-teal-200',
+    applied: 'bg-pink-100 text-pink-800 border-pink-200',
+    interviewed: 'bg-lime-100 text-lime-800 border-lime-200',
+    offered: 'bg-green-100 text-green-800 border-green-200',
     enrolled: 'bg-cyan-100 text-cyan-800 border-cyan-200',
-    lost: 'bg-gray-100 text-gray-800 border-gray-200'
+    lost: 'bg-gray-100 text-gray-800 border-gray-200',
+    dormant: 'bg-stone-100 text-stone-800 border-stone-200',
   };
   return colors[stage || 'new'] || 'bg-gray-100 text-gray-800 border-gray-200';
 }
@@ -291,6 +307,10 @@ function LeadDetailPageContent() {
   const [followupDate, setFollowupDate] = useState('');
   const [followupNotes, setFollowupNotes] = useState('');
 
+  // Counselor assignment form state
+  const [showAssignCounselorDialog, setShowAssignCounselorDialog] = useState(false);
+  const [selectedCounselorId, setSelectedCounselorId] = useState('');
+
   // Create application form state
   const [selectedProgramId, setSelectedProgramId] = useState('');
 
@@ -301,7 +321,7 @@ function LeadDetailPageContent() {
   const { timeline, isLoading: timelineLoading } = useEnhancedTimeline(leadId);
   const { history: communicationHistory, isLoading: commLoading } = useLeadCommunicationHistory(leadId);
 
-  const { updateLead, updateStage, toggleHotLead, togglePriority, addTag, removeTag, scheduleFollowup } = useLeadMutations();
+  const { updateLead, updateStage, toggleHotLead, togglePriority, addTag, removeTag, scheduleFollowup, assignCounselor } = useLeadMutations();
   const { createActivity } = useActivityMutations(leadId);
   const { createApplication } = useApplicationMutations();
 
@@ -345,6 +365,30 @@ function LeadDetailPageContent() {
             setPrograms(data || []);
           }
           setProgramsLoading(false);
+        });
+    }
+  }, [lead?.institution_id]);
+
+  // Fetch counselors for assignment dialog
+  const [counselors, setCounselors] = useState<{ id: string; name: string; designation: string | null; phone: string | null }[]>([]);
+  const [counselorsLoading, setCounselorsLoading] = useState(false);
+  useEffect(() => {
+    if (lead?.institution_id) {
+      setCounselorsLoading(true);
+      const supabase = createClientSupabaseClient();
+      (supabase as any)
+        .from('admission_counselors')
+        .select('id, name, designation, phone')
+        .eq('institution_id', lead.institution_id)
+        .eq('is_active', true)
+        .order('name')
+        .then(({ data, error }: { data: any; error: any }) => {
+          if (error) {
+            console.error('[admission/leads] Failed to fetch counselors:', error.message);
+          } else {
+            setCounselors(data || []);
+          }
+          setCounselorsLoading(false);
         });
     }
   }, [lead?.institution_id]);
@@ -533,6 +577,23 @@ function LeadDetailPageContent() {
     );
   };
 
+  const handleAssignCounselor = () => {
+    if (!selectedCounselorId) {
+      toast.error('Please select a counselor');
+      return;
+    }
+    assignCounselor.mutate(
+      { leadId, counselorId: selectedCounselorId },
+      {
+        onSuccess: () => {
+          setSelectedCounselorId('');
+          setShowAssignCounselorDialog(false);
+          refetch();
+        },
+      }
+    );
+  };
+
   const handleCreateApplication = () => {
     if (!lead || !selectedProgramId) {
       toast.error('Please select a program');
@@ -699,15 +760,32 @@ function LeadDetailPageContent() {
             {/* Left Column - Details & Tabs */}
             <div className="lg:col-span-2 space-y-6">
               {/* Score Cards */}
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-4 gap-4">
                 <Card>
                   <CardContent className="py-4">
                     <div className="flex items-center justify-between">
                       <div>
                         <p className="text-xs text-muted-foreground">Score</p>
-                        <p className="text-2xl font-bold">{lead.score || 0}</p>
+                        <p className="text-2xl font-bold">{lead.score != null ? lead.score : 'Not scored'}</p>
                       </div>
                       <Target className="h-8 w-8 text-primary opacity-50" />
+                    </div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="py-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-xs text-muted-foreground">Category</p>
+                        <p className={`text-2xl font-bold capitalize ${
+                          (lead as any).score_category === 'hot' ? 'text-red-600' :
+                          (lead as any).score_category === 'warm' ? 'text-orange-600' :
+                          (lead as any).score_category === 'cold' ? 'text-blue-600' : 'text-muted-foreground'
+                        }`}>
+                          {(lead as any).score_category || 'Not scored'}
+                        </p>
+                      </div>
+                      <Flame className="h-8 w-8 text-orange-500 opacity-50" />
                     </div>
                   </CardContent>
                 </Card>
@@ -857,16 +935,28 @@ function LeadDetailPageContent() {
                         <div>
                           <dt className="text-sm text-muted-foreground">Entry Date</dt>
                           <dd className="font-medium">
-                            {(lead as any).entry_date
-                              ? new Date((lead as any).entry_date).toLocaleDateString()
+                            {lead.entry_date
+                              ? new Date(lead.entry_date).toLocaleDateString()
                               : lead.created_at
                                 ? new Date(lead.created_at).toLocaleDateString()
                                 : '-'}
                           </dd>
                         </div>
                         <div>
+                          <dt className="text-sm text-muted-foreground">Academic Year</dt>
+                          <dd className="font-medium">{lead.academic_year || '-'}</dd>
+                        </div>
+                        <div>
                           <dt className="text-sm text-muted-foreground">Preferred Campus</dt>
                           <dd className="font-medium">{lead.preferred_campus || '-'}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-sm text-muted-foreground">Student Interest Level</dt>
+                          <dd className="font-medium capitalize">{(lead.student_interest_level || '-').replace(/_/g, ' ')}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-sm text-muted-foreground">Parent Decision Status</dt>
+                          <dd className="font-medium capitalize">{(lead.parent_decision_status || '-').replace(/_/g, ' ')}</dd>
                         </div>
                         <div className="col-span-2">
                           <dt className="text-sm text-muted-foreground">Interested Programs</dt>
@@ -970,6 +1060,18 @@ function LeadDetailPageContent() {
                       </dl>
                     </CardContent>
                   </Card>
+
+                  {/* Notes */}
+                  {lead.notes && (
+                    <Card>
+                      <CardHeader className="pb-3">
+                        <CardTitle className="text-base">Notes</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <p className="text-sm whitespace-pre-wrap">{lead.notes}</p>
+                      </CardContent>
+                    </Card>
+                  )}
                 </TabsContent>
               </Tabs>
             </div>
@@ -1163,6 +1265,56 @@ function LeadDetailPageContent() {
                     </DialogContent>
                   </Dialog>
 
+                  {/* Assign Counselor Dialog */}
+                  <Dialog open={showAssignCounselorDialog} onOpenChange={setShowAssignCounselorDialog}>
+                    <DialogTrigger asChild>
+                      <Button variant="outline" className="w-full justify-start" size="sm">
+                        <User className="h-4 w-4 mr-2" />
+                        Assign Counselor
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent>
+                      <DialogHeader>
+                        <DialogTitle>Assign Counselor</DialogTitle>
+                        <DialogDescription>
+                          {lead.counselor?.name
+                            ? `Currently assigned to ${lead.counselor.name}. Select a new counselor.`
+                            : 'Select a counselor to assign to this lead.'}
+                        </DialogDescription>
+                      </DialogHeader>
+                      <div className="space-y-4 py-4">
+                        <div>
+                          <Label htmlFor="counselor-select">Counselor *</Label>
+                          <Select value={selectedCounselorId} onValueChange={setSelectedCounselorId}>
+                            <SelectTrigger className="mt-2">
+                              <SelectValue placeholder="Select a counselor" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {counselorsLoading ? (
+                                <SelectItem value="_loading" disabled>Loading counselors...</SelectItem>
+                              ) : counselors.length === 0 ? (
+                                <SelectItem value="_none" disabled>No counselors found</SelectItem>
+                              ) : (
+                                counselors.map((c) => (
+                                  <SelectItem key={c.id} value={c.id}>
+                                    {c.name}{c.designation ? ` (${c.designation})` : ''}{c.phone ? ` - ${c.phone}` : ''}
+                                  </SelectItem>
+                                ))
+                              )}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+                      <DialogFooter>
+                        <Button variant="outline" onClick={() => { setShowAssignCounselorDialog(false); setSelectedCounselorId(''); }}>Cancel</Button>
+                        <Button onClick={handleAssignCounselor} disabled={assignCounselor.isPending || !selectedCounselorId}>
+                          {assignCounselor.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                          Assign
+                        </Button>
+                      </DialogFooter>
+                    </DialogContent>
+                  </Dialog>
+
                   {/* Create Application Dialog */}
                   <Dialog open={showCreateAppDialog} onOpenChange={setShowCreateAppDialog}>
                     <DialogTrigger asChild>
@@ -1251,6 +1403,17 @@ function LeadDetailPageContent() {
                       <p className="text-sm font-medium">{communicationHistory.length || 0}</p>
                     </div>
                   </div>
+                  {lead.next_followup_at && (
+                    <div className="flex items-center gap-3">
+                      <Calendar className="h-4 w-4 text-muted-foreground" />
+                      <div>
+                        <p className="text-xs text-muted-foreground">Next Follow-up</p>
+                        <p className="text-sm font-medium">
+                          {new Date(lead.next_followup_at).toLocaleString()}
+                        </p>
+                      </div>
+                    </div>
+                  )}
                   {lead.counselor_id && (
                     <div className="flex items-center gap-3">
                       <User className="h-4 w-4 text-muted-foreground" />

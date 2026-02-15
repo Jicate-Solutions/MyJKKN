@@ -64,12 +64,22 @@ import { AdmissionErrorBoundary, CounselorPerformanceDashboard, SourceROIDashboa
 
 const FUNNEL_STAGES = [
   { key: 'new', label: 'New', color: 'bg-blue-500' },
-  { key: 'engaged', label: 'Engaged', color: 'bg-indigo-500' },
+  { key: 'contacted', label: 'Contacted', color: 'bg-indigo-500' },
+  { key: 'not_reachable', label: 'Not Reachable', color: 'bg-slate-400' },
+  { key: 'interested', label: 'Interested', color: 'bg-sky-500' },
+  { key: 'follow_up_scheduled', label: 'Follow-up Scheduled', color: 'bg-violet-500' },
+  { key: 'engaged', label: 'Engaged', color: 'bg-fuchsia-500' },
   { key: 'qualified', label: 'Qualified', color: 'bg-purple-500' },
-  { key: 'applied', label: 'Applied', color: 'bg-rose-500' },
-  { key: 'interviewed', label: 'Interviewed', color: 'bg-amber-500' },
-  { key: 'offered', label: 'Offered', color: 'bg-lime-500' },
-  { key: 'enrolled', label: 'Enrolled', color: 'bg-green-500' }
+  { key: 'application_started', label: 'Application Started', color: 'bg-pink-500' },
+  { key: 'application_submitted', label: 'Submitted', color: 'bg-rose-500' },
+  { key: 'documents_pending', label: 'Docs Pending', color: 'bg-orange-500' },
+  { key: 'documents_verified', label: 'Docs Verified', color: 'bg-amber-500' },
+  { key: 'interview_scheduled', label: 'Interview Scheduled', color: 'bg-yellow-500' },
+  { key: 'interview_completed', label: 'Interview Done', color: 'bg-lime-500' },
+  { key: 'offer_sent', label: 'Offer Sent', color: 'bg-green-500' },
+  { key: 'offer_accepted', label: 'Offer Accepted', color: 'bg-emerald-500' },
+  { key: 'token_paid', label: 'Token Paid', color: 'bg-teal-500' },
+  { key: 'enrolled', label: 'Enrolled', color: 'bg-cyan-500' }
 ];
 
 const DATE_RANGES = [

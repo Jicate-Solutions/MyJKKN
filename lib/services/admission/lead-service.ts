@@ -83,10 +83,11 @@ export class LeadService {
       query = query.eq('institution_id', filters.institution_id);
     }
     if (filters.funnel_stage) {
+      // Filter by stage (enum column) with fallback to funnel_stage (legacy)
       if (Array.isArray(filters.funnel_stage)) {
-        query = query.in('funnel_stage', filters.funnel_stage);
+        query = query.or(`stage.in.(${filters.funnel_stage.join(',')}),funnel_stage.in.(${filters.funnel_stage.join(',')})`);
       } else {
-        query = query.eq('funnel_stage', filters.funnel_stage);
+        query = query.or(`stage.eq.${filters.funnel_stage},funnel_stage.eq.${filters.funnel_stage}`);
       }
     }
     if (filters.priority) {
@@ -228,6 +229,7 @@ export class LeadService {
     if (leadData.parent_phone) insertData.parent_phone = leadData.parent_phone;
     if (leadData.parent_email) insertData.parent_email = leadData.parent_email;
     if (leadData.entry_date) insertData.entry_date = leadData.entry_date;
+    if (leadData.notes) insertData.notes = leadData.notes;
     // Address fields
     if (leadData.alternate_phone) insertData.alternate_phone = leadData.alternate_phone;
     if (leadData.date_of_birth) insertData.date_of_birth = leadData.date_of_birth;
@@ -237,6 +239,10 @@ export class LeadService {
     if (leadData.district) insertData.district = leadData.district;
     if (leadData.city) insertData.city = leadData.city;
     if (leadData.pincode) insertData.pincode = leadData.pincode;
+    // JKKN Tier-1 fields
+    if (leadData.student_interest_level) insertData.student_interest_level = leadData.student_interest_level;
+    if (leadData.parent_decision_status) insertData.parent_decision_status = leadData.parent_decision_status;
+    if (leadData.academic_year) insertData.academic_year = leadData.academic_year;
 
     const { data, error } = await (this.supabase as any).from('admission_leads')
       .insert(insertData)
@@ -505,6 +511,7 @@ export class LeadService {
     const { data, error } = await (this.supabase as any).from('admission_leads')
       .update({
         counselor_id: counselorId,
+        assigned_counselor_id: counselorId,
         assigned_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       })
@@ -606,7 +613,7 @@ export class LeadService {
    */
   static async getFunnelSummary(institutionId: string): Promise<any> {
     const { data, error } = await (this.supabase as any).from('admission_leads')
-      .select('funnel_stage, is_hot_lead, is_priority')
+      .select('stage, funnel_stage, is_hot_lead, is_priority')
       .eq('institution_id', institutionId);
 
     if (error) {
@@ -616,10 +623,14 @@ export class LeadService {
 
     const leads = data || [];
 
-    // Count by stage
+    // Count by stage — all 22 stages from admission_lead_stage enum
     const byStage: Record<FunnelStage, number> = {
       new: 0,
       contacted: 0,
+      not_reachable: 0,
+      interested: 0,
+      follow_up_scheduled: 0,
+      engaged: 0,
       qualified: 0,
       application_started: 0,
       application_submitted: 0,
@@ -630,16 +641,21 @@ export class LeadService {
       offer_sent: 0,
       offer_accepted: 0,
       token_paid: 0,
+      applied: 0,
+      interviewed: 0,
+      offered: 0,
       enrolled: 0,
-      lost: 0
+      lost: 0,
+      dormant: 0
     };
 
     let hotLeads = 0;
     let priorityLeads = 0;
 
     leads.forEach((lead: any) => {
-      if (byStage[lead.funnel_stage as FunnelStage] !== undefined) {
-        byStage[lead.funnel_stage as FunnelStage]++;
+      const leadStage = lead.stage || lead.funnel_stage;
+      if (leadStage && byStage[leadStage as FunnelStage] !== undefined) {
+        byStage[leadStage as FunnelStage]++;
       }
       if (lead.is_hot_lead) {
         hotLeads++;
@@ -672,9 +688,9 @@ export class LeadService {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    // Get all leads - use actual DB columns including next_followup_at
+    // Get all leads - select both stage (enum) and funnel_stage (legacy)
     const { data: leads, error } = await (this.supabase as any).from('admission_leads')
-      .select('funnel_stage, created_at, is_hot_lead, is_priority, last_contact_at, next_followup_at')
+      .select('stage, funnel_stage, created_at, is_hot_lead, is_priority, last_contact_at, next_followup_at')
       .eq('institution_id', institutionId);
 
     if (error) {
@@ -688,19 +704,22 @@ export class LeadService {
     const newLeads = allLeads.filter((l: any) =>
       new Date(l.created_at) >= today
     ).length;
-    const convertedLeads = allLeads.filter((l: any) =>
-      l.funnel_stage === 'enrolled'
-    ).length;
+    const convertedLeads = allLeads.filter((l: any) => {
+      const s = l.stage || l.funnel_stage;
+      return s === 'enrolled';
+    }).length;
     // Count leads with overdue or pending followups
-    const pendingFollowups = allLeads.filter((l: any) =>
-      l.next_followup_at && new Date(l.next_followup_at) <= new Date() &&
-      l.funnel_stage !== 'enrolled' && l.funnel_stage !== 'lost'
-    ).length;
-    const todayFollowups = allLeads.filter((l: any) =>
-      l.next_followup_at &&
-      new Date(l.next_followup_at).toDateString() === today.toDateString() &&
-      l.funnel_stage !== 'enrolled' && l.funnel_stage !== 'lost'
-    ).length;
+    const pendingFollowups = allLeads.filter((l: any) => {
+      const s = l.stage || l.funnel_stage;
+      return l.next_followup_at && new Date(l.next_followup_at) <= new Date() &&
+        s !== 'enrolled' && s !== 'lost';
+    }).length;
+    const todayFollowups = allLeads.filter((l: any) => {
+      const s = l.stage || l.funnel_stage;
+      return l.next_followup_at &&
+        new Date(l.next_followup_at).toDateString() === today.toDateString() &&
+        s !== 'enrolled' && s !== 'lost';
+    }).length;
 
     const conversionRate = totalLeads > 0
       ? (convertedLeads / totalLeads) * 100

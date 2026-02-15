@@ -85,6 +85,14 @@ interface FormData {
   pincode: string;
   first_touch_source: string;
   notes: string;
+  // Parent/Guardian
+  parent_name: string;
+  parent_phone: string;
+  parent_email: string;
+  // JKKN Tier-1 fields
+  student_interest_level: string;
+  parent_decision_status: string;
+  academic_year: string;
 }
 
 interface ProgramOption {
@@ -205,7 +213,13 @@ function NewLeadPageContent() {
     district: '',
     pincode: '',
     first_touch_source: '',
-    notes: ''
+    notes: '',
+    parent_name: '',
+    parent_phone: '',
+    parent_email: '',
+    student_interest_level: '',
+    parent_decision_status: '',
+    academic_year: '',
   });
 
   const [errors, setErrors] = useState<Partial<Record<keyof FormData | 'institution', string>>>({});
@@ -292,6 +306,16 @@ function NewLeadPageContent() {
       alternate_phone: formData.alternate_phone?.trim() || null,
       date_of_birth: formData.date_of_birth || null,
       gender: formData.gender || null,
+      // Parent/Guardian
+      parent_name: formData.parent_name?.trim() || null,
+      parent_phone: formData.parent_phone?.trim() || null,
+      parent_email: formData.parent_email?.trim() || null,
+      // Notes
+      notes: formData.notes?.trim() || null,
+      // JKKN Tier-1 fields
+      student_interest_level: formData.student_interest_level || null,
+      parent_decision_status: formData.parent_decision_status || null,
+      academic_year: formData.academic_year?.trim() || null,
     };
 
     createLeadWithProfile.mutate(
@@ -662,6 +686,46 @@ function NewLeadPageContent() {
                   </CardContent>
                 </Card>
 
+                {/* Parent / Guardian */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Parent / Guardian</CardTitle>
+                    <CardDescription>Parent or guardian contact details</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="parent_name">Parent Name</Label>
+                        <Input
+                          id="parent_name"
+                          value={formData.parent_name}
+                          onChange={(e) => handleChange('parent_name', e.target.value)}
+                          placeholder="Enter parent name"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="parent_phone">Parent Phone</Label>
+                        <Input
+                          id="parent_phone"
+                          value={formData.parent_phone}
+                          onChange={(e) => handleChange('parent_phone', e.target.value)}
+                          placeholder="Enter parent phone"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="parent_email">Parent Email</Label>
+                        <Input
+                          id="parent_email"
+                          type="email"
+                          value={formData.parent_email}
+                          onChange={(e) => handleChange('parent_email', e.target.value)}
+                          placeholder="Enter parent email"
+                        />
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
                 {/* Notes */}
                 <Card>
                   <CardHeader>
@@ -709,6 +773,62 @@ function NewLeadPageContent() {
                       {errors.first_touch_source && (
                         <p className="text-xs text-destructive">{errors.first_touch_source}</p>
                       )}
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* JKKN Assessment */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Assessment</CardTitle>
+                    <CardDescription>JKKN-specific lead assessment</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="student_interest_level">Student Interest Level</Label>
+                      <Select
+                        value={formData.student_interest_level}
+                        onValueChange={(value) => handleChange('student_interest_level', value)}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select interest level" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="very_high">Very High</SelectItem>
+                          <SelectItem value="high">High</SelectItem>
+                          <SelectItem value="medium">Medium</SelectItem>
+                          <SelectItem value="low">Low</SelectItem>
+                          <SelectItem value="undecided">Undecided</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="parent_decision_status">Parent Decision Status</Label>
+                      <Select
+                        value={formData.parent_decision_status}
+                        onValueChange={(value) => handleChange('parent_decision_status', value)}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select decision status" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="supportive">Supportive</SelectItem>
+                          <SelectItem value="considering">Considering</SelectItem>
+                          <SelectItem value="neutral">Neutral</SelectItem>
+                          <SelectItem value="reluctant">Reluctant</SelectItem>
+                          <SelectItem value="opposed">Opposed</SelectItem>
+                          <SelectItem value="unknown">Unknown</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="academic_year">Academic Year</Label>
+                      <Input
+                        id="academic_year"
+                        value={formData.academic_year}
+                        onChange={(e) => handleChange('academic_year', e.target.value)}
+                        placeholder="e.g., 2025-2026"
+                      />
                     </div>
                   </CardContent>
                 </Card>

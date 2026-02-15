@@ -42,10 +42,14 @@ import { AdmissionErrorBoundary } from '@/components/admission';
 import { BriefingNotificationBanner } from '@/components/admission/briefing-notification-banner';
 import { BriefingPopup } from '@/components/admission/briefing-popup';
 
-// Funnel stages with colors
+// Funnel stages with colors — matches admission_lead_stage enum
 const FUNNEL_STAGES = [
   { key: 'new', label: 'New', color: 'bg-blue-500' },
   { key: 'contacted', label: 'Contacted', color: 'bg-indigo-500' },
+  { key: 'not_reachable', label: 'Not Reachable', color: 'bg-slate-400' },
+  { key: 'interested', label: 'Interested', color: 'bg-sky-500' },
+  { key: 'follow_up_scheduled', label: 'Follow-up Scheduled', color: 'bg-violet-500' },
+  { key: 'engaged', label: 'Engaged', color: 'bg-fuchsia-500' },
   { key: 'qualified', label: 'Qualified', color: 'bg-purple-500' },
   { key: 'application_started', label: 'Application Started', color: 'bg-pink-500' },
   { key: 'application_submitted', label: 'Application Submitted', color: 'bg-rose-500' },
@@ -208,7 +212,7 @@ function HotLeadsList({
             </div>
             <div>
               <p className="font-medium text-sm">{(lead as any).learner_profile?.full_name || (lead as any).full_name || 'Unknown'}</p>
-              <p className="text-xs text-muted-foreground">{lead.funnel_stage || 'New'}</p>
+              <p className="text-xs text-muted-foreground">{(lead as any).stage || lead.funnel_stage || 'New'}</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
