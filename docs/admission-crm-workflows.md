@@ -7,6 +7,80 @@
 
 ---
 
+## DB-VERIFIED STATUS (2026-02-15)
+
+> **This section reflects LIVE database state** queried directly from staging Supabase (hhprjbgknupaplivtoib).
+> Previous audits (spec-only) had 4 incorrect "MISSING" claims. This section is the canonical truth.
+
+### Corrections from Previous Audits
+
+| Item | Spec/Audit Said | DB Reality (Verified 2026-02-15) |
+|------|----------------|----------------------------------|
+| RLS Security | "P4, not implemented" | **ENABLED** on all 23 admission tables with 60+ policies |
+| Consultant Bank Details | "MISSING" | **EXISTS**: bank_name, bank_account_number, bank_ifsc, bank_branch, upi_id, pan_number on `education_consultants` |
+| Academic Year on Applications | "MISSING" | **EXISTS**: `academic_year TEXT` on `admission_applications` |
+| Fee Structure | "MISSING" | **EXISTS**: `fee_breakdown JSONB` + `payment_type` enum (application_fee, token_fee, full_fee, hostel_fee, other) on `admission_payments` |
+| Quota Configuration | "MISSING" | **PARTIAL**: `admission_workflow_configs` has `has_government_quota`, `has_management_quota`, `has_nri_quota`, `quota_config JSONB` (but NOT on individual applications) |
+| Counselor Table | "5 columns" | **7 columns**: id, name, email, institution_id, created_at, user_id, is_active |
+
+### Confirmed Table Counts (Live)
+
+| Category | Table Count | Key Tables |
+|----------|-------------|------------|
+| Admission Core | 23 tables | admission_leads, admission_applications, admission_payments, etc. |
+| Consultant System | 8 tables + 2 views | education_consultants, consultant_commission_*, consultant_communications, etc. |
+| Hostel System | 13 tables + 2 views | hostels, hostel_rooms, hostel_beds, hostel_allocations, etc. |
+| Scholarship | 2 tables | scholarships, scholarship_applications |
+| **Total** | **46 tables + 4 views** | |
+
+### Confirmed Missing Items (25 — JKKN Requirements Not in DB)
+
+#### Priority: HIGH (Counselor Daily Workflow)
+| # | Missing Item | Table | Fix Effort |
+|---|-------------|-------|------------|
+| 1 | `academic_year` on leads (exists on applications, NOT on leads) | admission_leads | ALTER TABLE |
+| 2 | `student_interest_level` field | admission_leads | ALTER TABLE |
+| 3 | `parent_decision_status` field | admission_leads | ALTER TABLE |
+| 4 | Lead stage: `not_reachable` | admission_lead_stage enum | ALTER TYPE |
+| 5 | Lead stage: `interested` | admission_lead_stage enum | ALTER TYPE |
+| 6 | Lead stage: `follow_up_scheduled` | admission_lead_stage enum | ALTER TYPE |
+
+#### Priority: MEDIUM (Application & Enrollment)
+| # | Missing Item | Table | Fix Effort |
+|---|-------------|-------|------------|
+| 7 | `quota`/`seat_type` on individual applications (exists at workflow config level only) | admission_applications | ALTER TABLE |
+| 8 | Structured academic records (10th/12th/UG as queryable columns, not JSONB) | admission_applications | ALTER TABLE or new table |
+| 9 | `roll_number` at enrollment | admissions | ALTER TABLE |
+| 10 | `section_allocation` at enrollment | admissions | ALTER TABLE |
+| 11 | `department_allocation` at enrollment | admissions | ALTER TABLE |
+| 12 | `student_portal_login_creation` flag | admissions | ALTER TABLE |
+| 13 | Scholarship types: single_parent, disability, alumni_sibling | scholarship_type enum | ALTER TYPE |
+| 14 | Multi-level scholarship approval workflow | scholarship_applications | New columns/table |
+| 15 | Auto fee deduction for scholarships | admission_payments | Logic, not schema |
+
+#### Priority: LOW (Reporting & Admin)
+| # | Missing Item | Where | Fix Effort |
+|---|-------------|-------|------------|
+| 16 | Revenue on admin dashboard | Dashboard UI | Query + UI |
+| 17 | Course-wise lead breakdown | Analytics UI | Query + UI |
+| 18 | Lead aging report | Analytics UI | Query + UI |
+| 19 | Commission invoice auto-generation | Consultant module | Service + UI |
+| 20 | "On Hold" commission status | consultant_commission_transactions | ALTER TABLE |
+| 21 | Lead sources: Phone, WhatsApp, School Visit | admission_leads source values | Data, not schema |
+| 22 | Counselor phone number | admission_counselors | ALTER TABLE |
+| 23 | ID card generated flag | admissions | ALTER TABLE |
+| 24 | LMS access given flag | admissions | ALTER TABLE |
+| 25 | Transport allocation | ZERO tables exist | New table design |
+
+### Over-Engineered Items (Built But Not Requested by JKKN)
+- 33-column `consultant_commission_transactions` (JKKN wants simple fixed-amount commissions)
+- 5-tier consultant system (bronze→diamond) via `consultant_tier` enum
+- 13 hostel tables (comprehensive but not requested in admission requirements)
+- AI briefing/drip/insight tables (6 AI workflows, 0 user requests)
+- 8 extra lead stages beyond what JKKN counselors use
+
+---
+
 ## HOW TO USE THIS FILE
 
 This is the **single source of truth** for the Admission CRM module. When resuming work after a context clear:
