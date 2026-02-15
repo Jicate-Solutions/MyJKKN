@@ -147,7 +147,7 @@ export function UnassignedLeadsPanel({
                     'bg-orange-50 text-orange-700 border-orange-200'
                   }`}
                 >
-                  {lead.student_interest_level.replace('_', ' ')}
+                  {lead.student_interest_level.replace(/_/g, ' ')}
                 </Badge>
               )}
               {lead.source && (

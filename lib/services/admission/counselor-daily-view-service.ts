@@ -161,7 +161,7 @@ export class CounselorDailyViewService {
       .select('id, full_name, phone, email, interested_programs, source, score, created_at, funnel_stage, student_interest_level, parent_decision_status, academic_year')
       .eq('institution_id', institutionId)
       .is('counselor_id', null)
-      .eq('funnel_stage', 'new')
+      .not('funnel_stage', 'in', '(enrolled,lost,dormant)')
       .order('created_at', { ascending: false })
       .limit(20);
 

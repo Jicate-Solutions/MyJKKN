@@ -660,7 +660,7 @@ function LeadDetailPageContent() {
                         Hot
                       </Badge>
                     )}
-                    {(lead.is_hot_lead || lead.is_priority) && (
+                    {lead.is_priority && !lead.is_hot_lead && (
                       <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-200">
                         <Star className="h-3 w-3 mr-1 fill-current" />
                         Priority
@@ -695,12 +695,12 @@ function LeadDetailPageContent() {
                 {lead.is_hot_lead ? 'Hot' : 'Mark Hot'}
               </Button>
               <Button
-                variant={(lead.is_hot_lead || lead.is_priority) ? 'default' : 'outline'}
+                variant={lead.is_priority ? 'default' : 'outline'}
                 size="sm"
-                onClick={() => togglePriority.mutate({ leadId, isPriority: (!lead.is_hot_lead && !lead.is_priority) })}
+                onClick={() => togglePriority.mutate({ leadId, isPriority: !lead.is_priority })}
               >
                 <Star className="h-4 w-4 mr-1" />
-                {(lead.is_hot_lead || lead.is_priority) ? 'Priority' : 'Mark Priority'}
+                {lead.is_priority ? 'Priority' : 'Mark Priority'}
               </Button>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>

@@ -20,7 +20,8 @@ export class LeadService {
    */
   private static sanitizeSearch(input: string): string {
     if (!input) return '';
-    return input.replace(/[%_\\]/g, '\\$&');
+    // Escape special chars: %, _, \ (SQL LIKE), and commas (PostgREST .or() separator)
+    return input.replace(/[%_\\,]/g, '\\$&');
   }
 
   /**
@@ -40,26 +41,29 @@ export class LeadService {
   private static normalizeLead(row: any): AdmissionLead {
     if (!row) return row;
 
+    // Create a shallow copy to avoid mutating the original DB/cache object
+    const lead = { ...row };
+
     // Compute priority from boolean flags if not already set as an enum
-    if (!row.priority || typeof row.priority !== 'string') {
-      if (row.is_hot_lead) {
-        row.priority = 'hot';
-      } else if (row.is_priority) {
-        row.priority = 'warm';
+    if (!lead.priority || typeof lead.priority !== 'string') {
+      if (lead.is_hot_lead) {
+        lead.priority = 'hot';
+      } else if (lead.is_priority) {
+        lead.priority = 'warm';
       } else {
-        row.priority = 'cold';
+        lead.priority = 'cold';
       }
     }
 
     // Normalize last_contact_at from either column name variant
-    if (!row.last_contact_at && row.last_contacted_at) {
-      row.last_contact_at = row.last_contacted_at;
+    if (!lead.last_contact_at && lead.last_contacted_at) {
+      lead.last_contact_at = lead.last_contacted_at;
     }
-    if (!row.last_contact_at && row.last_activity_at) {
-      row.last_contact_at = row.last_activity_at;
+    if (!lead.last_contact_at && lead.last_activity_at) {
+      lead.last_contact_at = lead.last_activity_at;
     }
 
-    return row as AdmissionLead;
+    return lead as AdmissionLead;
   }
 
   // ============================================================================

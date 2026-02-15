@@ -60,6 +60,9 @@ const FUNNEL_STAGES = [
   { key: 'offer_sent', label: 'Offer Sent', color: 'bg-green-500' },
   { key: 'offer_accepted', label: 'Offer Accepted', color: 'bg-emerald-500' },
   { key: 'token_paid', label: 'Token Paid', color: 'bg-teal-500' },
+  { key: 'applied', label: 'Applied', color: 'bg-violet-400' },
+  { key: 'interviewed', label: 'Interviewed', color: 'bg-rose-400' },
+  { key: 'offered', label: 'Offered', color: 'bg-orange-400' },
   { key: 'enrolled', label: 'Enrolled', color: 'bg-cyan-500' }
 ];
 

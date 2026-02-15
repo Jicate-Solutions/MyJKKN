@@ -927,7 +927,8 @@ export function useFunnelAnalyticsDashboard(filtersOrId?: string | any) {
         'new', 'contacted', 'not_reachable', 'interested', 'follow_up_scheduled',
         'engaged', 'qualified', 'application_started', 'application_submitted',
         'documents_pending', 'documents_verified', 'interview_scheduled',
-        'interview_completed', 'offer_sent', 'offer_accepted', 'token_paid', 'enrolled'
+        'interview_completed', 'offer_sent', 'offer_accepted', 'token_paid',
+        'applied', 'interviewed', 'offered', 'enrolled'
       ];
 
       // Fetch leads with stage info
