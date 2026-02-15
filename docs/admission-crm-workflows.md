@@ -314,9 +314,9 @@ Pages identified as PARTIAL that need completion:
 
 # DATABASE SCHEMA REFERENCE
 
-## `admission_leads` Table (58 columns)
+## `admission_leads` Table (56 columns — DB-verified 2026-02-15)
 
-The central table. Every service touches this.
+The central table. Every service touches this. **Note:** `interested_programs` is `UUID[]` in DB (not TEXT[] as previously documented).
 
 ```
 id                    UUID PRIMARY KEY
