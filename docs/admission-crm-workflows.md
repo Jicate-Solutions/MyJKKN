@@ -581,6 +581,9 @@ All in `components/admission/`:
 | 3 | SR-Group Analysis | `/Users/omm/Vaults/JKKNKB/JICATE-Solutions/Clients/Sri-Ramakrishna-Institutions/Archive/SR-Group-JKKN-vs-Meritto-FSU-Analysis.md` | JKKN vs Meritto competitive positioning for SR Group deal |
 | 4 | Meritto PDFs (8 files) | `/Users/omm/Downloads/` (Publisher, Campaign, Lead Mgmt, Lead Nurturing, Mobile App, Marketing Automation, User Mgmt, WhatsApp) | 143 competitor features extracted |
 | 5 | Meritto Analysis (saved) | `/Users/omm/PROJECTS/MyJKKN/docs/research/meritto-competitor-analysis.md` | Consolidated extraction from all 8 PDFs |
+| 6 | FST Spec Analysis | `/Users/omm/Vaults/Claude Setup/Capture/FST-Admission-CRM-Spec-Analysis.md` | Spec completeness assessment (2026-02-13) |
+| 7 | Requirements Audit | `/Users/omm/Vaults/Claude Setup/Capture/FST-Admission-CRM-Requirements-Audit.md` | Spec vs ~85 JKKN requirements (41% covered) |
+| 8 | DB-Verified Audit | `/Users/omm/Vaults/Claude Setup/Capture/FST-Admission-CRM-DB-Verified-Audit.md` | Ground-truth SQL audit (47% covered, 25 confirmed gaps) |
 
 ## Strategic Context (From FST Analysis)
 
