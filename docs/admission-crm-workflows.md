@@ -95,12 +95,15 @@ This is the **single source of truth** for the Admission CRM module. When resumi
 
 ## Table of Contents
 
+**DB-VERIFIED GROUND TRUTH:**
+- [DB-Verified Status (2026-02-15)](#db-verified-status-2026-02-15) — **READ THIS FIRST** for accurate state
+
 **IMPLEMENTATION PHASES:**
 - [P0: Foundation & Supabase Wiring](#p0-foundation--supabase-wiring-complete) (COMPLETE)
 - [P1: Module Verification & Repair](#p1-module-verification--repair-in-progress) (IN PROGRESS - 2/30)
 - [P2: UI Polish & Missing Features](#p2-ui-polish--missing-features-pending) (PENDING)
 - [P3: Integration & External APIs](#p3-integration--external-apis-pending) (PENDING)
-- [P4: Production Hardening](#p4-production-hardening-pending) (PENDING)
+- [P4: Production Hardening](#p4-production-hardening-partially-done) (PARTIALLY DONE — RLS complete)
 
 **DATABASE & ARCHITECTURE:**
 - [Database Schema Reference](#database-schema-reference)
