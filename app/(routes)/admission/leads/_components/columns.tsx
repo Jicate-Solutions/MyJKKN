@@ -30,6 +30,10 @@ export const FUNNEL_STAGES = [
   { value: 'interviewed', label: 'Interviewed' },
   { value: 'offered', label: 'Offered' },
   { value: 'enrolled', label: 'Enrolled' },
+  { value: 'confirmed', label: 'Confirmed' },
+  { value: 'declined', label: 'Declined' },
+  { value: 'withdrew', label: 'Withdrew' },
+  { value: 'expired', label: 'Expired' },
   { value: 'lost', label: 'Lost' },
   { value: 'dormant', label: 'Dormant' }
 ];
@@ -56,6 +60,10 @@ export function getStageColor(stage: string | null): string {
     interviewed: 'bg-rose-100 text-rose-800',
     offered: 'bg-orange-100 text-orange-800',
     enrolled: 'bg-cyan-100 text-cyan-800',
+    confirmed: 'bg-green-100 text-green-800',
+    declined: 'bg-red-100 text-red-800',
+    withdrew: 'bg-red-100 text-red-800',
+    expired: 'bg-gray-100 text-gray-800',
     lost: 'bg-gray-100 text-gray-800',
     dormant: 'bg-stone-100 text-stone-800'
   };

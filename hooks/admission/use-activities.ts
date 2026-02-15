@@ -27,7 +27,7 @@ export function useLeadActivities(leadId?: string) {
   const query = useQuery({
     queryKey: activityKeys.list(leadId || ''),
     queryFn: () => ActivityService.getActivities(leadId!),
-    enabled: !!leadId,
+    enabled: !!leadId && UUID_REGEX.test(leadId),
   });
 
   return {
@@ -67,7 +67,7 @@ export function useActivityStats(leadId?: string) {
   const query = useQuery({
     queryKey: activityKeys.stats(leadId || ''),
     queryFn: () => ActivityService.getActivityStats(leadId!),
-    enabled: !!leadId,
+    enabled: !!leadId && UUID_REGEX.test(leadId),
     staleTime: 30000, // 30 seconds
   });
 

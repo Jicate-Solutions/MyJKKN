@@ -12,6 +12,8 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
+import { PermissionGuard } from '@/components/auth/permission-guard';
+import { AdmissionErrorBoundary } from '@/components/admission';
 import {
   useCounselorDailyView,
   useUnassignedLeads,
@@ -59,11 +61,15 @@ const STAGE_FILTER_OPTIONS = [
   { value: 'interviewed', label: 'Interviewed' },
   { value: 'offered', label: 'Offered' },
   { value: 'enrolled', label: 'Enrolled' },
+  { value: 'confirmed', label: 'Confirmed' },
+  { value: 'declined', label: 'Declined' },
+  { value: 'withdrew', label: 'Withdrew' },
+  { value: 'expired', label: 'Expired' },
   { value: 'lost', label: 'Lost' },
   { value: 'dormant', label: 'Dormant' },
 ];
 
-export default function CounselorViewPage() {
+function CounselorViewPageContent() {
   const { selectedInstitutionId } = useUserInstitutionAccess();
   const institutionId = selectedInstitutionId;
 
@@ -334,5 +340,15 @@ export default function CounselorViewPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function CounselorViewPage() {
+  return (
+    <PermissionGuard module="admission" action="view">
+      <AdmissionErrorBoundary>
+        <CounselorViewPageContent />
+      </AdmissionErrorBoundary>
+    </PermissionGuard>
   );
 }

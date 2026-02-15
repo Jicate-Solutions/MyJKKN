@@ -301,7 +301,7 @@ function NewLeadPageContent() {
       source: formData.first_touch_source as any,
       tags: [] as string[],
       interested_programs: selectedProgramIds.length > 0 ? selectedProgramIds : null,
-      entry_date: new Date(entryDate).toISOString(),
+      entry_date: new Date(entryDate + 'T00:00:00').toISOString(),
       // Address fields
       address_line1: formData.address_line1?.trim() || null,
       state: selectedState?.name || null,

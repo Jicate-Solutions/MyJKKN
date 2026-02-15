@@ -45,7 +45,8 @@ const STAGE_ORDER = [
   'engaged', 'qualified', 'application_started', 'application_submitted',
   'documents_pending', 'documents_verified', 'interview_scheduled',
   'interview_completed', 'offer_sent', 'offer_accepted', 'token_paid',
-  'applied', 'interviewed', 'offered', 'enrolled', 'lost', 'dormant',
+  'applied', 'interviewed', 'offered', 'enrolled',
+  'confirmed', 'declined', 'withdrew', 'expired', 'lost', 'dormant',
 ];
 
 const STAGE_LABELS: Record<string, string> = {
@@ -69,6 +70,10 @@ const STAGE_LABELS: Record<string, string> = {
   interviewed: 'Interviewed',
   offered: 'Offered',
   enrolled: 'Enrolled',
+  confirmed: 'Confirmed',
+  declined: 'Declined',
+  withdrew: 'Withdrew',
+  expired: 'Expired',
   lost: 'Lost',
   dormant: 'Dormant',
 };

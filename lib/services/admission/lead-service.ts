@@ -40,7 +40,7 @@ export class LeadService {
    * Also normalizes `last_contact_at` from possible `last_contacted_at` or `last_activity_at`.
    */
   private static normalizeLead(row: any): AdmissionLead {
-    if (!row) return row;
+    if (!row) throw new Error('Cannot normalize null/undefined lead row');
 
     // Create a shallow copy to avoid mutating the original DB/cache object
     const lead = { ...row };
@@ -106,18 +106,33 @@ export class LeadService {
     }
     if (filters.priority) {
       // Map priority filter to actual DB columns (is_hot_lead, is_priority booleans)
-      const priorityVal = Array.isArray(filters.priority) ? filters.priority[0] : filters.priority;
-      if (priorityVal === 'hot') {
-        query = query.eq('is_hot_lead', true);
-      } else if (priorityVal === 'warm') {
-        query = query.eq('is_priority', true).eq('is_hot_lead', false);
-      } else if (priorityVal === 'cold') {
-        query = query.eq('is_hot_lead', false).eq('is_priority', false);
+      const priorityValues = Array.isArray(filters.priority) ? filters.priority : [filters.priority];
+      if (priorityValues.length === 1) {
+        const pv = priorityValues[0];
+        if (pv === 'hot') {
+          query = query.eq('is_hot_lead', true);
+        } else if (pv === 'warm') {
+          query = query.eq('is_priority', true).eq('is_hot_lead', false);
+        } else if (pv === 'cold') {
+          query = query.eq('is_hot_lead', false).eq('is_priority', false);
+        }
+      } else if (priorityValues.length > 1) {
+        // Build OR clause for multiple priority values
+        const orClauses: string[] = [];
+        if (priorityValues.includes('hot')) orClauses.push('is_hot_lead.eq.true');
+        if (priorityValues.includes('warm')) orClauses.push('and(is_priority.eq.true,is_hot_lead.eq.false)');
+        if (priorityValues.includes('cold')) orClauses.push('and(is_hot_lead.eq.false,is_priority.eq.false)');
+        if (orClauses.length > 0) {
+          query = query.or(orClauses.join(','));
+        }
       }
     }
     if (filters.source) {
       if (Array.isArray(filters.source)) {
-        query = query.in('source', filters.source);
+        // Guard: empty array with .in() returns ALL rows in Supabase
+        if (filters.source.length > 0) {
+          query = query.in('source', filters.source);
+        }
       } else {
         query = query.eq('source', filters.source);
       }
@@ -467,10 +482,27 @@ export class LeadService {
   }
 
   /**
-   * Toggle hot lead status
+   * Toggle hot lead status — only touches is_hot_lead, never is_priority
    */
   static async toggleHotLead(leadId: string, isHot: boolean): Promise<AdmissionLead> {
-    return this.updatePriority(leadId, isHot ? 'hot' : 'cold');
+    const { data, error } = await (this.supabase as any).from('admission_leads')
+      .update({
+        is_hot_lead: isHot,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', leadId)
+      .select(`
+        *,
+        counselor:admission_counselors(id, name, email)
+      `)
+      .single();
+
+    if (error) {
+      console.error('[LeadService] Error toggling hot lead:', error);
+      throw new Error(`Failed to toggle hot lead: ${error.message}`);
+    }
+
+    return this.normalizeLead(data);
   }
 
   // ============================================================================

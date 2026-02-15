@@ -101,6 +101,10 @@ const FUNNEL_STAGES = [
   { value: 'interviewed', label: 'Interviewed' },
   { value: 'offered', label: 'Offered' },
   { value: 'enrolled', label: 'Enrolled' },
+  { value: 'confirmed', label: 'Confirmed' },
+  { value: 'declined', label: 'Declined' },
+  { value: 'withdrew', label: 'Withdrew' },
+  { value: 'expired', label: 'Expired' },
   { value: 'lost', label: 'Lost' },
   { value: 'dormant', label: 'Dormant' },
 ];
@@ -147,6 +151,10 @@ function getStageColor(stage: string | null): string {
     interviewed: 'bg-lime-100 text-lime-800 border-lime-200',
     offered: 'bg-green-100 text-green-800 border-green-200',
     enrolled: 'bg-cyan-100 text-cyan-800 border-cyan-200',
+    confirmed: 'bg-emerald-100 text-emerald-800 border-emerald-200',
+    declined: 'bg-red-100 text-red-800 border-red-200',
+    withdrew: 'bg-slate-100 text-slate-800 border-slate-200',
+    expired: 'bg-neutral-100 text-neutral-800 border-neutral-200',
     lost: 'bg-gray-100 text-gray-800 border-gray-200',
     dormant: 'bg-stone-100 text-stone-800 border-stone-200',
   };
@@ -394,7 +402,7 @@ function LeadDetailPageContent() {
 
   // Map interested program IDs to names
   const interestedProgramNames = useMemo(() => {
-    const ids = (lead as any)?.interested_programs || [];
+    const ids = lead?.interested_programs || [];
     if (!ids.length || !programs.length) return [];
     return ids
       .map((id: string) => programs.find((p) => p.id === id)?.program_name)
@@ -409,7 +417,7 @@ function LeadDetailPageContent() {
   // Populate edit form when dialog opens
   const openEditDialog = () => {
     if (!lead) return;
-    const l = lead as any;
+    const l = lead;
     // Reverse-map state name to state ID for dropdown
     const stateId = indianStates.find((s) => s.name === l.state)?.id || '';
     const districts = stateId ? getDistrictsByState(stateId) : [];
@@ -603,9 +611,9 @@ function LeadDetailPageContent() {
         institution_id: lead.institution_id,
         lead_id: leadId,
         program_id: selectedProgramId,
-        full_name: (lead as any).full_name || '',
-        email: (lead as any).email || '',
-        phone: (lead as any).phone || '',
+        full_name: lead.full_name || '',
+        email: lead.email || '',
+        phone: lead.phone || '',
       },
       {
         onSuccess: () => {
@@ -636,7 +644,7 @@ function LeadDetailPageContent() {
               </BreadcrumbItem>
               <BreadcrumbSeparator />
               <BreadcrumbItem>
-                <BreadcrumbPage>{(lead as any).full_name || 'Unknown'}</BreadcrumbPage>
+                <BreadcrumbPage>{lead.full_name || 'Unknown'}</BreadcrumbPage>
               </BreadcrumbItem>
             </BreadcrumbList>
           </Breadcrumb>
@@ -651,7 +659,7 @@ function LeadDetailPageContent() {
               </Button>
               <div>
                 <div className="flex items-center gap-3">
-                  <h1 className="text-2xl font-bold">{(lead as any).full_name || 'Unknown'}</h1>
+                  <h1 className="text-2xl font-bold">{lead.full_name || 'Unknown'}</h1>
                   <div className="flex gap-1">
                     {lead.is_hot_lead && (
                       <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-200">
@@ -668,16 +676,16 @@ function LeadDetailPageContent() {
                   </div>
                 </div>
                 <div className="flex items-center gap-4 mt-1 text-sm text-muted-foreground">
-                  {(lead as any).email && (
+                  {lead.email && (
                     <span className="flex items-center gap-1">
                       <Mail className="h-3 w-3" />
-                      {(lead as any).email}
+                      {lead.email}
                     </span>
                   )}
-                  {(lead as any).phone && (
+                  {lead.phone && (
                     <span className="flex items-center gap-1">
                       <Phone className="h-3 w-3" />
-                      {(lead as any).phone}
+                      {lead.phone}
                     </span>
                   )}
                 </div>
@@ -786,11 +794,11 @@ function LeadDetailPageContent() {
                       <div>
                         <p className="text-xs text-muted-foreground">Category</p>
                         <p className={`text-2xl font-bold capitalize ${
-                          (lead as any).score_category === 'hot' ? 'text-red-600' :
-                          (lead as any).score_category === 'warm' ? 'text-orange-600' :
-                          (lead as any).score_category === 'cold' ? 'text-blue-600' : 'text-muted-foreground'
+                          lead.score_category === 'hot' ? 'text-red-600' :
+                          lead.score_category === 'warm' ? 'text-orange-600' :
+                          lead.score_category === 'cold' ? 'text-blue-600' : 'text-muted-foreground'
                         }`}>
-                          {(lead as any).score_category || 'Not scored'}
+                          {lead.score_category || 'Not scored'}
                         </p>
                       </div>
                       <Flame className="h-8 w-8 text-orange-500 opacity-50" />
@@ -903,31 +911,31 @@ function LeadDetailPageContent() {
                       <dl className="grid grid-cols-2 gap-4">
                         <div>
                           <dt className="text-sm text-muted-foreground">Full Name</dt>
-                          <dd className="font-medium">{(lead as any).full_name || '-'}</dd>
+                          <dd className="font-medium">{lead.full_name || '-'}</dd>
                         </div>
                         <div>
                           <dt className="text-sm text-muted-foreground">Email</dt>
-                          <dd className="font-medium">{(lead as any).email || '-'}</dd>
+                          <dd className="font-medium">{lead.email || '-'}</dd>
                         </div>
                         <div>
                           <dt className="text-sm text-muted-foreground">Phone</dt>
-                          <dd className="font-medium">{(lead as any).phone || '-'}</dd>
+                          <dd className="font-medium">{lead.phone || '-'}</dd>
                         </div>
                         <div>
                           <dt className="text-sm text-muted-foreground">Alternate Phone</dt>
-                          <dd className="font-medium">{(lead as any).alternate_phone || '-'}</dd>
+                          <dd className="font-medium">{lead.alternate_phone || '-'}</dd>
                         </div>
                         <div>
                           <dt className="text-sm text-muted-foreground">Date of Birth</dt>
                           <dd className="font-medium">
-                            {(lead as any).date_of_birth
-                              ? new Date((lead as any).date_of_birth).toLocaleDateString()
+                            {lead.date_of_birth
+                              ? new Date(lead.date_of_birth).toLocaleDateString()
                               : '-'}
                           </dd>
                         </div>
                         <div>
                           <dt className="text-sm text-muted-foreground">Gender</dt>
-                          <dd className="font-medium capitalize">{(lead as any).gender || '-'}</dd>
+                          <dd className="font-medium capitalize">{lead.gender || '-'}</dd>
                         </div>
                       </dl>
                     </CardContent>
@@ -993,23 +1001,23 @@ function LeadDetailPageContent() {
                       <dl className="grid grid-cols-2 gap-4">
                         <div className="col-span-2">
                           <dt className="text-sm text-muted-foreground">Address Line</dt>
-                          <dd className="font-medium">{(lead as any).address_line1 || '-'}</dd>
+                          <dd className="font-medium">{lead.address_line1 || '-'}</dd>
                         </div>
                         <div>
                           <dt className="text-sm text-muted-foreground">State</dt>
-                          <dd className="font-medium">{(lead as any).state || '-'}</dd>
+                          <dd className="font-medium">{lead.state || '-'}</dd>
                         </div>
                         <div>
                           <dt className="text-sm text-muted-foreground">District</dt>
-                          <dd className="font-medium">{(lead as any).district || '-'}</dd>
+                          <dd className="font-medium">{lead.district || '-'}</dd>
                         </div>
                         <div>
                           <dt className="text-sm text-muted-foreground">City / Town</dt>
-                          <dd className="font-medium">{(lead as any).city || '-'}</dd>
+                          <dd className="font-medium">{lead.city || '-'}</dd>
                         </div>
                         <div>
                           <dt className="text-sm text-muted-foreground">Pincode</dt>
-                          <dd className="font-medium">{(lead as any).pincode || '-'}</dd>
+                          <dd className="font-medium">{lead.pincode || '-'}</dd>
                         </div>
                       </dl>
                     </CardContent>
@@ -1024,15 +1032,15 @@ function LeadDetailPageContent() {
                       <dl className="grid grid-cols-2 gap-4">
                         <div>
                           <dt className="text-sm text-muted-foreground">Parent Name</dt>
-                          <dd className="font-medium">{(lead as any).parent_name || '-'}</dd>
+                          <dd className="font-medium">{lead.parent_name || '-'}</dd>
                         </div>
                         <div>
                           <dt className="text-sm text-muted-foreground">Parent Phone</dt>
-                          <dd className="font-medium">{(lead as any).parent_phone || '-'}</dd>
+                          <dd className="font-medium">{lead.parent_phone || '-'}</dd>
                         </div>
                         <div>
                           <dt className="text-sm text-muted-foreground">Parent Email</dt>
-                          <dd className="font-medium">{(lead as any).parent_email || '-'}</dd>
+                          <dd className="font-medium">{lead.parent_email || '-'}</dd>
                         </div>
                       </dl>
                     </CardContent>
@@ -1335,7 +1343,7 @@ function LeadDetailPageContent() {
                       <DialogHeader>
                         <DialogTitle>Create Application</DialogTitle>
                         <DialogDescription>
-                          Start an application for {(lead as any).full_name || 'this lead'}
+                          Start an application for {lead.full_name || 'this lead'}
                         </DialogDescription>
                       </DialogHeader>
                       <div className="space-y-4 py-4">
@@ -1359,9 +1367,9 @@ function LeadDetailPageContent() {
                           </Select>
                         </div>
                         <div className="rounded-md bg-muted p-3 text-sm space-y-1">
-                          <p><span className="text-muted-foreground">Name:</span> {(lead as any).full_name || '-'}</p>
-                          <p><span className="text-muted-foreground">Email:</span> {(lead as any).email || '-'}</p>
-                          <p><span className="text-muted-foreground">Phone:</span> {(lead as any).phone || '-'}</p>
+                          <p><span className="text-muted-foreground">Name:</span> {lead.full_name || '-'}</p>
+                          <p><span className="text-muted-foreground">Email:</span> {lead.email || '-'}</p>
+                          <p><span className="text-muted-foreground">Phone:</span> {lead.phone || '-'}</p>
                         </div>
                       </div>
                       <DialogFooter>

@@ -233,12 +233,12 @@ export default function RewardsManagementPage() {
       reward_type: config.reward_type,
       reward_value: config.reward_value,
       reward_value_type: config.reward_value_type,
-      min_referrals: config.min_referrals_required || 1,
-      max_referrals: config.max_referrals_per_year || undefined,
+      min_referrals: config.min_referrals || 1,
+      max_referrals: config.max_rewards_per_referrer || undefined,
       valid_days: config.valid_to ? Math.ceil((new Date(config.valid_to).getTime() - new Date(config.valid_from).getTime()) / (1000 * 60 * 60 * 24)) : 30,
       is_active: config.is_active,
-      applicable_to: (config.referrer_type as 'student' | 'alumni' | 'both') || 'both',
-      terms_conditions: config.terms_conditions || '',
+      applicable_to: ((config.referrer_types?.[0]) as 'student' | 'alumni' | 'both') || 'both',
+      terms_conditions: (config.trigger_conditions ? JSON.stringify(config.trigger_conditions) : '') as string,
     });
     setConfigDialog({ mode: 'edit', config });
   };

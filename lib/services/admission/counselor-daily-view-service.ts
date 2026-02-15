@@ -132,19 +132,26 @@ export class CounselorDailyViewService {
       };
     }
 
-    // Compute conversion rate client-side
-    const kpis = data.kpis || {};
-    const conversionRate = kpis.total_this_month > 0
-      ? Math.round((kpis.enrolled_this_month / kpis.total_this_month) * 100)
+    // Compute conversion rate client-side; coerce nulls to 0
+    const rawKpis = data.kpis || {};
+    const kpis: CounselorKPIs = {
+      my_leads_today: rawKpis.my_leads_today ?? 0,
+      followups_due: rawKpis.followups_due ?? 0,
+      overdue_followups: rawKpis.overdue_followups ?? 0,
+      hot_leads: rawKpis.hot_leads ?? 0,
+      total_active: rawKpis.total_active ?? 0,
+      enrolled_this_month: rawKpis.enrolled_this_month ?? 0,
+      total_this_month: rawKpis.total_this_month ?? 0,
+      conversion_rate: 0,
+    };
+    kpis.conversion_rate = kpis.total_this_month > 0
+      ? Math.round((kpis.enrolled_this_month / kpis.total_this_month) * 100 * 10) / 10
       : 0;
 
     return {
       counselor_id: data.counselor_id,
       is_manager: data.is_manager || false,
-      kpis: {
-        ...kpis,
-        conversion_rate: conversionRate,
-      },
+      kpis,
       followups: data.followups || [],
       pipeline: data.pipeline || [],
       today_activities: data.today_activities || [],
@@ -161,7 +168,7 @@ export class CounselorDailyViewService {
       .select('id, full_name, phone, email, interested_programs, source, score, created_at, funnel_stage, student_interest_level, parent_decision_status, academic_year')
       .eq('institution_id', institutionId)
       .is('counselor_id', null)
-      .not('funnel_stage', 'in', '(enrolled,lost,dormant)')
+      .not('funnel_stage', 'in', '(enrolled,confirmed,declined,withdrew,expired,lost,dormant)')
       .order('created_at', { ascending: false })
       .limit(20);
 
@@ -177,6 +184,9 @@ export class CounselorDailyViewService {
    * Assign leads to a counselor (bulk)
    */
   static async assignLeads(leadIds: string[], counselorId: string, institutionId?: string): Promise<void> {
+    // Guard against empty array — Supabase .in() with [] returns ALL rows
+    if (!leadIds || leadIds.length === 0) return;
+
     let query = (this.supabase as any)
       .from('admission_leads')
       .update({
@@ -207,7 +217,7 @@ export class CounselorDailyViewService {
     const { data: { user } } = await (this.supabase as any).auth.getUser();
 
     // Log reschedule as activity for audit trail
-    await (this.supabase as any)
+    const { error: activityError } = await (this.supabase as any)
       .from('admission_lead_activities')
       .insert({
         lead_id: leadId,
@@ -217,6 +227,10 @@ export class CounselorDailyViewService {
         metadata: { scheduled_at: newDate },
         performed_by: user?.id || null,
       });
+
+    if (activityError) {
+      console.error('[CounselorDailyViewService] Error logging reschedule activity:', activityError);
+    }
 
     const { error } = await (this.supabase as any)
       .from('admission_leads')
@@ -307,17 +321,36 @@ export class CounselorDailyViewService {
   /**
    * Quick advance stage
    */
+  // Valid funnel stages for validation
+  private static readonly VALID_STAGES = new Set([
+    'new', 'contacted', 'not_reachable', 'interested', 'follow_up_scheduled',
+    'engaged', 'qualified', 'application_started', 'application_submitted',
+    'documents_pending', 'documents_verified', 'interview_scheduled',
+    'interview_completed', 'offer_sent', 'offer_accepted', 'token_paid',
+    'applied', 'interviewed', 'offered', 'enrolled', 'confirmed',
+    'declined', 'withdrew', 'expired', 'lost', 'dormant',
+  ]);
+
   static async advanceStage(leadId: string, newStage: string): Promise<void> {
+    // Validate stage before DB operation
+    if (!this.VALID_STAGES.has(newStage)) {
+      throw new Error(`Invalid stage: ${newStage}`);
+    }
     const { data: { user } } = await (this.supabase as any).auth.getUser();
 
     // Get current stage first
-    const { data: lead } = await (this.supabase as any)
+    const { data: lead, error: fetchError } = await (this.supabase as any)
       .from('admission_leads')
       .select('funnel_stage')
       .eq('id', leadId)
       .single();
 
-    const oldStage = lead?.funnel_stage;
+    if (fetchError || !lead) {
+      console.error('[CounselorDailyViewService] Lead not found for stage advance:', fetchError);
+      throw new Error('Lead not found');
+    }
+
+    const oldStage = lead.funnel_stage;
 
     // Update lead stage
     const updatePayload: Record<string, any> = {
@@ -348,6 +381,7 @@ export class CounselorDailyViewService {
         from_stage: oldStage,
         to_stage: newStage,
         changed_by: user?.id || null,
+        created_at: new Date().toISOString(),
       });
 
     if (historyError) {

@@ -75,7 +75,11 @@ const FUNNEL_STAGES = [
   { key: 'applied', label: 'Applied', color: 'bg-violet-400' },
   { key: 'interviewed', label: 'Interviewed', color: 'bg-rose-400' },
   { key: 'offered', label: 'Offered', color: 'bg-orange-400' },
-  { key: 'enrolled', label: 'Enrolled', color: 'bg-cyan-500' }
+  { key: 'enrolled', label: 'Enrolled', color: 'bg-cyan-500' },
+  { key: 'confirmed', label: 'Confirmed', color: 'bg-green-600' },
+  { key: 'declined', label: 'Declined', color: 'bg-red-500' },
+  { key: 'withdrew', label: 'Withdrew', color: 'bg-red-400' },
+  { key: 'expired', label: 'Expired', color: 'bg-gray-400' }
 ];
 
 const DATE_RANGES = [

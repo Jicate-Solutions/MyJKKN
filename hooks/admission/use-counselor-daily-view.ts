@@ -102,6 +102,12 @@ export function useCounselorActions(_institutionId?: string) {
 
   const invalidateAll = () => {
     queryClient.invalidateQueries({ queryKey: counselorDailyViewKeys.all });
+    // Also invalidate shared admission query keys so other pages stay in sync
+    queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
+    queryClient.invalidateQueries({ queryKey: ['admission-lead'] });
+    queryClient.invalidateQueries({ queryKey: ['funnel-summary'] });
+    queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
+    queryClient.invalidateQueries({ queryKey: ['admission-dashboard'] });
   };
 
   const rescheduleFollowup = useMutation({
@@ -154,7 +160,7 @@ export function useCounselorActions(_institutionId?: string) {
 
   const assignLeads = useMutation({
     mutationFn: ({ leadIds, counselorId }: { leadIds: string[]; counselorId: string }) =>
-      CounselorDailyViewService.assignLeads(leadIds, counselorId),
+      CounselorDailyViewService.assignLeads(leadIds, counselorId, _institutionId),
     onSuccess: () => {
       toast.success('Leads assigned');
       invalidateAll();

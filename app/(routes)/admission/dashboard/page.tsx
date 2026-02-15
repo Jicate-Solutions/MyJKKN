@@ -15,11 +15,11 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { useAuth } from '@/hooks/use-auth';
+import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
 import {
   useDashboardSummary,
   useFunnelSummary,
   useAdmissionLeads,
-  useLeadMutations,
   useLatestUnreadBriefing
 } from '@/hooks/admission';
 import {
@@ -27,7 +27,6 @@ import {
   UserPlus,
   TrendingUp,
   Target,
-  Clock,
   CheckCircle,
   AlertCircle,
   Flame,
@@ -63,7 +62,11 @@ const FUNNEL_STAGES = [
   { key: 'applied', label: 'Applied', color: 'bg-violet-400' },
   { key: 'interviewed', label: 'Interviewed', color: 'bg-rose-400' },
   { key: 'offered', label: 'Offered', color: 'bg-orange-400' },
-  { key: 'enrolled', label: 'Enrolled', color: 'bg-cyan-500' }
+  { key: 'enrolled', label: 'Enrolled', color: 'bg-cyan-500' },
+  { key: 'confirmed', label: 'Confirmed', color: 'bg-green-600' },
+  { key: 'declined', label: 'Declined', color: 'bg-red-500' },
+  { key: 'withdrew', label: 'Withdrew', color: 'bg-red-400' },
+  { key: 'expired', label: 'Expired', color: 'bg-gray-400' }
 ];
 
 function DashboardSkeleton() {
@@ -239,8 +242,9 @@ function HotLeadsList({
 }
 
 function AdmissionDashboardPageContent() {
-  const { profile, isLoading: accessLoading } = useAuth();
-  const institutionId = profile?.institution_id;
+  const { profile } = useAuth();
+  const { selectedInstitutionId, loading: accessLoading } = useUserInstitutionAccess();
+  const institutionId = selectedInstitutionId;
   const [isRefetching, setIsRefetching] = useState(false);
   const [showBriefingPopup, setShowBriefingPopup] = useState(false);
 

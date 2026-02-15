@@ -104,6 +104,15 @@ export {
   workflowsKeys,
 } from './use-workflows';
 
+// Re-export counselor daily view hooks
+export {
+  useCounselorDailyView,
+  useUnassignedLeads,
+  useCounselorsList,
+  useCounselorActions,
+  counselorDailyViewKeys,
+} from './use-counselor-daily-view';
+
 // Re-export activity hooks
 export {
   useLeadActivities,
@@ -380,7 +389,8 @@ export function useLeadMutations() {
 
   const togglePriority = useMutation({
     mutationFn: async ({ leadId, isPriority }: { leadId: string; isPriority: boolean }) => {
-      return LeadService.updatePriority(leadId, isPriority ? 'warm' : 'cold');
+      // Use updateLead to only change is_priority without touching is_hot_lead
+      return LeadService.updateLead(leadId, { is_priority: isPriority });
     },
     onSuccess: (_, variables) => {
       toast.success(variables.isPriority ? 'Marked as priority' : 'Removed priority status');
@@ -428,7 +438,7 @@ export function useLeadMutations() {
       return LeadService.createLead(data);
     },
     onSuccess: (data) => {
-      toast.success('Lead created successfully');
+      // Toast is fired by the calling component's onSuccess callback — don't duplicate
       queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
       queryClient.invalidateQueries({ queryKey: ['funnel-summary'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
@@ -863,8 +873,9 @@ export function useAdmissionDashboard(filtersOrId?: string | any) {
     },
     funnel: query.data?.funnel || [],
     isLoading: query.isLoading,
+    isError: query.isError,
+    error: query.error,
     refetchAll: query.refetch,
-    ...query
   };
 }
 
@@ -947,7 +958,8 @@ export function useFunnelAnalyticsDashboard(filtersOrId?: string | any) {
         'engaged', 'qualified', 'application_started', 'application_submitted',
         'documents_pending', 'documents_verified', 'interview_scheduled',
         'interview_completed', 'offer_sent', 'offer_accepted', 'token_paid',
-        'applied', 'interviewed', 'offered', 'enrolled'
+        'applied', 'interviewed', 'offered', 'enrolled',
+        'confirmed', 'declined', 'withdrew', 'expired'
       ];
 
       // Fetch leads with stage info
@@ -957,11 +969,15 @@ export function useFunnelAnalyticsDashboard(filtersOrId?: string | any) {
         .eq('institution_id', institutionId);
 
       // Fetch stuck leads from the view
-      const { data: stuckData } = await (supabase as any)
+      const { data: stuckData, error: stuckError } = await (supabase as any)
         .from('v_stuck_leads')
         .select('*')
         .eq('institution_id', institutionId)
         .order('days_in_stage', { ascending: false });
+
+      if (stuckError) {
+        console.error('[admission] v_stuck_leads query failed:', stuckError);
+      }
 
       const allLeads = leads || [];
       const totalLeads = allLeads.length || 1;
@@ -1058,8 +1074,9 @@ export function useFunnelAnalyticsDashboard(filtersOrId?: string | any) {
     stuckLeads: query.data?.stuckLeads || [],
     bottlenecks: query.data?.bottlenecks || [],
     isLoading: query.isLoading,
+    isError: query.isError,
+    error: query.error,
     refetchAll: query.refetch,
-    ...query
   };
 }
 
