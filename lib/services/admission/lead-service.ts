@@ -20,8 +20,9 @@ export class LeadService {
    */
   private static sanitizeSearch(input: string): string {
     if (!input) return '';
-    // Escape special chars: %, _, \ (SQL LIKE), and commas (PostgREST .or() separator)
-    return input.replace(/[%_\\,]/g, '\\$&');
+    // Escape special chars: %, _, \ (SQL LIKE), commas (PostgREST .or() separator),
+    // and parentheses (PostgREST .or() grouping)
+    return input.replace(/[%_\\,()]/g, '\\$&');
   }
 
   /**
@@ -44,8 +45,9 @@ export class LeadService {
     // Create a shallow copy to avoid mutating the original DB/cache object
     const lead = { ...row };
 
-    // Compute priority from boolean flags if not already set as an enum
-    if (!lead.priority || typeof lead.priority !== 'string') {
+    // Compute priority from boolean flags if not a valid priority value
+    const validPriorities = ['hot', 'warm', 'cold'];
+    if (!lead.priority || !validPriorities.includes(lead.priority)) {
       if (lead.is_hot_lead) {
         lead.priority = 'hot';
       } else if (lead.is_priority) {
@@ -88,18 +90,29 @@ export class LeadService {
     }
     if (filters.funnel_stage) {
       // Filter by stage (enum column) with fallback to funnel_stage (legacy)
+      // Sanitize stage values to prevent PostgREST filter injection
+      const sanitizeStage = (s: string) => s.replace(/[^a-z_]/g, '');
       if (Array.isArray(filters.funnel_stage)) {
-        query = query.or(`stage.in.(${filters.funnel_stage.join(',')}),funnel_stage.in.(${filters.funnel_stage.join(',')})`);
+        const safe = filters.funnel_stage.map(sanitizeStage).filter(Boolean);
+        if (safe.length > 0) {
+          query = query.or(`stage.in.(${safe.join(',')}),funnel_stage.in.(${safe.join(',')})`);
+        }
       } else {
-        query = query.or(`stage.eq.${filters.funnel_stage},funnel_stage.eq.${filters.funnel_stage}`);
+        const safe = sanitizeStage(filters.funnel_stage);
+        if (safe) {
+          query = query.or(`stage.eq.${safe},funnel_stage.eq.${safe}`);
+        }
       }
     }
     if (filters.priority) {
       // Map priority filter to actual DB columns (is_hot_lead, is_priority booleans)
-      if (filters.priority === 'hot' || (Array.isArray(filters.priority) && filters.priority.includes('hot'))) {
+      const priorityVal = Array.isArray(filters.priority) ? filters.priority[0] : filters.priority;
+      if (priorityVal === 'hot') {
         query = query.eq('is_hot_lead', true);
-      } else if (filters.priority === 'warm' || (Array.isArray(filters.priority) && filters.priority.includes('warm'))) {
-        query = query.eq('is_priority', true);
+      } else if (priorityVal === 'warm') {
+        query = query.eq('is_priority', true).eq('is_hot_lead', false);
+      } else if (priorityVal === 'cold') {
+        query = query.eq('is_hot_lead', false).eq('is_priority', false);
       }
     }
     if (filters.source) {
@@ -276,9 +289,12 @@ export class LeadService {
 
     const { data: { user } } = await (this.supabase as any).auth.getUser();
 
+    // Sanitize: strip fields that clients must never override
+    const { id: _stripId, institution_id: _stripInst, created_at: _stripCreated, ...safeData } = leadData as any;
+
     const { data, error } = await (this.supabase as any).from('admission_leads')
       .update({
-        ...leadData,
+        ...safeData,
         updated_at: new Date().toISOString()
       })
       .eq('id', id)
@@ -674,6 +690,10 @@ export class LeadService {
       interviewed: 0,
       offered: 0,
       enrolled: 0,
+      confirmed: 0,
+      declined: 0,
+      withdrew: 0,
+      expired: 0,
       lost: 0,
       dormant: 0
     };

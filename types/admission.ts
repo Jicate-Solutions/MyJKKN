@@ -39,6 +39,10 @@ export type FunnelStage =
   | 'interviewed'
   | 'offered'
   | 'enrolled'
+  | 'confirmed'
+  | 'declined'
+  | 'withdrew'
+  | 'expired'
   | 'lost'
   | 'dormant';
 

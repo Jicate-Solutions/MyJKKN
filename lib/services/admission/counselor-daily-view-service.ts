@@ -176,8 +176,8 @@ export class CounselorDailyViewService {
   /**
    * Assign leads to a counselor (bulk)
    */
-  static async assignLeads(leadIds: string[], counselorId: string): Promise<void> {
-    const { error } = await (this.supabase as any)
+  static async assignLeads(leadIds: string[], counselorId: string, institutionId?: string): Promise<void> {
+    let query = (this.supabase as any)
       .from('admission_leads')
       .update({
         counselor_id: counselorId,
@@ -186,6 +186,13 @@ export class CounselorDailyViewService {
         updated_at: new Date().toISOString(),
       })
       .in('id', leadIds);
+
+    // Scope to institution to prevent cross-tenant reassignment
+    if (institutionId) {
+      query = query.eq('institution_id', institutionId);
+    }
+
+    const { error } = await query;
 
     if (error) {
       console.error('[CounselorDailyViewService] Error assigning leads:', error);

@@ -22,7 +22,7 @@ import {
   SelectValue
 } from '@/components/ui/select';
 import { PermissionGuard } from '@/components/auth/permission-guard';
-import { useAuth } from '@/hooks/use-auth';
+import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
 import {
   useAdmissionDashboard,
   useFunnelAnalyticsDashboard
@@ -429,8 +429,8 @@ function StuckLeadsTable({
 }
 
 function AdmissionAnalyticsPageContent() {
-  const { profile, isLoading: accessLoading } = useAuth();
-  const institutionId = profile?.institution_id;
+  const { selectedInstitutionId, loading: accessLoading } = useUserInstitutionAccess();
+  const institutionId = selectedInstitutionId;
   const [dateRange, setDateRange] = useState('30');
 
   // Phase 1 hooks

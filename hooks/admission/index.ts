@@ -303,6 +303,7 @@ export function useLeadMutations() {
       queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
       queryClient.invalidateQueries({ queryKey: ['funnel-summary'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
+      queryClient.invalidateQueries({ queryKey: ['admission-dashboard'] });
       return data;
     },
     onError: (error: Error) => {
@@ -318,6 +319,9 @@ export function useLeadMutations() {
       toast.success('Lead updated successfully');
       queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
       queryClient.invalidateQueries({ queryKey: ['admission-lead'] });
+      queryClient.invalidateQueries({ queryKey: ['funnel-summary'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
+      queryClient.invalidateQueries({ queryKey: ['admission-dashboard'] });
     },
     onError: (error: Error) => {
       toast.error(error.message || 'Failed to update lead');
@@ -332,6 +336,8 @@ export function useLeadMutations() {
       toast.success('Lead deleted successfully');
       queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
       queryClient.invalidateQueries({ queryKey: ['funnel-summary'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
+      queryClient.invalidateQueries({ queryKey: ['admission-dashboard'] });
     },
     onError: (error: Error) => {
       toast.error(error.message || 'Failed to delete lead');
@@ -347,7 +353,10 @@ export function useLeadMutations() {
       queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
       queryClient.invalidateQueries({ queryKey: ['admission-lead'] });
       queryClient.invalidateQueries({ queryKey: ['funnel-summary'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
+      queryClient.invalidateQueries({ queryKey: ['admission-dashboard'] });
       queryClient.invalidateQueries({ queryKey: ['lead-timeline'] });
+      queryClient.invalidateQueries({ queryKey: ['counselor-daily-view'] });
     },
     onError: (error: Error) => {
       toast.error(error.message || 'Failed to update stage');
@@ -377,6 +386,8 @@ export function useLeadMutations() {
       toast.success(variables.isPriority ? 'Marked as priority' : 'Removed priority status');
       queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
       queryClient.invalidateQueries({ queryKey: ['admission-lead'] });
+      queryClient.invalidateQueries({ queryKey: ['funnel-summary'] });
+      queryClient.invalidateQueries({ queryKey: ['admission-dashboard'] });
     },
     onError: (error: Error) => {
       toast.error(error.message || 'Failed to update priority');
@@ -421,6 +432,7 @@ export function useLeadMutations() {
       queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
       queryClient.invalidateQueries({ queryKey: ['funnel-summary'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
+      queryClient.invalidateQueries({ queryKey: ['admission-dashboard'] });
       return data;
     },
     onError: (error: Error) => {
@@ -543,6 +555,11 @@ export function useApplicationMutations() {
     onSuccess: () => {
       toast.success('Application status updated');
       queryClient.invalidateQueries({ queryKey: ['admission-applications'] });
+      queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
+      queryClient.invalidateQueries({ queryKey: ['admission-lead'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
+      queryClient.invalidateQueries({ queryKey: ['admission-dashboard'] });
+      queryClient.invalidateQueries({ queryKey: ['funnel-summary'] });
     },
     onError: (error: Error) => {
       toast.error(error.message || 'Failed to update application status');
@@ -919,12 +936,11 @@ export function useFunnelAnalyticsDashboard(filtersOrId?: string | any) {
     ? filtersOrId
     : filtersOrId?.institution_id || filtersOrId?.institutionId;
 
-  const supabase = createClientSupabaseClient();
-
   const query = useQuery({
     queryKey: ['funnel-analytics-dashboard', institutionId],
     queryFn: async () => {
       if (!institutionId) return { enhanced: [], dropOff: [], stuckLeads: [], bottlenecks: [] };
+      const supabase = createClientSupabaseClient();
 
       const STAGES = [
         'new', 'contacted', 'not_reachable', 'interested', 'follow_up_scheduled',

@@ -30,7 +30,6 @@ import {
   useEnhancedTimeline,
   useLeadCommunicationHistory,
   useLeadMutations,
-  useCommunicationMutations,
   useActivityMutations,
   useApplicationMutations
 } from '@/hooks/admission';
@@ -154,20 +153,6 @@ function getStageColor(stage: string | null): string {
   return colors[stage || 'new'] || 'bg-gray-100 text-gray-800 border-gray-200';
 }
 
-function formatActivityType(type: string): string {
-  const labels: Record<string, string> = {
-    stage_changed: 'Stage Changed',
-    assigned: 'Assigned to Counselor',
-    note_added: 'Note Added',
-    email_sent: 'Email Sent',
-    call_made: 'Call Made',
-    meeting_scheduled: 'Meeting Scheduled',
-    document_uploaded: 'Document Uploaded',
-    score_updated: 'Score Updated'
-  };
-  return labels[type] || type.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase());
-}
-
 function LeadDetailSkeleton() {
   return (
     <div className="space-y-6">
@@ -258,10 +243,17 @@ function CommunicationItem({
     id: string;
     content: string;
     status: string | null;
-    sent_at: string | null;
-    channel?: { channel_name: string; channel_type: string } | null;
+    sentAt?: string | null;
+    sent_at?: string | null;
+    channel?: string | { channel_name: string; channel_type: string } | null;
   };
 }) {
+  // Support both camelCase (from hook) and snake_case (legacy) field names
+  const sentDate = message.sentAt || message.sent_at;
+  const channelLabel = typeof message.channel === 'string'
+    ? (message.channel === 'whatsapp' ? 'WhatsApp' : message.channel.toUpperCase())
+    : message.channel?.channel_name || 'Message';
+
   return (
     <div className="flex gap-3 pb-4 border-b last:border-0 last:pb-0">
       <div className="flex-shrink-0">
@@ -272,7 +264,7 @@ function CommunicationItem({
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
           <p className="text-sm font-medium">
-            {message.channel?.channel_name || 'Message'}
+            {channelLabel}
           </p>
           <Badge variant="outline" className="text-xs">
             {message.status || 'sent'}
@@ -280,7 +272,7 @@ function CommunicationItem({
         </div>
         <p className="text-sm text-muted-foreground mt-1 line-clamp-2">{message.content}</p>
         <p className="text-xs text-muted-foreground mt-1">
-          {message.sent_at ? new Date(message.sent_at).toLocaleString() : '-'}
+          {sentDate ? new Date(sentDate).toLocaleString() : '-'}
         </p>
       </div>
     </div>
@@ -350,6 +342,7 @@ function LeadDetailPageContent() {
   const [programs, setPrograms] = useState<{ id: string; program_name: string }[]>([]);
   const [programsLoading, setProgramsLoading] = useState(false);
   useEffect(() => {
+    let cancelled = false;
     if (lead?.institution_id) {
       setProgramsLoading(true);
       const supabase = createClientSupabaseClient();
@@ -360,6 +353,7 @@ function LeadDetailPageContent() {
         .eq('is_active', true)
         .order('program_name')
         .then(({ data, error }: { data: any; error: any }) => {
+          if (cancelled) return;
           if (error) {
             console.error('[admission/leads] Failed to fetch programs:', error.message);
           } else {
@@ -368,12 +362,14 @@ function LeadDetailPageContent() {
           setProgramsLoading(false);
         });
     }
+    return () => { cancelled = true; };
   }, [lead?.institution_id]);
 
   // Fetch counselors for assignment dialog
   const [counselors, setCounselors] = useState<{ id: string; name: string; designation: string | null; phone: string | null }[]>([]);
   const [counselorsLoading, setCounselorsLoading] = useState(false);
   useEffect(() => {
+    let cancelled = false;
     if (lead?.institution_id) {
       setCounselorsLoading(true);
       const supabase = createClientSupabaseClient();
@@ -384,6 +380,7 @@ function LeadDetailPageContent() {
         .eq('is_active', true)
         .order('name')
         .then(({ data, error }: { data: any; error: any }) => {
+          if (cancelled) return;
           if (error) {
             console.error('[admission/leads] Failed to fetch counselors:', error.message);
           } else {
@@ -392,6 +389,7 @@ function LeadDetailPageContent() {
           setCounselorsLoading(false);
         });
     }
+    return () => { cancelled = true; };
   }, [lead?.institution_id]);
 
   // Map interested program IDs to names
@@ -480,8 +478,8 @@ function LeadDetailPageContent() {
     );
   };
 
-  // Show loading skeleton if UUID hasn't resolved yet (PPR) or data is still fetching
-  const isLoading = leadLoading || !isValidId;
+  // Show loading skeleton only when actually fetching (valid UUID + query in flight)
+  const isLoading = isValidId && leadLoading;
 
   if (isLoading) {
     return (
