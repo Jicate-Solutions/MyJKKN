@@ -131,6 +131,9 @@ export type Database = {
           completion_percentage: number | null
           created_at: string | null
           current_step: number | null
+          entrance_exam_name: string | null
+          entrance_exam_rank: number | null
+          entrance_exam_score: number | null
           expires_at: string | null
           form_data: Json | null
           id: string
@@ -138,11 +141,19 @@ export type Database = {
           last_saved_at: string | null
           lead_id: string
           learner_profile_id: string | null
+          marks_10th_board: string | null
+          marks_10th_percentage: number | null
+          marks_12th_board: string | null
+          marks_12th_percentage: number | null
+          marks_ug_percentage: number | null
+          marks_ug_university: string | null
           program_id: string
+          quota_type: string | null
           rejection_reason: string | null
           review_notes: string | null
           reviewed_at: string | null
           reviewer_id: string | null
+          seat_type: string | null
           status: Database["public"]["Enums"]["application_status"] | null
           status_changed_at: string | null
           status_history: Json | null
@@ -159,6 +170,9 @@ export type Database = {
           completion_percentage?: number | null
           created_at?: string | null
           current_step?: number | null
+          entrance_exam_name?: string | null
+          entrance_exam_rank?: number | null
+          entrance_exam_score?: number | null
           expires_at?: string | null
           form_data?: Json | null
           id?: string
@@ -166,11 +180,19 @@ export type Database = {
           last_saved_at?: string | null
           lead_id: string
           learner_profile_id?: string | null
+          marks_10th_board?: string | null
+          marks_10th_percentage?: number | null
+          marks_12th_board?: string | null
+          marks_12th_percentage?: number | null
+          marks_ug_percentage?: number | null
+          marks_ug_university?: string | null
           program_id: string
+          quota_type?: string | null
           rejection_reason?: string | null
           review_notes?: string | null
           reviewed_at?: string | null
           reviewer_id?: string | null
+          seat_type?: string | null
           status?: Database["public"]["Enums"]["application_status"] | null
           status_changed_at?: string | null
           status_history?: Json | null
@@ -187,6 +209,9 @@ export type Database = {
           completion_percentage?: number | null
           created_at?: string | null
           current_step?: number | null
+          entrance_exam_name?: string | null
+          entrance_exam_rank?: number | null
+          entrance_exam_score?: number | null
           expires_at?: string | null
           form_data?: Json | null
           id?: string
@@ -194,11 +219,19 @@ export type Database = {
           last_saved_at?: string | null
           lead_id?: string
           learner_profile_id?: string | null
+          marks_10th_board?: string | null
+          marks_10th_percentage?: number | null
+          marks_12th_board?: string | null
+          marks_12th_percentage?: number | null
+          marks_ug_percentage?: number | null
+          marks_ug_university?: string | null
           program_id?: string
+          quota_type?: string | null
           rejection_reason?: string | null
           review_notes?: string | null
           reviewed_at?: string | null
           reviewer_id?: string | null
+          seat_type?: string | null
           status?: Database["public"]["Enums"]["application_status"] | null
           status_changed_at?: string | null
           status_history?: Json | null
@@ -619,29 +652,35 @@ export type Database = {
       admission_counselors: {
         Row: {
           created_at: string | null
+          designation: string | null
           email: string | null
           id: string
           institution_id: string | null
           is_active: boolean | null
           name: string
+          phone: string | null
           user_id: string | null
         }
         Insert: {
           created_at?: string | null
+          designation?: string | null
           email?: string | null
           id?: string
           institution_id?: string | null
           is_active?: boolean | null
           name: string
+          phone?: string | null
           user_id?: string | null
         }
         Update: {
           created_at?: string | null
+          designation?: string | null
           email?: string | null
           id?: string
           institution_id?: string | null
           is_active?: boolean | null
           name?: string
+          phone?: string | null
           user_id?: string | null
         }
         Relationships: []
@@ -1171,6 +1210,7 @@ export type Database = {
       }
       admission_leads: {
         Row: {
+          academic_year: string | null
           address_line1: string | null
           alternate_phone: string | null
           assigned_at: string | null
@@ -1210,6 +1250,7 @@ export type Database = {
           ownership_mode:
             | Database["public"]["Enums"]["lead_ownership_mode"]
             | null
+          parent_decision_status: string | null
           parent_email: string | null
           parent_name: string | null
           parent_opted_in: boolean | null
@@ -1232,11 +1273,13 @@ export type Database = {
           stage: Database["public"]["Enums"]["admission_lead_stage"] | null
           stage_changed_at: string | null
           state: string | null
+          student_interest_level: string | null
           tags: string[] | null
           total_messages_sent: number | null
           updated_at: string | null
         }
         Insert: {
+          academic_year?: string | null
           address_line1?: string | null
           alternate_phone?: string | null
           assigned_at?: string | null
@@ -1276,6 +1319,7 @@ export type Database = {
           ownership_mode?:
             | Database["public"]["Enums"]["lead_ownership_mode"]
             | null
+          parent_decision_status?: string | null
           parent_email?: string | null
           parent_name?: string | null
           parent_opted_in?: boolean | null
@@ -1298,11 +1342,13 @@ export type Database = {
           stage?: Database["public"]["Enums"]["admission_lead_stage"] | null
           stage_changed_at?: string | null
           state?: string | null
+          student_interest_level?: string | null
           tags?: string[] | null
           total_messages_sent?: number | null
           updated_at?: string | null
         }
         Update: {
+          academic_year?: string | null
           address_line1?: string | null
           alternate_phone?: string | null
           assigned_at?: string | null
@@ -1342,6 +1388,7 @@ export type Database = {
           ownership_mode?:
             | Database["public"]["Enums"]["lead_ownership_mode"]
             | null
+          parent_decision_status?: string | null
           parent_email?: string | null
           parent_name?: string | null
           parent_opted_in?: boolean | null
@@ -1364,6 +1411,7 @@ export type Database = {
           stage?: Database["public"]["Enums"]["admission_lead_stage"] | null
           stage_changed_at?: string | null
           state?: string | null
+          student_interest_level?: string | null
           tags?: string[] | null
           total_messages_sent?: number | null
           updated_at?: string | null
@@ -2101,14 +2149,23 @@ export type Database = {
           admission_number: string | null
           admission_type: string | null
           created_at: string
+          department_allocation: string | null
           documents: Json | null
           fee_structure: Json | null
           id: string
+          id_card_generated: boolean | null
+          id_card_generated_at: string | null
           institution_id: string | null
+          lms_access_given: boolean | null
+          lms_access_given_at: string | null
           notes: string | null
           program_id: string | null
+          roll_number: string | null
+          section_allocation: string | null
           status: string | null
           student_id: string | null
+          student_portal_login_created: boolean | null
+          student_portal_login_created_at: string | null
           updated_at: string
         }
         Insert: {
@@ -2117,14 +2174,23 @@ export type Database = {
           admission_number?: string | null
           admission_type?: string | null
           created_at?: string
+          department_allocation?: string | null
           documents?: Json | null
           fee_structure?: Json | null
           id?: string
+          id_card_generated?: boolean | null
+          id_card_generated_at?: string | null
           institution_id?: string | null
+          lms_access_given?: boolean | null
+          lms_access_given_at?: string | null
           notes?: string | null
           program_id?: string | null
+          roll_number?: string | null
+          section_allocation?: string | null
           status?: string | null
           student_id?: string | null
+          student_portal_login_created?: boolean | null
+          student_portal_login_created_at?: string | null
           updated_at?: string
         }
         Update: {
@@ -2133,14 +2199,23 @@ export type Database = {
           admission_number?: string | null
           admission_type?: string | null
           created_at?: string
+          department_allocation?: string | null
           documents?: Json | null
           fee_structure?: Json | null
           id?: string
+          id_card_generated?: boolean | null
+          id_card_generated_at?: string | null
           institution_id?: string | null
+          lms_access_given?: boolean | null
+          lms_access_given_at?: string | null
           notes?: string | null
           program_id?: string | null
+          roll_number?: string | null
+          section_allocation?: string | null
           status?: string | null
           student_id?: string | null
+          student_portal_login_created?: boolean | null
+          student_portal_login_created_at?: string | null
           updated_at?: string
         }
         Relationships: [
@@ -17548,6 +17623,7 @@ export type Database = {
           reward_value: number
           reward_value_type: string
           stackable: boolean | null
+          terms_conditions: string | null
           trigger_conditions: Json | null
           trigger_stage: string
           updated_at: string | null
@@ -17575,6 +17651,7 @@ export type Database = {
           reward_value: number
           reward_value_type: string
           stackable?: boolean | null
+          terms_conditions?: string | null
           trigger_conditions?: Json | null
           trigger_stage?: string
           updated_at?: string | null
@@ -17602,6 +17679,7 @@ export type Database = {
           reward_value?: number
           reward_value_type?: string
           stackable?: boolean | null
+          terms_conditions?: string | null
           trigger_conditions?: Json | null
           trigger_stage?: string
           updated_at?: string | null
@@ -18915,10 +18993,22 @@ export type Database = {
         Row: {
           application_id: string
           applied_at: string | null
+          approval_chain: Json | null
+          approval_level: number | null
           approved_amount: number | null
+          current_approver_role: string | null
+          director_approved_at: string | null
+          director_approved_by: string | null
           documents: string[] | null
+          fee_deduction_amount: number | null
+          fee_deduction_applied: boolean | null
+          fee_deduction_applied_at: string | null
+          hod_approved_at: string | null
+          hod_approved_by: string | null
           id: string
           institution_id: string
+          principal_approved_at: string | null
+          principal_approved_by: string | null
           rejection_reason: string | null
           review_notes: string | null
           reviewed_at: string | null
@@ -18931,10 +19021,22 @@ export type Database = {
         Insert: {
           application_id: string
           applied_at?: string | null
+          approval_chain?: Json | null
+          approval_level?: number | null
           approved_amount?: number | null
+          current_approver_role?: string | null
+          director_approved_at?: string | null
+          director_approved_by?: string | null
           documents?: string[] | null
+          fee_deduction_amount?: number | null
+          fee_deduction_applied?: boolean | null
+          fee_deduction_applied_at?: string | null
+          hod_approved_at?: string | null
+          hod_approved_by?: string | null
           id?: string
           institution_id: string
+          principal_approved_at?: string | null
+          principal_approved_by?: string | null
           rejection_reason?: string | null
           review_notes?: string | null
           reviewed_at?: string | null
@@ -18947,10 +19049,22 @@ export type Database = {
         Update: {
           application_id?: string
           applied_at?: string | null
+          approval_chain?: Json | null
+          approval_level?: number | null
           approved_amount?: number | null
+          current_approver_role?: string | null
+          director_approved_at?: string | null
+          director_approved_by?: string | null
           documents?: string[] | null
+          fee_deduction_amount?: number | null
+          fee_deduction_applied?: boolean | null
+          fee_deduction_applied_at?: string | null
+          hod_approved_at?: string | null
+          hod_approved_by?: string | null
           id?: string
           institution_id?: string
+          principal_approved_at?: string | null
+          principal_approved_by?: string | null
           rejection_reason?: string | null
           review_notes?: string | null
           reviewed_at?: string | null
@@ -25116,6 +25230,100 @@ export type Database = {
           },
         ]
       }
+      transport_allocations: {
+        Row: {
+          academic_year: string
+          admission_id: string | null
+          allocation_status: string | null
+          approved_at: string | null
+          approved_by: string | null
+          created_at: string | null
+          drop_point: string | null
+          end_date: string | null
+          fee_per_month: number | null
+          fee_per_semester: number | null
+          id: string
+          institution_id: string
+          pass_number: string | null
+          payment_status: string | null
+          pickup_point: string | null
+          route_name: string | null
+          special_requirements: string | null
+          start_date: string | null
+          student_id: string
+          updated_at: string | null
+          vehicle_number: string | null
+        }
+        Insert: {
+          academic_year: string
+          admission_id?: string | null
+          allocation_status?: string | null
+          approved_at?: string | null
+          approved_by?: string | null
+          created_at?: string | null
+          drop_point?: string | null
+          end_date?: string | null
+          fee_per_month?: number | null
+          fee_per_semester?: number | null
+          id?: string
+          institution_id: string
+          pass_number?: string | null
+          payment_status?: string | null
+          pickup_point?: string | null
+          route_name?: string | null
+          special_requirements?: string | null
+          start_date?: string | null
+          student_id: string
+          updated_at?: string | null
+          vehicle_number?: string | null
+        }
+        Update: {
+          academic_year?: string
+          admission_id?: string | null
+          allocation_status?: string | null
+          approved_at?: string | null
+          approved_by?: string | null
+          created_at?: string | null
+          drop_point?: string | null
+          end_date?: string | null
+          fee_per_month?: number | null
+          fee_per_semester?: number | null
+          id?: string
+          institution_id?: string
+          pass_number?: string | null
+          payment_status?: string | null
+          pickup_point?: string | null
+          route_name?: string | null
+          special_requirements?: string | null
+          start_date?: string | null
+          student_id?: string
+          updated_at?: string | null
+          vehicle_number?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "transport_allocations_admission_id_fkey"
+            columns: ["admission_id"]
+            isOneToOne: false
+            referencedRelation: "admissions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "transport_allocations_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "transport_allocations_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "semester_hierarchy_health"
+            referencedColumns: ["institution_id"]
+          },
+        ]
+      }
       user_activity_logs: {
         Row: {
           action_type: string
@@ -30458,6 +30666,9 @@ export type Database = {
       admission_lead_stage:
         | "new"
         | "contacted"
+        | "not_reachable"
+        | "interested"
+        | "follow_up_scheduled"
         | "engaged"
         | "qualified"
         | "application_started"
@@ -30788,6 +30999,9 @@ export type Database = {
         | "minority"
         | "special"
         | "government"
+        | "single_parent"
+        | "disability"
+        | "alumni_sibling"
       sensitivity_level: "public" | "restricted" | "confidential"
       sh_assignment_status:
         | "requested"
@@ -31189,6 +31403,9 @@ export const Constants = {
       admission_lead_stage: [
         "new",
         "contacted",
+        "not_reachable",
+        "interested",
+        "follow_up_scheduled",
         "engaged",
         "qualified",
         "application_started",
@@ -31550,6 +31767,9 @@ export const Constants = {
         "minority",
         "special",
         "government",
+        "single_parent",
+        "disability",
+        "alumni_sibling",
       ],
       sensitivity_level: ["public", "restricted", "confidential"],
       sh_assignment_status: [
