@@ -297,9 +297,9 @@ Pages identified as PARTIAL that need completion:
 
 ---
 
-## P4: Production Hardening (PENDING)
+## P4: Production Hardening (PARTIALLY DONE)
 
-- [ ] RLS policies on all admission tables
+- [x] RLS policies on all admission tables — **DONE** (verified 2026-02-15: all 23 tables have RLS enabled with 60+ policies)
 - [ ] Role-based access (counselor vs admin vs manager)
 - [ ] Input validation at all form boundaries
 - [ ] Error handling for all service calls
