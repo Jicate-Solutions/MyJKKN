@@ -37,7 +37,7 @@ export function FollowupList({
       case 'urgency':
         return (URGENCY_ORDER[a.urgency] ?? 2) - (URGENCY_ORDER[b.urgency] ?? 2);
       case 'name':
-        return a.full_name.localeCompare(b.full_name);
+        return (a.full_name || '').localeCompare(b.full_name || '');
       case 'score':
         return (b.score ?? 0) - (a.score ?? 0);
       default:

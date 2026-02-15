@@ -113,8 +113,10 @@ export function FollowupCard({
   const [rescheduleDate, setRescheduleDate] = useState('');
 
   const currentStageIdx = STAGE_ORDER.indexOf(lead.funnel_stage);
-  // Only show forward stages that aren't terminal (lost/dormant shown separately)
-  const forwardStages = STAGE_ORDER.slice(currentStageIdx + 1);
+  // Only show forward stages; if current stage not found, start from beginning
+  const forwardStages = currentStageIdx >= 0
+    ? STAGE_ORDER.slice(currentStageIdx + 1)
+    : STAGE_ORDER;
 
   const urgencyConfig = {
     overdue: { color: 'text-red-600 bg-red-50', icon: AlertTriangle, label: 'Overdue' },

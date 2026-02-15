@@ -1,6 +1,6 @@
 'use client';
 
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import { useState, useEffect, useMemo } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
@@ -289,6 +289,7 @@ function CommunicationItem({
 
 function LeadDetailPageContent() {
   const params = useParams();
+  const router = useRouter();
   const leadId = params.id as string;
 
   const [newTag, setNewTag] = useState('');
@@ -321,7 +322,7 @@ function LeadDetailPageContent() {
   const { timeline, isLoading: timelineLoading } = useEnhancedTimeline(leadId);
   const { history: communicationHistory, isLoading: commLoading } = useLeadCommunicationHistory(leadId);
 
-  const { updateLead, updateStage, toggleHotLead, togglePriority, addTag, removeTag, scheduleFollowup, assignCounselor } = useLeadMutations();
+  const { updateLead, updateStage, toggleHotLead, togglePriority, addTag, removeTag, scheduleFollowup, assignCounselor, deleteLead } = useLeadMutations();
   const { createActivity } = useActivityMutations(leadId);
   const { createApplication } = useApplicationMutations();
 
@@ -566,7 +567,7 @@ function LeadDetailPageContent() {
       return;
     }
     scheduleFollowup.mutate(
-      { leadId, followupDate },
+      { leadId, followupDate, notes: followupNotes || undefined },
       {
         onSuccess: () => {
           setFollowupDate('');
@@ -714,7 +715,16 @@ function LeadDetailPageContent() {
                     Edit Lead
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem className="text-destructive">
+                  <DropdownMenuItem
+                    className="text-destructive"
+                    onClick={() => {
+                      if (window.confirm('Are you sure you want to delete this lead? This action cannot be undone.')) {
+                        deleteLead.mutate(leadId, {
+                          onSuccess: () => router.push('/admission/leads'),
+                        });
+                      }
+                    }}
+                  >
                     <Trash2 className="h-4 w-4 mr-2" />
                     Delete Lead
                   </DropdownMenuItem>

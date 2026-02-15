@@ -25,9 +25,6 @@ import { PermissionGuard } from '@/components/auth/permission-guard';
 import { useAuth } from '@/hooks/use-auth';
 import {
   useAdmissionDashboard,
-  useFunnelHistory,
-  useCounselorPerformance,
-  useSourcePerformance,
   useFunnelAnalyticsDashboard
 } from '@/hooks/admission';
 import {
@@ -38,15 +35,11 @@ import {
   BarChart3,
   RefreshCw,
   Calendar,
-  User,
-  Globe,
   AlertTriangle,
   AlertCircle,
   Clock,
   ArrowRight,
   Flame,
-  Star,
-  Loader2
 } from 'lucide-react';
 import {
   Table,
@@ -435,228 +428,13 @@ function StuckLeadsTable({
   );
 }
 
-function CounselorTable({
-  institutionId
-}: {
-  institutionId: string;
-}) {
-  const { counselors, isLoading } = useCounselorPerformance(institutionId);
-
-  if (isLoading) {
-    return <Skeleton className="h-48 w-full" />;
-  }
-
-  if (!counselors || counselors.length === 0) {
-    return (
-      <div className="text-center py-8 text-muted-foreground">
-        <User className="h-8 w-8 mx-auto mb-2 opacity-50" />
-        <p>No counselor data available</p>
-      </div>
-    );
-  }
-
-  return (
-    <Table>
-      <TableHeader>
-        <TableRow>
-          <TableHead>Rank</TableHead>
-          <TableHead>Counselor</TableHead>
-          <TableHead className="text-right">Leads</TableHead>
-          <TableHead className="text-right">Conversions</TableHead>
-          <TableHead className="text-right">Conv. Rate</TableHead>
-          <TableHead className="text-right">Messages</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {counselors.map((counselor, index) => (
-          <TableRow key={counselor.counselorId}>
-            <TableCell>
-              <Badge variant={index < 3 ? 'default' : 'secondary'}>
-                #{index + 1}
-              </Badge>
-            </TableCell>
-            <TableCell className="font-medium">{counselor.counselorName}</TableCell>
-            <TableCell className="text-right">{counselor.leadsAssigned}</TableCell>
-            <TableCell className="text-right">{counselor.conversions}</TableCell>
-            <TableCell className="text-right">
-              <Badge variant={counselor.conversionRate >= 20 ? 'default' : 'secondary'}>
-                {counselor.conversionRate.toFixed(1)}%
-              </Badge>
-            </TableCell>
-            <TableCell className="text-right">{counselor.messagesSent}</TableCell>
-          </TableRow>
-        ))}
-      </TableBody>
-    </Table>
-  );
-}
-
-// Phase 2: Enhanced Source ROI Table with cost tracking
-function SourceTable({
-  institutionId
-}: {
-  institutionId: string;
-}) {
-  const { sources, isLoading } = useSourcePerformance(institutionId);
-
-  // Calculate total metrics for summary
-  const totals = sources.reduce((acc, s) => ({
-    leads: acc.leads + s.leadsGenerated,
-    conversions: acc.conversions + s.conversions,
-    spend: acc.spend + (s.costPerLead ? s.costPerLead * s.leadsGenerated : 0)
-  }), { leads: 0, conversions: 0, spend: 0 });
-
-  // Estimated revenue per conversion (placeholder - should be configured)
-  const avgRevenuePerConversion = 50000; // Average course fee
-
-  if (isLoading) {
-    return <Skeleton className="h-48 w-full" />;
-  }
-
-  if (!sources || sources.length === 0) {
-    return (
-      <div className="text-center py-8 text-muted-foreground">
-        <Globe className="h-8 w-8 mx-auto mb-2 opacity-50" />
-        <p>No source data available</p>
-      </div>
-    );
-  }
-
-  // Sort by ROI (best performing first)
-  const sortedSources = [...sources].sort((a, b) => {
-    const roiA = a.conversions > 0 && a.costPerLead
-      ? ((a.conversions * avgRevenuePerConversion) - (a.costPerLead * a.leadsGenerated)) / (a.costPerLead * a.leadsGenerated) * 100
-      : 0;
-    const roiB = b.conversions > 0 && b.costPerLead
-      ? ((b.conversions * avgRevenuePerConversion) - (b.costPerLead * b.leadsGenerated)) / (b.costPerLead * b.leadsGenerated) * 100
-      : 0;
-    return roiB - roiA;
-  });
-
-  const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat('en-IN', {
-      style: 'currency',
-      currency: 'INR',
-      maximumFractionDigits: 0
-    }).format(value);
-  };
-
-  const calculateROI = (source: typeof sources[0]) => {
-    if (!source.costPerLead || source.leadsGenerated === 0) return null;
-    const spend = source.costPerLead * source.leadsGenerated;
-    const revenue = source.conversions * avgRevenuePerConversion;
-    return ((revenue - spend) / spend) * 100;
-  };
-
-  return (
-    <div className="space-y-6">
-      {/* ROI Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card>
-          <CardContent className="pt-4">
-            <div className="text-sm text-muted-foreground">Total Leads</div>
-            <div className="text-2xl font-bold">{totals.leads}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-4">
-            <div className="text-sm text-muted-foreground">Total Conversions</div>
-            <div className="text-2xl font-bold text-green-600">{totals.conversions}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-4">
-            <div className="text-sm text-muted-foreground">Total Spend</div>
-            <div className="text-2xl font-bold">{formatCurrency(totals.spend)}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-4">
-            <div className="text-sm text-muted-foreground">Est. Revenue</div>
-            <div className="text-2xl font-bold text-green-600">
-              {formatCurrency(totals.conversions * avgRevenuePerConversion)}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Enhanced Source Table */}
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Source</TableHead>
-            <TableHead>Type</TableHead>
-            <TableHead className="text-right">Leads</TableHead>
-            <TableHead className="text-right">Conversions</TableHead>
-            <TableHead className="text-right">Conv. Rate</TableHead>
-            <TableHead className="text-right">Cost/Lead</TableHead>
-            <TableHead className="text-right">Cost/Conv.</TableHead>
-            <TableHead className="text-right">ROI</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {sortedSources.map((source, index) => {
-            const roi = calculateROI(source);
-            const isTopPerformer = index < 3 && roi !== null && roi > 0;
-
-            return (
-              <TableRow key={source.sourceId} className={isTopPerformer ? 'bg-green-50/50' : ''}>
-                <TableCell className="font-medium">
-                  <div className="flex items-center gap-2">
-                    {isTopPerformer && <Star className="h-4 w-4 text-yellow-500" />}
-                    {source.sourceName}
-                  </div>
-                </TableCell>
-                <TableCell>
-                  <Badge variant="outline">{source.sourceType}</Badge>
-                </TableCell>
-                <TableCell className="text-right">{source.leadsGenerated}</TableCell>
-                <TableCell className="text-right">
-                  <span className="font-medium text-green-600">{source.conversions}</span>
-                </TableCell>
-                <TableCell className="text-right">
-                  <Badge variant={source.conversionRate >= 10 ? 'default' : 'secondary'}>
-                    {source.conversionRate.toFixed(1)}%
-                  </Badge>
-                </TableCell>
-                <TableCell className="text-right">
-                  {source.costPerLead ? formatCurrency(source.costPerLead) : '-'}
-                </TableCell>
-                <TableCell className="text-right">
-                  {source.costPerConversion ? formatCurrency(source.costPerConversion) : '-'}
-                </TableCell>
-                <TableCell className="text-right">
-                  {roi !== null ? (
-                    <Badge
-                      variant={roi > 100 ? 'default' : roi > 0 ? 'secondary' : 'destructive'}
-                      className={roi > 100 ? 'bg-green-600' : ''}
-                    >
-                      {roi > 0 ? '+' : ''}{roi.toFixed(0)}%
-                    </Badge>
-                  ) : (
-                    <span className="text-muted-foreground">-</span>
-                  )}
-                </TableCell>
-              </TableRow>
-            );
-          })}
-        </TableBody>
-      </Table>
-
-      <p className="text-xs text-muted-foreground">
-        * ROI calculated based on estimated avg. revenue of {formatCurrency(avgRevenuePerConversion)} per conversion
-      </p>
-    </div>
-  );
-}
-
 function AdmissionAnalyticsPageContent() {
   const { profile, isLoading: accessLoading } = useAuth();
   const institutionId = profile?.institution_id;
   const [dateRange, setDateRange] = useState('30');
 
   // Phase 1 hooks
-  const { summary, funnel, isLoading: dashboardLoading, refetchAll: refetchDashboard } = useAdmissionDashboard(institutionId || '');
+  const { summary, isLoading: dashboardLoading, refetchAll: refetchDashboard } = useAdmissionDashboard(institutionId || '');
 
   // Phase 2 hooks
   const {
@@ -670,10 +448,13 @@ function AdmissionAnalyticsPageContent() {
 
   const isLoading = accessLoading || dashboardLoading || funnelLoading;
 
-  const handleRefresh = () => {
-    refetchDashboard();
-    refetchFunnel();
-    toast.success('Analytics data refreshed');
+  const handleRefresh = async () => {
+    try {
+      await Promise.all([refetchDashboard(), refetchFunnel()]);
+      toast.success('Analytics data refreshed');
+    } catch {
+      toast.error('Failed to refresh analytics data');
+    }
   };
 
   if (isLoading) {

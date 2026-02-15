@@ -432,7 +432,7 @@ export class LeadService {
    * Toggle hot lead status
    */
   static async toggleHotLead(leadId: string, isHot: boolean): Promise<AdmissionLead> {
-    return this.updatePriority(leadId, isHot ? 'hot' : 'cold');
+    return this.updatePriority(leadId, isHot ? 'hot' : 'warm');
   }
 
   // ============================================================================

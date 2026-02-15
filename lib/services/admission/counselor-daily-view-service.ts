@@ -290,14 +290,19 @@ export class CounselorDailyViewService {
     const oldStage = lead?.funnel_stage;
 
     // Update lead stage
+    const updatePayload: Record<string, any> = {
+      funnel_stage: newStage,
+      stage_changed_at: new Date().toISOString(),
+      previous_stage: oldStage,
+      updated_at: new Date().toISOString(),
+    };
+    // Set last_contact_at when moving to 'contacted' stage
+    if (newStage === 'contacted') {
+      updatePayload.last_contact_at = new Date().toISOString();
+    }
     const { error } = await (this.supabase as any)
       .from('admission_leads')
-      .update({
-        funnel_stage: newStage,
-        stage_changed_at: new Date().toISOString(),
-        previous_stage: oldStage,
-        updated_at: new Date().toISOString(),
-      })
+      .update(updatePayload)
       .eq('id', leadId);
 
     if (error) {
