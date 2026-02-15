@@ -115,7 +115,7 @@ function CounselorViewPageContent() {
     }
 
     const today = filtered.filter((l) => l.urgency === 'overdue' || l.urgency === 'today');
-    const other = filtered.filter((l) => l.urgency === 'upcoming');
+    const other = filtered.filter((l) => l.urgency !== 'overdue' && l.urgency !== 'today');
     return { todayFollowups: today, otherFollowups: other };
   }, [followups, stageFilter, academicYearFilter]);
 

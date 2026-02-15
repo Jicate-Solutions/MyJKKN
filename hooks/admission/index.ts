@@ -9,7 +9,7 @@ import { CommunicationTemplatesService } from '@/lib/services/admission/communic
 import { SMSCampaignService } from '@/lib/services/admission/sms-campaign-service';
 import { WhatsAppCampaignService } from '@/lib/services/admission/whatsapp-campaign-service';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
-import type { LeadFilters, CreateLeadInput, UpdateLeadInput, FunnelStage, LeadPriority, CreateApplicationInput, UpdateApplicationInput, ApplicationStatus } from '@/types/admission';
+import type { LeadFilters, CreateLeadInput, UpdateLeadInput, FunnelStage, CreateApplicationInput, UpdateApplicationInput, ApplicationStatus } from '@/types/admission';
 
 // Re-export from use-consultants for convenience
 export { useSourcePerformance } from './use-consultants';
@@ -520,8 +520,9 @@ export function useAdmissionApplications(filters?: any) {
     total: query.data?.metadata?.total || 0,
     totalPages: query.data?.metadata?.totalPages || 0,
     isLoading: query.isLoading,
+    isError: query.isError,
+    error: query.error,
     refetch: query.refetch,
-    ...query
   };
 }
 
@@ -1010,7 +1011,7 @@ export function useFunnelAnalyticsDashboard(filtersOrId?: string | any) {
           const changed = l.stage_changed_at ? new Date(l.stage_changed_at) : new Date(l.created_at);
           return changed >= oneWeekAgo;
         }).length;
-        const wowChangePercent = leadCount > 0 ? ((recentLeads / leadCount) * 100) - 50 : 0;
+        const wowChangePercent = leadCount > 0 ? (recentLeads / leadCount) * 100 : 0;
 
         // Alert level
         const alertLevel: 'normal' | 'warning' | 'critical' =

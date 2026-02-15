@@ -5,11 +5,12 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
   ActivityService,
-  type LeadActivity,
-  type TimelineEntry,
   type CreateActivityInput,
   type ActivityStats,
 } from '@/lib/services/admission/activity-service';
+
+// UUID format check - declared before use to avoid temporal dead zone issues
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // Query keys
 export const activityKeys = {
@@ -42,7 +43,6 @@ export function useLeadActivities(leadId?: string) {
 /**
  * Hook to fetch enhanced timeline (activities + stage changes)
  */
-const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export function useEnhancedTimeline(leadId?: string) {
   const query = useQuery({
@@ -98,8 +98,10 @@ export function useActivityMutations(leadId?: string) {
       queryClient.invalidateQueries({ queryKey: activityKeys.timeline(leadId) });
       queryClient.invalidateQueries({ queryKey: activityKeys.stats(leadId) });
     }
-    // Also invalidate the legacy timeline key
-    queryClient.invalidateQueries({ queryKey: ['lead-timeline', leadId] });
+    // Also invalidate the legacy timeline key (only if leadId is valid)
+    if (leadId) {
+      queryClient.invalidateQueries({ queryKey: ['lead-timeline', leadId] });
+    }
   };
 
   const createActivity = useMutation({

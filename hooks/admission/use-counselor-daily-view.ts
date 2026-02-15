@@ -100,6 +100,12 @@ export function useCounselorsList(institutionId?: string) {
 export function useCounselorActions(_institutionId?: string) {
   const queryClient = useQueryClient();
 
+  // Runtime guard — throws a clear error instead of silently passing undefined to DB queries
+  const requireInstitutionId = (): string => {
+    if (!_institutionId) throw new Error('Institution ID is required for counselor actions');
+    return _institutionId;
+  };
+
   const invalidateAll = () => {
     queryClient.invalidateQueries({ queryKey: counselorDailyViewKeys.all });
     // Also invalidate shared admission query keys so other pages stay in sync
@@ -112,7 +118,7 @@ export function useCounselorActions(_institutionId?: string) {
 
   const rescheduleFollowup = useMutation({
     mutationFn: ({ leadId, newDate }: { leadId: string; newDate: string }) =>
-      CounselorDailyViewService.rescheduleFollowup(leadId, newDate),
+      CounselorDailyViewService.rescheduleFollowup(leadId, newDate, requireInstitutionId()),
     onSuccess: () => {
       toast.success('Follow-up rescheduled');
       invalidateAll();
@@ -124,7 +130,7 @@ export function useCounselorActions(_institutionId?: string) {
 
   const addQuickNote = useMutation({
     mutationFn: ({ leadId, note }: { leadId: string; note: string }) =>
-      CounselorDailyViewService.addQuickNote(leadId, note),
+      CounselorDailyViewService.addQuickNote(leadId, note, requireInstitutionId()),
     onSuccess: () => {
       toast.success('Note added');
       invalidateAll();
@@ -136,7 +142,7 @@ export function useCounselorActions(_institutionId?: string) {
 
   const logCall = useMutation({
     mutationFn: ({ leadId, notes }: { leadId: string; notes?: string }) =>
-      CounselorDailyViewService.logCall(leadId, notes),
+      CounselorDailyViewService.logCall(leadId, notes, requireInstitutionId()),
     onSuccess: () => {
       toast.success('Call logged');
       invalidateAll();
@@ -148,7 +154,7 @@ export function useCounselorActions(_institutionId?: string) {
 
   const advanceStage = useMutation({
     mutationFn: ({ leadId, newStage }: { leadId: string; newStage: string }) =>
-      CounselorDailyViewService.advanceStage(leadId, newStage),
+      CounselorDailyViewService.advanceStage(leadId, newStage, requireInstitutionId()),
     onSuccess: () => {
       toast.success('Stage updated');
       invalidateAll();
@@ -160,7 +166,7 @@ export function useCounselorActions(_institutionId?: string) {
 
   const assignLeads = useMutation({
     mutationFn: ({ leadIds, counselorId }: { leadIds: string[]; counselorId: string }) =>
-      CounselorDailyViewService.assignLeads(leadIds, counselorId, _institutionId),
+      CounselorDailyViewService.assignLeads(leadIds, counselorId, requireInstitutionId()),
     onSuccess: () => {
       toast.success('Leads assigned');
       invalidateAll();

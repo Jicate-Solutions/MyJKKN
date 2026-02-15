@@ -61,19 +61,11 @@ import {
   useAddValidation,
   PRODUCT_STATUSES,
   DOMAIN_LABELS,
+  SECTOR_LABELS,
   PATENT_STATUS_LABELS,
   VALIDATION_TYPE_LABELS,
 } from '@/hooks/solutions/use-products';
-
-const RDIF_SECTOR_LABELS: Record<string, string> = {
-  health_technologies: 'Health Technologies',
-  digital_economy: 'Digital Economy',
-  energy: 'Energy',
-  agriculture: 'Agriculture',
-  defence: 'Defence',
-  space: 'Space',
-  telecom: 'Telecom',
-};
+import type { ValidationType } from '@/hooks/solutions/use-products';
 
 interface ProductDetailPageProps {
   params: Promise<{ id: string }>;
@@ -110,7 +102,7 @@ export default function ProductDetailPage({ params }: ProductDetailPageProps) {
       await addValidation.mutateAsync({
         product_id: id,
         trl_level: Number(validationForm.trl_level),
-        validation_type: validationForm.validation_type as any,
+        validation_type: validationForm.validation_type as ValidationType,
         title: validationForm.title,
         evidence_description: validationForm.evidence_description || undefined,
         evidence_url: validationForm.evidence_url || undefined,
@@ -177,7 +169,7 @@ export default function ProductDetailPage({ params }: ProductDetailPageProps) {
 
   const statusLabel = PRODUCT_STATUSES.find(s => s.value === product.status)?.label || product.status;
   const domainLabel = product.domain ? (DOMAIN_LABELS[product.domain] || product.domain) : 'N/A';
-  const sectorLabel = product.sector ? (RDIF_SECTOR_LABELS[product.sector] || product.sector) : null;
+  const sectorLabel = product.sector ? (SECTOR_LABELS[product.sector as keyof typeof SECTOR_LABELS] || product.sector) : null;
   const patentStatusLabel = PATENT_STATUS_LABELS[product.patent_status] || product.patent_status;
   const validations = product.validations || [];
 

@@ -9,16 +9,18 @@ export type ActivityType = 'call' | 'email' | 'meeting' | 'note' | 'sms' | 'what
 export interface LeadActivity {
   id: string;
   lead_id: string;
+  institution_id: string;
   activity_type: ActivityType;
-  subject: string | null;
+  title: string | null;
   description: string | null;
-  outcome: string | null;
-  scheduled_at: string | null;
-  completed_at: string | null;
-  created_by: string | null;
+  metadata: Record<string, unknown> | null;
+  performed_by: string | null;
   created_at: string;
-  // Virtual fields
-  created_by_name?: string;
+  // Virtual fields (populated from metadata when available)
+  outcome?: string | null;
+  scheduled_at?: string | null;
+  completed_at?: string | null;
+  performed_by_name?: string;
 }
 
 export interface StageHistoryEntry {
@@ -45,8 +47,9 @@ export interface TimelineEntry {
 
 export interface CreateActivityInput {
   lead_id: string;
+  institution_id?: string;
   activity_type: ActivityType;
-  subject?: string;
+  title?: string;
   description?: string;
   outcome?: string;
   scheduled_at?: string;
@@ -95,17 +98,22 @@ export class ActivityService {
     // Get current user for created_by
     const { data: { user } } = await this.supabase.auth.getUser();
 
+    // Build metadata from optional fields that don't have dedicated DB columns
+    const metadata: Record<string, unknown> = {};
+    if (input.outcome) metadata.outcome = input.outcome;
+    if (input.scheduled_at) metadata.scheduled_at = input.scheduled_at;
+    if (input.completed_at) metadata.completed_at = input.completed_at;
+
     const { data, error } = await this.supabase
       .from('admission_lead_activities')
       .insert({
         lead_id: input.lead_id,
+        institution_id: input.institution_id || null,
         activity_type: input.activity_type,
-        subject: input.subject || null,
+        title: input.title || null,
         description: input.description || null,
-        outcome: input.outcome || null,
-        scheduled_at: input.scheduled_at || null,
-        completed_at: input.completed_at || null,
-        created_by: user?.id || null,
+        metadata: Object.keys(metadata).length > 0 ? metadata : null,
+        performed_by: user?.id || null,
       })
       .select()
       .single();
@@ -117,13 +125,18 @@ export class ActivityService {
 
     // Update last_activity_at on the lead (best-effort, don't throw if this fails)
     const now = new Date().toISOString();
+    const contactTypes = new Set(['call', 'email', 'meeting', 'sms', 'whatsapp']);
+    const leadUpdate: Record<string, string> = {
+      last_activity_at: now,
+      updated_at: now,
+    };
+    // Only set last_contact_at for actual contact activities, not notes/tasks/stage_changes
+    if (contactTypes.has(input.activity_type)) {
+      leadUpdate.last_contact_at = now;
+    }
     const { error: leadError } = await this.supabase
       .from('admission_leads')
-      .update({
-        last_activity_at: now,
-        last_contact_at: now,
-        updated_at: now
-      })
+      .update(leadUpdate)
       .eq('id', input.lead_id);
 
     if (leadError) {
@@ -138,9 +151,9 @@ export class ActivityService {
    * Update an activity
    */
   static async updateActivity(id: string, updates: Partial<CreateActivityInput>): Promise<LeadActivity> {
-    // Exclude lead_id from updates to prevent moving activities between leads
+    // Exclude non-DB fields from updates to prevent PostgREST errors
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { lead_id: _leadId, ...safeUpdates } = updates;
+    const { lead_id: _leadId, institution_id: _instId, outcome: _outcome, scheduled_at: _schedAt, completed_at: _compAt, ...safeUpdates } = updates;
 
     const { data, error } = await this.supabase
       .from('admission_lead_activities')
@@ -227,7 +240,7 @@ export class ActivityService {
       type: 'activity' as const,
       timestamp: activity.created_at,
       title: this.getActivityTitle(activity.activity_type),
-      description: activity.subject || activity.description,
+      description: activity.title || activity.description,
       metadata: {
         activity_type: activity.activity_type,
         outcome: activity.outcome,

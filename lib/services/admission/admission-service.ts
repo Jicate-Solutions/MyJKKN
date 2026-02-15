@@ -316,6 +316,9 @@ export class AdmissionService {
   }
 
   static async bulkDeleteAdmissions(ids: string[]): Promise<void> {
+    // Guard against empty array — Supabase .in() with [] returns ALL rows
+    if (!ids || ids.length === 0) return;
+
     try {
       // First check which admissions have associated student records
       const { data: studentsCheck, error: checkError } = await (this.supabase as any)
@@ -401,6 +404,9 @@ export class AdmissionService {
     failed: number;
     studentsCreated: number;
   }> {
+    // Guard against empty array — Supabase .in() with [] returns ALL rows
+    if (!ids || ids.length === 0) return { updated: 0, failed: 0, studentsCreated: 0 };
+
     try {
       const results = {
         updated: 0,

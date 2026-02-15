@@ -261,6 +261,16 @@ export const PATENT_STATUS_LABELS: Record<PatentStatus, string> = {
   rejected: 'Rejected',
 };
 
+export const SECTOR_LABELS: Record<RDIFSector, string> = {
+  health_technologies: 'Health Technologies',
+  digital_economy: 'Digital Economy',
+  energy: 'Energy',
+  agriculture: 'Agriculture',
+  defence: 'Defence',
+  space: 'Space',
+  telecom: 'Telecom',
+};
+
 export const VALIDATION_TYPE_LABELS: Record<ValidationType, string> = {
   internal_review: 'Internal Review',
   lab_test: 'Lab Test',

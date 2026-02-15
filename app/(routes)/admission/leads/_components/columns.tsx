@@ -181,7 +181,7 @@ export const columns: ColumnDef<AdmissionLead>[] = [
     ),
     cell: ({ row }) => {
       const score = row.getValue('score') as number;
-      return <span className="font-medium">{score || 0}</span>;
+      return <span className="font-medium">{score ?? 0}</span>;
     },
     maxSize: 80
   },

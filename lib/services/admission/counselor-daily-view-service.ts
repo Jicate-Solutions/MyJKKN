@@ -183,11 +183,11 @@ export class CounselorDailyViewService {
   /**
    * Assign leads to a counselor (bulk)
    */
-  static async assignLeads(leadIds: string[], counselorId: string, institutionId?: string): Promise<void> {
+  static async assignLeads(leadIds: string[], counselorId: string, institutionId: string): Promise<void> {
     // Guard against empty array — Supabase .in() with [] returns ALL rows
     if (!leadIds || leadIds.length === 0) return;
 
-    let query = (this.supabase as any)
+    const { error } = await (this.supabase as any)
       .from('admission_leads')
       .update({
         counselor_id: counselorId,
@@ -195,14 +195,8 @@ export class CounselorDailyViewService {
         assigned_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       })
-      .in('id', leadIds);
-
-    // Scope to institution to prevent cross-tenant reassignment
-    if (institutionId) {
-      query = query.eq('institution_id', institutionId);
-    }
-
-    const { error } = await query;
+      .in('id', leadIds)
+      .eq('institution_id', institutionId);
 
     if (error) {
       console.error('[CounselorDailyViewService] Error assigning leads:', error);
@@ -213,7 +207,7 @@ export class CounselorDailyViewService {
   /**
    * Quick reschedule follow-up
    */
-  static async rescheduleFollowup(leadId: string, newDate: string): Promise<void> {
+  static async rescheduleFollowup(leadId: string, newDate: string, institutionId: string): Promise<void> {
     const { data: { user } } = await (this.supabase as any).auth.getUser();
 
     // Log reschedule as activity for audit trail
@@ -221,6 +215,7 @@ export class CounselorDailyViewService {
       .from('admission_lead_activities')
       .insert({
         lead_id: leadId,
+        institution_id: institutionId,
         activity_type: 'task',
         title: 'Follow-up Rescheduled',
         description: `Follow-up rescheduled to ${new Date(newDate).toLocaleDateString()}`,
@@ -239,7 +234,8 @@ export class CounselorDailyViewService {
         last_activity_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       })
-      .eq('id', leadId);
+      .eq('id', leadId)
+      .eq('institution_id', institutionId);
 
     if (error) {
       console.error('[CounselorDailyViewService] Error rescheduling:', error);
@@ -250,13 +246,14 @@ export class CounselorDailyViewService {
   /**
    * Quick add note activity
    */
-  static async addQuickNote(leadId: string, note: string): Promise<void> {
+  static async addQuickNote(leadId: string, note: string, institutionId: string): Promise<void> {
     const { data: { user } } = await (this.supabase as any).auth.getUser();
 
     const { error } = await (this.supabase as any)
       .from('admission_lead_activities')
       .insert({
         lead_id: leadId,
+        institution_id: institutionId,
         activity_type: 'note',
         title: 'Quick Note',
         description: note,
@@ -275,7 +272,8 @@ export class CounselorDailyViewService {
         last_activity_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       })
-      .eq('id', leadId);
+      .eq('id', leadId)
+      .eq('institution_id', institutionId);
 
     if (updateError) {
       console.error('[CounselorDailyViewService] Error updating lead timestamp:', updateError);
@@ -285,13 +283,14 @@ export class CounselorDailyViewService {
   /**
    * Quick log call activity
    */
-  static async logCall(leadId: string, notes?: string): Promise<void> {
+  static async logCall(leadId: string, notes: string | undefined, institutionId: string): Promise<void> {
     const { data: { user } } = await (this.supabase as any).auth.getUser();
 
     const { error } = await (this.supabase as any)
       .from('admission_lead_activities')
       .insert({
         lead_id: leadId,
+        institution_id: institutionId,
         activity_type: 'call',
         title: 'Phone Call',
         description: notes || 'Call made from counselor view',
@@ -311,7 +310,8 @@ export class CounselorDailyViewService {
         last_activity_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       })
-      .eq('id', leadId);
+      .eq('id', leadId)
+      .eq('institution_id', institutionId);
 
     if (updateError) {
       console.error('[CounselorDailyViewService] Error updating lead timestamps:', updateError);
@@ -331,7 +331,7 @@ export class CounselorDailyViewService {
     'declined', 'withdrew', 'expired', 'lost', 'dormant',
   ]);
 
-  static async advanceStage(leadId: string, newStage: string): Promise<void> {
+  static async advanceStage(leadId: string, newStage: string, institutionId: string): Promise<void> {
     // Validate stage before DB operation
     if (!this.VALID_STAGES.has(newStage)) {
       throw new Error(`Invalid stage: ${newStage}`);
@@ -343,6 +343,7 @@ export class CounselorDailyViewService {
       .from('admission_leads')
       .select('funnel_stage')
       .eq('id', leadId)
+      .eq('institution_id', institutionId)
       .single();
 
     if (fetchError || !lead) {
@@ -366,7 +367,8 @@ export class CounselorDailyViewService {
     const { error } = await (this.supabase as any)
       .from('admission_leads')
       .update(updatePayload)
-      .eq('id', leadId);
+      .eq('id', leadId)
+      .eq('institution_id', institutionId);
 
     if (error) {
       console.error('[CounselorDailyViewService] Error advancing stage:', error);
@@ -393,6 +395,7 @@ export class CounselorDailyViewService {
       .from('admission_lead_activities')
       .insert({
         lead_id: leadId,
+        institution_id: institutionId,
         activity_type: 'stage_change',
         title: `Stage: ${oldStage} → ${newStage}`,
         description: `Stage changed from ${oldStage} to ${newStage}`,

@@ -144,7 +144,7 @@ export const columns: ColumnDef<ReferralRewardConfig>[] = [
       const config = row.original;
       return (
         <span className="text-sm">
-          {config.min_referrals || 1}
+          {config.min_referrals ?? 1}
           {config.max_rewards_per_referrer
             ? ` - ${config.max_rewards_per_referrer}`
             : '+'}

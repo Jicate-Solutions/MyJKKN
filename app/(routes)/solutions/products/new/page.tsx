@@ -21,7 +21,8 @@ import { Badge } from '@/components/ui/badge';
 import { ArrowLeft, Save, Lightbulb, X, Check } from 'lucide-react';
 import { TRL_LEVELS } from '../../_components/trl-badge';
 import { toast } from 'sonner';
-import { useCreateProduct } from '@/hooks/solutions/use-products';
+import { useCreateProduct, DOMAIN_LABELS, SECTOR_LABELS } from '@/hooks/solutions/use-products';
+import type { ProductDomain, RDIFSector } from '@/hooks/solutions/use-products';
 import { useSolutions } from '@/hooks/solutions/use-solutions';
 
 export default function NewProductPage() {
@@ -38,7 +39,6 @@ export default function NewProductPage() {
     domain: '',
     rdifSector: '',
     initialTRL: '1',
-    leadDepartment: '',
     originatingSolutions: [] as string[],
     notes: '',
     tags: '',
@@ -47,6 +47,12 @@ export default function NewProductPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
+
+    if (!formData.title.trim()) {
+      toast.error('Please enter a product title');
+      setIsSubmitting(false);
+      return;
+    }
 
     if (!formData.domain) {
       toast.error('Please select a domain');
@@ -57,10 +63,10 @@ export default function NewProductPage() {
     try {
       // Product creation uses the form data to create a new record
       await createProduct.mutateAsync({
-        title: formData.title,
+        title: formData.title.trim(),
         description: formData.description || undefined,
-        domain: formData.domain as any || undefined,
-        sector: formData.rdifSector as any || undefined,
+        domain: (formData.domain as ProductDomain) || undefined,
+        sector: (formData.rdifSector as RDIFSector) || undefined,
         current_trl: Number(formData.initialTRL),
         notes: formData.notes || undefined,
         tags: formData.tags ? formData.tags.split(',').map(t => t.trim()).filter(Boolean) : undefined,
@@ -151,13 +157,11 @@ export default function NewProductPage() {
                       <SelectValue placeholder="Select domain" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="health_tech">Health Tech</SelectItem>
-                      <SelectItem value="edu_tech">Edu Tech</SelectItem>
-                      <SelectItem value="pharma_tech">Pharma Tech</SelectItem>
-                      <SelectItem value="dental_tech">Dental Tech</SelectItem>
-                      <SelectItem value="nursing_tech">Nursing Tech</SelectItem>
-                      <SelectItem value="construction_tech">Construction Tech</SelectItem>
-                      <SelectItem value="other">Other</SelectItem>
+                      {Object.entries(DOMAIN_LABELS).map(([value, label]) => (
+                        <SelectItem key={value} value={value}>
+                          {label}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
@@ -172,13 +176,11 @@ export default function NewProductPage() {
                       <SelectValue placeholder="Select RDIF sector" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="health_technologies">Health Technologies</SelectItem>
-                      <SelectItem value="digital_economy">Digital Economy</SelectItem>
-                      <SelectItem value="energy">Energy</SelectItem>
-                      <SelectItem value="agriculture">Agriculture</SelectItem>
-                      <SelectItem value="defence">Defence</SelectItem>
-                      <SelectItem value="space">Space</SelectItem>
-                      <SelectItem value="telecom">Telecom</SelectItem>
+                      {Object.entries(SECTOR_LABELS).map(([value, label]) => (
+                        <SelectItem key={value} value={value}>
+                          {label}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
@@ -191,7 +193,7 @@ export default function NewProductPage() {
             <CardHeader>
               <CardTitle>Technology Readiness</CardTitle>
               <CardDescription>
-                Starting TRL level and department ownership
+                Starting TRL level for this product
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -222,27 +224,6 @@ export default function NewProductPage() {
                 )}
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="leadDepartment">Lead Department</Label>
-                <Select
-                  value={formData.leadDepartment}
-                  onValueChange={(value) => setFormData({ ...formData, leadDepartment: value })}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select lead department" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="pharmacy">Pharmacy Practice</SelectItem>
-                    <SelectItem value="cs">Computer Science</SelectItem>
-                    <SelectItem value="eee">Electrical & Electronics Engineering</SelectItem>
-                    <SelectItem value="ece">Electronics & Communication Engineering</SelectItem>
-                    <SelectItem value="mech">Mechanical Engineering</SelectItem>
-                    <SelectItem value="dental">Dental Sciences</SelectItem>
-                    <SelectItem value="nursing">Nursing</SelectItem>
-                    <SelectItem value="ahs">Allied Health Sciences</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
             </CardContent>
           </Card>
 

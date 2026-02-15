@@ -27,8 +27,10 @@ import {
   useUpdateProduct,
   PRODUCT_STATUSES,
   DOMAIN_LABELS,
+  SECTOR_LABELS,
   PATENT_STATUS_LABELS,
 } from '@/hooks/solutions/use-products';
+import type { ProductDomain, RDIFSector, ProductStatus, PatentStatus } from '@/hooks/solutions/use-products';
 
 interface EditProductPageProps {
   params: Promise<{ id: string }>;
@@ -89,13 +91,13 @@ export default function EditProductPage({ params }: EditProductPageProps) {
         input: {
           title: formData.title,
           description: formData.description || undefined,
-          domain: (formData.domain as any) || undefined,
-          sector: (formData.sector as any) || undefined,
+          domain: (formData.domain as ProductDomain) || undefined,
+          sector: (formData.sector as RDIFSector) || undefined,
           current_trl: Number(formData.currentTRL),
           target_trl: formData.targetTRL ? Number(formData.targetTRL) : undefined,
-          status: (formData.status as any) || undefined,
-          patent_status: (formData.patentStatus as any) || undefined,
-          patent_number: formData.patentNumber || undefined,
+          status: (formData.status as ProductStatus) || undefined,
+          patent_status: (formData.patentStatus as PatentStatus) || undefined,
+          patent_number: formData.patentStatus === 'none' ? undefined : (formData.patentNumber || undefined),
           notes: formData.notes || undefined,
           tags: formData.tags ? formData.tags.split(',').map(t => t.trim()).filter(Boolean) : undefined,
           development_budget: formData.developmentBudget ? Number(formData.developmentBudget) : undefined,
@@ -270,13 +272,11 @@ export default function EditProductPage({ params }: EditProductPageProps) {
                       <SelectValue placeholder="Select RDIF sector" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="health_technologies">Health Technologies</SelectItem>
-                      <SelectItem value="digital_economy">Digital Economy</SelectItem>
-                      <SelectItem value="energy">Energy</SelectItem>
-                      <SelectItem value="agriculture">Agriculture</SelectItem>
-                      <SelectItem value="defence">Defence</SelectItem>
-                      <SelectItem value="space">Space</SelectItem>
-                      <SelectItem value="telecom">Telecom</SelectItem>
+                      {Object.entries(SECTOR_LABELS).map(([value, label]) => (
+                        <SelectItem key={value} value={value}>
+                          {label}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
@@ -380,7 +380,7 @@ export default function EditProductPage({ params }: EditProductPageProps) {
                 <Label htmlFor="patentStatus">Patent Status</Label>
                 <Select
                   value={formData.patentStatus}
-                  onValueChange={(value) => setFormData({ ...formData, patentStatus: value, patentNumber: value === 'none' ? '' : formData.patentNumber })}
+                  onValueChange={(value) => setFormData({ ...formData, patentStatus: value })}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Select patent status" />

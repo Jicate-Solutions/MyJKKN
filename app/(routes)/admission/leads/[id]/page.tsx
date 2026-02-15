@@ -549,8 +549,9 @@ function LeadDetailPageContent() {
     createActivity.mutate(
       {
         lead_id: leadId,
+        institution_id: lead?.institution_id,
         activity_type: activityType as any,
-        subject: activitySubject.trim(),
+        title: activitySubject.trim(),
         description: activityDescription.trim() || undefined,
         outcome: activityOutcome.trim() || undefined,
         completed_at: new Date().toISOString(),

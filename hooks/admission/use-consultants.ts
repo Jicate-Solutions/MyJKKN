@@ -89,10 +89,12 @@ export function useCommissionSummary(consultantId: string) {
     queryFn: async () => {
       // Get consultant to access commission data
       const consultant = await ConsultantService.getConsultantById(consultantId);
+      const totalEarned = consultant?.total_commission_earned ?? 0;
+      const pending = consultant?.pending_commission ?? 0;
       return {
-        total_earned: consultant?.total_commission_earned || 0,
-        pending: consultant?.pending_commission || 0,
-        paid: (consultant?.total_commission_earned || 0) - (consultant?.pending_commission || 0)
+        total_earned: totalEarned,
+        pending,
+        paid: Math.max(0, totalEarned - pending)
       };
     },
     enabled: !!consultantId
@@ -195,12 +197,12 @@ export function useConsultantPerformance(consultantId: string) {
       if (!consultant) return null;
 
       return {
-        leadsReferred: consultant.total_leads_referred || 0,
-        conversions: consultant.total_conversions || 0,
-        conversionRate: consultant.conversion_rate || 0,
-        totalCommissionEarned: consultant.total_commission_earned || 0,
-        pendingCommission: consultant.pending_commission || 0,
-        relationshipScore: consultant.relationship_score || 0,
+        leadsReferred: consultant.total_leads_referred ?? 0,
+        conversions: consultant.total_conversions ?? 0,
+        conversionRate: consultant.conversion_rate ?? 0,
+        totalCommissionEarned: consultant.total_commission_earned ?? 0,
+        pendingCommission: consultant.pending_commission ?? 0,
+        relationshipScore: consultant.relationship_score ?? 0,
         tier: consultant.tier || 'bronze',
         status: consultant.status || 'active'
       };
