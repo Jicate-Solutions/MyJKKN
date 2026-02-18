@@ -11,6 +11,14 @@ import { WhatsAppCampaignService } from '@/lib/services/admission/whatsapp-campa
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import type { LeadFilters, CreateLeadInput, UpdateLeadInput, FunnelStage, CreateApplicationInput, UpdateApplicationInput, ApplicationStatus } from '@/types/admission';
 
+// Re-export reminders hooks
+export {
+  useFollowUpReminders,
+  useCompleteReminder,
+  useSnoozeReminder,
+  remindersKeys,
+} from './use-reminders';
+
 // Re-export from use-consultants for convenience
 export { useSourcePerformance } from './use-consultants';
 
@@ -331,6 +339,7 @@ export function useLeadMutations() {
       queryClient.invalidateQueries({ queryKey: ['funnel-summary'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
       queryClient.invalidateQueries({ queryKey: ['admission-dashboard'] });
+      queryClient.invalidateQueries({ queryKey: ['counselor-daily-view'] });
     },
     onError: (error: Error) => {
       toast.error(error.message || 'Failed to update lead');
@@ -347,6 +356,7 @@ export function useLeadMutations() {
       queryClient.invalidateQueries({ queryKey: ['funnel-summary'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
       queryClient.invalidateQueries({ queryKey: ['admission-dashboard'] });
+      queryClient.invalidateQueries({ queryKey: ['counselor-daily-view'] });
     },
     onError: (error: Error) => {
       toast.error(error.message || 'Failed to delete lead');
@@ -381,6 +391,7 @@ export function useLeadMutations() {
       queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
       queryClient.invalidateQueries({ queryKey: ['admission-lead'] });
       queryClient.invalidateQueries({ queryKey: ['funnel-summary'] });
+      queryClient.invalidateQueries({ queryKey: ['counselor-daily-view'] });
     },
     onError: (error: Error) => {
       toast.error(error.message || 'Failed to update hot lead status');
@@ -398,6 +409,7 @@ export function useLeadMutations() {
       queryClient.invalidateQueries({ queryKey: ['admission-lead'] });
       queryClient.invalidateQueries({ queryKey: ['funnel-summary'] });
       queryClient.invalidateQueries({ queryKey: ['admission-dashboard'] });
+      queryClient.invalidateQueries({ queryKey: ['counselor-daily-view'] });
     },
     onError: (error: Error) => {
       toast.error(error.message || 'Failed to update priority');
@@ -443,6 +455,7 @@ export function useLeadMutations() {
       queryClient.invalidateQueries({ queryKey: ['funnel-summary'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
       queryClient.invalidateQueries({ queryKey: ['admission-dashboard'] });
+      queryClient.invalidateQueries({ queryKey: ['counselor-daily-view'] });
       return data;
     },
     onError: (error: Error) => {
@@ -459,6 +472,7 @@ export function useLeadMutations() {
       queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
       queryClient.invalidateQueries({ queryKey: ['admission-lead'] });
       queryClient.invalidateQueries({ queryKey: ['counselor-performance'] });
+      queryClient.invalidateQueries({ queryKey: ['counselor-daily-view'] });
     },
     onError: (error: Error) => {
       toast.error(error.message || 'Failed to assign counselor');
@@ -474,6 +488,7 @@ export function useLeadMutations() {
       queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
       queryClient.invalidateQueries({ queryKey: ['admission-lead'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
+      queryClient.invalidateQueries({ queryKey: ['counselor-daily-view'] });
     },
     onError: (error: Error) => {
       toast.error(error.message || 'Failed to schedule followup');
@@ -650,7 +665,13 @@ export function useCommunicationMutations() {
           variables: data.variables,
         });
       }
-      // Default: SMS
+      if (channel === 'email') {
+        toast.info('Email sending is coming soon. Please use SMS or WhatsApp for now.');
+        return { success: false, message: 'Email not yet available' };
+      }
+      if (channel !== 'sms') {
+        throw new Error(`Unsupported communication channel: ${channel}`);
+      }
       return SMSCampaignService.sendCampaignSMS({
         institutionId: data.institutionId || data.institution_id,
         leadId: data.leadId || data.lead_id,

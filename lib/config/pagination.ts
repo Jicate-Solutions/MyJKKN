@@ -147,7 +147,7 @@ export function sanitizeSearch(search?: string | null): string {
   if (!search) return '';
   // Escape % and _ which are wildcards in SQL LIKE
   // Use backslash as escape character
-  return search.replace(/[%_\\]/g, '\\$&').trim();
+  return search.replace(/[%_\\,()']/g, '\\$&').trim();
 }
 
 /**

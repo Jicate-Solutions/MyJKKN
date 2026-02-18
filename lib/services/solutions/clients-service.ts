@@ -2,6 +2,7 @@
 // CRUD operations for sh_clients table
 
 import { BaseService, type BaseListResponse } from '../base-service';
+import { sanitizeSearch } from '@/lib/config/pagination';
 import type {
   Client,
   ClientReferral,
@@ -47,10 +48,6 @@ export interface ClientStats {
 // ============================================
 // HELPER FUNCTIONS
 // ============================================
-
-function escapeSearchString(str: string): string {
-  return str.replace(/[%_\\]/g, '\\$&');
-}
 
 function calculatePartnerDiscount(status: PartnerStatus): number {
   switch (status) {
@@ -98,7 +95,7 @@ export class ClientsService extends BaseService {
     }
 
     if (filters?.search) {
-      const escaped = escapeSearchString(filters.search);
+      const escaped = sanitizeSearch(filters.search);
       query = query.or(
         `name.ilike.%${escaped}%,contact_person.ilike.%${escaped}%,contact_email.ilike.%${escaped}%,contact_phone.ilike.%${escaped}%`
       );

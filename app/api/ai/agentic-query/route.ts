@@ -58,7 +58,7 @@ interface QueryStep {
 const CRM_SCHEMA = {
   tables: {
     admission_leads: {
-      description: 'Lead/prospect records',
+      description: 'Lead/prospect records for admissions',
       columns: {
         id: 'UUID',
         institution_id: 'UUID',
@@ -66,24 +66,72 @@ const CRM_SCHEMA = {
         email: 'Email',
         phone: 'Phone',
         funnel_stage: 'new|contacted|qualified|application_started|application_submitted|documents_pending|documents_verified|interview_scheduled|interview_completed|offer_sent|offer_accepted|token_paid|enrolled|lost',
-        priority: 'hot|warm|cold',
+        is_hot_lead: 'Boolean',
+        is_priority: 'Boolean',
         source: 'website|walk_in|referral|social_media|newspaper|education_fair|agent|publisher|google_ads|facebook_ads|other',
-        program_interest: 'Program',
+        interested_programs: 'Array of program names',
         counselor_id: 'UUID',
         score: 'Number 0-100',
+        score_category: 'Score category label',
         created_at: 'Timestamp',
+        updated_at: 'Timestamp',
         next_followup_at: 'Date',
+        last_contact_at: 'Last contact date',
+        last_activity_at: 'Last activity date',
+        stage_changed_at: 'Timestamp when stage last changed',
+        previous_stage: 'Previous funnel stage',
         tags: 'Array',
+        preferred_campus: 'Preferred campus',
+        preferred_channel: 'Preferred communication channel',
       },
     },
     admission_counselors: {
-      description: 'Counselors',
+      description: 'Counselor/sales rep records',
       columns: {
         id: 'UUID',
         name: 'Name',
         email: 'Email',
+        phone: 'Phone',
+        designation: 'Counselor designation/title',
         is_active: 'Boolean',
-        current_leads: 'Number',
+        institution_id: 'UUID',
+        user_id: 'Linked user UUID',
+        created_at: 'Timestamp',
+      },
+    },
+    admission_lead_activities: {
+      description: 'Lead activity log tracking all interactions',
+      columns: {
+        id: 'UUID',
+        lead_id: 'Reference to admission_leads',
+        institution_id: 'UUID',
+        activity_type: 'Type of activity (call, email, note, meeting, stage_change, etc.)',
+        title: 'Activity title',
+        description: 'Activity description/details',
+        metadata: 'JSON metadata',
+        performed_by: 'UUID of user who performed the activity',
+        created_at: 'Timestamp',
+      },
+    },
+    admissions: {
+      description: 'Admission applications',
+      columns: {
+        id: 'UUID',
+        institution_id: 'UUID',
+        lead_id: 'Lead UUID',
+        application_id: 'Application number',
+        full_name: 'Applicant name',
+        email: 'Email',
+        phone: 'Phone',
+        status: 'pending|approved|rejected|waitlisted|enrolled',
+        program_id: 'Program UUID',
+        department_id: 'Department UUID',
+        created_at: 'Timestamp',
+        district: 'District',
+        state: 'State',
+        community: 'Community category',
+        reference_type: 'CONSULTANT|STAFF|DIRECT|etc.',
+        reference_name: 'Referrer name',
       },
     },
   },
@@ -92,6 +140,14 @@ const CRM_SCHEMA = {
 // ═══════════════════════════════════════════════════════════════════════════
 // HELPER FUNCTIONS
 // ═══════════════════════════════════════════════════════════════════════════
+
+function sanitizeSearch(input: string): string {
+  if (!input) return '';
+  return String(input).replace(/[%_\\,()']/g, '\\$&');
+}
+
+// Allowlist of tables the AI is permitted to query
+const ALLOWED_TABLES = new Set(Object.keys(CRM_SCHEMA.tables));
 
 function resolveTimeRange(timeRange: TimeRange): { start?: string; end?: string } {
   if (timeRange.start && timeRange.end) {
@@ -290,7 +346,8 @@ export async function POST(request: NextRequest) {
             // Step 2: Planning
             sendStep({ id: 'planning', name: 'planning', status: 'in_progress', message: 'Planning data retrieval...' });
 
-            const primaryEntity = intent.entities[0] || 'admission_leads';
+            const requestedEntity = intent.entities[0] || 'admission_leads';
+            const primaryEntity = ALLOWED_TABLES.has(requestedEntity) ? requestedEntity : 'admission_leads';
 
             sendStep({
               id: 'planning',
@@ -307,8 +364,17 @@ export async function POST(request: NextRequest) {
             let dbQuery: any = supabase.from(primaryEntity).select('*', { count: 'exact' });
             dbQuery = dbQuery.eq('institution_id', institutionId);
 
+            // Validate filter fields against schema before applying
+            const streamAllowedFields = new Set(
+              Object.keys(CRM_SCHEMA.tables[primaryEntity as keyof typeof CRM_SCHEMA.tables]?.columns || {})
+            );
+
             // Apply filters
             for (const filter of intent.filters) {
+              if (!streamAllowedFields.has(filter.field)) {
+                console.warn('[agentic-query] Skipping invalid field:', filter.field);
+                continue;
+              }
               switch (filter.operator) {
                 case 'eq': dbQuery = dbQuery.eq(filter.field, filter.value); break;
                 case 'neq': dbQuery = dbQuery.neq(filter.field, filter.value); break;
@@ -316,7 +382,7 @@ export async function POST(request: NextRequest) {
                 case 'gte': dbQuery = dbQuery.gte(filter.field, filter.value); break;
                 case 'lt': dbQuery = dbQuery.lt(filter.field, filter.value); break;
                 case 'lte': dbQuery = dbQuery.lte(filter.field, filter.value); break;
-                case 'like': dbQuery = dbQuery.ilike(filter.field, `%${filter.value}%`); break;
+                case 'like': dbQuery = dbQuery.ilike(filter.field, `%${sanitizeSearch(String(filter.value))}%`); break;
                 case 'in': dbQuery = dbQuery.in(filter.field, filter.value as string[]); break;
                 case 'between': {
                   const [min, max] = filter.value as [number, number];
@@ -442,12 +508,22 @@ export async function POST(request: NextRequest) {
     // Parse intent
     const intent = await parseQueryIntent(query, anthropic);
 
-    // Build and execute query
-    const primaryEntity = intent.entities[0] || 'admission_leads';
+    // Build and execute query with table allowlist validation
+    const nsRequestedEntity = intent.entities[0] || 'admission_leads';
+    const primaryEntity = ALLOWED_TABLES.has(nsRequestedEntity) ? nsRequestedEntity : 'admission_leads';
     let dbQuery: any = supabase.from(primaryEntity).select('*', { count: 'exact' });
     dbQuery = dbQuery.eq('institution_id', institutionId);
 
+    // Validate filter fields against schema
+    const nsAllowedFields = new Set(
+      Object.keys(CRM_SCHEMA.tables[primaryEntity as keyof typeof CRM_SCHEMA.tables]?.columns || {})
+    );
+
     for (const filter of intent.filters) {
+      if (!nsAllowedFields.has(filter.field)) {
+        console.warn('[agentic-query] Skipping invalid field:', filter.field);
+        continue;
+      }
       switch (filter.operator) {
         case 'eq': dbQuery = dbQuery.eq(filter.field, filter.value); break;
         case 'neq': dbQuery = dbQuery.neq(filter.field, filter.value); break;
@@ -455,7 +531,7 @@ export async function POST(request: NextRequest) {
         case 'gte': dbQuery = dbQuery.gte(filter.field, filter.value); break;
         case 'lt': dbQuery = dbQuery.lt(filter.field, filter.value); break;
         case 'lte': dbQuery = dbQuery.lte(filter.field, filter.value); break;
-        case 'like': dbQuery = dbQuery.ilike(filter.field, `%${filter.value}%`); break;
+        case 'like': dbQuery = dbQuery.ilike(filter.field, `%${sanitizeSearch(String(filter.value))}%`); break;
         case 'in': dbQuery = dbQuery.in(filter.field, filter.value as string[]); break;
       }
     }

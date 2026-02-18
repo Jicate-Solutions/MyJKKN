@@ -1,6 +1,7 @@
 // lib/services/parent-portal/parent-portal-service.ts
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { sanitizeSearch } from '@/lib/config/pagination';
 import type {
   ParentProfile,
   ParentLearnerLink,
@@ -58,18 +59,6 @@ export class ParentPortalService {
       console.error('[parent-portal] Access denied:', { userId: user.id, institutionId });
       throw new Error('Access denied: Institution not accessible to user');
     }
-  }
-
-  /**
-   * Sanitize search input to prevent SQL injection
-   * Escapes wildcards and special characters used in ILIKE queries
-   * @security CRITICAL - All user search inputs MUST pass through this
-   */
-  private static sanitizeSearch(input: string): string {
-    if (!input) return '';
-    // Escape SQL ILIKE wildcards (%) and single-character wildcards (_)
-    // Also escape backslash to prevent escape sequence injection
-    return input.replace(/[%_\\]/g, '\\$&');
   }
 
   // ============================================================================
@@ -159,7 +148,7 @@ export class ParentPortalService {
 
     if (filters.search) {
       // SECURITY FIX: Sanitize search to prevent SQL injection
-      const sanitizedSearch = this.sanitizeSearch(filters.search);
+      const sanitizedSearch = sanitizeSearch(filters.search);
       query = query.or(`name.ilike.%${sanitizedSearch}%,phone.ilike.%${sanitizedSearch}%,email.ilike.%${sanitizedSearch}%`);
     }
 

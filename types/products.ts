@@ -179,24 +179,24 @@ export interface CreateProductInput {
 
 export interface UpdateProductInput {
   title?: string;
-  description?: string;
+  description?: string | null;
   current_trl?: number;
-  target_trl?: number;
-  trl_assessed_at?: string;
-  trl_assessed_by?: string;
-  originating_solution_ids?: string[];
-  lead_department_id?: string;
-  domain?: ProductDomain;
-  sector?: RDIFSector;
+  target_trl?: number | null;
+  trl_assessed_at?: string | null;
+  trl_assessed_by?: string | null;
+  originating_solution_ids?: string[] | null;
+  lead_department_id?: string | null;
+  domain?: ProductDomain | null;
+  sector?: RDIFSector | null;
   patent_status?: PatentStatus;
-  patent_number?: string;
-  patent_filed_at?: string;
+  patent_number?: string | null;
+  patent_filed_at?: string | null;
   status?: ProductStatus;
   rdif_readiness_score?: number;
   development_budget?: number;
   development_spent?: number;
-  tags?: string[];
-  notes?: string;
+  tags?: string[] | null;
+  notes?: string | null;
   metadata?: Record<string, unknown>;
 }
 

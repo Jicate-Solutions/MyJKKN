@@ -136,7 +136,9 @@ export const columns: ColumnDef<ReferralRewardConfig>[] = [
     maxSize: 130,
   },
   {
-    accessorKey: 'min_referrals_required',
+    // accessorKey matches ReferralRewardConfig.min_referrals (TS type field),
+    // which the service maps from DB column `min_referrals_required`.
+    accessorKey: 'min_referrals',
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Referrals" />
     ),

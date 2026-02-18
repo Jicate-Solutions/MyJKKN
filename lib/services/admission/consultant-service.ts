@@ -2,6 +2,7 @@
 // Service layer for Education Consultants module following MyJKKN patterns
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { sanitizeSearch } from '@/lib/config/pagination';
 import type {
   EducationConsultant,
   CreateConsultantInput,
@@ -44,6 +45,22 @@ import type {
 // ═══════════════════════════════════════════════════════════════════════════
 
 export class ConsultantService {
+  // Allowlists for user-controlled sort_by to prevent column name injection
+  private static readonly CONSULTANT_SORTABLE_COLUMNS = new Set([
+    'name', 'email', 'created_at', 'total_referrals', 'total_commission_earned',
+    'conversion_rate', 'is_active', 'city', 'state', 'code', 'updated_at',
+    'total_leads_referred', 'total_conversions', 'pending_commission', 'tier', 'status',
+  ]);
+
+  private static readonly TRANSACTION_SORTABLE_COLUMNS = new Set([
+    'created_at', 'net_amount', 'gross_amount', 'tds_amount', 'status', 'paid_at', 'updated_at',
+  ]);
+
+  private static readonly REWARD_SORTABLE_COLUMNS = new Set([
+    'name', 'created_at', 'reward_value', 'is_active', 'valid_from', 'valid_to', 'updated_at',
+    'description', 'reward_type',
+  ]);
+
   // ─────────────────────────────────────────────────────────────────────────
   // CONSULTANT CRUD
   // ─────────────────────────────────────────────────────────────────────────
@@ -83,8 +100,9 @@ export class ConsultantService {
     }
 
     if (search) {
+      const safe = sanitizeSearch(search);
       query = query.or(
-        `name.ilike.%${search}%,email.ilike.%${search}%,phone.ilike.%${search}%,code.ilike.%${search}%`
+        `name.ilike.%${safe}%,email.ilike.%${safe}%,phone.ilike.%${safe}%,code.ilike.%${safe}%`
       );
     }
 
@@ -113,11 +131,13 @@ export class ConsultantService {
     }
 
     if (city) {
-      query = query.ilike('city', `%${city}%`);
+      const safeCity = sanitizeSearch(city);
+      query = query.ilike('city', `%${safeCity}%`);
     }
 
     if (state) {
-      query = query.ilike('state', `%${state}%`);
+      const safeState = sanitizeSearch(state);
+      query = query.ilike('state', `%${safeState}%`);
     }
 
     if (min_conversion_rate !== undefined) {
@@ -139,8 +159,9 @@ export class ConsultantService {
         .or(`contract_end_date.is.null,contract_end_date.gte.${today}`);
     }
 
-    // Sorting
-    query = query.order(sort_by, { ascending: sort_order === 'asc' });
+    // Sorting - validate against allowlist
+    const safeSortBy = ConsultantService.CONSULTANT_SORTABLE_COLUMNS.has(sort_by) ? sort_by : 'created_at';
+    query = query.order(safeSortBy, { ascending: sort_order === 'asc' });
 
     // Pagination
     const from = (page - 1) * limit;
@@ -168,14 +189,17 @@ export class ConsultantService {
   /**
    * Get single consultant by ID
    */
-  static async getConsultantById(id: string): Promise<EducationConsultant | null> {
+  static async getConsultantById(id: string, institutionId?: string): Promise<EducationConsultant | null> {
     const supabase = createClientSupabaseClient();
 
-    const { data, error } = await (supabase as any)
+    let query = (supabase as any)
       .from('education_consultants')
       .select('*')
-      .eq('id', id)
-      .single();
+      .eq('id', id);
+    if (institutionId) {
+      query = query.eq('institution_id', institutionId);
+    }
+    const { data, error } = await query.single();
 
     if (error) {
       if (error.code === 'PGRST116') {
@@ -191,21 +215,24 @@ export class ConsultantService {
   /**
    * Alias for getConsultantById for compatibility
    */
-  static async getConsultant(id: string): Promise<EducationConsultant | null> {
-    return this.getConsultantById(id);
+  static async getConsultant(id: string, institutionId?: string): Promise<EducationConsultant | null> {
+    return this.getConsultantById(id, institutionId);
   }
 
   /**
    * Get consultant by code
    */
-  static async getConsultantByCode(code: string): Promise<EducationConsultant | null> {
+  static async getConsultantByCode(code: string, institutionId?: string): Promise<EducationConsultant | null> {
     const supabase = createClientSupabaseClient();
 
-    const { data, error } = await (supabase as any)
+    let query = (supabase as any)
       .from('education_consultants')
       .select('*')
-      .eq('code', code)
-      .limit(1);
+      .eq('code', code);
+    if (institutionId) {
+      query = query.eq('institution_id', institutionId);
+    }
+    const { data, error } = await query.limit(1);
 
     if (error) {
       throw new Error(error.message);
@@ -319,15 +346,19 @@ export class ConsultantService {
    * Get commission structures for a consultant
    */
   static async getCommissionStructures(
-    consultantId: string
+    consultantId: string,
+    institutionId?: string
   ): Promise<ConsultantCommissionStructure[]> {
     const supabase = createClientSupabaseClient();
 
-    const { data, error } = await (supabase as any)
+    let query = (supabase as any)
       .from('consultant_commission_structures')
       .select('*')
-      .eq('consultant_id', consultantId)
-      .order('effective_from', { ascending: false });
+      .eq('consultant_id', consultantId);
+    if (institutionId) {
+      query = query.eq('institution_id', institutionId);
+    }
+    const { data, error } = await query.order('effective_from', { ascending: false });
 
     if (error) {
       throw new Error(error.message);
@@ -397,16 +428,19 @@ export class ConsultantService {
    */
   static async updateCommissionStructure(
     id: string,
-    input: Partial<UpdateCommissionStructureInput>
+    input: Partial<UpdateCommissionStructureInput>,
+    institutionId?: string
   ): Promise<ConsultantCommissionStructure> {
     const supabase = createClientSupabaseClient();
 
-    const { data, error } = await (supabase as any)
+    let query = (supabase as any)
       .from('consultant_commission_structures')
       .update({ ...input, updated_at: new Date().toISOString() } as any)
-      .eq('id', id)
-      .select()
-      .single();
+      .eq('id', id);
+    if (institutionId) {
+      query = query.eq('institution_id', institutionId);
+    }
+    const { data, error } = await query.select().single();
 
     if (error) {
       throw new Error(error.message);
@@ -517,11 +551,12 @@ export class ConsultantService {
   static async verifyLeadAttribution(
     id: string,
     verifiedBy: string,
-    notes?: string
+    notes?: string,
+    institutionId?: string
   ): Promise<ConsultantLeadAttribution> {
     const supabase = createClientSupabaseClient();
 
-    const { data, error } = await (supabase as any)
+    let query = (supabase as any)
       .from('consultant_lead_attributions')
       .update({
         is_verified: true,
@@ -530,9 +565,11 @@ export class ConsultantService {
         verification_notes: notes,
         updated_at: new Date().toISOString(),
       } as any)
-      .eq('id', id)
-      .select()
-      .single();
+      .eq('id', id);
+    if (institutionId) {
+      query = query.eq('institution_id', institutionId);
+    }
+    const { data, error } = await query.select().single();
 
     if (error) {
       throw new Error(error.message);
@@ -614,11 +651,11 @@ export class ConsultantService {
     }
 
     if (min_amount !== undefined) {
-      query = query.gte('final_amount', min_amount);
+      query = query.gte('net_amount', min_amount);
     }
 
     if (max_amount !== undefined) {
-      query = query.lte('final_amount', max_amount);
+      query = query.lte('net_amount', max_amount);
     }
 
     if (payout_batch_id !== undefined) {
@@ -633,8 +670,9 @@ export class ConsultantService {
       query = query.in('status', ['pending', 'earned', 'approved']);
     }
 
-    // Sorting and pagination
-    query = query.order(sort_by, { ascending: sort_order === 'asc' });
+    // Sorting and pagination - validate against allowlist
+    const safeTxSortBy = ConsultantService.TRANSACTION_SORTABLE_COLUMNS.has(sort_by) ? sort_by : 'created_at';
+    query = query.order(safeTxSortBy, { ascending: sort_order === 'asc' });
     const from = (page - 1) * limit;
     query = query.range(from, from + limit - 1);
 
@@ -678,7 +716,8 @@ export class ConsultantService {
     id: string,
     status: string,
     changedBy: string,
-    reason?: string
+    reason?: string,
+    institutionId?: string
   ): Promise<ConsultantCommissionTransaction> {
     const supabase = createClientSupabaseClient();
 
@@ -694,12 +733,14 @@ export class ConsultantService {
       updateData.clawback_at = new Date().toISOString();
     }
 
-    const { data, error } = await (supabase as any)
+    let query = (supabase as any)
       .from('consultant_commission_transactions')
       .update(updateData as any)
-      .eq('id', id)
-      .select()
-      .single();
+      .eq('id', id);
+    if (institutionId) {
+      query = query.eq('institution_id', institutionId);
+    }
+    const { data, error } = await query.select().single();
 
     if (error) {
       throw new Error(error.message);
@@ -811,7 +852,7 @@ export class ConsultantService {
     // Calculate totals
     const totals = transactions.reduce(
       (acc, tx) => {
-        acc.gross += tx.final_amount || 0;
+        acc.gross += tx.gross_amount || 0;
         acc.tds += tx.tds_amount || 0;
         acc.net += tx.net_amount || 0;
         return acc;
@@ -851,8 +892,16 @@ export class ConsultantService {
       .in('id', transactionIds);
 
     if (linkError) {
-      // Rollback batch creation
-      await (supabase as any).from('consultant_payout_batches').delete().eq('id', batch.id);
+      // Attempt rollback - log failures but don't mask the original error
+      try {
+        await (supabase as any)
+          .from('consultant_commission_transactions')
+          .update({ payout_batch_id: null } as any)
+          .in('id', transactionIds);
+        await (supabase as any).from('consultant_payout_batches').delete().eq('id', batch.id);
+      } catch (rollbackError) {
+        console.error('[admission/consultants] Rollback failed during batch creation:', rollbackError);
+      }
       throw new Error(linkError.message);
     }
 
@@ -864,11 +913,12 @@ export class ConsultantService {
    */
   static async approvePayoutBatch(
     batchId: string,
-    approvedBy: string
+    approvedBy: string,
+    institutionId?: string
   ): Promise<ConsultantPayoutBatch> {
     const supabase = createClientSupabaseClient();
 
-    const { data, error } = await (supabase as any)
+    let query = (supabase as any)
       .from('consultant_payout_batches')
       .update({
         status: 'approved',
@@ -877,9 +927,11 @@ export class ConsultantService {
         updated_at: new Date().toISOString(),
       } as any)
       .eq('id', batchId)
-      .eq('status', 'pending_approval')
-      .select()
-      .single();
+      .eq('status', 'pending_approval');
+    if (institutionId) {
+      query = query.eq('institution_id', institutionId);
+    }
+    const { data, error } = await query.select().single();
 
     if (error) {
       throw new Error(error.message);
@@ -893,12 +945,13 @@ export class ConsultantService {
    */
   static async processPayoutBatch(
     input: ProcessPayoutBatchInput,
-    processedBy: string
+    processedBy: string,
+    institutionId?: string
   ): Promise<ConsultantPayoutBatch> {
     const supabase = createClientSupabaseClient();
 
     // Update batch
-    const { data: batch, error: batchError } = await (supabase as any)
+    let batchQuery = (supabase as any)
       .from('consultant_payout_batches')
       .update({
         status: 'completed',
@@ -910,9 +963,11 @@ export class ConsultantService {
         updated_at: new Date().toISOString(),
       } as any)
       .eq('id', input.batch_id)
-      .eq('status', 'approved')
-      .select()
-      .single();
+      .eq('status', 'approved');
+    if (institutionId) {
+      batchQuery = batchQuery.eq('institution_id', institutionId);
+    }
+    const { data: batch, error: batchError } = await batchQuery.select().single();
 
     if (batchError) {
       throw new Error(batchError.message);
@@ -927,11 +982,47 @@ export class ConsultantService {
         payment_reference: input.payment_reference,
         updated_at: new Date().toISOString(),
       } as any)
-      .eq('payout_batch_id', input.batch_id);
+      .eq('payout_batch_id', input.batch_id)
+      .eq('status', 'approved');
 
     if (txError) {
       throw new Error(txError.message);
     }
+
+    // Recalculate batch totals based on actually-paid transactions (H6 fix)
+    const { data: paidTransactions } = await (supabase as any)
+      .from('consultant_commission_transactions')
+      .select('gross_amount, tds_amount, net_amount')
+      .eq('payout_batch_id', input.batch_id)
+      .eq('status', 'paid');
+
+    if (paidTransactions && paidTransactions.length > 0) {
+      const recalculated = paidTransactions.reduce(
+        (acc: any, t: any) => ({
+          gross: acc.gross + (t.gross_amount || 0),
+          tds: acc.tds + (t.tds_amount || 0),
+          net: acc.net + (t.net_amount || 0),
+        }),
+        { gross: 0, tds: 0, net: 0 }
+      );
+
+      await (supabase as any)
+        .from('consultant_payout_batches')
+        .update({
+          total_gross_amount: recalculated.gross,
+          total_tds_amount: recalculated.tds,
+          total_net_amount: recalculated.net,
+          total_transactions: paidTransactions.length,
+        } as any)
+        .eq('id', input.batch_id);
+    }
+
+    // Unlink non-approved transactions from this batch so they can be included in future batches (M6 fix)
+    await (supabase as any)
+      .from('consultant_commission_transactions')
+      .update({ payout_batch_id: null } as any)
+      .eq('payout_batch_id', input.batch_id)
+      .neq('status', 'paid');
 
     return batch;
   }
@@ -945,14 +1036,19 @@ export class ConsultantService {
    */
   static async getCommunications(
     consultantId: string,
-    limit = 50
+    limit = 50,
+    institutionId?: string
   ): Promise<ConsultantCommunication[]> {
     const supabase = createClientSupabaseClient();
 
-    const { data, error } = await (supabase as any)
+    let query = (supabase as any)
       .from('consultant_communications')
       .select('*')
-      .eq('consultant_id', consultantId)
+      .eq('consultant_id', consultantId);
+    if (institutionId) {
+      query = query.eq('institution_id', institutionId);
+    }
+    const { data, error } = await query
       .order('communicated_at', { ascending: false })
       .limit(limit);
 
@@ -996,14 +1092,17 @@ export class ConsultantService {
   /**
    * Get documents for a consultant
    */
-  static async getDocuments(consultantId: string): Promise<ConsultantDocument[]> {
+  static async getDocuments(consultantId: string, institutionId?: string): Promise<ConsultantDocument[]> {
     const supabase = createClientSupabaseClient();
 
-    const { data, error } = await (supabase as any)
+    let query = (supabase as any)
       .from('consultant_documents')
       .select('*')
-      .eq('consultant_id', consultantId)
-      .order('created_at', { ascending: false });
+      .eq('consultant_id', consultantId);
+    if (institutionId) {
+      query = query.eq('institution_id', institutionId);
+    }
+    const { data, error } = await query.order('created_at', { ascending: false });
 
     if (error) {
       throw new Error(error.message);
@@ -1027,8 +1126,12 @@ export class ConsultantService {
   ): Promise<ConsultantDocument> {
     const supabase = createClientSupabaseClient();
 
-    // Upload to storage
-    const fileName = `${consultantId}/${Date.now()}_${file.name}`;
+    // Upload to storage - sanitize filename to prevent path traversal
+    const safeName = file.name
+      .replace(/\.\./g, '_')           // Remove directory traversal
+      .replace(/[\/\\]/g, '_')         // Remove path separators
+      .replace(/[^\w.\-]/g, '_');      // Only allow word chars, dots, hyphens
+    const fileName = `${consultantId}/${Date.now()}_${safeName}`;
     const { error: uploadError } = await supabase.storage
       .from('consultant_documents')
       .upload(fileName, file);
@@ -1061,6 +1164,8 @@ export class ConsultantService {
       .single();
 
     if (error) {
+      // Clean up orphaned storage file since DB insert failed
+      await supabase.storage.from('consultant_documents').remove([fileName]);
       throw new Error(error.message);
     }
 
@@ -1072,20 +1177,23 @@ export class ConsultantService {
    */
   static async verifyDocument(
     documentId: string,
-    verifiedBy: string
+    verifiedBy: string,
+    institutionId?: string
   ): Promise<ConsultantDocument> {
     const supabase = createClientSupabaseClient();
 
-    const { data, error } = await (supabase as any)
+    let query = (supabase as any)
       .from('consultant_documents')
       .update({
         is_verified: true,
         verified_at: new Date().toISOString(),
         verified_by: verifiedBy,
       } as any)
-      .eq('id', documentId)
-      .select()
-      .single();
+      .eq('id', documentId);
+    if (institutionId) {
+      query = query.eq('institution_id', institutionId);
+    }
+    const { data, error } = await query.select().single();
 
     if (error) {
       throw new Error(error.message);
@@ -1132,8 +1240,9 @@ export class ConsultantService {
       .eq('institution_id', institution_id);
 
     if (search) {
+      const safe = sanitizeSearch(search);
       query = query.or(
-        `name.ilike.%${search}%,description.ilike.%${search}%`
+        `name.ilike.%${safe}%,description.ilike.%${safe}%`
       );
     }
 
@@ -1147,7 +1256,8 @@ export class ConsultantService {
       query = query.eq('reward_type', reward_type_filter);
     }
 
-    query = query.order(sort_by, { ascending: sort_order === 'asc' });
+    const safeRewardSortBy = ConsultantService.REWARD_SORTABLE_COLUMNS.has(sort_by) ? sort_by : 'created_at';
+    query = query.order(safeRewardSortBy, { ascending: sort_order === 'asc' });
 
     const from = (page - 1) * limit;
     const to = from + limit - 1;
@@ -1793,16 +1903,16 @@ export class ConsultantService {
     // Get commission totals
     const { data: commissionData } = await (supabase as any)
       .from('consultant_commission_transactions')
-      .select('status, final_amount')
-      .eq('institution_id', institutionId) as { data: Array<{ status: string; final_amount: number }> | null };
+      .select('status, net_amount')
+      .eq('institution_id', institutionId) as { data: Array<{ status: string; net_amount: number }> | null };
 
     let totalPaid = 0;
     let pendingCommission = 0;
     commissionData?.forEach((c) => {
       if (c.status === 'paid') {
-        totalPaid += c.final_amount || 0;
+        totalPaid += c.net_amount || 0;
       } else if (['pending', 'earned', 'approved'].includes(c.status)) {
-        pendingCommission += c.final_amount || 0;
+        pendingCommission += c.net_amount || 0;
       }
     });
 
@@ -1818,13 +1928,13 @@ export class ConsultantService {
 
     const { data: thisMonthTransactions } = await (supabase as any)
       .from('consultant_commission_transactions')
-      .select('final_amount')
+      .select('net_amount')
       .eq('institution_id', institutionId)
       .eq('status', 'paid')
       .gte('paid_at', startOfMonth.toISOString());
 
     const commissionPaidThisMonth =
-      thisMonthTransactions?.reduce((sum, t) => sum + (t.final_amount || 0), 0) || 0;
+      thisMonthTransactions?.reduce((sum, t) => sum + (t.net_amount || 0), 0) || 0;
 
     // Get top performers
     const topConsultants: ConsultantPerformanceMetrics[] = activeConsultants
@@ -1929,7 +2039,7 @@ export class ConsultantService {
         `
         consultant_id,
         status,
-        final_amount,
+        net_amount,
         created_at
       `
       )
@@ -1949,16 +2059,16 @@ export class ConsultantService {
         byConsultant[t.consultant_id] = { pending: 0, earned: 0, approved: 0 };
       }
       if (t.status === 'pending') {
-        byConsultant[t.consultant_id].pending += t.final_amount || 0;
+        byConsultant[t.consultant_id].pending += t.net_amount || 0;
       } else if (t.status === 'earned') {
-        byConsultant[t.consultant_id].earned += t.final_amount || 0;
+        byConsultant[t.consultant_id].earned += t.net_amount || 0;
       } else if (t.status === 'approved') {
-        byConsultant[t.consultant_id].approved += t.final_amount || 0;
+        byConsultant[t.consultant_id].approved += t.net_amount || 0;
       }
 
       // By month
       const month = t.created_at.substring(0, 7); // YYYY-MM
-      byMonth[month] = (byMonth[month] || 0) + (t.final_amount || 0);
+      byMonth[month] = (byMonth[month] || 0) + (t.net_amount || 0);
     });
 
     // Get consultant names
@@ -2037,7 +2147,7 @@ export class ConsultantService {
       .select(
         `
         id,
-        final_amount,
+        net_amount,
         status,
         created_at,
         lead:admission_leads(id, full_name)
@@ -2090,7 +2200,7 @@ export class ConsultantService {
           return {
             id: t.id,
             lead_name: lead?.full_name || 'Unknown',
-            amount: t.final_amount || 0,
+            amount: t.net_amount || 0,
             status: t.status || 'pending',
             date: t.created_at,
           };
@@ -2159,10 +2269,13 @@ export class ConsultantService {
       throw new Error(attrError.message);
     }
 
-    // Update consultant lead count
-    await (supabase as any).rpc('increment_consultant_lead_count', {
+    // Update consultant lead count (non-critical — log error but don't fail the submission)
+    const { error: rpcError } = await (supabase as any).rpc('increment_consultant_lead_count', {
       p_consultant_id: input.consultant_id,
     });
+    if (rpcError) {
+      console.error('[admission/consultants] Failed to increment lead count:', rpcError);
+    }
 
     return { lead_id: lead.id, attribution_id: attribution.id };
   }
@@ -2179,19 +2292,25 @@ export class ConsultantService {
   ): Promise<void> {
     const supabase = createClientSupabaseClient();
 
-    const { data: transactions } = await (supabase as any)
+    const { data: transactions, error } = await (supabase as any)
       .from('consultant_commission_transactions')
-      .select('status, final_amount')
+      .select('status, net_amount')
       .eq('consultant_id', consultantId);
+
+    if (error) {
+      console.error('[admission/consultants] Failed to fetch transactions for totals update:', error);
+      return; // Don't zero out totals on transient error
+    }
+    if (!transactions) return; // No data, skip update
 
     let totalEarned = 0;
     let pendingCommission = 0;
 
-    transactions?.forEach((t) => {
+    transactions.forEach((t) => {
       if (t.status === 'paid') {
-        totalEarned += t.final_amount || 0;
+        totalEarned += t.net_amount || 0;
       } else if (['pending', 'earned', 'approved'].includes(t.status)) {
-        pendingCommission += t.final_amount || 0;
+        pendingCommission += t.net_amount || 0;
       }
     });
 

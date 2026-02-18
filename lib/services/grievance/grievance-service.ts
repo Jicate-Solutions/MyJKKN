@@ -3,6 +3,7 @@
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { ensureArray, ensureNumber, ensureObject } from '@/lib/utils/validation';
+import { sanitizeSearch } from '@/lib/config/pagination';
 import type {
   GrievanceCategory,
   GrievanceTicket,
@@ -54,18 +55,6 @@ export class GrievanceService {
       console.error('[grievance] Access denied:', { userId: user.id, institutionId });
       throw new Error('Access denied: Institution not accessible to user');
     }
-  }
-
-  /**
-   * Sanitize search input to prevent SQL injection
-   * Escapes wildcards and special characters used in ILIKE queries
-   * @security CRITICAL - All user search inputs MUST pass through this
-   */
-  private static sanitizeSearch(input: string): string {
-    if (!input) return '';
-    // Escape SQL ILIKE wildcards (%) and single-character wildcards (_)
-    // Also escape backslash to prevent escape sequence injection
-    return input.replace(/[%_\\]/g, '\\$&');
   }
 
   // ============================================================================
@@ -271,7 +260,7 @@ export class GrievanceService {
     }
     if (filters.search) {
       // SECURITY FIX: Sanitize search to prevent SQL injection
-      const sanitizedSearch = this.sanitizeSearch(filters.search);
+      const sanitizedSearch = sanitizeSearch(filters.search);
       query = query.or(`subject.ilike.%${sanitizedSearch}%,ticket_number.ilike.%${sanitizedSearch}%,description.ilike.%${sanitizedSearch}%`);
     }
     if (filters.date_from) {

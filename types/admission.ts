@@ -345,19 +345,16 @@ export interface LeadScore {
 
 export interface Counselor {
   id: string;
-  user_id: string;
-  institution_id: string;
+  user_id: string | null;
+  institution_id: string | null;
   name: string;
-  email: string;
+  email: string | null;
   phone: string | null;
-  is_active: boolean;
-  max_leads: number;
-  current_leads: number;
-  specializations: string[];
-  created_at: string;
-  updated_at: string;
+  designation: string | null;
+  is_active: boolean | null;
+  created_at: string | null;
 
-  // Performance metrics (optional)
+  // Performance metrics (optional, joined from separate table)
   performance?: CounselorPerformance;
 }
 

@@ -23,7 +23,7 @@ interface RDIFScorecardProps {
 export function RDIFScorecard({ prerequisites, showDetails = false, className }: RDIFScorecardProps) {
   const metCount = prerequisites.filter((p) => p.met).length;
   const totalCount = prerequisites.length;
-  const percentage = Math.round((metCount / totalCount) * 100);
+  const percentage = totalCount > 0 ? Math.round((metCount / totalCount) * 100) : 0;
 
   return (
     <Card className={cn('', className)}>

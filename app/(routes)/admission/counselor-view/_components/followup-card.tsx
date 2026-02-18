@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -85,6 +85,7 @@ const INTEREST_LEVEL_CONFIG: Record<string, { color: string; label: string }> = 
   medium: { color: 'bg-yellow-100 text-yellow-700 border-yellow-200', label: 'Medium' },
   low: { color: 'bg-orange-100 text-orange-700 border-orange-200', label: 'Low' },
   none: { color: 'bg-gray-100 text-gray-500 border-gray-200', label: 'None' },
+  undecided: { color: 'bg-gray-100 text-gray-500 border-gray-200', label: 'Undecided' },
 };
 
 // Parent decision status config - must match values from leads/new/page.tsx
@@ -119,6 +120,10 @@ export function FollowupCard({
   const [noteText, setNoteText] = useState('');
   const [showNote, setShowNote] = useState(false);
   const [rescheduleDate, setRescheduleDate] = useState('');
+  const isMountedRef = useRef(true);
+  useEffect(() => {
+    return () => { isMountedRef.current = false; };
+  }, []);
 
   const currentStageIdx = STAGE_ORDER.indexOf(lead.funnel_stage);
   // Only show forward stages; if current stage not found, show nothing to prevent backwards movement
@@ -257,8 +262,12 @@ export function FollowupCard({
             variant="default"
             className="h-7 text-xs"
             onClick={() => {
-              window.open(`tel:${lead.phone}`, '_self');
               onCall(lead.id);
+              setTimeout(() => {
+                if (isMountedRef.current) {
+                  window.open(`tel:${lead.phone}`, '_self');
+                }
+              }, 100);
             }}
             disabled={isActioning}
           >

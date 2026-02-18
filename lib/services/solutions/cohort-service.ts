@@ -2,6 +2,7 @@
 // CRUD operations for sh_cohort_members, sh_cohort_assignments
 
 import { BaseService, type BaseListResponse } from '../base-service';
+import { sanitizeSearch } from '@/lib/config/pagination';
 import type {
   CohortMember,
   CohortAssignment,
@@ -68,14 +69,6 @@ export const LEVEL_COLORS: Record<string, string> = {
 };
 
 // ============================================
-// HELPER FUNCTIONS
-// ============================================
-
-function escapeSearchString(str: string): string {
-  return str.replace(/[%_\\]/g, '\\$&');
-}
-
-// ============================================
 // SERVICE CLASS
 // ============================================
 
@@ -116,7 +109,7 @@ export class CohortService extends BaseService {
     }
 
     if (filters?.search) {
-      const escaped = escapeSearchString(filters.search);
+      const escaped = sanitizeSearch(filters.search);
       query = query.or(`name.ilike.%${escaped}%,email.ilike.%${escaped}%`);
     }
 

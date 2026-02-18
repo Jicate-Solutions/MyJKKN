@@ -97,13 +97,13 @@ export function useCounselorsList(institutionId?: string) {
 // ACTION MUTATIONS
 // ============================================================================
 
-export function useCounselorActions(_institutionId?: string) {
+export function useCounselorActions(institutionId?: string) {
   const queryClient = useQueryClient();
 
   // Runtime guard — throws a clear error instead of silently passing undefined to DB queries
   const requireInstitutionId = (): string => {
-    if (!_institutionId) throw new Error('Institution ID is required for counselor actions');
-    return _institutionId;
+    if (!institutionId) throw new Error('Institution ID is required for counselor actions');
+    return institutionId;
   };
 
   const invalidateAll = () => {

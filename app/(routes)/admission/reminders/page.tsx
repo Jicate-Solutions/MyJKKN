@@ -15,19 +15,15 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Switch } from '@/components/ui/switch';
-import { Label } from '@/components/ui/label';
-import { Input } from '@/components/ui/input';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue
-} from '@/components/ui/select';
-import { Separator } from '@/components/ui/separator';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Skeleton } from '@/components/ui/skeleton';
 import { PermissionGuard } from '@/components/auth/permission-guard';
-import { useAuth } from '@/hooks/use-auth';
+import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
+import {
+  useFollowUpReminders,
+  useCompleteReminder,
+  useSnoozeReminder,
+} from '@/hooks/admission/use-reminders';
+import type { FollowUpReminder } from '@/lib/services/admission/reminders-service';
 import {
   Bell,
   Clock,
@@ -37,15 +33,10 @@ import {
   MessageCircle,
   Mail,
   Calendar,
-  User,
   RefreshCw,
   Settings,
-  Play,
-  Pause,
   MoreHorizontal,
   ExternalLink,
-  Filter,
-  ChevronRight,
   Zap,
   Timer,
   AlertTriangle,
@@ -58,29 +49,13 @@ import {
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
-import { format, formatDistanceToNow, addDays, isPast, isToday, isTomorrow } from 'date-fns';
+import { formatDistanceToNow, isPast, isToday, isTomorrow } from 'date-fns';
 import { toast } from 'sonner';
 import { AdmissionErrorBoundary } from '@/components/admission';
 
-// Types
-interface FollowUpReminder {
-  id: string;
-  leadId: string;
-  leadName: string;
-  leadPhone: string;
-  leadEmail: string;
-  leadStage: string;
-  reminderType: 'scheduled' | 'no_response' | 'stage_based' | 'manual';
-  dueDate: string;
-  action: 'call' | 'whatsapp' | 'email' | 'task';
-  message: string;
-  priority: 'high' | 'medium' | 'low';
-  status: 'pending' | 'completed' | 'snoozed' | 'dismissed';
-  counselorId: string;
-  counselorName: string;
-  createdAt: string;
-  completedAt?: string;
-}
+// ============================================================================
+// Auto-follow-up rules — local config state (not yet DB-backed)
+// ============================================================================
 
 interface AutoFollowUpRule {
   id: string;
@@ -93,96 +68,7 @@ interface AutoFollowUpRule {
   leadsAffected: number;
 }
 
-// Sample data
-const SAMPLE_REMINDERS: FollowUpReminder[] = [
-  {
-    id: '1',
-    leadId: 'lead-1',
-    leadName: 'Rahul Sharma',
-    leadPhone: '+91 98765 43210',
-    leadEmail: 'rahul@email.com',
-    leadStage: 'contacted',
-    reminderType: 'no_response',
-    dueDate: new Date().toISOString(),
-    action: 'call',
-    message: 'No response for 3 days - follow up call recommended',
-    priority: 'high',
-    status: 'pending',
-    counselorId: 'c1',
-    counselorName: 'Priya Counselor',
-    createdAt: addDays(new Date(), -3).toISOString()
-  },
-  {
-    id: '2',
-    leadId: 'lead-2',
-    leadName: 'Anita Patel',
-    leadPhone: '+91 87654 32109',
-    leadEmail: 'anita@email.com',
-    leadStage: 'interested',
-    reminderType: 'scheduled',
-    dueDate: addDays(new Date(), 1).toISOString(),
-    action: 'whatsapp',
-    message: 'Scheduled follow-up for course information',
-    priority: 'medium',
-    status: 'pending',
-    counselorId: 'c1',
-    counselorName: 'Priya Counselor',
-    createdAt: addDays(new Date(), -1).toISOString()
-  },
-  {
-    id: '3',
-    leadId: 'lead-3',
-    leadName: 'Kumar Raj',
-    leadPhone: '+91 76543 21098',
-    leadEmail: 'kumar@email.com',
-    leadStage: 'applied',
-    reminderType: 'stage_based',
-    dueDate: new Date().toISOString(),
-    action: 'email',
-    message: 'Application submitted - send confirmation and next steps',
-    priority: 'high',
-    status: 'pending',
-    counselorId: 'c2',
-    counselorName: 'Raj Counselor',
-    createdAt: new Date().toISOString()
-  },
-  {
-    id: '4',
-    leadId: 'lead-4',
-    leadName: 'Meera Singh',
-    leadPhone: '+91 65432 10987',
-    leadEmail: 'meera@email.com',
-    leadStage: 'contacted',
-    reminderType: 'no_response',
-    dueDate: addDays(new Date(), -1).toISOString(),
-    action: 'call',
-    message: 'Overdue: No response for 5 days',
-    priority: 'high',
-    status: 'pending',
-    counselorId: 'c1',
-    counselorName: 'Priya Counselor',
-    createdAt: addDays(new Date(), -5).toISOString()
-  },
-  {
-    id: '5',
-    leadId: 'lead-5',
-    leadName: 'Suresh Kumar',
-    leadPhone: '+91 54321 09876',
-    leadEmail: 'suresh@email.com',
-    leadStage: 'new',
-    reminderType: 'manual',
-    dueDate: addDays(new Date(), 2).toISOString(),
-    action: 'task',
-    message: 'Send brochure and fee structure',
-    priority: 'low',
-    status: 'pending',
-    counselorId: 'c2',
-    counselorName: 'Raj Counselor',
-    createdAt: addDays(new Date(), -1).toISOString()
-  }
-];
-
-const SAMPLE_RULES: AutoFollowUpRule[] = [
+const DEFAULT_RULES: AutoFollowUpRule[] = [
   {
     id: '1',
     name: 'No Response Follow-up',
@@ -191,7 +77,7 @@ const SAMPLE_RULES: AutoFollowUpRule[] = [
     action: 'call',
     message: 'No response for {days} days - follow up recommended',
     isActive: true,
-    leadsAffected: 12
+    leadsAffected: 0
   },
   {
     id: '2',
@@ -201,7 +87,7 @@ const SAMPLE_RULES: AutoFollowUpRule[] = [
     action: 'email',
     message: 'Send application confirmation and next steps',
     isActive: true,
-    leadsAffected: 5
+    leadsAffected: 0
   },
   {
     id: '3',
@@ -221,9 +107,13 @@ const SAMPLE_RULES: AutoFollowUpRule[] = [
     action: 'email',
     message: 'Re-engagement email for leads with no recent contact',
     isActive: true,
-    leadsAffected: 8
+    leadsAffected: 0
   }
 ];
+
+// ============================================================================
+// UI HELPERS
+// ============================================================================
 
 function getActionIcon(action: string) {
   switch (action) {
@@ -265,6 +155,10 @@ function getDueDateStatus(dueDate: string) {
   return { label: formatDistanceToNow(date, { addSuffix: true }), color: 'text-gray-600', bg: 'bg-gray-100 dark:bg-gray-900/30' };
 }
 
+// ============================================================================
+// REMINDER CARD
+// ============================================================================
+
 function ReminderCard({ reminder, onComplete, onSnooze, isCompleting, isSnoozing }: {
   reminder: FollowUpReminder;
   onComplete: () => void;
@@ -298,14 +192,22 @@ function ReminderCard({ reminder, onComplete, onSnooze, isCompleting, isSnoozing
                 <Badge variant="outline" className="text-xs">
                   {reminder.leadStage}
                 </Badge>
+                {reminder.isHotLead && (
+                  <Badge variant="destructive" className="text-xs">Hot</Badge>
+                )}
               </div>
               <p className="text-sm text-muted-foreground mb-2">
                 {reminder.message}
               </p>
-              <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                <span className="flex items-center gap-1">
-                  <Phone className="h-3 w-3" />
-                  {reminder.leadPhone}
+              <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
+                {reminder.leadPhone && (
+                  <span className="flex items-center gap-1">
+                    <Phone className="h-3 w-3" />
+                    {reminder.leadPhone}
+                  </span>
+                )}
+                <span className="flex items-center gap-1 text-muted-foreground">
+                  Counselor: {reminder.counselorName}
                 </span>
                 <span className={cn("px-2 py-0.5 rounded-full", dueStatus.bg, dueStatus.color)}>
                   {dueStatus.label}
@@ -350,15 +252,17 @@ function ReminderCard({ reminder, onComplete, onSnooze, isCompleting, isSnoozing
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
-                  <DropdownMenuItem onClick={() => toast.success('Opening lead details')}>
+                  <DropdownMenuItem onClick={() => {
+                    window.open(`/admission/leads/${reminder.leadId}`, '_blank');
+                  }}>
                     <ExternalLink className="h-4 w-4 mr-2" />
                     View Lead
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => toast.success('Reminder rescheduled')}>
+                  <DropdownMenuItem onClick={() => toast.info('Reschedule coming soon')}>
                     <Calendar className="h-4 w-4 mr-2" />
                     Reschedule
                   </DropdownMenuItem>
-                  <DropdownMenuItem className="text-red-600" onClick={() => toast.success('Reminder dismissed')}>
+                  <DropdownMenuItem className="text-red-600" onClick={() => toast.info('Dismiss coming soon')}>
                     <AlertCircle className="h-4 w-4 mr-2" />
                     Dismiss
                   </DropdownMenuItem>
@@ -371,6 +275,10 @@ function ReminderCard({ reminder, onComplete, onSnooze, isCompleting, isSnoozing
     </Card>
   );
 }
+
+// ============================================================================
+// RULE CARD (local config — not DB-backed yet)
+// ============================================================================
 
 function RuleCard({ rule, onToggle }: { rule: AutoFollowUpRule; onToggle: () => void }) {
   return (
@@ -412,7 +320,7 @@ function RuleCard({ rule, onToggle }: { rule: AutoFollowUpRule; onToggle: () => 
               <span className="text-sm text-muted-foreground capitalize">{rule.action}</span>
             </div>
             <Switch checked={rule.isActive} onCheckedChange={onToggle} />
-            <Button variant="ghost" size="icon" onClick={() => toast.success('Opening rule settings')}>
+            <Button variant="ghost" size="icon" onClick={() => toast.info('Rule settings coming soon')}>
               <Settings className="h-4 w-4" />
             </Button>
           </div>
@@ -422,31 +330,68 @@ function RuleCard({ rule, onToggle }: { rule: AutoFollowUpRule; onToggle: () => 
   );
 }
 
+// ============================================================================
+// LOADING SKELETON
+// ============================================================================
+
+function RemindersSkeleton() {
+  return (
+    <div className="space-y-3">
+      {[1, 2, 3, 4].map(i => (
+        <Card key={i}>
+          <CardContent className="p-4">
+            <div className="flex items-start gap-3">
+              <Skeleton className="h-10 w-10 rounded-lg" />
+              <div className="flex-1 space-y-2">
+                <Skeleton className="h-5 w-48" />
+                <Skeleton className="h-4 w-72" />
+                <Skeleton className="h-3 w-36" />
+              </div>
+              <div className="flex flex-col gap-2 items-end">
+                <Skeleton className="h-5 w-16" />
+                <Skeleton className="h-8 w-32" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      ))}
+    </div>
+  );
+}
+
+// ============================================================================
+// MAIN PAGE CONTENT
+// ============================================================================
+
 function AdmissionRemindersPageContent() {
-  const { profile, isLoading: accessLoading } = useAuth();
-  const [reminders, setReminders] = useState<FollowUpReminder[]>(SAMPLE_REMINDERS);
-  const [rules, setRules] = useState<AutoFollowUpRule[]>(SAMPLE_RULES);
+  const { selectedInstitutionId, loading: accessLoading } = useUserInstitutionAccess();
+  const { reminders, isLoading, refetch } = useFollowUpReminders(selectedInstitutionId);
+  const completeReminder = useCompleteReminder();
+  const snoozeReminder = useSnoozeReminder();
+
+  const [rules, setRules] = useState<AutoFollowUpRule[]>(DEFAULT_RULES);
   const [filter, setFilter] = useState<'all' | 'overdue' | 'today' | 'upcoming'>('all');
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [isCreating, setIsCreating] = useState(false);
   const [isAddingRule, setIsAddingRule] = useState(false);
+
+  // Track which reminder IDs are in-flight for complete/snooze
   const [completingIds, setCompletingIds] = useState<Set<string>>(new Set());
   const [snoozingIds, setSnoozingIds] = useState<Set<string>>(new Set());
 
+  // Classify reminders by due date
   const overdueCount = reminders.filter(r =>
-    r.status === 'pending' && isPast(new Date(r.dueDate)) && !isToday(new Date(r.dueDate))
+    isPast(new Date(r.dueDate)) && !isToday(new Date(r.dueDate))
   ).length;
 
   const todayCount = reminders.filter(r =>
-    r.status === 'pending' && isToday(new Date(r.dueDate))
+    isToday(new Date(r.dueDate))
   ).length;
 
   const upcomingCount = reminders.filter(r =>
-    r.status === 'pending' && !isPast(new Date(r.dueDate)) && !isToday(new Date(r.dueDate))
+    !isPast(new Date(r.dueDate)) && !isToday(new Date(r.dueDate))
   ).length;
 
   const filteredReminders = reminders.filter(r => {
-    if (r.status !== 'pending') return false;
     if (filter === 'overdue') return isPast(new Date(r.dueDate)) && !isToday(new Date(r.dueDate));
     if (filter === 'today') return isToday(new Date(r.dueDate));
     if (filter === 'upcoming') return !isPast(new Date(r.dueDate)) && !isToday(new Date(r.dueDate));
@@ -456,12 +401,7 @@ function AdmissionRemindersPageContent() {
   const handleComplete = async (id: string) => {
     setCompletingIds(prev => new Set(prev).add(id));
     try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 500));
-      setReminders(prev =>
-        prev.map(r => r.id === id ? { ...r, status: 'completed' as const } : r)
-      );
-      toast.success('Reminder marked as completed');
+      await completeReminder.mutateAsync(id);
     } finally {
       setCompletingIds(prev => {
         const next = new Set(prev);
@@ -474,21 +414,23 @@ function AdmissionRemindersPageContent() {
   const handleSnooze = async (id: string) => {
     setSnoozingIds(prev => new Set(prev).add(id));
     try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 500));
-      setReminders(prev =>
-        prev.map(r => r.id === id ? {
-          ...r,
-          dueDate: addDays(new Date(), 1).toISOString()
-        } : r)
-      );
-      toast.success('Reminder snoozed until tomorrow');
+      await snoozeReminder.mutateAsync(id);
     } finally {
       setSnoozingIds(prev => {
         const next = new Set(prev);
         next.delete(id);
         return next;
       });
+    }
+  };
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      await refetch();
+      toast.success('Reminders refreshed');
+    } finally {
+      setIsRefreshing(false);
     }
   };
 
@@ -499,6 +441,8 @@ function AdmissionRemindersPageContent() {
     );
     toast.success(rule?.isActive ? 'Rule paused' : 'Rule activated');
   };
+
+  const dataLoading = accessLoading || isLoading;
 
   return (
     <PermissionGuard module="admission" action="view">
@@ -521,16 +465,8 @@ function AdmissionRemindersPageContent() {
             <div className="flex gap-2">
               <Button
                 variant="outline"
-                onClick={async () => {
-                  setIsRefreshing(true);
-                  try {
-                    await new Promise(resolve => setTimeout(resolve, 1000));
-                    toast.success('Reminders refreshed');
-                  } finally {
-                    setIsRefreshing(false);
-                  }
-                }}
-                disabled={isRefreshing}
+                onClick={handleRefresh}
+                disabled={isRefreshing || dataLoading}
               >
                 {isRefreshing ? (
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -540,22 +476,9 @@ function AdmissionRemindersPageContent() {
                 Refresh
               </Button>
               <Button
-                onClick={async () => {
-                  setIsCreating(true);
-                  try {
-                    await new Promise(resolve => setTimeout(resolve, 1000));
-                    toast.success('Reminder created successfully');
-                  } finally {
-                    setIsCreating(false);
-                  }
-                }}
-                disabled={isCreating}
+                onClick={() => toast.info('Create reminder coming soon')}
               >
-                {isCreating ? (
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                ) : (
-                  <Bell className="h-4 w-4 mr-2" />
-                )}
+                <Bell className="h-4 w-4 mr-2" />
                 Create Reminder
               </Button>
             </div>
@@ -585,7 +508,11 @@ function AdmissionRemindersPageContent() {
                   </div>
                   <div>
                     <p className="text-sm text-muted-foreground">All Pending</p>
-                    <p className="text-2xl font-bold">{overdueCount + todayCount + upcomingCount}</p>
+                    {dataLoading ? (
+                      <Skeleton className="h-8 w-12 mt-1" />
+                    ) : (
+                      <p className="text-2xl font-bold">{overdueCount + todayCount + upcomingCount}</p>
+                    )}
                   </div>
                 </div>
               </CardContent>
@@ -601,7 +528,11 @@ function AdmissionRemindersPageContent() {
                   </div>
                   <div>
                     <p className="text-sm text-muted-foreground">Overdue</p>
-                    <p className="text-2xl font-bold text-red-600">{overdueCount}</p>
+                    {dataLoading ? (
+                      <Skeleton className="h-8 w-12 mt-1" />
+                    ) : (
+                      <p className="text-2xl font-bold text-red-600">{overdueCount}</p>
+                    )}
                   </div>
                 </div>
               </CardContent>
@@ -617,7 +548,11 @@ function AdmissionRemindersPageContent() {
                   </div>
                   <div>
                     <p className="text-sm text-muted-foreground">Due Today</p>
-                    <p className="text-2xl font-bold text-amber-600">{todayCount}</p>
+                    {dataLoading ? (
+                      <Skeleton className="h-8 w-12 mt-1" />
+                    ) : (
+                      <p className="text-2xl font-bold text-amber-600">{todayCount}</p>
+                    )}
                   </div>
                 </div>
               </CardContent>
@@ -633,7 +568,11 @@ function AdmissionRemindersPageContent() {
                   </div>
                   <div>
                     <p className="text-sm text-muted-foreground">Upcoming</p>
-                    <p className="text-2xl font-bold text-green-600">{upcomingCount}</p>
+                    {dataLoading ? (
+                      <Skeleton className="h-8 w-12 mt-1" />
+                    ) : (
+                      <p className="text-2xl font-bold text-green-600">{upcomingCount}</p>
+                    )}
                   </div>
                 </div>
               </CardContent>
@@ -655,19 +594,23 @@ function AdmissionRemindersPageContent() {
 
             {/* Reminders Tab */}
             <TabsContent value="reminders" className="space-y-4">
-              {filteredReminders.length === 0 ? (
+              {dataLoading ? (
+                <RemindersSkeleton />
+              ) : filteredReminders.length === 0 ? (
                 <Card>
                   <CardContent className="py-16 text-center">
                     <CheckCircle className="h-12 w-12 mx-auto mb-4 text-green-500 opacity-50" />
                     <h2 className="text-xl font-semibold mb-2">All Caught Up!</h2>
                     <p className="text-muted-foreground mb-4">
                       {filter === 'all'
-                        ? 'No pending follow-up reminders.'
+                        ? 'No pending follow-up reminders. Leads with a scheduled follow-up date will appear here.'
                         : `No ${filter} reminders.`}
                     </p>
-                    <Button variant="outline" onClick={() => setFilter('all')}>
-                      View All Reminders
-                    </Button>
+                    {filter !== 'all' && (
+                      <Button variant="outline" onClick={() => setFilter('all')}>
+                        View All Reminders
+                      </Button>
+                    )}
                   </CardContent>
                 </Card>
               ) : (
@@ -700,7 +643,7 @@ function AdmissionRemindersPageContent() {
                     setIsAddingRule(true);
                     try {
                       await new Promise(resolve => setTimeout(resolve, 1000));
-                      toast.success('Rule created successfully');
+                      toast.info('Add rule coming soon');
                     } finally {
                       setIsAddingRule(false);
                     }

@@ -92,9 +92,10 @@ export function useCommissionSummary(consultantId: string) {
       const totalEarned = consultant?.total_commission_earned ?? 0;
       const pending = consultant?.pending_commission ?? 0;
       return {
-        total_earned: totalEarned,
+        // total_earned = lifetime total commission (paid + pending), NOT "total already paid"
+        total_earned: totalEarned + pending,
         pending,
-        paid: Math.max(0, totalEarned - pending)
+        paid: totalEarned
       };
     },
     enabled: !!consultantId
@@ -109,6 +110,9 @@ export function useCommissionMutations() {
     onSuccess: () => {
       toast.success('Commission recorded successfully');
       queryClient.invalidateQueries({ queryKey: ['consultant-commissions'] });
+      queryClient.invalidateQueries({ queryKey: ['commission-summary'] });
+      queryClient.invalidateQueries({ queryKey: ['consultant'] });
+      queryClient.invalidateQueries({ queryKey: ['consultant-performance'] });
     },
     onError: (error: Error) => {
       toast.error(error.message || 'Failed to record commission');
@@ -123,6 +127,9 @@ export function useCommissionMutations() {
       toast.success('Payout processed successfully');
       queryClient.invalidateQueries({ queryKey: ['consultant-commissions'] });
       queryClient.invalidateQueries({ queryKey: ['commission-transactions'] });
+      queryClient.invalidateQueries({ queryKey: ['commission-summary'] });
+      queryClient.invalidateQueries({ queryKey: ['consultant'] });
+      queryClient.invalidateQueries({ queryKey: ['consultant-performance'] });
     },
     onError: (error: Error) => {
       toast.error(error.message || 'Failed to process payout');
@@ -544,6 +551,9 @@ export function useUpdateCommissionTransactionStatus() {
       toast.success('Commission status updated');
       queryClient.invalidateQueries({ queryKey: ['commission-transactions'] });
       queryClient.invalidateQueries({ queryKey: ['consultant-commissions'] });
+      queryClient.invalidateQueries({ queryKey: ['commission-summary'] });
+      queryClient.invalidateQueries({ queryKey: ['consultant'] });
+      queryClient.invalidateQueries({ queryKey: ['consultant-performance'] });
     },
     onError: (error: Error) => {
       toast.error(error.message || 'Failed to update commission status');

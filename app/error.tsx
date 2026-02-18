@@ -4,6 +4,7 @@ import { useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { AlertTriangle, RefreshCcw, Home } from 'lucide-react';
 import { useRouter } from 'next/navigation';
+import { logger } from '@/lib/utils/enhanced-logger';
 
 /**
  * Global Error Boundary
@@ -28,7 +29,7 @@ export default function Error({
       stack: error.stack,
     });
 
-    // TODO: Send to Sentry or error tracking service
+    logger.error('app', 'Unhandled error caught by error boundary', error);
   }, [error]);
 
   return (

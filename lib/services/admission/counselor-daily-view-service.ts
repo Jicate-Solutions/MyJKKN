@@ -85,21 +85,97 @@ export interface UnassignedLead {
 }
 
 // ============================================================================
+// CONSTANTS
+// ============================================================================
+
+/** Roles that grant manager-level access to all leads in the institution */
+const MANAGER_ROLES = new Set([
+  'super_admin', 'admin', 'institution_admin', 'manager', 'hod', 'principal', 'dean',
+]);
+
+// ============================================================================
 // SERVICE
 // ============================================================================
 
 export class CounselorDailyViewService {
-  private static supabase = createClientSupabaseClient();
+  /**
+   * Verify the current user is authorized to modify a lead.
+   * Authorization: user must be the assigned counselor OR have a manager-level role.
+   * For manager-only actions (e.g. assignLeads), set requireManager = true.
+   */
+  private static async verifyLeadAccess(
+    supabase: any,
+    leadId: string,
+    institutionId: string,
+    requireManager: boolean = false
+  ): Promise<{ userId: string; counselorId: string | null; isManager: boolean }> {
+    // 1. Get authenticated user
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('Not authenticated');
+
+    // 2. Get user profile to check role
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('role, is_super_admin')
+      .eq('id', user.id)
+      .single();
+
+    const isManager = !!(
+      profile?.is_super_admin ||
+      (profile?.role && MANAGER_ROLES.has(profile.role))
+    );
+
+    // 3. If manager-only action, enforce it
+    if (requireManager && !isManager) {
+      throw new Error('Only managers can perform this action');
+    }
+
+    // 4. If already a manager, skip ownership check
+    if (isManager) {
+      return { userId: user.id, counselorId: null, isManager: true };
+    }
+
+    // 5. Non-manager: check if user is the assigned counselor for this lead
+    const { data: counselor } = await supabase
+      .from('admission_counselors')
+      .select('id')
+      .eq('user_id', user.id)
+      .eq('institution_id', institutionId)
+      .eq('is_active', true)
+      .maybeSingle();
+
+    if (!counselor) {
+      throw new Error('You are not an active counselor in this institution');
+    }
+
+    const { data: lead } = await supabase
+      .from('admission_leads')
+      .select('counselor_id')
+      .eq('id', leadId)
+      .eq('institution_id', institutionId)
+      .single();
+
+    if (!lead) {
+      throw new Error('Lead not found');
+    }
+
+    if (counselor.id !== lead.counselor_id) {
+      throw new Error('You can only modify leads assigned to you');
+    }
+
+    return { userId: user.id, counselorId: counselor.id, isManager: false };
+  }
 
   /**
    * Get the complete daily view data using the optimized DB function.
    * Single query returns KPIs, followups, pipeline, activities, and unassigned count.
    */
   static async getDailyView(institutionId: string): Promise<CounselorDailyViewData> {
-    const { data: { user } } = await (this.supabase as any).auth.getUser();
+    const supabase = createClientSupabaseClient();
+    const { data: { user } } = await (supabase as any).auth.getUser();
     if (!user) throw new Error('Not authenticated');
 
-    const { data, error } = await (this.supabase as any)
+    const { data, error } = await (supabase as any)
       .rpc('get_counselor_daily_view', {
         p_user_id: user.id,
         p_institution_id: institutionId,
@@ -163,7 +239,8 @@ export class CounselorDailyViewService {
    * Get unassigned leads for the manager view
    */
   static async getUnassignedLeads(institutionId: string): Promise<UnassignedLead[]> {
-    const { data, error } = await (this.supabase as any)
+    const supabase = createClientSupabaseClient();
+    const { data, error } = await (supabase as any)
       .from('admission_leads')
       .select('id, full_name, phone, email, interested_programs, source, score, created_at, funnel_stage, student_interest_level, parent_decision_status, academic_year')
       .eq('institution_id', institutionId)
@@ -187,7 +264,14 @@ export class CounselorDailyViewService {
     // Guard against empty array — Supabase .in() with [] returns ALL rows
     if (!leadIds || leadIds.length === 0) return;
 
-    const { error } = await (this.supabase as any)
+    const supabase = createClientSupabaseClient();
+
+    // Authorization: only managers can reassign leads
+    await CounselorDailyViewService.verifyLeadAccess(
+      supabase, leadIds[0], institutionId, true
+    );
+
+    const { error } = await (supabase as any)
       .from('admission_leads')
       .update({
         counselor_id: counselorId,
@@ -208,10 +292,15 @@ export class CounselorDailyViewService {
    * Quick reschedule follow-up
    */
   static async rescheduleFollowup(leadId: string, newDate: string, institutionId: string): Promise<void> {
-    const { data: { user } } = await (this.supabase as any).auth.getUser();
+    const supabase = createClientSupabaseClient();
+
+    // Authorization: assigned counselor or manager
+    const { userId } = await CounselorDailyViewService.verifyLeadAccess(
+      supabase, leadId, institutionId
+    );
 
     // Log reschedule as activity for audit trail
-    const { error: activityError } = await (this.supabase as any)
+    const { error: activityError } = await (supabase as any)
       .from('admission_lead_activities')
       .insert({
         lead_id: leadId,
@@ -220,14 +309,14 @@ export class CounselorDailyViewService {
         title: 'Follow-up Rescheduled',
         description: `Follow-up rescheduled to ${new Date(newDate).toLocaleDateString()}`,
         metadata: { scheduled_at: newDate },
-        performed_by: user?.id || null,
+        performed_by: userId,
       });
 
     if (activityError) {
       console.error('[CounselorDailyViewService] Error logging reschedule activity:', activityError);
     }
 
-    const { error } = await (this.supabase as any)
+    const { error } = await (supabase as any)
       .from('admission_leads')
       .update({
         next_followup_at: newDate,
@@ -247,9 +336,14 @@ export class CounselorDailyViewService {
    * Quick add note activity
    */
   static async addQuickNote(leadId: string, note: string, institutionId: string): Promise<void> {
-    const { data: { user } } = await (this.supabase as any).auth.getUser();
+    const supabase = createClientSupabaseClient();
 
-    const { error } = await (this.supabase as any)
+    // Authorization: assigned counselor or manager
+    const { userId } = await CounselorDailyViewService.verifyLeadAccess(
+      supabase, leadId, institutionId
+    );
+
+    const { error } = await (supabase as any)
       .from('admission_lead_activities')
       .insert({
         lead_id: leadId,
@@ -257,7 +351,7 @@ export class CounselorDailyViewService {
         activity_type: 'note',
         title: 'Quick Note',
         description: note,
-        performed_by: user?.id || null,
+        performed_by: userId,
       });
 
     if (error) {
@@ -266,7 +360,7 @@ export class CounselorDailyViewService {
     }
 
     // Update last_activity_at on lead
-    const { error: updateError } = await (this.supabase as any)
+    const { error: updateError } = await (supabase as any)
       .from('admission_leads')
       .update({
         last_activity_at: new Date().toISOString(),
@@ -284,9 +378,14 @@ export class CounselorDailyViewService {
    * Quick log call activity
    */
   static async logCall(leadId: string, notes: string | undefined, institutionId: string): Promise<void> {
-    const { data: { user } } = await (this.supabase as any).auth.getUser();
+    const supabase = createClientSupabaseClient();
 
-    const { error } = await (this.supabase as any)
+    // Authorization: assigned counselor or manager
+    const { userId } = await CounselorDailyViewService.verifyLeadAccess(
+      supabase, leadId, institutionId
+    );
+
+    const { error } = await (supabase as any)
       .from('admission_lead_activities')
       .insert({
         lead_id: leadId,
@@ -294,7 +393,7 @@ export class CounselorDailyViewService {
         activity_type: 'call',
         title: 'Phone Call',
         description: notes || 'Call made from counselor view',
-        performed_by: user?.id || null,
+        performed_by: userId,
       });
 
     if (error) {
@@ -303,7 +402,7 @@ export class CounselorDailyViewService {
     }
 
     // Update contact timestamps
-    const { error: updateError } = await (this.supabase as any)
+    const { error: updateError } = await (supabase as any)
       .from('admission_leads')
       .update({
         last_contact_at: new Date().toISOString(),
@@ -336,10 +435,16 @@ export class CounselorDailyViewService {
     if (!this.VALID_STAGES.has(newStage)) {
       throw new Error(`Invalid stage: ${newStage}`);
     }
-    const { data: { user } } = await (this.supabase as any).auth.getUser();
+    const supabase = createClientSupabaseClient();
+    const now = new Date().toISOString();
+
+    // Authorization: assigned counselor or manager
+    const { userId } = await CounselorDailyViewService.verifyLeadAccess(
+      supabase, leadId, institutionId
+    );
 
     // Get current stage first
-    const { data: lead, error: fetchError } = await (this.supabase as any)
+    const { data: lead, error: fetchError } = await (supabase as any)
       .from('admission_leads')
       .select('funnel_stage')
       .eq('id', leadId)
@@ -356,15 +461,15 @@ export class CounselorDailyViewService {
     // Update lead stage
     const updatePayload: Record<string, any> = {
       funnel_stage: newStage,
-      stage_changed_at: new Date().toISOString(),
+      stage_changed_at: now,
       previous_stage: oldStage,
-      updated_at: new Date().toISOString(),
+      updated_at: now,
     };
     // Set last_contact_at when moving to 'contacted' stage
     if (newStage === 'contacted') {
-      updatePayload.last_contact_at = new Date().toISOString();
+      updatePayload.last_contact_at = now;
     }
-    const { error } = await (this.supabase as any)
+    const { error } = await (supabase as any)
       .from('admission_leads')
       .update(updatePayload)
       .eq('id', leadId)
@@ -376,14 +481,14 @@ export class CounselorDailyViewService {
     }
 
     // Log stage change in history
-    const { error: historyError } = await (this.supabase as any)
+    const { error: historyError } = await (supabase as any)
       .from('admission_lead_stage_history')
       .insert({
         lead_id: leadId,
         from_stage: oldStage,
         to_stage: newStage,
-        changed_by: user?.id || null,
-        created_at: new Date().toISOString(),
+        changed_by: userId,
+        created_at: now,
       });
 
     if (historyError) {
@@ -391,7 +496,7 @@ export class CounselorDailyViewService {
     }
 
     // Log activity
-    const { error: activityError } = await (this.supabase as any)
+    const { error: activityError } = await (supabase as any)
       .from('admission_lead_activities')
       .insert({
         lead_id: leadId,
@@ -399,7 +504,7 @@ export class CounselorDailyViewService {
         activity_type: 'stage_change',
         title: `Stage: ${oldStage} → ${newStage}`,
         description: `Stage changed from ${oldStage} to ${newStage}`,
-        performed_by: user?.id || null,
+        performed_by: userId,
       });
 
     if (activityError) {
@@ -410,12 +515,13 @@ export class CounselorDailyViewService {
   /**
    * Get list of counselors for the institution (for assignment dropdown)
    */
-  static async getCounselors(institutionId: string): Promise<Array<{ id: string; name: string; email: string }>> {
-    const { data, error } = await (this.supabase as any)
+  static async getCounselors(institutionId: string): Promise<Array<{ id: string; name: string; email: string | null }>> {
+    const supabase = createClientSupabaseClient();
+    const { data, error } = await (supabase as any)
       .from('admission_counselors')
       .select('id, name, email')
       .eq('institution_id', institutionId)
-      .eq('is_active', true)
+      .eq('is_active', true) // Note: NULL is_active is treated as inactive (excluded) per PostgreSQL 3-valued logic
       .order('name');
 
     if (error) {

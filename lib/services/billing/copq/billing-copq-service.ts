@@ -2,6 +2,7 @@
 // Service layer for Billing COPQ operations
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { sanitizeSearch } from '@/lib/config/pagination';
 import {
   safeRupeesToPaisa,
   safePaisaToRupees,
@@ -114,18 +115,6 @@ export class BillingCOPQService {
    */
   private static sumMoney(values: number[]): number {
     return values.reduce((sum, val) => sum + val, 0);
-  }
-
-  /**
-   * Sanitize search input to prevent SQL injection
-   * Escapes wildcards and special characters used in ILIKE queries
-   * @security CRITICAL - All user search inputs MUST pass through this
-   */
-  private static sanitizeSearch(input: string): string {
-    if (!input) return '';
-    // Escape SQL ILIKE wildcards (%) and single-character wildcards (_)
-    // Also escape backslash to prevent escape sequence injection
-    return input.replace(/[%_\\]/g, '\\$&');
   }
 
   /**
@@ -284,7 +273,7 @@ export class BillingCOPQService {
 
       if (filters.search) {
         // SECURITY FIX: Sanitize search to prevent SQL injection
-        const sanitizedSearch = this.sanitizeSearch(filters.search);
+        const sanitizedSearch = sanitizeSearch(filters.search);
         query = query.or(
           `description.ilike.%${sanitizedSearch}%,root_cause.ilike.%${sanitizedSearch}%`
         );

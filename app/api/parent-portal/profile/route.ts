@@ -11,6 +11,9 @@ import {
 import { validateCSRFFromRequest } from '@/lib/utils/csrf';
 import { z } from 'zod';
 
+// Roles permitted to manage parent profiles via admin endpoints
+const ADMIN_ROLES = ['super_admin', 'admin', 'administrator', 'institution_admin', 'principal'];
+
 /**
  * ADMIN: List parent profiles with filters
  * Requires: Authenticated staff user with appropriate permissions
@@ -32,9 +35,20 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // TODO: Add role-based authorization check
-    // For now, any authenticated user can list profiles (should restrict to admin/staff)
-    // Future: Check if user has 'admin' or 'staff' role
+    // Role-based authorization: only admin/staff can list parent profiles
+    const { data: userProfile } = await supabase
+      .from('profiles')
+      .select('role, is_super_admin, institution_id')
+      .eq('id', user.id)
+      .single();
+
+    const isAdmin = userProfile?.is_super_admin || ADMIN_ROLES.includes(userProfile?.role);
+    if (!isAdmin) {
+      return NextResponse.json(
+        { error: 'Forbidden. Only administrators can list parent profiles.' },
+        { status: 403 }
+      );
+    }
 
     const { searchParams } = new URL(request.url);
 
@@ -49,6 +63,18 @@ export async function GET(request: NextRequest) {
       page: searchParams.get('page') ? parseInt(searchParams.get('page')!) : 1,
       limit: searchParams.get('limit') ? parseInt(searchParams.get('limit')!) : 20,
     });
+
+    // Prevent cross-institution access for non-super-admin users
+    if (!userProfile?.is_super_admin && userProfile?.role !== 'super_admin') {
+      if (filters.institution_id && filters.institution_id !== userProfile?.institution_id) {
+        return NextResponse.json(
+          { error: 'Forbidden. You can only access profiles within your institution.' },
+          { status: 403 }
+        );
+      }
+      // Force institution scope for non-super-admin
+      filters.institution_id = userProfile?.institution_id || undefined;
+    }
 
     const { page, limit } = filters;
     const offset = (page - 1) * limit;
@@ -145,11 +171,32 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // TODO: Add role-based authorization check
-    // For now, any authenticated user can create profiles (should restrict to admin/staff)
+    // Role-based authorization: only admin/staff can create parent profiles
+    const { data: userProfile } = await supabase
+      .from('profiles')
+      .select('role, is_super_admin, institution_id')
+      .eq('id', user.id)
+      .single();
+
+    const isAdmin = userProfile?.is_super_admin || ADMIN_ROLES.includes(userProfile?.role);
+    if (!isAdmin) {
+      return NextResponse.json(
+        { error: 'Forbidden. Only administrators can create parent profiles.' },
+        { status: 403 }
+      );
+    }
 
     const body = await request.json();
     const validated = createParentProfileSchema.parse(body);
+
+    // Prevent non-super-admin from creating profiles in other institutions
+    if (!userProfile?.is_super_admin && userProfile?.role !== 'super_admin' &&
+        validated.institution_id && userProfile?.institution_id !== validated.institution_id) {
+      return NextResponse.json(
+        { error: 'Forbidden. You can only create profiles within your institution.' },
+        { status: 403 }
+      );
+    }
 
     const { data, error } = await supabase
       .from('parent_profiles')

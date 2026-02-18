@@ -2,6 +2,7 @@
 // CRUD operations for sh_bug_reports
 
 import { BaseService, type BaseListResponse } from '../base-service';
+import { sanitizeSearch } from '@/lib/config/pagination';
 import type {
   BugReport,
   PaginationParams,
@@ -111,14 +112,6 @@ export const BUG_STATUS_LABELS: Record<BugStatus, { label: string; color: string
 };
 
 // ============================================
-// HELPER FUNCTIONS
-// ============================================
-
-function escapeSearchString(str: string): string {
-  return str.replace(/[%_\\]/g, '\\$&');
-}
-
-// ============================================
 // SERVICE CLASS
 // ============================================
 
@@ -171,7 +164,7 @@ export class BugsService extends BaseService {
     }
 
     if (filters?.search) {
-      const escaped = escapeSearchString(filters.search);
+      const escaped = sanitizeSearch(filters.search);
       query = query.or(`description.ilike.%${escaped}%,resolution_notes.ilike.%${escaped}%`);
     }
 

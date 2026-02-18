@@ -4,6 +4,7 @@
  */
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { sanitizeSearch } from '@/lib/config/pagination';
 import type {
   NPSSurvey,
   NPSResponse,
@@ -26,18 +27,6 @@ export class NPSService {
   // ============================================
   // Security Utilities
   // ============================================
-
-  /**
-   * Sanitize search input to prevent SQL ILIKE injection
-   * Escapes %, _, and \ characters
-   */
-  private static sanitizeSearch(input: string): string {
-    if (!input) return '';
-    return input
-      .replace(/\\/g, '\\\\')  // Escape backslash first
-      .replace(/%/g, '\\%')    // Escape % wildcard
-      .replace(/_/g, '\\_');   // Escape _ wildcard
-  }
 
   // ============================================
   // Security Validation
@@ -132,7 +121,7 @@ export class NPSService {
     }
 
     if (filters.search) {
-      const sanitized = this.sanitizeSearch(filters.search);
+      const sanitized = sanitizeSearch(filters.search);
       query = query.or(`title.ilike.%${sanitized}%,description.ilike.%${sanitized}%`);
     }
 

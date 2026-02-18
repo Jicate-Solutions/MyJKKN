@@ -2,6 +2,7 @@
 // CRUD operations for sh_builders, sh_builder_skills, sh_builder_assignments
 
 import { BaseService, type BaseListResponse } from '../base-service';
+import { sanitizeSearch } from '@/lib/config/pagination';
 import type {
   Builder,
   BuilderSkill,
@@ -100,14 +101,6 @@ export const APPROVAL_THRESHOLDS = {
 };
 
 // ============================================
-// HELPER FUNCTIONS
-// ============================================
-
-function escapeSearchString(str: string): string {
-  return str.replace(/[%_\\]/g, '\\$&');
-}
-
-// ============================================
 // SERVICE CLASS
 // ============================================
 
@@ -141,7 +134,7 @@ export class BuildersService extends BaseService {
     }
 
     if (filters?.search) {
-      const escaped = escapeSearchString(filters.search);
+      const escaped = sanitizeSearch(filters.search);
       query = query.or(`name.ilike.%${escaped}%,email.ilike.%${escaped}%`);
     }
 
@@ -315,7 +308,7 @@ export class BuildersService extends BaseService {
     designation: string | null;
     roll_number: string | null;
   }>> {
-    const escaped = escapeSearchString(search);
+    const escaped = sanitizeSearch(search);
     const results: Array<{
       id: string;
       name: string;

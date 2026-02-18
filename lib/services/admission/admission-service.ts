@@ -9,7 +9,8 @@ import {
   AdmissionDashboardAnalytics
 } from '@/types/admission';
 import { StudentService } from '@/lib/services/student/student-service';
-import toast from 'react-hot-toast';
+import { sanitizeSearch } from '@/lib/config/pagination';
+import { toast } from 'sonner';
 
 export class AdmissionService {
   private static supabase = createClientSupabaseClient();
@@ -45,6 +46,48 @@ export class AdmissionService {
     return `${prefix}${formattedNumber}`;
   }
 
+  /**
+   * Pick only allowed fields from input data to prevent mass assignment.
+   * Any field not in this list will be silently dropped.
+   */
+  private static pickAdmissionFields(data: Record<string, any>): Record<string, any> {
+    const ALLOWED_FIELDS = [
+      'institution_id', 'first_name', 'last_name', 'applicant_name',
+      'student_email', 'email', 'student_mobile', 'phone',
+      'date_of_birth', 'gender', 'blood_group',
+      'address', 'city', 'state', 'pincode', 'country',
+      'permanent_address_state', 'permanent_address_district',
+      'permanent_address_line1', 'permanent_address_line2', 'permanent_address_pincode',
+      'communication_address_line1', 'communication_address_line2',
+      'communication_address_state', 'communication_address_district', 'communication_address_pincode',
+      'nationality', 'religion', 'community', 'caste', 'mother_tongue',
+      'father_name', 'father_occupation', 'father_mobile', 'father_email',
+      'mother_name', 'mother_occupation', 'mother_mobile', 'mother_email',
+      'guardian_name', 'guardian_relation', 'guardian_mobile', 'guardian_email',
+      'tenth_board', 'tenth_school', 'tenth_year', 'tenth_percentage', 'tenth_marks',
+      'twelfth_board', 'twelfth_school', 'twelfth_year', 'twelfth_percentage',
+      'twelfth_stream', 'twelfth_marks',
+      'ug_university', 'ug_college', 'ug_year', 'ug_percentage', 'ug_degree',
+      'pg_university', 'pg_college', 'pg_year', 'pg_percentage', 'pg_degree',
+      'neet_score', 'neet_rank', 'neet_year', 'jee_score', 'jee_rank',
+      'entrance_exam_score', 'entrance_exam_name',
+      'degree_id', 'department_id', 'program_id', 'program_applied', 'preferred_campus',
+      'semester_id', 'academic_year', 'academic_year_id',
+      'admission_type', 'entry_type',
+      'source', 'source_detail', 'referral_code', 'reference_type',
+      'special_needs', 'hostel_required', 'transport_required',
+      'first_graduate', 'notes', 'status',
+      'counselling_code', 'aadhar_number', 'emis_number',
+    ];
+    const picked: Record<string, any> = {};
+    for (const key of ALLOWED_FIELDS) {
+      if (key in data && data[key] !== undefined) {
+        picked[key] = data[key];
+      }
+    }
+    return picked;
+  }
+
   static async createAdmission(data: CreateAdmissionDto): Promise<Admission> {
     try {
       // Database trigger will auto-generate application_id in JKKN-{counselling_code}-number format
@@ -53,8 +96,7 @@ export class AdmissionService {
         .from('admissions')
         .insert([
           {
-            ...data,
-            // Remove application_id - let database trigger handle it
+            ...AdmissionService.pickAdmissionFields(data as Record<string, any>),
             status: data.status || 'pending',
             created_by: (await this.supabase.auth.getUser()).data.user?.id
           }
@@ -90,7 +132,7 @@ export class AdmissionService {
       const { data: admission, error } = await (this.supabase as any)
         .from('admissions')
         .update({
-          ...data,
+          ...AdmissionService.pickAdmissionFields(data as Record<string, any>),
           application_id: draft.application_id, // Preserve existing application_id
           status: 'pending',
           updated_by: (await this.supabase.auth.getUser()).data.user?.id,
@@ -119,8 +161,7 @@ export class AdmissionService {
         .from('admissions')
         .insert([
           {
-            ...data,
-            // Remove application_id - let database trigger handle it
+            ...AdmissionService.pickAdmissionFields(data as Record<string, any>),
             status: 'draft',
             created_by: (await this.supabase.auth.getUser()).data.user?.id
           }
@@ -145,7 +186,7 @@ export class AdmissionService {
       const { data: admission, error } = await (this.supabase as any)
         .from('admissions')
         .update({
-          ...data,
+          ...AdmissionService.pickAdmissionFields(data as Record<string, any>),
           updated_by: (await this.supabase.auth.getUser()).data.user?.id,
           updated_at: new Date().toISOString()
         })
@@ -167,14 +208,20 @@ export class AdmissionService {
     data: UpdateAdmissionDto
   ): Promise<Admission> {
     try {
-      const { data: admission, error } = await (this.supabase as any)
+      let query = (this.supabase as any)
         .from('admissions')
         .update({
-          ...data,
+          ...AdmissionService.pickAdmissionFields(data as Record<string, any>),
           updated_by: (await this.supabase.auth.getUser()).data.user?.id,
           updated_at: new Date().toISOString()
         })
-        .eq('id', id)
+        .eq('id', id);
+
+      if ((data as any).institution_id) {
+        query = query.eq('institution_id', (data as any).institution_id);
+      }
+
+      const { data: admission, error } = await query
         .select()
         .single();
 
@@ -189,7 +236,8 @@ export class AdmissionService {
 
   static async updateAdmissionStatus(
     id: string,
-    status: string
+    status: string,
+    institutionId: string
   ): Promise<Admission> {
     try {
       const { data: admission, error } = await (this.supabase as any)
@@ -200,6 +248,7 @@ export class AdmissionService {
           updated_at: new Date().toISOString()
         })
         .eq('id', id)
+        .eq('institution_id', institutionId)
         .select()
         .single();
 
@@ -274,7 +323,7 @@ export class AdmissionService {
     }
   }
 
-  static async deleteAdmission(id: string): Promise<void> {
+  static async deleteAdmission(id: string, institutionId: string): Promise<void> {
     try {
       // First check if admission has associated student record
       const { data: studentCheck } = await (this.supabase as any)
@@ -293,7 +342,8 @@ export class AdmissionService {
       const { error } = await (this.supabase as any)
         .from('admissions')
         .delete()
-        .eq('id', id);
+        .eq('id', id)
+        .eq('institution_id', institutionId);
 
       if (error) throw error;
 
@@ -315,7 +365,7 @@ export class AdmissionService {
     }
   }
 
-  static async bulkDeleteAdmissions(ids: string[]): Promise<void> {
+  static async bulkDeleteAdmissions(ids: string[], institutionId: string): Promise<void> {
     // Guard against empty array — Supabase .in() with [] returns ALL rows
     if (!ids || ids.length === 0) return;
 
@@ -345,7 +395,8 @@ export class AdmissionService {
         const { error } = await (this.supabase as any)
           .from('admissions')
           .delete()
-          .in('id', admissionsToDelete);
+          .in('id', admissionsToDelete)
+          .eq('institution_id', institutionId);
 
         if (error) throw error;
         results.deleted = admissionsToDelete.length;
@@ -398,7 +449,8 @@ export class AdmissionService {
    */
   static async bulkUpdateAdmissionStatus(
     ids: string[],
-    newStatus: string
+    newStatus: string,
+    institutionId: string
   ): Promise<{
     updated: number;
     failed: number;
@@ -431,6 +483,7 @@ export class AdmissionService {
             updated_at: new Date().toISOString()
           })
           .in('id', ids)
+          .eq('institution_id', institutionId)
           .select('*');
 
       if (updateError) {
@@ -560,14 +613,16 @@ export class AdmissionService {
 
       // Apply filters
       if (filters.search) {
+        const safe = sanitizeSearch(filters.search);
         query = query.or(
-          `first_name.ilike.%${filters.search}%,last_name.ilike.%${filters.search}%,student_email.ilike.%${filters.search}%,student_mobile.ilike.%${filters.search}%,application_id.ilike.%${filters.search}%`
+          `first_name.ilike.%${safe}%,last_name.ilike.%${safe}%,student_email.ilike.%${safe}%,student_mobile.ilike.%${safe}%,application_id.ilike.%${safe}%`
         );
       }
 
       if (filters.name) {
+        const safe = sanitizeSearch(filters.name);
         query = query.or(
-          `first_name.ilike.%${filters.name}%,last_name.ilike.%${filters.name}%`
+          `first_name.ilike.%${safe}%,last_name.ilike.%${safe}%`
         );
       }
 
@@ -633,7 +688,7 @@ export class AdmissionService {
     }
   }
 
-  static async getAdmission(id: string): Promise<Admission> {
+  static async getAdmission(id: string, institutionId: string): Promise<Admission> {
     try {
       const { data: admission, error } = await (this.supabase as any)
         .from('admissions')
@@ -648,6 +703,7 @@ export class AdmissionService {
         `
         )
         .eq('id', id)
+        .eq('institution_id', institutionId)
         .single();
 
       if (error) throw error;
@@ -660,7 +716,7 @@ export class AdmissionService {
     }
   }
 
-  static async getAdmissionStats(): Promise<{
+  static async getAdmissionStats(institutionId: string): Promise<{
     total: number;
     pending: number;
     approved: number;
@@ -672,7 +728,8 @@ export class AdmissionService {
       // Get total count
       const { count: total, error: totalError } = await (this.supabase as any)
         .from('admissions')
-        .select('*', { count: 'exact', head: true });
+        .select('*', { count: 'exact', head: true })
+        .eq('institution_id', institutionId);
 
       if (totalError) throw totalError;
 
@@ -689,7 +746,8 @@ export class AdmissionService {
           const { count, error } = await (this.supabase as any)
             .from('admissions')
             .select('*', { count: 'exact', head: true })
-            .eq('status', status);
+            .eq('status', status)
+            .eq('institution_id', institutionId);
 
           if (error) throw error;
           return { status, count: count || 0 };
@@ -1076,7 +1134,9 @@ export class AdmissionService {
       };
 
       let totalTenth = 0;
+      let tenthCount = 0;
       let totalTwelfth = 0;
+      let twelfthCount = 0;
       let totalNeet = 0;
       let neetCount = 0;
 
@@ -1088,6 +1148,7 @@ export class AdmissionService {
         const tenthPct = typeof tenthValue === 'number' ? tenthValue : parseFloat(String(tenthValue));
         if (!isNaN(tenthPct) && tenthPct > 0) {
           totalTenth += tenthPct;
+          tenthCount++;
           if (tenthPct <= 50) tenthMarksRanges['0-50']++;
           else if (tenthPct <= 60) tenthMarksRanges['51-60']++;
           else if (tenthPct <= 70) tenthMarksRanges['61-70']++;
@@ -1102,6 +1163,7 @@ export class AdmissionService {
         const twelfthPct = typeof twelfthValue === 'number' ? twelfthValue : parseFloat(String(twelfthValue));
         if (!isNaN(twelfthPct) && twelfthPct > 0) {
           totalTwelfth += twelfthPct;
+          twelfthCount++;
           if (twelfthPct <= 50) twelfthMarksRanges['0-50']++;
           else if (twelfthPct <= 60) twelfthMarksRanges['51-60']++;
           else if (twelfthPct <= 70) twelfthMarksRanges['61-70']++;
@@ -1137,9 +1199,9 @@ export class AdmissionService {
           ([range, count]) => ({ range, count })
         ),
         averageMarks: {
-          tenth: total > 0 ? Math.round((totalTenth / total) * 100) / 100 : 0,
+          tenth: tenthCount > 0 ? Math.round((totalTenth / tenthCount) * 100) / 100 : 0,
           twelfth:
-            total > 0 ? Math.round((totalTwelfth / total) * 100) / 100 : 0,
+            twelfthCount > 0 ? Math.round((totalTwelfth / twelfthCount) * 100) / 100 : 0,
           neet:
             neetCount > 0
               ? Math.round((totalNeet / neetCount) * 100) / 100

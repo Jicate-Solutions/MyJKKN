@@ -274,7 +274,10 @@ export function useUpdateProduct() {
     onSuccess: (data: SHProduct) => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.products.all });
       if (data?.id) {
-        queryClient.setQueryData(solutionsHubKeys.products.detail(data.id), data);
+        queryClient.setQueryData(
+          solutionsHubKeys.products.detail(data.id),
+          (old: ProductWithValidations | undefined) => old ? { ...old, ...data } : data
+        );
       }
     },
   });
@@ -305,7 +308,10 @@ export function useArchiveProduct() {
     onSuccess: (data: SHProduct) => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.products.all });
       if (data?.id) {
-        queryClient.setQueryData(solutionsHubKeys.products.detail(data.id), data);
+        queryClient.setQueryData(
+          solutionsHubKeys.products.detail(data.id),
+          (old: ProductWithValidations | undefined) => old ? { ...old, ...data } : data
+        );
       }
     },
   });
@@ -323,7 +329,10 @@ export function useUpdateProductStatus() {
     onSuccess: (data: SHProduct) => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.products.all });
       if (data?.id) {
-        queryClient.setQueryData(solutionsHubKeys.products.detail(data.id), data);
+        queryClient.setQueryData(
+          solutionsHubKeys.products.detail(data.id),
+          (old: ProductWithValidations | undefined) => old ? { ...old, ...data } : data
+        );
       }
     },
   });
@@ -352,7 +361,10 @@ export function useUpdateTRL() {
     onSuccess: (data: SHProduct) => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.products.all });
       if (data?.id) {
-        queryClient.setQueryData(solutionsHubKeys.products.detail(data.id), data);
+        queryClient.setQueryData(
+          solutionsHubKeys.products.detail(data.id),
+          (old: ProductWithValidations | undefined) => old ? { ...old, ...data } : data
+        );
         queryClient.invalidateQueries({
           queryKey: solutionsHubKeys.products.trlHistory(data.id),
         });

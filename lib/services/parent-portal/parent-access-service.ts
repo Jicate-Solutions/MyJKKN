@@ -5,6 +5,7 @@
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { toast } from 'react-hot-toast';
+import { sanitizeSearch } from '@/lib/config/pagination';
 import type {
   ParentPortalAccess,
   CreateParentAccessDto,
@@ -37,14 +38,6 @@ export class ParentAccessService {
   }
 
   /**
-   * Sanitize search input
-   */
-  private static sanitizeSearch(input: string): string {
-    if (!input) return '';
-    return input.replace(/[%_\\]/g, '\\$&');
-  }
-
-  /**
    * Get all parent access records with filters and pagination
    */
   static async getAccessRecords(
@@ -64,7 +57,7 @@ export class ParentAccessService {
       }
 
       if (filters.search) {
-        const sanitized = this.sanitizeSearch(filters.search);
+        const sanitized = sanitizeSearch(filters.search);
         query = query.or(
           `parent_name.ilike.%${sanitized}%,parent_email.ilike.%${sanitized}%,parent_phone.ilike.%${sanitized}%,access_code.ilike.%${sanitized}%`
         );

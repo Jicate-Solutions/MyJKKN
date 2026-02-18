@@ -2,6 +2,7 @@
 // CRUD operations for sh_production_learners, sh_production_assignments
 
 import { BaseService, type BaseListResponse } from '../base-service';
+import { sanitizeSearch } from '@/lib/config/pagination';
 import type {
   ProductionLearner,
   ProductionAssignment,
@@ -67,14 +68,6 @@ export function canSelfClaim(orderValue: number): boolean {
 }
 
 // ============================================
-// HELPER FUNCTIONS
-// ============================================
-
-function escapeSearchString(str: string): string {
-  return str.replace(/[%_\\]/g, '\\$&');
-}
-
-// ============================================
 // SERVICE CLASS
 // ============================================
 
@@ -118,7 +111,7 @@ export class ProductionService extends BaseService {
     }
 
     if (filters?.search) {
-      const escaped = escapeSearchString(filters.search);
+      const escaped = sanitizeSearch(filters.search);
       query = query.or(`name.ilike.%${escaped}%,email.ilike.%${escaped}%`);
     }
 

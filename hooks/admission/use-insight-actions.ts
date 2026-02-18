@@ -83,6 +83,7 @@ export function useExecuteAction() {
       queryClient.invalidateQueries({ queryKey: insightActionsKeys.history({ institution_id: variables.context.institution_id }) });
       queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
       queryClient.invalidateQueries({ queryKey: ['admission-lead', variables.leadId] });
+      queryClient.invalidateQueries({ queryKey: ['counselor-daily-view'] });
     },
     onError: (error: Error, variables) => {
       const actionMeta = InsightActionsService.getActionMetadata(variables.actionType);
@@ -124,6 +125,7 @@ export function useBulkAction() {
       // Invalidate relevant queries
       queryClient.invalidateQueries({ queryKey: insightActionsKeys.history({ institution_id: variables.context.institution_id }) });
       queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
+      queryClient.invalidateQueries({ queryKey: ['counselor-daily-view'] });
 
       // Invalidate individual lead queries
       variables.leadIds.forEach(leadId => {

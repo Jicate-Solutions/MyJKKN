@@ -3,6 +3,7 @@
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import Anthropic from '@anthropic-ai/sdk';
+import { sanitizeSearch } from '@/lib/config/pagination';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // TYPES
@@ -82,20 +83,20 @@ const CRM_SCHEMA = {
         email: 'Email address',
         phone: 'Phone number',
         funnel_stage: 'Pipeline stage: new, contacted, qualified, application_started, application_submitted, documents_pending, documents_verified, interview_scheduled, interview_completed, offer_sent, offer_accepted, token_paid, enrolled, lost',
-        // FIX: priority enum does not exist → use is_hot_lead and is_priority booleans
         is_hot_lead: 'Boolean flag for hot leads',
         is_priority: 'Boolean flag for priority leads',
         source: 'Lead source: website, walk_in, referral, social_media, newspaper, education_fair, agent, publisher, google_ads, facebook_ads, other',
-        // FIX: program_interest does not exist → use interested_programs (text array)
         interested_programs: 'Array of interested program names',
         counselor_id: 'Assigned counselor UUID',
         score: 'Lead score (0-100)',
         score_category: 'Score category label',
         created_at: 'Timestamp',
         updated_at: 'Timestamp',
-        // FIX: next_followup_at does not exist; last_contacted_at → last_contact_at
+        next_followup_at: 'Next scheduled follow-up date',
         last_contact_at: 'Last contact date',
         last_activity_at: 'Last activity date',
+        stage_changed_at: 'Timestamp when funnel stage last changed',
+        previous_stage: 'Previous funnel stage before last change',
         tags: 'Array of tags',
         preferred_campus: 'Preferred campus location',
         preferred_channel: 'Preferred communication channel',
@@ -110,21 +111,23 @@ const CRM_SCHEMA = {
         name: 'Counselor name',
         email: 'Email',
         phone: 'Phone',
+        designation: 'Counselor designation/title',
         is_active: 'Active status',
-        max_leads: 'Maximum leads capacity',
-        current_leads: 'Current lead count',
-        specializations: 'Array of specializations',
+        created_at: 'Timestamp',
       },
     },
-    admission_activities: {
-      description: 'Lead activity/interaction logs',
+    admission_lead_activities: {
+      description: 'Lead activity log tracking all interactions',
       columns: {
         id: 'UUID primary key',
-        lead_id: 'Lead UUID',
-        type: 'Activity type: call, email, meeting, note, task, stage_change, etc.',
-        description: 'Activity description',
+        lead_id: 'Reference to admission_leads',
+        institution_id: 'Institution UUID',
+        activity_type: 'Type of activity (call, email, note, meeting, stage_change, etc.)',
+        title: 'Activity title',
+        description: 'Activity description/details',
+        metadata: 'JSON metadata for activity-specific data',
+        performed_by: 'UUID of user who performed the activity',
         created_at: 'Timestamp',
-        created_by: 'User UUID',
       },
     },
     admissions: {
@@ -151,7 +154,7 @@ const CRM_SCHEMA = {
   },
   relationships: [
     'admission_leads.counselor_id -> admission_counselors.id',
-    'admission_activities.lead_id -> admission_leads.id',
+    'admission_lead_activities.lead_id -> admission_leads.id',
     'admissions.lead_id -> admission_leads.id',
   ],
 };
@@ -401,7 +404,10 @@ Return ONLY valid JSON, no explanation.`;
     intent: QueryIntent,
     institutionId: string
   ): Promise<{ table: string; query: any; aggregation?: string }> {
-    const primaryEntity = intent.entities[0] || 'admission_leads';
+    // Allowlist of tables the AI is permitted to query
+    const ALLOWED_TABLES = new Set(Object.keys(CRM_SCHEMA.tables));
+    const requestedEntity = intent.entities[0] || 'admission_leads';
+    const primaryEntity = ALLOWED_TABLES.has(requestedEntity) ? requestedEntity : 'admission_leads';
 
     // Start building query
     let query: any = (this.supabase as any).from(primaryEntity).select('*', { count: 'exact' });
@@ -409,8 +415,17 @@ Return ONLY valid JSON, no explanation.`;
     // Always filter by institution
     query = query.eq('institution_id', institutionId);
 
+    // Validate filter fields against schema before applying
+    const allowedFields = new Set(
+      Object.keys(CRM_SCHEMA.tables[primaryEntity as keyof typeof CRM_SCHEMA.tables]?.columns || {})
+    );
+
     // Apply filters
     for (const filter of intent.filters) {
+      if (!allowedFields.has(filter.field)) {
+        console.warn('[admission/agentic-query] Skipping invalid field:', filter.field);
+        continue;
+      }
       switch (filter.operator) {
         case 'eq':
           query = query.eq(filter.field, filter.value);
@@ -431,15 +446,16 @@ Return ONLY valid JSON, no explanation.`;
           query = query.lte(filter.field, filter.value);
           break;
         case 'like':
-          query = query.ilike(filter.field, `%${filter.value}%`);
+          query = query.ilike(filter.field, `%${sanitizeSearch(String(filter.value))}%`);
           break;
         case 'in':
           query = query.in(filter.field, filter.value as string[]);
           break;
-        case 'between':
+        case 'between': {
           const [min, max] = filter.value as [number, number];
           query = query.gte(filter.field, min).lte(filter.field, max);
           break;
+        }
       }
     }
 

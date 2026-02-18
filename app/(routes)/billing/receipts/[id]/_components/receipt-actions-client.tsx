@@ -66,7 +66,7 @@ export function ReceiptActionsClient({
       if (result.success) {
         const responseData = result.data as { action?: string; message?: string } | undefined;
         if (responseData?.action === 'email_unavailable') {
-          toast(responseData.message || 'Email sending will be available soon. You can use the Print option to save as PDF.', { duration: 4000 });
+          toast.error('Email delivery is not yet configured. Use the Print option to save as PDF.', { duration: 4000 });
         } else {
           toast.success('Receipt sent successfully');
         }

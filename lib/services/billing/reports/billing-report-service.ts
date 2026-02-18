@@ -1225,15 +1225,101 @@ export class BillingReportService {
   // Export methods
   // ---------------------------------------------------------------------------
 
-  // PDF export requires a PDF generation library (e.g., jspdf, pdfmake). Not yet available.
+  /**
+   * Export report data to a PDF file.
+   *
+   * Uses jspdf + jspdf-autotable (dynamically imported to avoid bloating
+   * bundles for pages that never trigger PDF export). Generates a landscape
+   * A4 document with a title header, timestamped subtitle, auto-table of
+   * report data, and page numbers in the footer.
+   */
   private static async exportToPDF(
-    _reportType: string,
-    _data: any[],
+    reportType: string,
+    data: any[],
     _options: ReportExportOptions
   ): Promise<void> {
-    console.warn(
-      '[billing/reports] PDF export is not implemented. A PDF generation library (e.g., jspdf, pdfmake) is required.'
+    if (!data || data.length === 0) {
+      console.warn('[billing/reports] No data to export to PDF.');
+      return;
+    }
+
+    const columns = this.getReportColumns(reportType);
+    if (columns.length === 0) {
+      console.warn(
+        `[billing/reports] Unknown report type "${reportType}" for PDF export.`
+      );
+      return;
+    }
+
+    // Dynamic imports to avoid SSR issues and reduce bundle size
+    const { default: jsPDF } = await import('jspdf');
+    const { default: autoTable } = await import('jspdf-autotable');
+
+    const flatData = this.flattenReportData(reportType, data);
+    const filename = this.buildExportFilename(reportType, 'pdf');
+
+    // Landscape orientation — billing tables typically have 8-12 columns
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+
+    // --- Header ---
+    const title =
+      reportType.charAt(0).toUpperCase() +
+      reportType.slice(1) +
+      ' Report';
+    doc.setFontSize(16);
+    doc.setFont('helvetica', 'bold');
+    doc.text(title, 14, 15);
+
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(128, 128, 128);
+    doc.text(
+      `Generated: ${new Date().toLocaleDateString('en-IN')} ${new Date().toLocaleTimeString('en-IN')}`,
+      14,
+      22
     );
+    doc.setTextColor(0, 0, 0);
+
+    // --- Table ---
+    const headers = columns.map((col) => col.label);
+    const body = flatData.map((row) =>
+      columns.map((col) => {
+        const val = row[col.key];
+        if (val === null || val === undefined) return '';
+        return String(val);
+      })
+    );
+
+    autoTable(doc, {
+      head: [headers],
+      body,
+      startY: 28,
+      styles: { fontSize: 7, cellPadding: 2 },
+      headStyles: {
+        fillColor: [30, 64, 175],
+        textColor: 255,
+        fontSize: 8,
+        fontStyle: 'bold'
+      },
+      alternateRowStyles: { fillColor: [245, 247, 250] },
+      margin: { top: 28, left: 14, right: 14 },
+      didDrawPage: (pageData: any) => {
+        // Footer with page numbers on every page
+        const pageCount = doc.getNumberOfPages();
+        doc.setFontSize(8);
+        doc.setFont('helvetica', 'normal');
+        doc.setTextColor(128, 128, 128);
+        doc.text(
+          `Page ${pageData.pageNumber} of ${pageCount}`,
+          doc.internal.pageSize.getWidth() / 2,
+          doc.internal.pageSize.getHeight() - 10,
+          { align: 'center' }
+        );
+        doc.setTextColor(0, 0, 0);
+      }
+    });
+
+    doc.save(filename);
   }
 
   /**

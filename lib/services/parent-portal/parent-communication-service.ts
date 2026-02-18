@@ -18,10 +18,6 @@ export class ParentCommunicationService {
     return createClientSupabaseClient();
   }
 
-  private static sanitizeSearch(input: string): string {
-    if (!input) return '';
-    return input.replace(/[%_\\]/g, '\\$&');
-  }
 
   /**
    * Get communications for admin management view

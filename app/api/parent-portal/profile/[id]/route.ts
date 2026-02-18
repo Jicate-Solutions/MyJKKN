@@ -8,6 +8,9 @@ import { updateParentProfileSchema } from '@/lib/validations/parent-portal';
 import { validateCSRFFromRequest } from '@/lib/utils/csrf';
 import { z } from 'zod';
 
+// Roles permitted to manage parent profiles via admin endpoints
+const ADMIN_ROLES = ['super_admin', 'admin', 'administrator', 'institution_admin', 'principal'];
+
 type RouteContext = {
   params: Promise<{ id: string }>;
 };
@@ -44,8 +47,20 @@ export async function GET(request: NextRequest, context: RouteContext) {
       );
     }
 
-    // TODO: Add role-based authorization check
-    // For now, any authenticated user can view profiles (should restrict to admin/staff)
+    // Role-based authorization: only admin/staff can manage parent profiles
+    const { data: userProfile } = await supabase
+      .from('profiles')
+      .select('role, is_super_admin, institution_id')
+      .eq('id', user.id)
+      .single();
+
+    const isAdmin = userProfile?.is_super_admin || ADMIN_ROLES.includes(userProfile?.role);
+    if (!isAdmin) {
+      return NextResponse.json(
+        { error: 'Forbidden. Only administrators can access this endpoint.' },
+        { status: 403 }
+      );
+    }
 
     const { data, error } = await supabase
       .from('parent_profiles')
@@ -67,6 +82,15 @@ export async function GET(request: NextRequest, context: RouteContext) {
       }
       console.error('[parent-portal/profile/[id]] Database error:', error);
       throw error;
+    }
+
+    // Prevent cross-institution access for non-super-admin users
+    if (!userProfile?.is_super_admin && userProfile?.role !== 'super_admin' &&
+        data.institution_id && userProfile?.institution_id !== data.institution_id) {
+      return NextResponse.json(
+        { error: 'Forbidden. You can only access profiles within your institution.' },
+        { status: 403 }
+      );
     }
 
     return NextResponse.json(data);
@@ -121,16 +145,35 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       );
     }
 
-    // TODO: Add role-based authorization check
-    // For now, any authenticated user can update profiles (should restrict to admin/staff)
+    // Role-based authorization: only admin/staff can manage parent profiles
+    const { data: userProfile } = await supabase
+      .from('profiles')
+      .select('role, is_super_admin, institution_id')
+      .eq('id', user.id)
+      .single();
+
+    const isAdmin = userProfile?.is_super_admin || ADMIN_ROLES.includes(userProfile?.role);
+    if (!isAdmin) {
+      return NextResponse.json(
+        { error: 'Forbidden. Only administrators can update parent profiles.' },
+        { status: 403 }
+      );
+    }
 
     const body = await request.json();
     const validated = updateParentProfileSchema.parse(body);
 
-    const { data, error } = await supabase
+    // For non-super-admin, scope update to their own institution
+    let query = supabase
       .from('parent_profiles')
       .update(validated)
-      .eq('id', id)
+      .eq('id', id);
+
+    if (!userProfile?.is_super_admin && userProfile?.role !== 'super_admin' && userProfile?.institution_id) {
+      query = query.eq('institution_id', userProfile.institution_id);
+    }
+
+    const { data, error } = await query
       .select(
         `
         *,
@@ -205,13 +248,32 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
       );
     }
 
-    // TODO: Add role-based authorization check
-    // For now, any authenticated user can delete profiles (should restrict to admin/staff)
+    // Role-based authorization: only admin/staff can manage parent profiles
+    const { data: userProfile } = await supabase
+      .from('profiles')
+      .select('role, is_super_admin, institution_id')
+      .eq('id', user.id)
+      .single();
 
-    const { error } = await supabase
+    const isAdmin = userProfile?.is_super_admin || ADMIN_ROLES.includes(userProfile?.role);
+    if (!isAdmin) {
+      return NextResponse.json(
+        { error: 'Forbidden. Only administrators can delete parent profiles.' },
+        { status: 403 }
+      );
+    }
+
+    // For non-super-admin, scope delete to their own institution
+    let deleteQuery = supabase
       .from('parent_profiles')
       .delete()
       .eq('id', id);
+
+    if (!userProfile?.is_super_admin && userProfile?.role !== 'super_admin' && userProfile?.institution_id) {
+      deleteQuery = deleteQuery.eq('institution_id', userProfile.institution_id);
+    }
+
+    const { error } = await deleteQuery;
 
     if (error) {
       console.error('[parent-portal/profile/[id]] Delete error:', error);

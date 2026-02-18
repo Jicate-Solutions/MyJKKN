@@ -2,6 +2,7 @@
 // CRUD operations for sh_solution_phases and related tables
 
 import { BaseService, type BaseListResponse } from '../base-service';
+import { sanitizeSearch } from '@/lib/config/pagination';
 import type {
   SolutionPhase,
   PhaseStatus,
@@ -112,14 +113,6 @@ export const PHASE_STATUSES: Array<{ value: PhaseStatus; label: string; descript
 ];
 
 // ============================================
-// HELPER FUNCTIONS
-// ============================================
-
-function escapeSearchString(str: string): string {
-  return str.replace(/[%_\\]/g, '\\$&');
-}
-
-// ============================================
 // SERVICE CLASS
 // ============================================
 
@@ -166,7 +159,7 @@ export class PhasesService extends BaseService {
     }
 
     if (filters?.search) {
-      const escaped = escapeSearchString(filters.search);
+      const escaped = sanitizeSearch(filters.search);
       query = query.or(`title.ilike.%${escaped}%,description.ilike.%${escaped}%`);
     }
 

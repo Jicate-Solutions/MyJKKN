@@ -11,19 +11,10 @@ import type {
   FunnelStage,
   LeadPriority
 } from '@/types/admission';
+import { sanitizeSearch } from '@/lib/config/pagination';
 
 export class LeadService {
   private static supabase = createClientSupabaseClient();
-
-  /**
-   * Sanitize search input to prevent SQL injection
-   */
-  private static sanitizeSearch(input: string): string {
-    if (!input) return '';
-    // Escape special chars: %, _, \ (SQL LIKE), commas (PostgREST .or() separator),
-    // and parentheses (PostgREST .or() grouping)
-    return input.replace(/[%_\\,()]/g, '\\$&');
-  }
 
   /**
    * Generate a unique lead number
@@ -145,7 +136,7 @@ export class LeadService {
       query = query.contains('interested_programs', [filters.interested_programs]);
     }
     if (filters.search) {
-      const sanitizedSearch = this.sanitizeSearch(filters.search);
+      const sanitizedSearch = sanitizeSearch(filters.search);
       query = query.or(`full_name.ilike.%${sanitizedSearch}%,phone.ilike.%${sanitizedSearch}%,email.ilike.%${sanitizedSearch}%`);
     }
     if (filters.date_from) {

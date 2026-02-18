@@ -141,10 +141,13 @@ export function UnassignedLeadsPanel({
                 <Badge
                   variant="outline"
                   className={`text-[10px] px-1.5 py-0 ${
-                    lead.student_interest_level === 'very_high' ? 'bg-green-50 text-green-700 border-green-200' :
-                    lead.student_interest_level === 'high' ? 'bg-blue-50 text-blue-700 border-blue-200' :
-                    lead.student_interest_level === 'medium' ? 'bg-yellow-50 text-yellow-700 border-yellow-200' :
-                    'bg-orange-50 text-orange-700 border-orange-200'
+                    ({
+                      very_high: 'bg-green-50 text-green-700 border-green-200',
+                      high: 'bg-blue-50 text-blue-700 border-blue-200',
+                      medium: 'bg-yellow-50 text-yellow-700 border-yellow-200',
+                      low: 'bg-orange-50 text-orange-700 border-orange-200',
+                      undecided: 'bg-gray-100 text-gray-500 border-gray-200',
+                    } as Record<string, string>)[lead.student_interest_level] || 'bg-orange-50 text-orange-700 border-orange-200'
                   }`}
                 >
                   {lead.student_interest_level.replace(/_/g, ' ')}

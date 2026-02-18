@@ -105,6 +105,8 @@ export function useMarkLeadAsHot() {
     onSuccess: () => {
       toast.success('Lead marked as hot');
       queryClient.invalidateQueries({ queryKey: reEngagementKeys.all });
+      queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
+      queryClient.invalidateQueries({ queryKey: ['counselor-daily-view'] });
     },
     onError: (error: Error) => {
       toast.error(error.message || 'Failed to mark lead as hot');

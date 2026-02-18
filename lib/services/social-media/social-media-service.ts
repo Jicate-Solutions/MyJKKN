@@ -4,6 +4,7 @@
  */
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { sanitizeSearch } from '@/lib/config/pagination';
 import type {
   SmAccount,
   SmSnapshot,
@@ -27,18 +28,6 @@ import { computeHealthScore } from '@/types/social-media';
 
 export class SocialMediaService {
   private static supabase = createClientSupabaseClient() as any;
-
-  // ============================================
-  // Security Utilities
-  // ============================================
-
-  private static sanitizeSearch(input: string): string {
-    if (!input) return '';
-    return input
-      .replace(/\\/g, '\\\\')
-      .replace(/%/g, '\\%')
-      .replace(/_/g, '\\_');
-  }
 
   // ============================================
   // Account Operations
@@ -70,7 +59,7 @@ export class SocialMediaService {
       query = query.eq('is_connected', filters.is_connected);
     }
     if (filters.search) {
-      const sanitized = this.sanitizeSearch(filters.search);
+      const sanitized = sanitizeSearch(filters.search);
       query = query.or(`username.ilike.%${sanitized}%,display_name.ilike.%${sanitized}%`);
     }
 

@@ -2,6 +2,7 @@
 // CRUD operations for sh_publications, sh_publication_contributors, sh_accreditation_metrics
 
 import { BaseService, type BaseListResponse } from '../base-service';
+import { sanitizeSearch } from '@/lib/config/pagination';
 import type {
   Publication,
   PublicationContributor,
@@ -117,14 +118,6 @@ export interface NAACCriteria {
 }
 
 // ============================================
-// HELPER FUNCTIONS
-// ============================================
-
-function escapeSearchString(str: string): string {
-  return str.replace(/[%_\\]/g, '\\$&');
-}
-
-// ============================================
 // SERVICE CLASS
 // ============================================
 
@@ -173,7 +166,7 @@ export class PublicationsService extends BaseService {
     }
 
     if (filters?.search) {
-      const escaped = escapeSearchString(filters.search);
+      const escaped = sanitizeSearch(filters.search);
       query = query.or(`title.ilike.%${escaped}%,journal_name.ilike.%${escaped}%`);
     }
 
