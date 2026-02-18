@@ -357,6 +357,10 @@ export class EarningsService extends BaseService {
    * Bulk update earnings status
    */
   static async bulkUpdateEarningsStatus(ids: string[], status: EarningsStatus): Promise<number> {
+    if (!ids || ids.length === 0) {
+      return 0;
+    }
+
     const updateData: Record<string, unknown> = { status };
     if (status === 'paid') {
       updateData.paid_at = new Date().toISOString();
@@ -389,6 +393,10 @@ export class EarningsService extends BaseService {
    * Mark earnings as paid
    */
   static async markEarningsAsPaid(ids: string[], paidAt?: string): Promise<number> {
+    if (!ids || ids.length === 0) {
+      return 0;
+    }
+
     const { data, error } = await this.supabase.from('sh_earnings_ledger')
       .update({
         status: 'paid',
@@ -448,6 +456,13 @@ export class EarningsService extends BaseService {
     total: number;
     entries: EarningsWithPayment[];
   }> {
+    if (!Number.isInteger(month) || month < 1 || month > 12) {
+      throw new Error('Month must be between 1 and 12');
+    }
+    if (!Number.isInteger(year) || year < 2000 || year > 2100) {
+      throw new Error('Invalid year');
+    }
+
     const startDate = new Date(year, month - 1, 1).toISOString();
     const endDate = new Date(year, month, 0, 23, 59, 59).toISOString();
 

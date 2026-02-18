@@ -521,7 +521,18 @@ export class ComplianceService {
     cleared: boolean,
     clearedBy: string
   ): Promise<void> {
+    // Validate clearedBy is a non-empty string before touching the DB
+    if (!clearedBy || typeof clearedBy !== 'string' || clearedBy.trim().length === 0) {
+      throw new Error('clearedBy must be a valid user identifier');
+    }
+
     const supabase = createClientSupabaseClient();
+
+    // Verify the caller is authenticated
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      throw new Error('Authentication required to toggle clearance');
+    }
 
     const { error } = await (supabase as any)
       .from('learners_profiles')

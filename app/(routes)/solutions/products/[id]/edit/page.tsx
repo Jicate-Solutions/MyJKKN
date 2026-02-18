@@ -86,21 +86,31 @@ export default function EditProductPage({ params }: EditProductPageProps) {
     setIsSubmitting(true);
 
     try {
+      let validatedBudget: number | null = null;
+      if (formData.developmentBudget) {
+        const budget = Number(formData.developmentBudget);
+        if (!Number.isFinite(budget) || budget < 0) {
+          toast.error('Development budget must be a valid positive number');
+          return;
+        }
+        validatedBudget = budget;
+      }
+
       await updateProduct.mutateAsync({
         id,
         input: {
           title: formData.title,
-          description: formData.description || undefined,
-          domain: (formData.domain as ProductDomain) || undefined,
-          sector: (formData.sector as RDIFSector) || undefined,
+          description: formData.description || null,
+          domain: (formData.domain as ProductDomain) || null,
+          sector: (formData.sector as RDIFSector) || null,
           current_trl: Number(formData.currentTRL),
-          target_trl: formData.targetTRL ? Number(formData.targetTRL) : undefined,
-          status: (formData.status as ProductStatus) || undefined,
-          patent_status: (formData.patentStatus as PatentStatus) || undefined,
-          patent_number: formData.patentStatus === 'none' ? undefined : (formData.patentNumber || undefined),
-          notes: formData.notes || undefined,
-          tags: formData.tags ? formData.tags.split(',').map(t => t.trim()).filter(Boolean) : undefined,
-          development_budget: formData.developmentBudget ? Number(formData.developmentBudget) : undefined,
+          target_trl: formData.targetTRL ? Number(formData.targetTRL) : null,
+          status: (formData.status as ProductStatus) || 'concept',
+          patent_status: (formData.patentStatus as PatentStatus) || 'none',
+          patent_number: formData.patentStatus === 'none' ? null : (formData.patentNumber || null),
+          notes: formData.notes || null,
+          tags: formData.tags ? formData.tags.split(',').map(t => t.trim()).filter(Boolean) : null,
+          development_budget: validatedBudget,
         },
       });
 

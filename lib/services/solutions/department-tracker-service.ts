@@ -354,7 +354,12 @@ export class DepartmentTrackerService extends BaseService {
     // Get current quarter dates
     const now = new Date();
     const currentQuarter = quarter || `${now.getFullYear()}-Q${Math.ceil((now.getMonth() + 1) / 3)}`;
-    const [year, q] = currentQuarter.split('-Q').map(Number);
+    const parts = currentQuarter.split('-Q');
+    const year = Number(parts[0]);
+    const q = Number(parts[1]);
+    if (!Number.isInteger(year) || !Number.isInteger(q) || q < 1 || q > 4) {
+      throw new Error(`Invalid quarter format: "${currentQuarter}". Expected format: "YYYY-QN" (e.g., "2026-Q1")`);
+    }
     const qStart = new Date(year, (q - 1) * 3, 1).toISOString();
     const qEnd = new Date(year, q * 3, 0, 23, 59, 59).toISOString();
 

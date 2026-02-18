@@ -2,6 +2,7 @@
 // CRUD operations for sh_solutions table
 
 import { BaseService, type BaseListResponse } from '../base-service';
+import { sanitizeSearch } from '@/lib/config/pagination';
 import type {
   Solution,
   SolutionType,
@@ -49,14 +50,6 @@ export interface SolutionStats {
   bySolutionType: Record<SolutionType, number>;
   byStatus: Record<SolutionStatus, number>;
   totalValue: number;
-}
-
-// ============================================
-// HELPER FUNCTIONS
-// ============================================
-
-function escapeSearchString(str: string): string {
-  return str.replace(/[%_\\]/g, '\\$&');
 }
 
 // ============================================
@@ -122,6 +115,9 @@ export class SolutionsService extends BaseService {
     if (data && data.length > 0) {
       const lastCode = data[0].solution_code;
       const lastNumber = parseInt(lastCode.replace(prefix, ''), 10);
+      if (isNaN(lastNumber)) {
+        return `${prefix}001`;
+      }
       nextNumber = lastNumber + 1;
     }
 
@@ -165,7 +161,7 @@ export class SolutionsService extends BaseService {
     }
 
     if (filters?.search) {
-      const escaped = escapeSearchString(filters.search);
+      const escaped = sanitizeSearch(filters.search);
       query = query.or(`title.ilike.%${escaped}%,solution_code.ilike.%${escaped}%`);
     }
 

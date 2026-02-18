@@ -183,7 +183,7 @@ export class RevenueSplitService extends BaseService {
   static async createRevenueSplitModel(input: CreateRevenueSplitModelInput): Promise<RevenueSplitModel> {
     // Validate that percentages sum to 100
     const total = Object.values(input.split_config).reduce((sum, val) => sum + val, 0);
-    if (total !== 100) {
+    if (Math.abs(total - 100) > 0.01) {
       throw new Error(`Revenue split percentages must total 100%, got ${total}%`);
     }
 
@@ -219,7 +219,7 @@ export class RevenueSplitService extends BaseService {
     // Validate percentages if split_config is being updated
     if (input.split_config) {
       const total = Object.values(input.split_config).reduce((sum, val) => sum + val, 0);
-      if (total !== 100) {
+      if (Math.abs(total - 100) > 0.01) {
         throw new Error(`Revenue split percentages must total 100%, got ${total}%`);
       }
     }
@@ -338,6 +338,8 @@ export class RevenueSplitService extends BaseService {
         adjustedPercentage -= 10;
       }
 
+      adjustedAmount = Math.max(0, adjustedAmount);
+
       splits.push({
         recipientType: key,
         recipientName: RECIPIENT_DISPLAY_NAMES[key] || key,
@@ -430,7 +432,7 @@ export class RevenueSplitService extends BaseService {
    */
   static validateSplitConfig(config: SplitConfig): boolean {
     const total = Object.values(config).reduce((sum, val) => sum + val, 0);
-    if (total !== 100) {
+    if (Math.abs(total - 100) > 0.01) {
       throw new Error(`Split percentages must total 100%, got ${total}%`);
     }
 
@@ -487,6 +489,8 @@ export class RevenueSplitService extends BaseService {
         adjustedAmount -= referralBonusApplied;
         adjustedPercentage -= 10;
       }
+
+      adjustedAmount = Math.max(0, adjustedAmount);
 
       splits.push({
         recipientType: key,

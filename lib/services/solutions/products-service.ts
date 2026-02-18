@@ -3,6 +3,7 @@
 // TRL (Technology Readiness Level) & Product Development Tracking
 
 import { BaseService, type BaseListResponse } from '../base-service';
+import { sanitizeSearch } from '@/lib/config/pagination';
 import type { PaginationParams } from './types';
 
 // ============================================
@@ -157,21 +158,21 @@ export interface CreateProductInput {
 
 export interface UpdateProductInput {
   title?: string;
-  description?: string;
+  description?: string | null;
   current_trl?: number;
-  target_trl?: number;
-  originating_solution_ids?: string[];
-  lead_department_id?: string;
-  domain?: ProductDomain;
-  sector?: RDIFSector;
+  target_trl?: number | null;
+  originating_solution_ids?: string[] | null;
+  lead_department_id?: string | null;
+  domain?: ProductDomain | null;
+  sector?: RDIFSector | null;
   patent_status?: PatentStatus;
-  patent_number?: string;
-  patent_filed_at?: string;
+  patent_number?: string | null;
+  patent_filed_at?: string | null;
   status?: ProductStatus;
   development_budget?: number;
   development_spent?: number;
-  tags?: string[];
-  notes?: string;
+  tags?: string[] | null;
+  notes?: string | null;
   metadata?: Record<string, any>;
 }
 
@@ -282,18 +283,27 @@ export const VALIDATION_TYPE_LABELS: Record<ValidationType, string> = {
 };
 
 // ============================================
-// HELPER FUNCTIONS
-// ============================================
-
-function escapeSearchString(str: string): string {
-  return str.replace(/[%_\\]/g, '\\$&');
-}
-
-// ============================================
 // SERVICE CLASS
 // ============================================
 
 export class ProductsService extends BaseService {
+  // ============================================
+  // VALIDATION HELPERS
+  // ============================================
+
+  private static validateEvidenceUrl(url: string | undefined | null): void {
+    if (!url) return;
+    try {
+      const parsed = new URL(url);
+      if (!['http:', 'https:'].includes(parsed.protocol)) {
+        throw new Error('Evidence URL must use http or https protocol');
+      }
+    } catch (e) {
+      if (e instanceof Error && e.message.includes('protocol')) throw e;
+      throw new Error('Invalid evidence URL format');
+    }
+  }
+
   // ============================================
   // PRODUCTS CRUD
   // ============================================
@@ -318,6 +328,9 @@ export class ProductsService extends BaseService {
     if (data && data.length > 0) {
       const lastCode = data[0].product_code;
       const lastNumber = parseInt(lastCode.replace(prefix, ''), 10);
+      if (isNaN(lastNumber)) {
+        return `${prefix}001`;
+      }
       nextNumber = lastNumber + 1;
     }
 
@@ -373,7 +386,7 @@ export class ProductsService extends BaseService {
     }
 
     if (filters?.search) {
-      const escaped = escapeSearchString(filters.search);
+      const escaped = sanitizeSearch(filters.search);
       query = query.or(`title.ilike.%${escaped}%,product_code.ilike.%${escaped}%`);
     }
 
@@ -513,8 +526,8 @@ export class ProductsService extends BaseService {
     newTRL: number,
     assessedBy?: string
   ): Promise<SHProduct> {
-    if (newTRL < 1 || newTRL > 9) {
-      throw new Error('TRL level must be between 1 and 9');
+    if (!Number.isInteger(newTRL) || newTRL < 1 || newTRL > 9) {
+      throw new Error('TRL must be a whole number between 1 and 9');
     }
 
     const { data, error } = await this.supabase
@@ -570,9 +583,11 @@ export class ProductsService extends BaseService {
    * Add a new TRL validation evidence
    */
   static async addValidation(input: CreateValidationInput): Promise<SHProductValidation> {
-    if (input.trl_level < 1 || input.trl_level > 9) {
-      throw new Error('TRL level must be between 1 and 9');
+    if (!Number.isInteger(input.trl_level) || input.trl_level < 1 || input.trl_level > 9) {
+      throw new Error('TRL must be a whole number between 1 and 9');
     }
+
+    this.validateEvidenceUrl(input.evidence_url);
 
     const { data, error } = await this.supabase
       .from('sh_product_validations')
@@ -604,6 +619,10 @@ export class ProductsService extends BaseService {
     id: string,
     input: UpdateValidationInput
   ): Promise<SHProductValidation> {
+    if (input.evidence_url !== undefined) {
+      this.validateEvidenceUrl(input.evidence_url);
+    }
+
     const { data, error } = await this.supabase
       .from('sh_product_validations')
       .update(input)
@@ -651,6 +670,10 @@ export class ProductsService extends BaseService {
     key: string,
     input: UpdatePrerequisiteInput
   ): Promise<SHRDIFPrerequisite> {
+    if (input.evidence_url !== undefined) {
+      this.validateEvidenceUrl(input.evidence_url);
+    }
+
     const { data, error } = await this.supabase
       .from('sh_rdif_prerequisites')
       .update({

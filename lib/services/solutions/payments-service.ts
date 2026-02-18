@@ -484,6 +484,12 @@ export class PaymentsService extends BaseService {
    * Get monthly batch summary
    */
   static async getMonthlyBatch(month: number, year: number): Promise<MonthlyBatchSummary> {
+    if (!Number.isInteger(month) || month < 1 || month > 12) {
+      throw new Error('Month must be between 1 and 12');
+    }
+    if (!Number.isInteger(year) || year < 2000 || year > 2100) {
+      throw new Error('Invalid year');
+    }
     const startDate = new Date(year, month - 1, 1).toISOString();
     const endDate = new Date(year, month, 0, 23, 59, 59).toISOString();
 
@@ -639,6 +645,8 @@ export class PaymentsService extends BaseService {
         adjustedPercentage -= 10;
       }
 
+      adjustedAmount = Math.max(0, adjustedAmount);
+
       splits.push({
         recipientType: key,
         recipientName: RECIPIENT_NAMES[key] || key,
@@ -754,7 +762,7 @@ export class PaymentsService extends BaseService {
   ): Promise<RevenueSplitModel> {
     // Validate total is 100%
     const total = Object.values(splitConfig).reduce((sum, val) => sum + val, 0);
-    if (total !== 100) {
+    if (Math.abs(total - 100) > 0.01) {
       throw new Error('Revenue split percentages must total 100%');
     }
 

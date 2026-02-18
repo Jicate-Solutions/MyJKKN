@@ -67,7 +67,8 @@ export default function NewPaymentPage() {
     e.preventDefault();
     setSubmitError(null);
 
-    if (!amount || Number(amount) <= 0) {
+    const numAmount = Number(amount);
+    if (!amount || !Number.isFinite(numAmount) || numAmount <= 0) {
       setSubmitError('Please enter a valid amount');
       return;
     }
@@ -76,7 +77,7 @@ export default function NewPaymentPage() {
       await createPayment.mutateAsync({
         solution_id: selectedSolutionId || undefined,
         client_id: selectedClientId || undefined,
-        amount: Number(amount),
+        amount: numAmount,
         payment_type: paymentType,
         payment_method: paymentMethod || undefined,
         reference_number: referenceNumber || undefined,
