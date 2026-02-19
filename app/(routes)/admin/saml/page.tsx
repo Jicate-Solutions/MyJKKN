@@ -12,7 +12,7 @@ export default async function SAMLAdminDashboard() {
     supabase
       .from('saml_service_providers')
       .select('id', { count: 'exact', head: true })
-      .eq('active', true),
+      .eq('is_active', true),
     supabase
       .from('saml_sessions')
       .select('id', { count: 'exact', head: true })

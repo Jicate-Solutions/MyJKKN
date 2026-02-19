@@ -178,8 +178,12 @@ export class SamlIdpService {
 
       const spEntityId = issuerMatch[1];
 
-      // Get SP configuration
-      const sp = await this.createSP(spEntityId);
+      // Get SP configuration — also provides the registered ACS URL as fallback
+      // when the AuthnRequest doesn't include AssertionConsumerServiceURL (valid per SAML spec)
+      const [sp, spConfig] = await Promise.all([
+        this.createSP(spEntityId),
+        SamlServiceProviderService.validateServiceProvider(spEntityId),
+      ]);
       const idp = this.getIdP();
 
       // Parse request using samlify
@@ -190,11 +194,16 @@ export class SamlIdpService {
           : { body: { SAMLRequest: samlRequest } };
       const { extract } = await idp.parseLoginRequest(sp, binding, requestData);
 
+      // Fall back to the registered ACS URL if the request omits it (SAML 2.0 §3.4.1.2)
+      const acsUrl =
+        extract.request.assertionConsumerServiceURL ||
+        spConfig.assertion_consumer_service_url;
+
       return {
         request: {
           id: extract.request.id,
           issuer: extract.issuer,
-          assertionConsumerServiceUrl: extract.request.assertionConsumerServiceURL || '',
+          assertionConsumerServiceUrl: acsUrl,
           destination: extract.request.destination,
           issueInstant: new Date(extract.request.issueInstant),
           forceAuthn: extract.request.forceAuthn === 'true',

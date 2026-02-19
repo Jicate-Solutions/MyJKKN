@@ -4,7 +4,7 @@
  * Handles CRUD operations for trusted SAML Service Providers
  */
 
-import { createClient } from '@/lib/supabase/server';
+import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
 import {
   SamlServiceProvider,
   SamlServiceProviderInsert,
@@ -47,11 +47,15 @@ export class SamlServiceProviderService {
 
   /**
    * Get service provider by entity ID
+   * Uses service role client to bypass RLS — this lookup is called during the
+   * SAML SSO flow BEFORE the user authenticates, so auth.uid() is NULL and
+   * the "Admin users can view" policy would silently return 0 rows.
    */
   static async getServiceProviderByEntityId(
     entityId: string
   ): Promise<SamlServiceProvider | null> {
-    const supabase = await createClient();
+    // Service role bypasses RLS: SP metadata is a system read, not a user read
+    const supabase = createServiceRoleClient();
 
     const { data, error } = await supabase
       .from('saml_service_providers')
