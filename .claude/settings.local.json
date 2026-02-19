@@ -217,7 +217,8 @@
       "Bash(npm run:*)",
       "Bash(timeout /t 2 /nobreak)",
       "Bash(tree:*)",
-      "Bash(openssl x509:*)"
+      "Bash(openssl x509:*)",
+      "WebFetch(domain:www.githubstatus.com)"
     ],
     "deny": [],
     "ask": []
