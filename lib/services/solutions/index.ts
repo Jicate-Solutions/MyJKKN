@@ -160,6 +160,21 @@ export type {
 } from './mou-service';
 
 // ============================================
+// PROSPECTS & PIPELINE
+// ============================================
+export {
+  prospectsService,
+  ProspectsService,
+  PIPELINE_STAGE_LABELS,
+  PIPELINE_STAGE_COLORS,
+  ACTIVE_STAGES,
+} from './prospects-service';
+export type {
+  ProspectFilters,
+  UpdateProspectInput,
+} from './prospects-service';
+
+// ============================================
 // SUPPORT SERVICES
 // ============================================
 export {

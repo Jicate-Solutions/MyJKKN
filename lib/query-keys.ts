@@ -699,6 +699,23 @@ export const solutionsHubKeys = {
       [...solutionsHubKeys.products.all, 'next-milestones'] as const
   },
 
+  // Prospects & Pipeline
+  prospects: {
+    all: ['solutions-hub', 'prospects'] as const,
+    list: (filters?: FilterObject) =>
+      [...solutionsHubKeys.prospects.all, 'list', filters] as const,
+    detail: (id: string) =>
+      [...solutionsHubKeys.prospects.all, 'detail', id] as const,
+    stats: () =>
+      [...solutionsHubKeys.prospects.all, 'stats'] as const,
+    pipelineBoard: () =>
+      [...solutionsHubKeys.prospects.all, 'pipeline-board'] as const,
+    activities: (prospectId: string) =>
+      [...solutionsHubKeys.prospects.all, 'activities', prospectId] as const,
+    overdue: () =>
+      [...solutionsHubKeys.prospects.all, 'overdue'] as const,
+  },
+
   // Department Dashboard
   departmentDashboard: {
     all: ['solutions-hub', 'department-dashboard'] as const,

@@ -374,6 +374,25 @@ export {
 } from './use-mous';
 
 // ============================================
+// PROSPECTS & PIPELINE HOOKS
+// ============================================
+
+export {
+  useProspects,
+  useProspect,
+  useProspectStats,
+  usePipelineBoard,
+  useProspectActivities,
+  useCreateProspect,
+  useUpdateProspect,
+  useUpdatePipelineStage,
+  useDeleteProspect,
+  useLogProspectActivity,
+  type ProspectFilters,
+  type UpdateProspectInput,
+} from './use-prospects';
+
+// ============================================
 // DISCOVERY HOOKS
 // ============================================
 

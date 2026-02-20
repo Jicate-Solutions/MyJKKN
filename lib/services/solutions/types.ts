@@ -91,6 +91,8 @@ export type PublicationStatus =
 
 export type MouStatus = 'draft' | 'pending_signatures' | 'active' | 'expired' | 'terminated';
 
+export type PipelineStage = 'lead' | 'qualified' | 'proposal' | 'negotiation' | 'won' | 'lost' | 'dormant';
+
 export type NotificationType = 'payment' | 'approval' | 'assignment' | 'deadline' | 'system';
 
 // ============================================
@@ -146,6 +148,87 @@ export interface ClientReferral extends BaseEntity {
   bonus_paid: boolean;
   paid_at?: string;
   notes?: string;
+}
+
+// ============================================
+// PROSPECT INTERFACES
+// ============================================
+
+export interface Prospect extends BaseEntity {
+  prospect_code: string;
+  company_name: string;
+  contact_person: string;
+  contact_email?: string;
+  contact_phone: string;
+  source_type: SourceType;
+  source_detail?: string;
+  pipeline_stage: PipelineStage;
+  expected_deal_size?: number;
+  expected_close_date?: string;
+  solution_type_interest?: SolutionType;
+  assigned_to?: string;
+  next_action?: string;
+  next_action_date?: string;
+  last_contact_date?: string;
+  notes?: string;
+  tags?: string[];
+  converted_client_id?: string;
+  lost_reason?: string;
+  is_active: boolean;
+  created_by?: string;
+  // Joined fields
+  assigned_user?: { id: string; full_name: string; avatar_url?: string };
+  converted_client?: { id: string; name: string };
+}
+
+export interface ProspectActivity extends BaseEntity {
+  prospect_id: string;
+  activity_type: CommunicationType;
+  subject?: string;
+  summary: string;
+  activity_date: string;
+  next_action?: string;
+  next_action_date?: string;
+  created_by?: string;
+  created_by_user?: { id: string; full_name: string };
+}
+
+export interface CreateProspectInput {
+  company_name: string;
+  contact_person: string;
+  contact_email?: string;
+  contact_phone: string;
+  source_type?: SourceType;
+  source_detail?: string;
+  pipeline_stage?: PipelineStage;
+  expected_deal_size?: number;
+  expected_close_date?: string;
+  solution_type_interest?: SolutionType;
+  assigned_to?: string;
+  next_action?: string;
+  next_action_date?: string;
+  notes?: string;
+  tags?: string[];
+}
+
+export interface CreateProspectActivityInput {
+  prospect_id: string;
+  activity_type?: CommunicationType;
+  subject?: string;
+  summary: string;
+  activity_date?: string;
+  next_action?: string;
+  next_action_date?: string;
+}
+
+export interface ProspectStats {
+  total: number;
+  byStage: Record<PipelineStage, number>;
+  totalPipelineValue: number;
+  overdueFollowUps: number;
+  wonThisMonth: number;
+  lostThisMonth: number;
+  avgDaysInPipeline: number;
 }
 
 // ============================================

@@ -33,7 +33,12 @@ interface ClientData {
   contact_email?: string | null
   address?: string | null
   city?: string | null
+  state?: string | null
+  pincode?: string | null
   company_size?: string | null
+  gst_number?: string | null
+  pan_number?: string | null
+  website?: string | null
   source_type?: SourceType | null
   source_department_id?: string | null
   partner_status?: PartnerStatus
@@ -48,7 +53,12 @@ const clientFormSchema = z.object({
   contact_email: z.string().email('Valid email is required').optional().or(z.literal('')),
   address: z.string().optional(),
   city: z.string().optional(),
+  state: z.string().optional(),
+  pincode: z.string().optional(),
   company_size: z.string().optional(),
+  gst_number: z.string().optional(),
+  pan_number: z.string().optional(),
+  website: z.string().url('Must be a valid URL').optional().or(z.literal('')),
   source_type: z.enum(['placement', 'alumni', 'clinical', 'referral', 'direct', 'yi', 'intent']).nullable().optional(),
   source_department_id: z.string().optional(),
   partner_status: z.enum(['standard', 'yi', 'alumni', 'mou', 'referral']),
@@ -128,7 +138,12 @@ export function ClientForm({ client, onSubmit, isLoading }: ClientFormProps) {
       contact_email: client?.contact_email || '',
       address: client?.address || '',
       city: client?.city || '',
+      state: client?.state || '',
+      pincode: client?.pincode || '',
       company_size: client?.company_size || '',
+      gst_number: client?.gst_number || '',
+      pan_number: client?.pan_number || '',
+      website: client?.website || '',
       source_type: client?.source_type || null,
       source_department_id: client?.source_department_id || '',
       partner_status: client?.partner_status || 'standard',
@@ -142,7 +157,12 @@ export function ClientForm({ client, onSubmit, isLoading }: ClientFormProps) {
       contact_email: data.contact_email || undefined,
       address: data.address || undefined,
       city: data.city || undefined,
+      state: data.state || undefined,
+      pincode: data.pincode || undefined,
       company_size: data.company_size || undefined,
+      gst_number: data.gst_number || undefined,
+      pan_number: data.pan_number || undefined,
+      website: data.website || undefined,
       source_department_id: data.source_department_id || undefined,
     }
     await onSubmit(cleanedData as ClientFormValues)
@@ -245,6 +265,85 @@ export function ClientForm({ client, onSubmit, isLoading }: ClientFormProps) {
                 <FormLabel>Address</FormLabel>
                 <FormControl>
                   <Input placeholder="123 Business Park, Main Road" {...field} />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <FormField
+              control={form.control}
+              name="state"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>State</FormLabel>
+                  <FormControl>
+                    <Input placeholder="Tamil Nadu" {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="pincode"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Pincode</FormLabel>
+                  <FormControl>
+                    <Input placeholder="638183" {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </div>
+        </div>
+
+        {/* Business Details */}
+        <div className="space-y-4">
+          <h3 className="text-lg font-medium">Business Details</h3>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <FormField
+              control={form.control}
+              name="gst_number"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>GST Number</FormLabel>
+                  <FormControl>
+                    <Input placeholder="22AAAAA0000A1Z5" {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="pan_number"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>PAN Number</FormLabel>
+                  <FormControl>
+                    <Input placeholder="AAAAA0000A" {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </div>
+
+          <FormField
+            control={form.control}
+            name="website"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Website</FormLabel>
+                <FormControl>
+                  <Input placeholder="https://company.com" {...field} />
                 </FormControl>
                 <FormMessage />
               </FormItem>

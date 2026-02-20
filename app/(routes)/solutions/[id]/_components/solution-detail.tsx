@@ -59,6 +59,17 @@ import {
   useCreateCommunication,
   COMMUNICATION_TYPE_LABELS,
 } from '@/hooks/solutions/use-discovery';
+import { useMouBySolution, MOU_STATUS_LABELS } from '@/hooks/solutions/use-mous';
+import {
+  useTrainingProgramBySolution,
+  useSessionsByProgram,
+  useCreateTrainingSession,
+} from '@/hooks/solutions/use-training';
+import {
+  useContentOrderBySolution,
+  useDeliverablesByOrder,
+  useCreateDeliverable,
+} from '@/hooks/solutions/use-content';
 import type { SolutionType, SolutionStatus, CommunicationType } from '@/lib/services/solutions/types';
 
 interface SolutionDetailProps {
@@ -121,20 +132,42 @@ export function SolutionDetail({ solutionId }: SolutionDetailProps) {
   const { data: phasesData } = useSolutionPhases(solutionId);
   const { data: payments } = usePaymentsBySolution(solutionId);
   const { data: communications } = useSolutionCommunications(solutionId);
+  const { data: mouData } = useMouBySolution(solutionId);
+
+  // Training hooks (only fetch when solution is training type)
+  const { data: trainingProgram } = useTrainingProgramBySolution(solutionId);
+  const { data: sessionsData } = useSessionsByProgram(trainingProgram?.id || '');
+
+  // Content hooks (only fetch when solution is content type)
+  const { data: contentOrder } = useContentOrderBySolution(solutionId);
+  const { data: deliverablesData } = useDeliverablesByOrder(contentOrder?.id || '');
 
   // Mutation hooks
   const updateSolution = useUpdateSolution();
   const deleteSolution = useDeleteSolution();
   const createPhase = useCreatePhase();
   const createCommunication = useCreateCommunication();
+  const createSession = useCreateTrainingSession();
+  const createDeliverable = useCreateDeliverable();
 
   // Dialog states
   const [phaseDialogOpen, setPhaseDialogOpen] = useState(false);
   const [commDialogOpen, setCommDialogOpen] = useState(false);
+  const [sessionDialogOpen, setSessionDialogOpen] = useState(false);
+  const [deliverableDialogOpen, setDeliverableDialogOpen] = useState(false);
 
   // Phase form state
   const [phaseTitle, setPhaseTitle] = useState('');
   const [phaseDescription, setPhaseDescription] = useState('');
+
+  // Session form state
+  const [sessionTitle, setSessionTitle] = useState('');
+  const [sessionDate, setSessionDate] = useState('');
+  const [sessionLocation, setSessionLocation] = useState('');
+
+  // Deliverable form state
+  const [deliverableTitle, setDeliverableTitle] = useState('');
+  const [deliverableDescription, setDeliverableDescription] = useState('');
 
   // Communication form state
   const [commType, setCommType] = useState<CommunicationType>('other');
@@ -213,6 +246,52 @@ export function SolutionDetail({ solutionId }: SolutionDetailProps) {
     }
   };
 
+  const handleCreateSession = async () => {
+    if (!trainingProgram?.id) {
+      toast.error('No training program linked to this solution');
+      return;
+    }
+    try {
+      await createSession.mutateAsync({
+        program_id: trainingProgram.id,
+        title: sessionTitle || undefined,
+        session_date: sessionDate || undefined,
+        location: sessionLocation || undefined,
+      });
+      toast.success('Session scheduled');
+      setSessionTitle('');
+      setSessionDate('');
+      setSessionLocation('');
+      setSessionDialogOpen(false);
+    } catch (err) {
+      toast.error('Failed to schedule session');
+    }
+  };
+
+  const handleCreateDeliverable = async () => {
+    if (!contentOrder?.id) {
+      toast.error('No content order linked to this solution');
+      return;
+    }
+    if (!deliverableTitle.trim()) {
+      toast.error('Deliverable title is required');
+      return;
+    }
+    try {
+      await createDeliverable.mutateAsync({
+        order_id: contentOrder.id,
+        title: deliverableTitle,
+        notes: deliverableDescription || undefined,
+      });
+      toast.success('Deliverable added');
+      setDeliverableTitle('');
+      setDeliverableDescription('');
+      setDeliverableDialogOpen(false);
+    } catch (err) {
+      toast.error('Failed to add deliverable');
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="space-y-6">
@@ -255,6 +334,8 @@ export function SolutionDetail({ solutionId }: SolutionDetailProps) {
   const status = statusConfig[solutionStatus] || statusConfig.active;
 
   const phases = phasesData?.data || [];
+  const sessions = sessionsData?.data || sessionsData || [];
+  const deliverables = deliverablesData?.data || deliverablesData || [];
   const paymentsList = payments || [];
   const commsList = communications || [];
 
@@ -318,10 +399,10 @@ export function SolutionDetail({ solutionId }: SolutionDetailProps) {
             <TabsTrigger value="phases">Phases ({phases.length})</TabsTrigger>
           )}
           {solutionType === 'training' && (
-            <TabsTrigger value="sessions">Sessions</TabsTrigger>
+            <TabsTrigger value="sessions">Sessions ({Array.isArray(sessions) ? sessions.length : 0})</TabsTrigger>
           )}
           {solutionType === 'content' && (
-            <TabsTrigger value="deliverables">Deliverables</TabsTrigger>
+            <TabsTrigger value="deliverables">Deliverables ({Array.isArray(deliverables) ? deliverables.length : 0})</TabsTrigger>
           )}
           <TabsTrigger value="payments">Payments ({paymentsList.length})</TabsTrigger>
           <TabsTrigger value="communications">Comms ({commsList.length})</TabsTrigger>
@@ -476,7 +557,11 @@ export function SolutionDetail({ solutionId }: SolutionDetailProps) {
                 <FileText className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                <p className="text-xl font-bold">{phases.length}</p>
+                <p className="text-xl font-bold">
+                  {solutionType === 'software' ? phases.length :
+                   solutionType === 'training' ? (Array.isArray(sessions) ? sessions.length : 0) :
+                   (Array.isArray(deliverables) ? deliverables.length : 0)}
+                </p>
                 <p className="text-xs text-muted-foreground">Total</p>
               </CardContent>
             </Card>
@@ -487,10 +572,23 @@ export function SolutionDetail({ solutionId }: SolutionDetailProps) {
                 <ScrollText className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                <Badge variant="outline">Not Created</Badge>
-                <Button variant="link" size="sm" className="p-0 h-auto mt-1" asChild>
-                  <Link href={`/solutions/${solutionId}/mou`}>Create MoU</Link>
-                </Button>
+                {mouData ? (
+                  <>
+                    <Badge variant={mouData.status === 'signed' ? 'default' : 'outline'}>
+                      {MOU_STATUS_LABELS[mouData.status as keyof typeof MOU_STATUS_LABELS] || mouData.status}
+                    </Badge>
+                    <Button variant="link" size="sm" className="p-0 h-auto mt-1" asChild>
+                      <Link href={`/solutions/${solutionId}/mou`}>View MoU</Link>
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <Badge variant="outline">Not Created</Badge>
+                    <Button variant="link" size="sm" className="p-0 h-auto mt-1" asChild>
+                      <Link href={`/solutions/${solutionId}/mou`}>Create MoU</Link>
+                    </Button>
+                  </>
+                )}
               </CardContent>
             </Card>
 
@@ -618,17 +716,116 @@ export function SolutionDetail({ solutionId }: SolutionDetailProps) {
         {solutionType === 'training' && (
           <TabsContent value="sessions">
             <Card>
-              <CardHeader>
-                <CardTitle>Training Sessions</CardTitle>
-                <CardDescription>Schedule and manage training sessions</CardDescription>
+              <CardHeader className="flex flex-row items-center justify-between">
+                <div>
+                  <CardTitle>Training Sessions</CardTitle>
+                  <CardDescription>Schedule and manage training sessions</CardDescription>
+                </div>
+                {trainingProgram?.id && (
+                  <Dialog open={sessionDialogOpen} onOpenChange={setSessionDialogOpen}>
+                    <DialogTrigger asChild>
+                      <Button size="sm">
+                        <Plus className="mr-2 h-4 w-4" />
+                        Schedule Session
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent>
+                      <DialogHeader>
+                        <DialogTitle>Schedule Training Session</DialogTitle>
+                        <DialogDescription>
+                          Add a new session to this training program.
+                        </DialogDescription>
+                      </DialogHeader>
+                      <div className="space-y-4 py-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="session-title">Session Title</Label>
+                          <Input
+                            id="session-title"
+                            placeholder="e.g., Session 1 - Introduction"
+                            value={sessionTitle}
+                            onChange={(e) => setSessionTitle(e.target.value)}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="session-date">Date</Label>
+                          <Input
+                            id="session-date"
+                            type="date"
+                            value={sessionDate}
+                            onChange={(e) => setSessionDate(e.target.value)}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="session-location">Location</Label>
+                          <Input
+                            id="session-location"
+                            placeholder="e.g., Conference Room A"
+                            value={sessionLocation}
+                            onChange={(e) => setSessionLocation(e.target.value)}
+                          />
+                        </div>
+                      </div>
+                      <DialogFooter>
+                        <Button variant="outline" onClick={() => setSessionDialogOpen(false)}>
+                          Cancel
+                        </Button>
+                        <Button onClick={handleCreateSession} disabled={createSession.isPending}>
+                          {createSession.isPending ? 'Scheduling...' : 'Schedule Session'}
+                        </Button>
+                      </DialogFooter>
+                    </DialogContent>
+                  </Dialog>
+                )}
               </CardHeader>
               <CardContent>
-                <p className="text-center py-8 text-muted-foreground">
-                  No sessions scheduled yet.
-                </p>
-                <div className="flex justify-center">
-                  <Button>Schedule Session</Button>
-                </div>
+                {!trainingProgram?.id ? (
+                  <div className="text-center py-8">
+                    <p className="text-muted-foreground mb-4">
+                      No training program created yet. Create a training program first to start scheduling sessions.
+                    </p>
+                  </div>
+                ) : !Array.isArray(sessions) || sessions.length === 0 ? (
+                  <div className="text-center py-8">
+                    <p className="text-muted-foreground mb-4">
+                      No sessions scheduled yet. Add your first session.
+                    </p>
+                    <Button onClick={() => setSessionDialogOpen(true)}>
+                      <Plus className="mr-2 h-4 w-4" />
+                      Schedule First Session
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {sessions.map((session: any) => (
+                      <div
+                        key={session.id}
+                        className="flex items-center justify-between p-4 rounded-lg border hover:bg-muted/50 transition-colors"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-green-100 text-sm font-medium text-green-700">
+                            {session.session_number || '?'}
+                          </div>
+                          <div>
+                            <p className="font-medium">{session.title || `Session ${session.session_number || ''}`}</p>
+                            {session.session_date && (
+                              <p className="text-sm text-muted-foreground">
+                                {format(new Date(session.session_date), 'dd MMM yyyy')}
+                                {session.location && ` • ${session.location}`}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                        <Badge variant={
+                          session.status === 'completed' ? 'default' :
+                          session.status === 'cancelled' ? 'destructive' :
+                          'secondary'
+                        }>
+                          {session.status || 'scheduled'}
+                        </Badge>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
@@ -638,17 +835,119 @@ export function SolutionDetail({ solutionId }: SolutionDetailProps) {
         {solutionType === 'content' && (
           <TabsContent value="deliverables">
             <Card>
-              <CardHeader>
-                <CardTitle>Content Deliverables</CardTitle>
-                <CardDescription>Manage deliverables for this content order</CardDescription>
+              <CardHeader className="flex flex-row items-center justify-between">
+                <div>
+                  <CardTitle>Content Deliverables</CardTitle>
+                  <CardDescription>Manage deliverables for this content order</CardDescription>
+                </div>
+                {contentOrder?.id && (
+                  <Dialog open={deliverableDialogOpen} onOpenChange={setDeliverableDialogOpen}>
+                    <DialogTrigger asChild>
+                      <Button size="sm">
+                        <Plus className="mr-2 h-4 w-4" />
+                        Add Deliverable
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent>
+                      <DialogHeader>
+                        <DialogTitle>Add Deliverable</DialogTitle>
+                        <DialogDescription>
+                          Add a new content deliverable to this order.
+                        </DialogDescription>
+                      </DialogHeader>
+                      <div className="space-y-4 py-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="deliverable-title">Title</Label>
+                          <Input
+                            id="deliverable-title"
+                            placeholder="e.g., Brand Video - 30 sec"
+                            value={deliverableTitle}
+                            onChange={(e) => setDeliverableTitle(e.target.value)}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="deliverable-notes">Notes (optional)</Label>
+                          <Textarea
+                            id="deliverable-notes"
+                            placeholder="Description or requirements for this deliverable..."
+                            value={deliverableDescription}
+                            onChange={(e) => setDeliverableDescription(e.target.value)}
+                          />
+                        </div>
+                      </div>
+                      <DialogFooter>
+                        <Button variant="outline" onClick={() => setDeliverableDialogOpen(false)}>
+                          Cancel
+                        </Button>
+                        <Button onClick={handleCreateDeliverable} disabled={createDeliverable.isPending}>
+                          {createDeliverable.isPending ? 'Adding...' : 'Add Deliverable'}
+                        </Button>
+                      </DialogFooter>
+                    </DialogContent>
+                  </Dialog>
+                )}
               </CardHeader>
               <CardContent>
-                <p className="text-center py-8 text-muted-foreground">
-                  No deliverables added yet.
-                </p>
-                <div className="flex justify-center">
-                  <Button>Add Deliverable</Button>
-                </div>
+                {!contentOrder?.id ? (
+                  <div className="text-center py-8">
+                    <p className="text-muted-foreground mb-4">
+                      No content order created yet. Create a content order first to manage deliverables.
+                    </p>
+                  </div>
+                ) : !Array.isArray(deliverables) || deliverables.length === 0 ? (
+                  <div className="text-center py-8">
+                    <p className="text-muted-foreground mb-4">
+                      No deliverables added yet. Add your first deliverable.
+                    </p>
+                    <Button onClick={() => setDeliverableDialogOpen(true)}>
+                      <Plus className="mr-2 h-4 w-4" />
+                      Add First Deliverable
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {deliverables.map((deliverable: any) => (
+                      <div
+                        key={deliverable.id}
+                        className="flex items-center justify-between p-4 rounded-lg border hover:bg-muted/50 transition-colors"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-purple-100 text-sm font-medium text-purple-700">
+                            <Video className="h-4 w-4" />
+                          </div>
+                          <div>
+                            <p className="font-medium">{deliverable.title}</p>
+                            {deliverable.notes && (
+                              <p className="text-sm text-muted-foreground line-clamp-1">
+                                {deliverable.notes}
+                              </p>
+                            )}
+                            {deliverable.file_format && (
+                              <p className="text-xs text-muted-foreground mt-0.5">
+                                Format: {deliverable.file_format}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Badge variant={
+                            deliverable.status === 'approved' ? 'default' :
+                            deliverable.status === 'rejected' ? 'destructive' :
+                            deliverable.status === 'in_review' ? 'secondary' :
+                            'outline'
+                          }>
+                            {deliverable.status || 'pending'}
+                          </Badge>
+                          {deliverable.revision_count > 0 && (
+                            <span className="text-xs text-muted-foreground">
+                              Rev {deliverable.revision_count}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>

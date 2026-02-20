@@ -545,6 +545,11 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/solutions/products/[id]': 'solutions.view',
   '/solutions/products/[id]/edit': 'solutions.edit',
   '/solutions/products/rdif': 'solutions.view',
+  '/solutions/pipeline': 'solutions.view',
+  '/solutions/pipeline/list': 'solutions.view',
+  '/solutions/pipeline/new': 'solutions.create',
+  '/solutions/pipeline/[id]': 'solutions.view',
+  '/solutions/pipeline/[id]/edit': 'solutions.edit',
 
   // Talent Portals (Role-specific)
   '/talent/builder': 'talent.builder.view',
@@ -1428,6 +1433,29 @@ export function GetPages(pathname: string): MenuGroup[] {
           submenus: []
         },
         {
+          href: '/solutions/pipeline',
+          label: 'Pipeline',
+          active: pathname.startsWith('/solutions/pipeline'),
+          icon: Target,
+          submenus: [
+            {
+              href: '/solutions/pipeline',
+              label: 'Board View',
+              active: pathname === '/solutions/pipeline'
+            },
+            {
+              href: '/solutions/pipeline/list',
+              label: 'List View',
+              active: pathname === '/solutions/pipeline/list'
+            },
+            {
+              href: '/solutions/pipeline/new',
+              label: 'Add Prospect',
+              active: pathname === '/solutions/pipeline/new'
+            }
+          ]
+        },
+        {
           href: '/solutions/departments',
           label: 'Departments',
           active: pathname.startsWith('/solutions/departments'),
@@ -1479,7 +1507,7 @@ export function GetPages(pathname: string): MenuGroup[] {
         {
           href: '/solutions/list',
           label: 'All Solutions',
-          active: pathname === '/solutions/list' || (pathname.startsWith('/solutions/') && !pathname.startsWith('/solutions/clients') && !pathname.startsWith('/solutions/software') && !pathname.startsWith('/solutions/training') && !pathname.startsWith('/solutions/content') && !pathname.startsWith('/solutions/discovery') && !pathname.startsWith('/solutions/payments') && !pathname.startsWith('/solutions/earnings') && !pathname.startsWith('/solutions/publications') && !pathname.startsWith('/solutions/departments') && !pathname.startsWith('/solutions/builders') && !pathname.startsWith('/solutions/settings') && !pathname.startsWith('/solutions/compliance')),
+          active: pathname === '/solutions/list' || (pathname.startsWith('/solutions/') && !pathname.startsWith('/solutions/clients') && !pathname.startsWith('/solutions/software') && !pathname.startsWith('/solutions/training') && !pathname.startsWith('/solutions/content') && !pathname.startsWith('/solutions/discovery') && !pathname.startsWith('/solutions/payments') && !pathname.startsWith('/solutions/earnings') && !pathname.startsWith('/solutions/publications') && !pathname.startsWith('/solutions/departments') && !pathname.startsWith('/solutions/builders') && !pathname.startsWith('/solutions/settings') && !pathname.startsWith('/solutions/compliance') && !pathname.startsWith('/solutions/pipeline')),
           icon: FileStack,
           submenus: [
             {
