@@ -9,6 +9,7 @@ import type {
   CreateProspectInput,
   CreateProspectActivityInput,
   ProspectStats,
+  PipelineAnalytics,
   PipelineStage,
   SourceType,
   SolutionType,
@@ -47,6 +48,8 @@ export interface UpdateProspectInput {
   notes?: string;
   tags?: string[];
   lost_reason?: string;
+  proposal_url?: string;
+  proposal_filename?: string;
 }
 
 // ============================================
@@ -237,6 +240,8 @@ export class ProspectsService extends BaseService {
     if (input.notes !== undefined) updateData.notes = input.notes;
     if (input.tags !== undefined) updateData.tags = input.tags;
     if (input.lost_reason !== undefined) updateData.lost_reason = input.lost_reason;
+    if (input.proposal_url !== undefined) updateData.proposal_url = input.proposal_url;
+    if (input.proposal_filename !== undefined) updateData.proposal_filename = input.proposal_filename;
 
     const { data, error } = await this.supabase.from('sh_prospects')
       .update(updateData)
@@ -415,6 +420,137 @@ export class ProspectsService extends BaseService {
 
     return board;
   }
+
+  /**
+   * Get pipeline analytics for charts (monthly win rate, source breakdown, funnel, trends)
+   */
+  static async getPipelineAnalytics(): Promise<PipelineAnalytics> {
+    const { data, error } = await this.supabase.from('sh_prospects')
+      .select('pipeline_stage, source_type, expected_deal_size, created_at, updated_at, is_active')
+      .order('created_at', { ascending: true });
+
+    if (error) throw new Error(`Failed to fetch analytics: ${error.message}`);
+    const prospects = data || [];
+
+    // Helper: get month key (e.g. "Jan 2026")
+    const getMonthKey = (dateStr: string) => {
+      const d = new Date(dateStr);
+      return d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+    };
+
+    // Get last 6 months
+    const now = new Date();
+    const last6Months: string[] = [];
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      last6Months.push(d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }));
+    }
+
+    // Monthly win rate + monthly prospect trends
+    const monthlyMap: Record<string, { won: number; lost: number; new: number }> = {};
+    for (const m of last6Months) {
+      monthlyMap[m] = { won: 0, lost: 0, new: 0 };
+    }
+
+    for (const p of prospects) {
+      const createdMonth = getMonthKey(p.created_at);
+      if (monthlyMap[createdMonth]) {
+        monthlyMap[createdMonth].new++;
+      }
+
+      const stage = p.pipeline_stage as PipelineStage;
+      if ((stage === 'won' || stage === 'lost') && p.updated_at) {
+        const updatedMonth = getMonthKey(p.updated_at);
+        if (monthlyMap[updatedMonth]) {
+          if (stage === 'won') monthlyMap[updatedMonth].won++;
+          if (stage === 'lost') monthlyMap[updatedMonth].lost++;
+        }
+      }
+    }
+
+    const monthlyWinRate = last6Months.map((month) => {
+      const d = monthlyMap[month];
+      const total = d.won + d.lost;
+      return { month, winRate: total > 0 ? Math.round((d.won / total) * 100) : 0, won: d.won, lost: d.lost };
+    });
+
+    const monthlyProspects = last6Months.map((month) => {
+      const d = monthlyMap[month];
+      return { month, new: d.new, won: d.won, lost: d.lost };
+    });
+
+    // Source breakdown
+    const sourceMap: Record<string, { count: number; won: number; value: number }> = {};
+    for (const p of prospects) {
+      const src = p.source_type || 'direct';
+      if (!sourceMap[src]) sourceMap[src] = { count: 0, won: 0, value: 0 };
+      sourceMap[src].count++;
+      if (p.pipeline_stage === 'won') sourceMap[src].won++;
+      if (p.expected_deal_size) sourceMap[src].value += Number(p.expected_deal_size);
+    }
+    const sourceBreakdown = Object.entries(sourceMap).map(([source, d]) => ({
+      source: source.charAt(0).toUpperCase() + source.slice(1),
+      count: d.count,
+      won: d.won,
+      value: d.value,
+    }));
+
+    // Conversion funnel
+    const funnelStages: PipelineStage[] = ['lead', 'qualified', 'proposal', 'negotiation', 'won'];
+    const stageCounts: Record<string, number> = {};
+    for (const p of prospects) {
+      const stage = p.pipeline_stage as PipelineStage;
+      stageCounts[stage] = (stageCounts[stage] || 0) + 1;
+    }
+
+    // Funnel: count prospects that reached each stage or beyond
+    const stageOrder: PipelineStage[] = ['lead', 'qualified', 'proposal', 'negotiation', 'won'];
+    const cumulativeCounts: Record<string, number> = {};
+    for (const stage of stageOrder) {
+      const stageIdx = stageOrder.indexOf(stage);
+      let count = 0;
+      for (const p of prospects) {
+        const pStage = p.pipeline_stage as PipelineStage;
+        const pIdx = stageOrder.indexOf(pStage);
+        // Count lost/dormant at their last active stage equivalent
+        if (pStage === 'lost' || pStage === 'dormant') {
+          // These prospects at least reached lead stage
+          if (stage === 'lead') count++;
+        } else if (pIdx >= stageIdx) {
+          count++;
+        }
+      }
+      cumulativeCounts[stage] = count;
+    }
+
+    const totalForFunnel = cumulativeCounts['lead'] || 1;
+    const conversionFunnel = funnelStages.map((stage) => ({
+      stage: stage.charAt(0).toUpperCase() + stage.slice(1),
+      count: cumulativeCounts[stage] || 0,
+      percentage: Math.round(((cumulativeCounts[stage] || 0) / totalForFunnel) * 100),
+    }));
+
+    // Avg days in pipeline
+    let totalDays = 0;
+    let countForAvg = 0;
+    for (const p of prospects) {
+      if (['won', 'lost'].includes(p.pipeline_stage) && p.created_at) {
+        const days = Math.floor(
+          (new Date(p.updated_at || p.created_at).getTime() - new Date(p.created_at).getTime()) / (1000 * 60 * 60 * 24)
+        );
+        totalDays += days;
+        countForAvg++;
+      }
+    }
+
+    return {
+      monthlyWinRate,
+      sourceBreakdown,
+      avgDaysInPipeline: countForAvg > 0 ? Math.round(totalDays / countForAvg) : 0,
+      conversionFunnel,
+      monthlyProspects,
+    };
+  }
 }
 
 // Singleton export
@@ -430,4 +566,5 @@ export const prospectsService = {
   logActivity: ProspectsService.logActivity.bind(ProspectsService),
   getProspectStats: ProspectsService.getProspectStats.bind(ProspectsService),
   getPipelineBoard: ProspectsService.getPipelineBoard.bind(ProspectsService),
+  getPipelineAnalytics: ProspectsService.getPipelineAnalytics.bind(ProspectsService),
 };

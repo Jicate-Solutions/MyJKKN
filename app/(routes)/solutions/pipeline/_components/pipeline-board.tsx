@@ -43,8 +43,10 @@ import { cn } from '@/lib/utils';
 import { usePipelineBoard, useUpdatePipelineStage } from '@/hooks/solutions/use-prospects';
 import { ProspectCard } from '@/components/solutions/pipeline/prospect-card';
 import { PipelineStats } from '@/components/solutions/pipeline/pipeline-stats';
+import { OverdueAlertBanner } from '@/components/solutions/pipeline/overdue-alert-banner';
 import { PipelineStageBadge } from '@/components/solutions/pipeline/pipeline-stage-badge';
 import { LostReasonDialog } from '@/components/solutions/pipeline/lost-reason-dialog';
+import { ConvertToClientDialog } from '@/components/solutions/pipeline/convert-to-client-dialog';
 import type { Prospect, PipelineStage } from '@/lib/services/solutions/types';
 import {
   PIPELINE_STAGE_LABELS,
@@ -243,6 +245,8 @@ export function PipelineBoard() {
     id: string;
     name: string;
   } | null>(null);
+  const [wonDialogOpen, setWonDialogOpen] = useState(false);
+  const [pendingWonProspect, setPendingWonProspect] = useState<Prospect | null>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -302,6 +306,13 @@ export function PipelineBoard() {
         name: prospect.company_name,
       });
       setLostDialogOpen(true);
+      return;
+    }
+
+    // If target is 'won', show the convert to client dialog
+    if (targetStage === 'won') {
+      setPendingWonProspect(prospect);
+      setWonDialogOpen(true);
       return;
     }
 
@@ -366,6 +377,9 @@ export function PipelineBoard() {
 
   return (
     <div className="space-y-6">
+      {/* Overdue Follow-up Reminders */}
+      <OverdueAlertBanner />
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -444,6 +458,16 @@ export function PipelineBoard() {
         onConfirm={handleLostConfirm}
         isLoading={updateStage.isPending}
         prospectName={pendingLostProspect?.name}
+      />
+
+      {/* Convert to Client Dialog */}
+      <ConvertToClientDialog
+        open={wonDialogOpen}
+        onOpenChange={(open) => {
+          setWonDialogOpen(open);
+          if (!open) setPendingWonProspect(null);
+        }}
+        prospect={pendingWonProspect}
       />
     </div>
   );

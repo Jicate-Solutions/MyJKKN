@@ -53,7 +53,11 @@ export function ProspectCard({ prospect, onClick, compact = false }: ProspectCar
     ? differenceInDays(new Date(), new Date(prospect.last_contact_date))
     : null;
 
-  const isOverdue = daysSinceContact !== null && daysSinceContact > 7;
+  const isFollowUpOverdue = prospect.next_action_date
+    ? new Date(prospect.next_action_date) < new Date()
+    : false;
+
+  const isOverdue = isFollowUpOverdue || (daysSinceContact !== null && daysSinceContact > 7);
 
   const solutionConfig = prospect.solution_type_interest
     ? SOLUTION_CONFIG[prospect.solution_type_interest]
@@ -90,6 +94,11 @@ export function ProspectCard({ prospect, onClick, compact = false }: ProspectCar
               </Badge>
               {solutionConfig && SolutionIcon && (
                 <SolutionIcon className={cn('h-3.5 w-3.5', solutionConfig.color)} />
+              )}
+              {isFollowUpOverdue && (
+                <Badge variant="destructive" className="text-[10px] px-1.5 py-0">
+                  Overdue
+                </Badge>
               )}
             </div>
             {daysSinceContact !== null && (
@@ -158,6 +167,12 @@ export function ProspectCard({ prospect, onClick, compact = false }: ProspectCar
           <Badge variant="outline" className="text-xs">
             {SOURCE_LABELS[prospect.source_type]}
           </Badge>
+
+          {isFollowUpOverdue && (
+            <Badge variant="destructive" className="text-xs">
+              Overdue
+            </Badge>
+          )}
         </div>
 
         <div className="flex items-center justify-between text-xs text-muted-foreground border-t pt-2">

@@ -550,6 +550,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/solutions/pipeline/new': 'solutions.create',
   '/solutions/pipeline/[id]': 'solutions.view',
   '/solutions/pipeline/[id]/edit': 'solutions.edit',
+  '/solutions/pipeline/analytics': 'solutions.view',
 
   // Talent Portals (Role-specific)
   '/talent/builder': 'talent.builder.view',
@@ -1452,6 +1453,11 @@ export function GetPages(pathname: string): MenuGroup[] {
               href: '/solutions/pipeline/new',
               label: 'Add Prospect',
               active: pathname === '/solutions/pipeline/new'
+            },
+            {
+              href: '/solutions/pipeline/analytics',
+              label: 'Analytics',
+              active: pathname === '/solutions/pipeline/analytics'
             }
           ]
         },

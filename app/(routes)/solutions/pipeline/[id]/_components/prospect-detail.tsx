@@ -40,12 +40,15 @@ import {
   useProspect,
   useProspectActivities,
   useUpdatePipelineStage,
+  useUpdateProspect,
   useDeleteProspect,
 } from '@/hooks/solutions/use-prospects';
 import { PipelineStageBadge } from '@/components/solutions/pipeline/pipeline-stage-badge';
 import { ActivityTimeline } from '@/components/solutions/pipeline/activity-timeline';
 import { LogActivityDialog } from '@/components/solutions/pipeline/log-activity-dialog';
 import { LostReasonDialog } from '@/components/solutions/pipeline/lost-reason-dialog';
+import { ConvertToClientDialog } from '@/components/solutions/pipeline/convert-to-client-dialog';
+import { FileUpload } from '@/components/solutions/pipeline/file-upload';
 import type { PipelineStage, SolutionType } from '@/lib/services/solutions/types';
 import {
   PIPELINE_STAGE_LABELS,
@@ -95,9 +98,11 @@ export function ProspectDetail({ prospectId }: ProspectDetailProps) {
   const { data: activities, isLoading: activitiesLoading } =
     useProspectActivities(prospectId);
   const updateStage = useUpdatePipelineStage();
+  const updateProspect = useUpdateProspect();
   const deleteProspect = useDeleteProspect();
 
   const [lostDialogOpen, setLostDialogOpen] = useState(false);
+  const [wonDialogOpen, setWonDialogOpen] = useState(false);
 
   if (isLoading) {
     return (
@@ -141,6 +146,11 @@ export function ProspectDetail({ prospectId }: ProspectDetailProps) {
 
     if (stage === 'lost') {
       setLostDialogOpen(true);
+      return;
+    }
+
+    if (stage === 'won') {
+      setWonDialogOpen(true);
       return;
     }
 
@@ -363,6 +373,39 @@ export function ProspectDetail({ prospectId }: ProspectDetailProps) {
             </CardContent>
           </Card>
 
+          {/* Documents Card */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">Documents</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <FileUpload
+                entityType="prospect"
+                entityId={prospectId}
+                currentUrl={prospect.proposal_url ?? undefined}
+                currentFilename={prospect.proposal_filename ?? undefined}
+                onUploadComplete={(url, filename) => {
+                  updateProspect.mutate(
+                    { id: prospectId, input: { proposal_url: url, proposal_filename: filename } },
+                    {
+                      onSuccess: () => toast.success('Proposal document saved'),
+                      onError: () => toast.error('Failed to save document'),
+                    }
+                  );
+                }}
+                onDelete={() => {
+                  updateProspect.mutate(
+                    { id: prospectId, input: { proposal_url: '', proposal_filename: '' } },
+                    {
+                      onSuccess: () => toast.success('Document removed'),
+                      onError: () => toast.error('Failed to remove document'),
+                    }
+                  );
+                }}
+              />
+            </CardContent>
+          </Card>
+
           {/* Follow-up Card */}
           <Card>
             <CardHeader>
@@ -449,6 +492,13 @@ export function ProspectDetail({ prospectId }: ProspectDetailProps) {
         onConfirm={handleLostConfirm}
         isLoading={updateStage.isPending}
         prospectName={prospect.company_name}
+      />
+
+      {/* Convert to Client Dialog */}
+      <ConvertToClientDialog
+        open={wonDialogOpen}
+        onOpenChange={setWonDialogOpen}
+        prospect={prospect}
       />
     </div>
   );

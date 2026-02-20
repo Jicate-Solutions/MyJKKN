@@ -714,6 +714,8 @@ export const solutionsHubKeys = {
       [...solutionsHubKeys.prospects.all, 'activities', prospectId] as const,
     overdue: () =>
       [...solutionsHubKeys.prospects.all, 'overdue'] as const,
+    analytics: () =>
+      [...solutionsHubKeys.prospects.all, 'analytics'] as const,
   },
 
   // Department Dashboard

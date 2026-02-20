@@ -70,6 +70,14 @@ export function useProspectActivities(prospectId: string) {
   });
 }
 
+export function usePipelineAnalytics() {
+  return useQuery({
+    queryKey: solutionsHubKeys.prospects.analytics(),
+    queryFn: () => prospectsService.getPipelineAnalytics(),
+    ...QUERY_CONFIG.SEMI_STABLE_DATA,
+  });
+}
+
 // ============================================
 // MUTATION HOOKS
 // ============================================

@@ -172,6 +172,8 @@ export interface Prospect extends BaseEntity {
   last_contact_date?: string;
   notes?: string;
   tags?: string[];
+  proposal_url?: string;
+  proposal_filename?: string;
   converted_client_id?: string;
   lost_reason?: string;
   is_active: boolean;
@@ -229,6 +231,14 @@ export interface ProspectStats {
   wonThisMonth: number;
   lostThisMonth: number;
   avgDaysInPipeline: number;
+}
+
+export interface PipelineAnalytics {
+  monthlyWinRate: Array<{ month: string; winRate: number; won: number; lost: number }>;
+  sourceBreakdown: Array<{ source: string; count: number; won: number; value: number }>;
+  avgDaysInPipeline: number;
+  conversionFunnel: Array<{ stage: string; count: number; percentage: number }>;
+  monthlyProspects: Array<{ month: string; new: number; won: number; lost: number }>;
 }
 
 // ============================================

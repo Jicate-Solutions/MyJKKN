@@ -382,6 +382,7 @@ export {
   useProspect,
   useProspectStats,
   usePipelineBoard,
+  usePipelineAnalytics,
   useProspectActivities,
   useCreateProspect,
   useUpdateProspect,
@@ -391,6 +392,8 @@ export {
   type ProspectFilters,
   type UpdateProspectInput,
 } from './use-prospects';
+
+export { useOverdueProspects } from './use-overdue-prospects';
 
 // ============================================
 // DISCOVERY HOOKS

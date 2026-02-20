@@ -27,6 +27,7 @@ import { useContentOrderStats } from '@/hooks/solutions/use-content';
 import { usePhaseStats } from '@/hooks/solutions/use-phases';
 import { useProductStats, useRDIFReadinessScore } from '@/hooks/solutions/use-products';
 import { useProspectStats } from '@/hooks/solutions/use-prospects';
+import { OverdueAlertBanner } from '@/components/solutions/pipeline/overdue-alert-banner';
 import { DepartmentTrackerSummary } from './department-tracker-summary';
 
 function formatCurrency(amount: number): string {
@@ -61,6 +62,9 @@ export function SolutionsDashboard() {
 
   return (
     <div className="space-y-6">
+      {/* Overdue Follow-up Reminders */}
+      <OverdueAlertBanner />
+
       {/* Department Tracker Summary */}
       <DepartmentTrackerSummary />
 
