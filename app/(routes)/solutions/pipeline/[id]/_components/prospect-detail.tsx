@@ -52,7 +52,6 @@ import { FileUpload } from '@/components/solutions/pipeline/file-upload';
 import type { PipelineStage, SolutionType } from '@/lib/services/solutions/types';
 import {
   PIPELINE_STAGE_LABELS,
-  PIPELINE_STAGE_COLORS,
 } from '@/lib/services/solutions/prospects-service';
 
 // ============================================

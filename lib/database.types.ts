@@ -22375,6 +22375,8 @@ export type Database = {
           next_action_date: string | null
           notes: string | null
           pipeline_stage: Database["public"]["Enums"]["sh_pipeline_stage"]
+          proposal_filename: string | null
+          proposal_url: string | null
           prospect_code: string
           solution_type_interest:
             | Database["public"]["Enums"]["sh_solution_type"]
@@ -22403,6 +22405,8 @@ export type Database = {
           next_action_date?: string | null
           notes?: string | null
           pipeline_stage?: Database["public"]["Enums"]["sh_pipeline_stage"]
+          proposal_filename?: string | null
+          proposal_url?: string | null
           prospect_code: string
           solution_type_interest?:
             | Database["public"]["Enums"]["sh_solution_type"]
@@ -22431,6 +22435,8 @@ export type Database = {
           next_action_date?: string | null
           notes?: string | null
           pipeline_stage?: Database["public"]["Enums"]["sh_pipeline_stage"]
+          proposal_filename?: string | null
+          proposal_url?: string | null
           prospect_code?: string
           solution_type_interest?:
             | Database["public"]["Enums"]["sh_solution_type"]
