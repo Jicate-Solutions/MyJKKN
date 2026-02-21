@@ -32,7 +32,7 @@ export async function GET(request: Request, { params }: RouteParams) {
         `
         *,
         process:process_definitions(id, name, category, stages, sla_hours, target_value_add_ratio),
-        auditor:users_profiles!process_audits_auditor_id_fkey(id, first_name, last_name),
+        auditor:profiles!process_audits_auditor_id_fkey(id, full_name, email),
         institution:institutions(id, name)
       `
       )
@@ -96,7 +96,7 @@ export async function PATCH(request: Request, { params }: RouteParams) {
         `
         *,
         process:process_definitions(id, name, category),
-        auditor:users_profiles!process_audits_auditor_id_fkey(id, first_name, last_name),
+        auditor:profiles!process_audits_auditor_id_fkey(id, full_name, email),
         institution:institutions(id, name)
       `
       )

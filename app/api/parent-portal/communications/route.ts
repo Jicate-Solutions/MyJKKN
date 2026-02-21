@@ -50,8 +50,7 @@ export async function GET(request: NextRequest) {
       .select(
         `
         *,
-        sender:users_profiles(id, name, avatar_url),
-        learner:learners_profiles(id, name, enrollment_number)
+        learner:learners_profiles(id, first_name, last_name, roll_number)
       `,
         { count: 'exact' }
       );
@@ -151,12 +150,7 @@ export async function POST(request: NextRequest) {
     const { data, error } = await supabase
       .from('parent_communications')
       .insert(validated)
-      .select(
-        `
-        *,
-        sender:users_profiles(id, name, avatar_url)
-      `
-      )
+      .select('*')
       .single();
 
     if (error) {

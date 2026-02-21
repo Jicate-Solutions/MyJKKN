@@ -51,7 +51,7 @@ export async function GET(request: Request) {
         `
         *,
         process:process_definitions(id, name, category),
-        reporter:users_profiles!waste_incidents_reported_by_fkey(id, first_name, last_name),
+        reporter:profiles!waste_incidents_reported_by_fkey(id, full_name, email),
         institution:institutions(id, name)
       `,
         { count: 'exact' }
@@ -160,7 +160,7 @@ export async function POST(request: Request) {
         `
         *,
         process:process_definitions(id, name, category),
-        reporter:users_profiles!waste_incidents_reported_by_fkey(id, first_name, last_name),
+        reporter:profiles!waste_incidents_reported_by_fkey(id, full_name, email),
         institution:institutions(id, name)
       `
       )

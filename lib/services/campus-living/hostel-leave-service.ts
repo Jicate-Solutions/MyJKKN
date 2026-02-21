@@ -20,7 +20,7 @@ export class HostelLeaveService {
       const supabase = createClientSupabaseClient();
       let query = supabase
         .from('hostel_leave_requests')
-        .select('*, learner:users_profiles!learner_id(id, full_name, email), block:hostel_blocks!block_id(id, name, code)', { count: 'exact' })
+        .select('*, learner:profiles!hostel_leave_requests_learner_id_fkey(id, full_name, email), block:hostel_blocks!block_id(id, name, code)', { count: 'exact' })
         .eq('institution_id', institutionId);
 
       if (filters?.block_id) query = query.eq('block_id', filters.block_id);
@@ -129,7 +129,7 @@ export class HostelLeaveService {
   // ── Parent consent approval ───────────────────────────────────────
   static async approveParentConsent(
     leaveId: string,
-    method: string
+    method: 'otp' | 'app_approval' | 'sms_reply' | 'in_person'
   ) {
     try {
       const supabase = createClientSupabaseClient();

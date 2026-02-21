@@ -20,7 +20,7 @@ export class HostelAllocationService {
       const supabase = createClientSupabaseClient();
       let query = supabase
         .from('hostel_allocations')
-        .select('*, hostel_blocks(name, code), hostel_rooms(room_number, floor), hostel_beds(bed_number)', { count: 'exact' })
+        .select('*, learner:profiles!hostel_allocations_learner_id_fkey(id, full_name, email), hostel_blocks(name, code), hostel_rooms(room_number, floor), hostel_beds(bed_number)', { count: 'exact' })
         .eq('institution_id', institutionId);
 
       if (filters?.block_id) query = query.eq('block_id', filters.block_id);
@@ -52,7 +52,7 @@ export class HostelAllocationService {
       const supabase = createClientSupabaseClient();
       let query = supabase
         .from('hostel_allocations')
-        .select('*, hostel_blocks(name, code), hostel_rooms(room_number, floor), hostel_beds(bed_number)')
+        .select('*, learner:profiles!hostel_allocations_learner_id_fkey(id, full_name, email), hostel_blocks(name, code), hostel_rooms(room_number, floor), hostel_beds(bed_number)')
         .eq('institution_id', institutionId)
         .eq('status', 'active');
 
@@ -77,7 +77,7 @@ export class HostelAllocationService {
       const supabase = createClientSupabaseClient();
       const { data, error } = await supabase
         .from('hostel_allocations')
-        .select('*, hostel_blocks(name, code), hostel_rooms(room_number, floor, room_type, ac_status), hostel_beds(bed_number, bed_type)')
+        .select('*, learner:profiles!hostel_allocations_learner_id_fkey(id, full_name, email), hostel_blocks(name, code), hostel_rooms(room_number, floor, room_type, ac_status), hostel_beds(bed_number, bed_type)')
         .eq('id', id)
         .single();
 
@@ -98,7 +98,7 @@ export class HostelAllocationService {
       const supabase = createClientSupabaseClient();
       let query = supabase
         .from('hostel_allocations')
-        .select('*, hostel_blocks(name, code), hostel_rooms(room_number, floor), hostel_beds(bed_number)')
+        .select('*, learner:profiles!hostel_allocations_learner_id_fkey(id, full_name, email), hostel_blocks(name, code), hostel_rooms(room_number, floor), hostel_beds(bed_number)')
         .eq('learner_id', learnerId);
 
       if (activeOnly) query = query.eq('status', 'active');

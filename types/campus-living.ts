@@ -2,6 +2,8 @@
 // Campus Living Module — Complete Type Definitions
 // Covers: Hostel, Mess, Safety, Analytics (34 tables, 40+ enums)
 
+import type { Json } from './database.types';
+
 // ===================================================================
 // ENUMS
 // ===================================================================
@@ -190,7 +192,7 @@ export interface HostelBlock {
   visiting_hours_start: string | null;
   visiting_hours_end: string | null;
   status: BlockStatus;
-  metadata: Record<string, unknown> | null;
+  metadata: Json | null;
   created_at: string;
   updated_at: string;
 }
@@ -213,7 +215,7 @@ export interface HostelRoom {
   status: RoomStatus;
   maintenance_notes: string | null;
   last_inspection_date: string | null;
-  metadata: Record<string, unknown> | null;
+  metadata: Json | null;
   created_at: string;
   updated_at: string;
 }
@@ -227,7 +229,7 @@ export interface HostelBed {
   bed_type: BedType;
   status: BedStatus;
   current_occupant_id: string | null;
-  metadata: Record<string, unknown> | null;
+  metadata: Json | null;
   created_at: string;
   updated_at: string;
 }
@@ -276,7 +278,7 @@ export interface HostelAllocation {
   food_preference: FoodPreference | null;
   roommate_preference_ids: string[] | null;
   allocated_by: string | null;
-  metadata: Record<string, unknown> | null;
+  metadata: Json | null;
   created_at: string;
   updated_at: string;
 }
@@ -397,7 +399,7 @@ export interface MessCaterer {
   performance_score: number;
   status: CatererStatus;
   bank_details: Record<string, unknown> | null;
-  metadata: Record<string, unknown> | null;
+  metadata: Json | null;
   created_at: string;
   updated_at: string;
 }
@@ -760,7 +762,7 @@ export interface HostelAccessLog {
   photo_url: string | null;
   is_flagged: boolean;
   flag_reason: string | null;
-  metadata: Record<string, unknown> | null;
+  metadata: Json | null;
   created_at: string;
 }
 
@@ -851,7 +853,7 @@ export interface HostelLeaveTypeConfig {
   requires_chief_warden: boolean;
   requires_attachment: boolean;
   is_active: boolean;
-  metadata: Record<string, unknown> | null;
+  metadata: Json | null;
   created_at: string;
   updated_at: string;
 }

@@ -20,8 +20,8 @@ async function registerHandler(
     // Find the learner by enrollment number
     const { data: learner, error: learnerError } = await supabase
       .from('learners_profiles')
-      .select('id, name, institution_id')
-      .eq('enrollment_number', validated.learner_enrollment_number)
+      .select('id, first_name, last_name, institution_id')
+      .eq('roll_number', validated.learner_enrollment_number)
       .eq('institution_id', validated.institution_id)
       .single();
 
@@ -105,7 +105,7 @@ async function registerHandler(
       message: 'Please verify your phone number to complete registration',
       requires_verification: true,
       learner_id: learner.id,
-      learner_name: learner.name,
+      learner_name: `${learner.first_name} ${learner.last_name}`.trim(),
     });
   } catch (error) {
     console.error('[parent-portal/auth/register] POST error:', error);

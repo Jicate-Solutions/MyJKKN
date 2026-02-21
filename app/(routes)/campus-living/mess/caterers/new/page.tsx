@@ -48,9 +48,9 @@ export default function NewCatererPage() {
         status: 'active' as any,
         bank_details: null,
         metadata: {
-          pan_number: formData.get('pan_number') || null,
-          meal_type: formData.get('meal_type') || null,
-          contract_notes: formData.get('contract_notes') || null,
+          pan_number: formData.get('pan_number')?.toString() || null,
+          meal_type: formData.get('meal_type')?.toString() || null,
+          contract_notes: formData.get('contract_notes')?.toString() || null,
         },
       });
       router.push('/campus-living/mess/caterers');

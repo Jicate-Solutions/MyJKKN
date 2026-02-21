@@ -47,7 +47,7 @@ export class HostelAttendanceService {
       const supabase = createClientSupabaseClient();
       let query = supabase
         .from('hostel_attendance')
-        .select('*, learner:users_profiles!learner_id(id, full_name, email)')
+        .select('*, learner:profiles!hostel_attendance_learner_id_fkey(id, full_name, email)')
         .eq('institution_id', institutionId)
         .eq('date', date);
 

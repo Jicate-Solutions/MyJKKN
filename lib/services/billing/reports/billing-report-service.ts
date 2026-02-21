@@ -900,7 +900,7 @@ export class BillingReportService {
         *,
         receipt:billing_receipts(
           receipt_number,
-          student:learners_profiles(student_name, roll_number)
+          student:learners_profiles(first_name, last_name, roll_number)
         )
       `
       )

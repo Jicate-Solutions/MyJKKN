@@ -44,8 +44,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
       .select(
         `
         *,
-        sender:users_profiles(id, name, avatar_url),
-        learner:learners_profiles(id, name, enrollment_number)
+        learner:learners_profiles(id, first_name, last_name, roll_number)
       `
       )
       .eq('id', id)

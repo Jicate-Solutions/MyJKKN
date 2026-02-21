@@ -2964,6 +2964,34 @@ export type Database = {
             referencedRelation: "semester_hierarchy_health"
             referencedColumns: ["institution_id"]
           },
+          {
+            foreignKeyName: "anti_ragging_affidavits_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "anti_ragging_affidavits_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "anti_ragging_affidavits_verified_by_fkey"
+            columns: ["verified_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "anti_ragging_affidavits_verified_by_fkey"
+            columns: ["verified_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
         ]
       }
       api_keys: {
@@ -8390,6 +8418,20 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "hostel_alert_rules_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "hostel_alert_rules_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "hostel_alert_rules_institution_id_fkey"
             columns: ["institution_id"]
             isOneToOne: false
@@ -8504,6 +8546,20 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "hostel_allocations_allocated_by_fkey"
+            columns: ["allocated_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "hostel_allocations_allocated_by_fkey"
+            columns: ["allocated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "hostel_allocations_bed_id_fkey"
             columns: ["bed_id"]
             isOneToOne: false
@@ -8530,6 +8586,20 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "semester_hierarchy_health"
             referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "hostel_allocations_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "hostel_allocations_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
           },
           {
             foreignKeyName: "hostel_allocations_room_id_fkey"
@@ -8629,6 +8699,34 @@ export type Database = {
             referencedRelation: "semester_hierarchy_health"
             referencedColumns: ["institution_id"]
           },
+          {
+            foreignKeyName: "hostel_attendance_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "hostel_attendance_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_attendance_marked_by_fkey"
+            columns: ["marked_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "hostel_attendance_marked_by_fkey"
+            columns: ["marked_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
         ]
       }
       hostel_beds: {
@@ -8669,6 +8767,20 @@ export type Database = {
           updated_at?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "hostel_beds_current_occupant_id_fkey"
+            columns: ["current_occupant_id"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "hostel_beds_current_occupant_id_fkey"
+            columns: ["current_occupant_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "hostel_beds_institution_id_fkey"
             columns: ["institution_id"]
@@ -8767,6 +8879,20 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "hostel_blocks_deputy_warden_id_fkey"
+            columns: ["deputy_warden_id"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "hostel_blocks_deputy_warden_id_fkey"
+            columns: ["deputy_warden_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "hostel_blocks_institution_id_fkey"
             columns: ["institution_id"]
             isOneToOne: false
@@ -8779,6 +8905,20 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "semester_hierarchy_health"
             referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "hostel_blocks_warden_id_fkey"
+            columns: ["warden_id"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "hostel_blocks_warden_id_fkey"
+            columns: ["warden_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -8832,6 +8972,20 @@ export type Database = {
           updated_at?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "hostel_curfew_exceptions_approved_by_fkey"
+            columns: ["approved_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "hostel_curfew_exceptions_approved_by_fkey"
+            columns: ["approved_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "hostel_curfew_exceptions_block_id_fkey"
             columns: ["block_id"]
@@ -8928,6 +9082,20 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "semester_hierarchy_health"
             referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "hostel_deposits_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "hostel_deposits_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -9069,6 +9237,48 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "hostel_gate_passes_approved_by_fkey"
+            columns: ["approved_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "hostel_gate_passes_approved_by_fkey"
+            columns: ["approved_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_gate_passes_gate_security_in_fkey"
+            columns: ["gate_security_in"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "hostel_gate_passes_gate_security_in_fkey"
+            columns: ["gate_security_in"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_gate_passes_gate_security_out_fkey"
+            columns: ["gate_security_out"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "hostel_gate_passes_gate_security_out_fkey"
+            columns: ["gate_security_out"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "hostel_gate_passes_institution_id_fkey"
             columns: ["institution_id"]
             isOneToOne: false
@@ -9081,6 +9291,20 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "semester_hierarchy_health"
             referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "hostel_gate_passes_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "hostel_gate_passes_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
           },
           {
             foreignKeyName: "hostel_gate_passes_leave_request_id_fkey"
@@ -9143,6 +9367,20 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "semester_hierarchy_health"
             referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "hostel_incident_parties_person_id_fkey"
+            columns: ["person_id"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "hostel_incident_parties_person_id_fkey"
+            columns: ["person_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -9255,6 +9493,20 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "hostel_incidents_closed_by_fkey"
+            columns: ["closed_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "hostel_incidents_closed_by_fkey"
+            columns: ["closed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "hostel_incidents_institution_id_fkey"
             columns: ["institution_id"]
             isOneToOne: false
@@ -9267,6 +9519,20 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "semester_hierarchy_health"
             referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "hostel_incidents_reported_by_fkey"
+            columns: ["reported_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "hostel_incidents_reported_by_fkey"
+            columns: ["reported_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -9328,6 +9594,20 @@ export type Database = {
             columns: ["block_id"]
             isOneToOne: false
             referencedRelation: "hostel_blocks"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_inspections_inspector_id_fkey"
+            columns: ["inspector_id"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "hostel_inspections_inspector_id_fkey"
+            columns: ["inspector_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
           {
@@ -9418,6 +9698,20 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "semester_hierarchy_health"
             referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "hostel_known_visitors_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "hostel_known_visitors_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -9557,6 +9851,20 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "hostel_leave_requests_chief_warden_id_fkey"
+            columns: ["chief_warden_id"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "hostel_leave_requests_chief_warden_id_fkey"
+            columns: ["chief_warden_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "hostel_leave_requests_institution_id_fkey"
             columns: ["institution_id"]
             isOneToOne: false
@@ -9569,6 +9877,34 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "semester_hierarchy_health"
             referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "hostel_leave_requests_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "hostel_leave_requests_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_leave_requests_warden_id_fkey"
+            columns: ["warden_id"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "hostel_leave_requests_warden_id_fkey"
+            columns: ["warden_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -9758,10 +10094,38 @@ export type Database = {
             referencedColumns: ["institution_id"]
           },
           {
+            foreignKeyName: "hostel_maintenance_requests_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "hostel_maintenance_requests_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "hostel_maintenance_requests_room_id_fkey"
             columns: ["room_id"]
             isOneToOne: false
             referencedRelation: "hostel_rooms"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_maintenance_requests_verified_by_fkey"
+            columns: ["verified_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "hostel_maintenance_requests_verified_by_fkey"
+            columns: ["verified_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -9883,6 +10247,20 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "hostel_risk_alerts_acknowledged_by_fkey"
+            columns: ["acknowledged_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "hostel_risk_alerts_acknowledged_by_fkey"
+            columns: ["acknowledged_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "hostel_risk_alerts_alert_rule_id_fkey"
             columns: ["alert_rule_id"]
             isOneToOne: false
@@ -9909,6 +10287,34 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "semester_hierarchy_health"
             referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "hostel_risk_alerts_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "hostel_risk_alerts_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_risk_alerts_resolved_by_fkey"
+            columns: ["resolved_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "hostel_risk_alerts_resolved_by_fkey"
+            columns: ["resolved_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -10005,6 +10411,20 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "semester_hierarchy_health"
             referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "hostel_roommate_preferences_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "hostel_roommate_preferences_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -10183,6 +10603,20 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "hostel_visitors_approved_by_fkey"
+            columns: ["approved_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "hostel_visitors_approved_by_fkey"
+            columns: ["approved_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "hostel_visitors_block_id_fkey"
             columns: ["block_id"]
             isOneToOne: false
@@ -10202,6 +10636,20 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "semester_hierarchy_health"
             referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "hostel_visitors_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "hostel_visitors_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -10285,6 +10733,20 @@ export type Database = {
             referencedColumns: ["institution_id"]
           },
           {
+            foreignKeyName: "hostel_waitlist_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "hostel_waitlist_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "hostel_waitlist_preferred_block_id_fkey"
             columns: ["preferred_block_id"]
             isOneToOne: false
@@ -10366,6 +10828,34 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "semester_hierarchy_health"
             referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "hostel_wardens_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "hostel_wardens_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_wardens_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "hostel_wardens_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -16115,6 +16605,20 @@ export type Database = {
             referencedRelation: "semester_hierarchy_health"
             referencedColumns: ["institution_id"]
           },
+          {
+            foreignKeyName: "mess_feedback_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "mess_feedback_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
         ]
       }
       mess_meal_bookings: {
@@ -16171,6 +16675,20 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "semester_hierarchy_health"
             referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "mess_meal_bookings_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "mess_meal_bookings_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -16240,6 +16758,20 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "semester_hierarchy_health"
             referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "mess_meal_records_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "mess_meal_records_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
           },
           {
             foreignKeyName: "mess_meal_records_menu_id_fkey"
@@ -16416,6 +16948,20 @@ export type Database = {
             referencedRelation: "semester_hierarchy_health"
             referencedColumns: ["institution_id"]
           },
+          {
+            foreignKeyName: "mess_student_billing_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "mess_student_billing_learner_id_fkey"
+            columns: ["learner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
         ]
       }
       mess_waste_log: {
@@ -16500,6 +17046,20 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "semester_hierarchy_health"
             referencedColumns: ["institution_id"]
+          },
+          {
+            foreignKeyName: "mess_waste_log_logged_by_fkey"
+            columns: ["logged_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "mess_waste_log_logged_by_fkey"
+            columns: ["logged_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
           },
         ]
       }

@@ -29,9 +29,7 @@ import type {
   UpdateProcessAuditDto,
   StageHistory,
   WasteCategory,
-  SLAStatus,
-  ABCDRating,
-  ProcessCategory
+  SLAStatus
 } from '@/types/process-excellence';
 
 export class ProcessExcellenceService {
@@ -650,7 +648,7 @@ export class ProcessExcellenceService {
           `
           *,
           process:process_definitions(id, name, category),
-          reporter:users_profiles!waste_incidents_reported_by_fkey(id, first_name, last_name),
+          reporter:profiles!waste_incidents_reported_by_fkey(id, full_name, email),
           institution:institutions(id, name)
         `,
           { count: 'exact' }
@@ -736,7 +734,7 @@ export class ProcessExcellenceService {
           *,
           process:process_definitions(id, name, category),
           process_instance:process_instances(id, current_stage, sla_status),
-          reporter:users_profiles!waste_incidents_reported_by_fkey(id, first_name, last_name),
+          reporter:profiles!waste_incidents_reported_by_fkey(id, full_name, email),
           institution:institutions(id, name)
         `
         )
@@ -776,7 +774,7 @@ export class ProcessExcellenceService {
           `
           *,
           process:process_definitions(id, name, category),
-          reporter:users_profiles!waste_incidents_reported_by_fkey(id, first_name, last_name),
+          reporter:profiles!waste_incidents_reported_by_fkey(id, full_name, email),
           institution:institutions(id, name)
         `
         )
@@ -817,7 +815,7 @@ export class ProcessExcellenceService {
           `
           *,
           process:process_definitions(id, name, category),
-          reporter:users_profiles!waste_incidents_reported_by_fkey(id, first_name, last_name),
+          reporter:profiles!waste_incidents_reported_by_fkey(id, full_name, email),
           institution:institutions(id, name)
         `
         )
@@ -866,7 +864,7 @@ export class ProcessExcellenceService {
           `
           *,
           process:process_definitions(id, name, category),
-          auditor:users_profiles!process_audits_auditor_id_fkey(id, first_name, last_name),
+          auditor:profiles!process_audits_auditor_id_fkey(id, full_name, email),
           institution:institutions(id, name)
         `,
           { count: 'exact' }
@@ -943,7 +941,7 @@ export class ProcessExcellenceService {
           `
           *,
           process:process_definitions(id, name, category, stages, sla_hours, target_value_add_ratio),
-          auditor:users_profiles!process_audits_auditor_id_fkey(id, first_name, last_name),
+          auditor:profiles!process_audits_auditor_id_fkey(id, full_name, email),
           institution:institutions(id, name)
         `
         )
@@ -1009,7 +1007,7 @@ export class ProcessExcellenceService {
           `
           *,
           process:process_definitions(id, name, category),
-          auditor:users_profiles!process_audits_auditor_id_fkey(id, first_name, last_name),
+          auditor:profiles!process_audits_auditor_id_fkey(id, full_name, email),
           institution:institutions(id, name)
         `
         )
@@ -1047,7 +1045,7 @@ export class ProcessExcellenceService {
           `
           *,
           process:process_definitions(id, name, category),
-          auditor:users_profiles!process_audits_auditor_id_fkey(id, first_name, last_name),
+          auditor:profiles!process_audits_auditor_id_fkey(id, full_name, email),
           institution:institutions(id, name)
         `
         )
@@ -1396,7 +1394,7 @@ export class ProcessExcellenceService {
           `
           *,
           process:process_definitions(id, name, category),
-          auditor:users_profiles!process_audits_auditor_id_fkey(id, first_name, last_name)
+          auditor:profiles!process_audits_auditor_id_fkey(id, full_name, email)
         `
         )
         .eq('institution_id', institutionId)

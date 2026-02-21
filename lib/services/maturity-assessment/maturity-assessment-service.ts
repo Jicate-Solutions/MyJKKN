@@ -5,8 +5,7 @@ import {
   ensureObject,
   ensureArray,
   ensureNumber,
-  isValidNumber,
-  validateJsonField
+  isValidNumber
 } from '@/lib/utils/validation';
 import type {
   MaturityFramework,
@@ -17,8 +16,6 @@ import type {
   MaturityDimension,
   MaturityDimensionName,
   MaturityStage,
-  AssessmentStatus,
-  ProgressStatus,
   CreateMaturityFrameworkDto,
   UpdateMaturityFrameworkDto,
   CreateMaturityAssessmentDto,
@@ -36,38 +33,6 @@ import type {
 
 export class MaturityAssessmentService {
   private static supabase: any = createClientSupabaseClient();
-
-  /**
-   * SECURITY: Validate institution access
-   * Ensures user has permission to access the requested institution's data
-   * @throws Error if institution_id is invalid or user lacks access
-   */
-  private static async validateInstitutionAccess(
-    institutionId: string
-  ): Promise<void> {
-    if (!institutionId || institutionId.trim() === '') {
-      throw new Error('Institution ID is required');
-    }
-
-    // Get current user
-    const { data: { user }, error: authError } = await this.supabase.auth.getUser();
-    if (authError || !user) {
-      throw new Error('Authentication required');
-    }
-
-    // Check user's institution access
-    const { data: access, error } = await this.supabase
-      .from('user_institution_access')
-      .select('institution_id')
-      .eq('user_id', user.id)
-      .eq('institution_id', institutionId)
-      .single();
-
-    if (error || !access) {
-      console.error('[maturity-assessment] Access denied:', { userId: user.id, institutionId });
-      throw new Error('Access denied: Institution not accessible to user');
-    }
-  }
 
   // ============================================================
   // Default Dimensions
@@ -241,8 +206,8 @@ export class MaturityAssessmentService {
         `
         *,
         department:departments(id, department_name),
-        assessor:users_profiles!assessor_id(id, full_name, email),
-        reviewer:users_profiles!reviewed_by(id, full_name, email),
+        assessor:profiles!assessor_id(id, full_name, email),
+        reviewer:profiles!reviewed_by(id, full_name, email),
         framework:maturity_frameworks(id, name, dimensions),
         institution:institutions(id, name, counselling_code)
       `,
@@ -306,8 +271,8 @@ export class MaturityAssessmentService {
         `
         *,
         department:departments(id, department_name),
-        assessor:users_profiles!assessor_id(id, full_name, email),
-        reviewer:users_profiles!reviewed_by(id, full_name, email),
+        assessor:profiles!assessor_id(id, full_name, email),
+        reviewer:profiles!reviewed_by(id, full_name, email),
         framework:maturity_frameworks(*),
         institution:institutions(id, name, counselling_code),
         progress_items:maturity_progress(*)
@@ -341,7 +306,7 @@ export class MaturityAssessmentService {
         `
         *,
         department:departments(id, department_name),
-        assessor:users_profiles!assessor_id(id, full_name, email),
+        assessor:profiles!assessor_id(id, full_name, email),
         framework:maturity_frameworks(id, name, dimensions)
       `
       )
@@ -527,7 +492,7 @@ export class MaturityAssessmentService {
       .select(
         `
         *,
-        assignee:users_profiles!assigned_to(id, full_name)
+        assignee:profiles!assigned_to(id, full_name)
       `,
         { count: 'exact' }
       );
@@ -585,7 +550,7 @@ export class MaturityAssessmentService {
       .select(
         `
         *,
-        assignee:users_profiles!assigned_to(id, full_name),
+        assignee:profiles!assigned_to(id, full_name),
         assessment:maturity_assessments(id, assessment_date, institution_id)
       `
       )

@@ -30,7 +30,7 @@ export async function getSurveys(filters: SurveyFilters): Promise<SurveyListResp
       *,
       department:departments(id, department_name),
       program:programs(id, program_name),
-      creator:users_profiles!nps_surveys_created_by_fkey(id, full_name, email)
+      creator:profiles!nps_surveys_created_by_fkey(id, full_name, email)
     `, { count: 'exact' });
 
   // Apply filters
@@ -92,7 +92,7 @@ export async function getSurvey(id: string): Promise<NPSSurvey | null> {
       *,
       department:departments(id, department_name),
       program:programs(id, program_name),
-      creator:users_profiles!nps_surveys_created_by_fkey(id, full_name, email)
+      creator:profiles!nps_surveys_created_by_fkey(id, full_name, email)
     `)
     .eq('id', id)
     .single();

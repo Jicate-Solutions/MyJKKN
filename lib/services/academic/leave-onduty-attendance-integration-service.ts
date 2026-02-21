@@ -199,7 +199,7 @@ export class LeaveOndutyAttendanceIntegrationService {
         *,
         application:leave_onduty_applications(
           *,
-          learner:learners_profiles(first_name, last_name, student_roll_no)
+          learner:learners_profiles(first_name, last_name, roll_number)
         )
       `
       )

@@ -51,7 +51,7 @@ export async function GET(request: Request) {
         `
         *,
         process:process_definitions(id, name, category),
-        auditor:users_profiles!process_audits_auditor_id_fkey(id, first_name, last_name),
+        auditor:profiles!process_audits_auditor_id_fkey(id, full_name, email),
         institution:institutions(id, name)
       `,
         { count: 'exact' }
@@ -184,7 +184,7 @@ export async function POST(request: Request) {
         `
         *,
         process:process_definitions(id, name, category),
-        auditor:users_profiles!process_audits_auditor_id_fkey(id, first_name, last_name),
+        auditor:profiles!process_audits_auditor_id_fkey(id, full_name, email),
         institution:institutions(id, name)
       `
       )
