@@ -230,6 +230,26 @@ export class CampusLivingSettings {
     }
   }
 
+  static async getFeeConfig(id: string) {
+    try {
+      const supabase = createClientSupabaseClient();
+      const { data, error } = await supabase
+        .from('hostel_fee_config')
+        .select('*')
+        .eq('id', id)
+        .single();
+
+      if (error) {
+        logger.error('campus-living/settings', 'Failed to fetch fee config', error);
+        throw error;
+      }
+      return data as HostelFeeConfig;
+    } catch (error) {
+      logger.error('campus-living/settings', 'Unexpected error in getFeeConfig', error);
+      throw error;
+    }
+  }
+
   static async createFeeConfig(payload: Omit<HostelFeeConfig, 'id' | 'created_at'>) {
     try {
       const supabase = createClientSupabaseClient();
