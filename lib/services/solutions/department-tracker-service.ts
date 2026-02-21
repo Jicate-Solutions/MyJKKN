@@ -137,6 +137,59 @@ export interface DepartmentBuilder {
   role: 'learner' | 'facilitator' | 'builder';
 }
 
+// Nomination types
+export type NominationStatus = 'pending' | 'approved' | 'rejected' | 'withdrawn';
+
+export interface DepartmentNomination {
+  id: string;
+  department_id: string;
+  institution_id: string;
+  nominated_by: string | null;
+  nomination_reason: string;
+  suggested_capabilities: string[];
+  status: NominationStatus;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  review_notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DepartmentNominationWithDetails extends DepartmentNomination {
+  department?: {
+    id: string;
+    department_name: string;
+    department_code: string;
+  };
+  institution?: {
+    id: string;
+    name: string;
+  };
+}
+
+// Eligibility types
+export interface EligibleDepartment {
+  department_id: string;
+  department_name: string;
+  department_code: string;
+  institution_id: string;
+  institution_name: string;
+  is_eligible: boolean;
+  exclusion_reasons: string[];
+}
+
+export interface EligibilityCriteria {
+  id: string;
+  criteria_name: string;
+  criteria_type: 'inclusion' | 'exclusion';
+  description: string;
+  rule_config: Record<string, unknown>;
+  is_active: boolean;
+  priority: number;
+  created_at: string;
+  updated_at: string;
+}
+
 // ============================================
 // SERVICE CLASS
 // ============================================
