@@ -651,7 +651,7 @@ export class PaymentsService extends BaseService {
         recipientType: key,
         recipientName: RECIPIENT_NAMES[key] || key,
         percentage: adjustedPercentage,
-        amount: adjustedAmount,
+        amount: Math.round(adjustedAmount * 100) / 100,
       });
     }
 
@@ -661,15 +661,15 @@ export class PaymentsService extends BaseService {
         recipientType: 'referral_bonus',
         recipientName: 'Referral Bonus',
         percentage: 10,
-        amount: referralBonusApplied,
+        amount: Math.round(referralBonusApplied * 100) / 100,
       });
     }
 
     return {
       splits,
       totalAmount: amount,
-      hodDiscountApplied,
-      referralBonusApplied,
+      hodDiscountApplied: Math.round(hodDiscountApplied * 100) / 100,
+      referralBonusApplied: Math.round(referralBonusApplied * 100) / 100,
     };
   }
 

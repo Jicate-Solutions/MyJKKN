@@ -110,7 +110,7 @@ export default function EditProductPage({ params }: EditProductPageProps) {
           patent_number: formData.patentStatus === 'none' ? null : (formData.patentNumber || null),
           notes: formData.notes || null,
           tags: formData.tags ? formData.tags.split(',').map(t => t.trim()).filter(Boolean) : null,
-          development_budget: validatedBudget,
+          ...(validatedBudget !== null ? { development_budget: validatedBudget } : {}),
         },
       });
 
