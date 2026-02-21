@@ -18,6 +18,7 @@ import {
 import Link from 'next/link';
 import { Plus, DollarSign, Clock, CheckCircle2, AlertCircle, Calendar, Download } from 'lucide-react';
 import { format } from 'date-fns';
+import { downloadCsv, formatDateForCsv, formatCurrencyForCsv, type CsvColumn } from '@/lib/utils/csv-export';
 import { usePayments, usePaymentStats, type PaymentWithDetails } from '@/hooks/solutions/use-payments';
 import type { PaymentStatus } from '@/lib/services/solutions/types';
 
