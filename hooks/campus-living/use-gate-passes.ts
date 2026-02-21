@@ -38,7 +38,7 @@ export function useGatePass(id: string) {
 export function useIssueGatePass() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (payload: CreateHostelGatePassDTO) => GatePassService.issueGatePass(payload),
+    mutationFn: (payload: CreateHostelGatePassDTO) => GatePassService.generateGatePass(payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: gatePassKeys.all });
       toast.success('Gate pass issued');
