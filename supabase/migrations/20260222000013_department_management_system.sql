@@ -358,9 +358,7 @@ BEGIN
       WHEN d.department_name = 'Science and Humanities' THEN false
       ELSE true
     END AS is_eligible,
-    -- Collect exclusion reasons
     ARRAY_REMOVE(ARRAY[
-      CASE WHEN d.id IN (SELECT sd.department_id FROM sh_solution_departments sd) THEN 'Already a solution department' END,
       CASE WHEN d.is_active = false THEN 'Department is inactive' END,
       CASE WHEN i.name ILIKE '%Aided%' THEN 'Aided institution: government funding restrictions' END,
       CASE WHEN i.name ILIKE '%Education%' THEN 'Education college: pedagogy focus, not domain expertise' END,

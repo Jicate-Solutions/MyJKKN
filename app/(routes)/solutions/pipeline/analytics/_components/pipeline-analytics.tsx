@@ -21,7 +21,8 @@ import {
   ResponsiveContainer,
   Legend,
 } from 'recharts';
-import { TrendingUp, Clock, DollarSign, Users } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { TrendingUp, Clock, DollarSign, Users, RefreshCcw } from 'lucide-react';
 
 // Stage colors
 const STAGE_COLORS: Record<string, string> = {
