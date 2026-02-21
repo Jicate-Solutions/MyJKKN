@@ -32,6 +32,7 @@ import {
 } from 'recharts';
 import { ArrowLeft, Calendar, TrendingUp, DollarSign, Target, Activity, Users, Building } from 'lucide-react';
 import type { DepartmentStatus, DepartmentStatusHistory } from '@/hooks/use-department-tracker';
+import { CapabilitiesEditor } from './capabilities-editor';
 
 const formatCurrency = (amount: number) =>
   new Intl.NumberFormat('en-IN', {
@@ -359,6 +360,14 @@ export function DepartmentDetailClient({ id }: DepartmentDetailClientProps) {
           )}
         </div>
       </div>
+
+      {/* Capabilities Editor */}
+      {department && (
+        <CapabilitiesEditor
+          solutionDepartmentId={department.id}
+          initialCapabilities={department.capabilities || []}
+        />
+      )}
 
       {/* Revenue Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">

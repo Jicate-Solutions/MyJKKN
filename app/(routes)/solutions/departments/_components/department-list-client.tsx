@@ -21,8 +21,11 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Skeleton } from '@/components/ui/skeleton';
-import { ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { ArrowUpDown, ArrowUp, ArrowDown, LayoutList, UserPlus } from 'lucide-react';
 import type { DepartmentRevenue, DepartmentStatus } from '@/hooks/use-department-tracker';
+import { NominateDialog } from './nominate-dialog';
+import { NominationsPanel } from './nominations-panel';
 
 const formatCurrency = (amount: number) =>
   new Intl.NumberFormat('en-IN', {
@@ -159,8 +162,31 @@ export function DepartmentListClient() {
 
   return (
     <div className="space-y-4">
+      {/* Header with Nominate button */}
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-semibold">Solution Departments</h2>
+        <NominateDialog onSuccess={() => window.location.reload()} />
+      </div>
+
+      <Tabs defaultValue="departments">
+        <TabsList>
+          <TabsTrigger value="departments" className="gap-1.5">
+            <LayoutList className="h-3.5 w-3.5" />
+            Departments ({revenues.length})
+          </TabsTrigger>
+          <TabsTrigger value="nominations" className="gap-1.5">
+            <UserPlus className="h-3.5 w-3.5" />
+            Nominations
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="nominations" className="mt-4">
+          <NominationsPanel />
+        </TabsContent>
+
+        <TabsContent value="departments" className="mt-4">
       {/* Filters */}
-      <div className="flex flex-wrap gap-3">
+      <div className="flex flex-wrap gap-3 space-y-0">
         <Select value={statusFilter} onValueChange={setStatusFilter}>
           <SelectTrigger className="w-[180px]">
             <SelectValue placeholder="Filter by status" />
@@ -363,6 +389,8 @@ export function DepartmentListClient() {
           </div>
         </CardContent>
       </Card>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
