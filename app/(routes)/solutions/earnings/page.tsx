@@ -22,7 +22,6 @@ import {
   useEarnings,
   useEarningsStats,
   getRecipientTypeDisplayName,
-  getEarningsStatusColor,
 } from '@/hooks/solutions/use-earnings';
 import type { EarningsWithPayment } from '@/lib/services/solutions/earnings-service';
 import type { RecipientType, EarningsStatus } from '@/lib/services/solutions/types';
