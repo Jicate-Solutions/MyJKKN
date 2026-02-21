@@ -20,14 +20,26 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { Plus, ChevronLeft, ChevronRight, Edit } from 'lucide-react';
+import { Plus, ChevronLeft, ChevronRight, Edit, Loader2 } from 'lucide-react';
 import { useState } from 'react';
+import { useAuth } from '@/hooks/use-auth';
+import { useMessMenus } from '@/hooks/campus-living/use-mess-menus';
 
 export default function MenuPlannerPage() {
+  const { user } = useAuth();
+  const institutionId = user?.institution_id || '';
   const [selectedWeek, setSelectedWeek] = useState('current');
+  const { data: menuListData, isLoading } = useMessMenus(institutionId);
 
-  // TODO: Replace with actual hook
-  // const { data: menu, isLoading } = useMessMenu(selectedWeek);
+  if (isLoading) {
+    return (
+      <ContentLayout title="Menu Planner">
+        <div className="flex justify-center items-center p-12">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </div>
+      </ContentLayout>
+    );
+  }
 
   const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
   const meals = ['Breakfast', 'Lunch', 'Snacks', 'Dinner'];
