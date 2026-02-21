@@ -21,59 +21,29 @@ import {
   Star,
   FileText,
   Phone,
+  Loader2,
 } from 'lucide-react';
 import { useState } from 'react';
+import { useAuth } from '@/hooks/use-auth';
+import { useMessCaterers } from '@/hooks/campus-living/use-mess-caterers';
 
 export default function CaterersPage() {
+  const { user } = useAuth();
+  const institutionId = user?.institution_id || '';
   const [searchQuery, setSearchQuery] = useState('');
+  const { data, isLoading } = useMessCaterers(institutionId);
 
-  // TODO: Replace with actual hook
-  // const { data: caterers, isLoading } = useMessCaterers();
+  if (isLoading) {
+    return (
+      <ContentLayout title="Caterers">
+        <div className="flex justify-center items-center p-12">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </div>
+      </ContentLayout>
+    );
+  }
 
-  const caterers = [
-    {
-      id: '1',
-      name: 'Annapurna Catering Services',
-      contact_person: 'Rajesh Kumar',
-      phone: '+91 98765 43210',
-      fssai_number: 'FSSAI-12345678901234',
-      fssai_expiry: '2027-03-15',
-      contract_start: '2025-06-01',
-      contract_end: '2026-05-31',
-      status: 'active',
-      assigned_blocks: ['Block A', 'Block B'],
-      performance_score: 4.2,
-      monthly_rate: 4500,
-    },
-    {
-      id: '2',
-      name: 'Sri Lakshmi Foods',
-      contact_person: 'Meena Devi',
-      phone: '+91 87654 32109',
-      fssai_number: 'FSSAI-23456789012345',
-      fssai_expiry: '2026-11-20',
-      contract_start: '2025-01-01',
-      contract_end: '2025-12-31',
-      status: 'active',
-      assigned_blocks: ['Block C'],
-      performance_score: 3.8,
-      monthly_rate: 4200,
-    },
-    {
-      id: '3',
-      name: 'Fresh Bites Catering',
-      contact_person: 'Suresh Patel',
-      phone: '+91 76543 21098',
-      fssai_number: 'FSSAI-34567890123456',
-      fssai_expiry: '2025-08-10',
-      contract_start: '2024-07-01',
-      contract_end: '2025-06-30',
-      status: 'expiring_soon',
-      assigned_blocks: ['Block D', 'Block E'],
-      performance_score: 3.5,
-      monthly_rate: 4000,
-    },
-  ];
+  const caterers = (data as any)?.data || data || [];
 
   const filteredCaterers = caterers.filter(
     (c) =>
