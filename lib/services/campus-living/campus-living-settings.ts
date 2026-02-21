@@ -143,6 +143,26 @@ export class CampusLivingSettings {
     }
   }
 
+  static async getSlaConfig(id: string) {
+    try {
+      const supabase = createClientSupabaseClient();
+      const { data, error } = await supabase
+        .from('hostel_maintenance_sla_config')
+        .select('*')
+        .eq('id', id)
+        .single();
+
+      if (error) {
+        logger.error('campus-living/settings', 'Failed to fetch SLA config', error);
+        throw error;
+      }
+      return data as HostelMaintenanceSlaConfig;
+    } catch (error) {
+      logger.error('campus-living/settings', 'Unexpected error in getSlaConfig', error);
+      throw error;
+    }
+  }
+
   static async createSlaConfig(payload: Omit<HostelMaintenanceSlaConfig, 'id' | 'created_at' | 'updated_at'>) {
     try {
       const supabase = createClientSupabaseClient();
