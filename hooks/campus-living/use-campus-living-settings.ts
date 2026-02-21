@@ -13,10 +13,10 @@ import type {
 // Query key factory
 export const campusLivingSettingsKeys = {
   all: ['campus-living-settings'] as const,
-  feeConfig: (institutionId: string) => ['campus-living-settings', 'fee-config', institutionId] as const,
+  feeConfig: (institutionId: string, academicYearId?: string) => ['campus-living-settings', 'fee-config', institutionId, academicYearId] as const,
   leaveConfig: (institutionId: string) => ['campus-living-settings', 'leave-config', institutionId] as const,
   slaConfig: (institutionId: string) => ['campus-living-settings', 'sla-config', institutionId] as const,
-  curfewExceptions: (institutionId: string) => ['campus-living-settings', 'curfew-exceptions', institutionId] as const,
+  curfewExceptions: (institutionId: string, activeOnly?: boolean) => ['campus-living-settings', 'curfew-exceptions', institutionId, activeOnly] as const,
   feeConfigDetail: (id: string) => ['campus-living-settings', 'fee-config', 'detail', id] as const,
   leaveConfigDetail: (id: string) => ['campus-living-settings', 'leave-config', 'detail', id] as const,
   slaConfigDetail: (id: string) => ['campus-living-settings', 'sla-config', 'detail', id] as const,
