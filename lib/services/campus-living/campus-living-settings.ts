@@ -6,11 +6,6 @@ import type {
   HostelFeeConfig,
   HostelCurfewException,
   HostelDeposit,
-  MaintenanceCategory,
-  MaintenancePriority,
-  HostelLeaveType,
-  RoomType,
-  AcStatus,
 } from '@/types/campus-living';
 
 export class CampusLivingSettings {
