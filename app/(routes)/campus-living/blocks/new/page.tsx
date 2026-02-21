@@ -11,6 +11,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { useAuth } from '@/hooks/use-auth';
+import { useCreateHostelBlock } from '@/hooks/campus-living/use-hostel-blocks';
 import {
   Building2,
   ArrowLeft,
