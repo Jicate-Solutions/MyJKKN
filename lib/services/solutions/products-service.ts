@@ -347,13 +347,7 @@ export class ProductsService extends BaseService {
 
     let query = this.supabase
       .from('sh_products')
-      .select(
-        `
-        *,
-        department:departments(id, name:department_name, code:department_code)
-      `,
-        { count: 'exact' }
-      )
+      .select('*', { count: 'exact' })
       .order('created_at', { ascending: false });
 
     // Apply filters
@@ -399,9 +393,32 @@ export class ProductsService extends BaseService {
 
     if (error) throw new Error(`Failed to fetch products: ${error.message}`);
 
+    // Fetch departments separately (no FK constraint between sh_products and departments)
+    const products = data || [];
+    const deptIds = [...new Set(products.map((p: any) => p.lead_department_id).filter(Boolean))];
+    let deptMap: Record<string, { id: string; name: string; code: string }> = {};
+
+    if (deptIds.length > 0) {
+      const { data: depts } = await this.supabase
+        .from('departments')
+        .select('id, department_name, department_code')
+        .in('id', deptIds);
+
+      if (depts) {
+        deptMap = Object.fromEntries(
+          depts.map((d: any) => [d.id, { id: d.id, name: d.department_name, code: d.department_code }])
+        );
+      }
+    }
+
+    const productsWithDepts = products.map((p: any) => ({
+      ...p,
+      department: p.lead_department_id ? deptMap[p.lead_department_id] || null : null,
+    }));
+
     const total = count || 0;
     return {
-      data: (data || []) as ProductWithValidations[],
+      data: productsWithDepts as ProductWithValidations[],
       metadata: {
         total,
         page,
@@ -417,18 +434,27 @@ export class ProductsService extends BaseService {
   static async getProductById(id: string): Promise<ProductWithValidations | null> {
     const { data, error } = await this.supabase
       .from('sh_products')
-      .select(
-        `
-        *,
-        department:departments(id, name:department_name, code:department_code)
-      `
-      )
+      .select('*')
       .eq('id', id)
       .single();
 
     if (error) {
       if (error.code === 'PGRST116') return null;
       throw new Error(`Failed to fetch product: ${error.message}`);
+    }
+
+    // Fetch department separately (no FK constraint between sh_products and departments)
+    let department = null;
+    if (data.lead_department_id) {
+      const { data: dept } = await this.supabase
+        .from('departments')
+        .select('id, department_name, department_code')
+        .eq('id', data.lead_department_id)
+        .single();
+
+      if (dept) {
+        department = { id: dept.id, name: dept.department_name, code: dept.department_code };
+      }
     }
 
     // Get validations
@@ -441,6 +467,7 @@ export class ProductsService extends BaseService {
 
     return {
       ...data,
+      department,
       validations: validations || [],
     } as ProductWithValidations;
   }
