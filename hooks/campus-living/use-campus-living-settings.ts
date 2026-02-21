@@ -91,7 +91,7 @@ export function useDeleteHostelFeeConfig() {
 export function useHostelLeaveConfigs(institutionId: string, filters?: Record<string, unknown>) {
   return useQuery({
     queryKey: campusLivingSettingsKeys.leaveConfig({ institutionId, ...filters }),
-    queryFn: () => CampusLivingSettings.getLeaveConfigs(institutionId, filters),
+    queryFn: () => CampusLivingSettings.getLeaveTypeConfigs(institutionId, filters),
     enabled: !!institutionId,
   });
 }
