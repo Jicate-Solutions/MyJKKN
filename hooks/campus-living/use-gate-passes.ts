@@ -12,6 +12,8 @@ export const gatePassKeys = {
   all: ['gate-passes'] as const,
   list: (filters: Record<string, unknown>) => ['gate-passes', 'list', filters] as const,
   detail: (id: string) => ['gate-passes', 'detail', id] as const,
+  myPasses: (learnerId: string) => ['gate-passes', 'my-passes', learnerId] as const,
+  pending: (institutionId: string) => ['gate-passes', 'pending', institutionId] as const,
 };
 
 // --- Query hooks ---
