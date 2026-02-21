@@ -52,8 +52,8 @@ export function useIssueGatePass() {
 export function useReturnGatePass() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, payload }: { id: string; payload: { actual_return: string; gate_security_in?: string } }) =>
-      GatePassService.returnGatePass(id, payload),
+    mutationFn: ({ id, securityId }: { id: string; securityId: string }) =>
+      GatePassService.recordReturn(id, securityId),
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: gatePassKeys.all });
       queryClient.invalidateQueries({ queryKey: gatePassKeys.detail(variables.id) });
