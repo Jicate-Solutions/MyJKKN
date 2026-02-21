@@ -15,20 +15,57 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { ArrowLeft, Save } from 'lucide-react';
+import { ArrowLeft, Save, Loader2 } from 'lucide-react';
 import { useState } from 'react';
+import { useAuth } from '@/hooks/use-auth';
+import { useCreateHostelInspection } from '@/hooks/campus-living/use-hostel-inspections';
 
 export default function NewInspectionPage() {
   const router = useRouter();
+  const { profile } = useAuth();
+  const createInspection = useCreateHostelInspection();
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const [formData, setFormData] = useState({
+    inspection_type: '',
+    inspection_date: '',
+    inspector: '',
+    location: '',
+    contact: '',
+    findings: '',
+    notes: '',
+  });
+
+  const handleChange = (field: string, value: string) => {
+    setFormData((prev) => ({ ...prev, [field]: value }));
+  };
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (!profile?.institution_id || !profile?.id) return;
+
     setIsSubmitting(true);
-    setTimeout(() => {
-      setIsSubmitting(false);
+    try {
+      await createInspection.mutateAsync({
+        institution_id: profile.institution_id,
+        block_id: '', // Will be enriched later if block selection is added
+        inspection_type: formData.inspection_type as any,
+        inspector_id: profile.id,
+        inspection_date: formData.inspection_date,
+        rooms_inspected: null,
+        findings: formData.findings || formData.notes || 'Scheduled inspection',
+        score: null,
+        issues_found: null,
+        follow_up_required: false,
+        follow_up_deadline: null,
+        report_url: null,
+      });
       router.push('/campus-living/safety/inspections');
-    }, 1000);
+    } catch {
+      // Error handled by mutation hook
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -53,55 +90,68 @@ export default function NewInspectionPage() {
               <CardTitle>Inspection Details</CardTitle>
             </CardHeader>
             <CardContent className="grid gap-4 sm:grid-cols-2">
-              <div className="sm:col-span-2 space-y-2">
-                <Label htmlFor="name">Inspection Name *</Label>
-                <Input id="name" name="name" placeholder="e.g., Fire Safety Audit Q1 2026" required />
-              </div>
               <div className="space-y-2">
                 <Label htmlFor="type">Inspection Type *</Label>
-                <Select name="type" required>
+                <Select value={formData.inspection_type} onValueChange={(v) => handleChange('inspection_type', v)} required>
                   <SelectTrigger><SelectValue placeholder="Select type" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="fire_safety">Fire Safety</SelectItem>
-                    <SelectItem value="electrical">Electrical Safety</SelectItem>
-                    <SelectItem value="health">Health / FSSAI</SelectItem>
                     <SelectItem value="hygiene">Hygiene</SelectItem>
-                    <SelectItem value="structural">Structural</SelectItem>
-                    <SelectItem value="water_quality">Water Quality</SelectItem>
-                    <SelectItem value="general">General</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="source">Source *</Label>
-                <Select name="source" required>
-                  <SelectTrigger><SelectValue placeholder="Internal or External" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="internal">Internal</SelectItem>
-                    <SelectItem value="external">External</SelectItem>
-                    <SelectItem value="regulatory">Regulatory</SelectItem>
+                    <SelectItem value="health">Health</SelectItem>
+                    <SelectItem value="routine">Routine</SelectItem>
+                    <SelectItem value="surprise">Surprise</SelectItem>
+                    <SelectItem value="anti_ragging">Anti-Ragging</SelectItem>
+                    <SelectItem value="cctv_check">CCTV Check</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="date">Scheduled Date *</Label>
-                <Input id="date" name="date" type="date" required />
+                <Input
+                  id="date"
+                  type="date"
+                  value={formData.inspection_date}
+                  onChange={(e) => handleChange('inspection_date', e.target.value)}
+                  required
+                />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="inspector">Inspector / Agency *</Label>
-                <Input id="inspector" name="inspector" placeholder="Inspector name or agency" required />
+                <Input
+                  id="inspector"
+                  placeholder="Inspector name or agency"
+                  value={formData.inspector}
+                  onChange={(e) => handleChange('inspector', e.target.value)}
+                  required
+                />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="location">Location / Area</Label>
-                <Input id="location" name="location" placeholder="e.g., All blocks, Block A only" />
+                <Input
+                  id="location"
+                  placeholder="e.g., All blocks, Block A only"
+                  value={formData.location}
+                  onChange={(e) => handleChange('location', e.target.value)}
+                />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="contact">Inspector Contact</Label>
-                <Input id="contact" name="contact" placeholder="Phone or email" />
+                <Input
+                  id="contact"
+                  placeholder="Phone or email"
+                  value={formData.contact}
+                  onChange={(e) => handleChange('contact', e.target.value)}
+                />
               </div>
               <div className="sm:col-span-2 space-y-2">
-                <Label htmlFor="notes">Notes</Label>
-                <Textarea id="notes" name="notes" placeholder="Any preparation notes or special requirements" rows={3} />
+                <Label htmlFor="findings">Findings / Notes</Label>
+                <Textarea
+                  id="findings"
+                  placeholder="Any preparation notes, findings, or special requirements"
+                  value={formData.findings}
+                  onChange={(e) => handleChange('findings', e.target.value)}
+                  rows={3}
+                />
               </div>
             </CardContent>
           </Card>
@@ -111,7 +161,11 @@ export default function NewInspectionPage() {
               <Link href="/campus-living/safety/inspections">Cancel</Link>
             </Button>
             <Button type="submit" disabled={isSubmitting}>
-              <Save className="mr-2 h-4 w-4" />
+              {isSubmitting ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Save className="mr-2 h-4 w-4" />
+              )}
               {isSubmitting ? 'Scheduling...' : 'Schedule Inspection'}
             </Button>
           </div>
