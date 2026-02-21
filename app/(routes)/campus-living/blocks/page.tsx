@@ -37,7 +37,9 @@ const typeConfig: Record<string, { label: string; variant: 'default' | 'secondar
 
 export default function HostelBlocksPage() {
   const { profile } = useAuth();
-  const { data: blocks, isLoading } = useHostelBlocks(profile?.institution_id ?? null);
+  const institutionId = profile?.institution_id || '';
+  const { data, isLoading } = useHostelBlocks(institutionId);
+  const blocks = data?.data || [];
   const [searchQuery, setSearchQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState<string>('all');
 
