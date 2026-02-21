@@ -102,6 +102,23 @@ export function BuildersList() {
     );
   }, [builders]);
 
+  const csvColumns: CsvColumn<BuilderWithDetails>[] = useMemo(() => [
+    { header: 'Name', accessor: (b) => b.name || '' },
+    { header: 'Email', accessor: (b) => b.email || '' },
+    { header: 'Person Type', accessor: (b) => b.person_type || '' },
+    { header: 'Department', accessor: (b) => b.department?.name || b.department?.department_name || '' },
+    { header: 'Skills', accessor: (b) => formatArrayForCsv(b.skills?.map((s: { skill_name: string }) => s.skill_name)) },
+    { header: 'Active Assignments', accessor: (b) => b.assignments?.filter((a: { status: string }) => a.status === 'active').length || 0 },
+    { header: 'Completed Assignments', accessor: (b) => b.assignments?.filter((a: { status: string }) => a.status === 'completed').length || 0 },
+    { header: 'Hourly Rate', accessor: (b) => b.hourly_rate ?? '' },
+    { header: 'Status', accessor: (b) => b.is_active ? 'Active' : 'Inactive' },
+    { header: 'Created At', accessor: (b) => formatDateForCsv(b.created_at) },
+  ], []);
+
+  const handleExport = () => {
+    downloadCsv(builders, csvColumns, 'builders');
+  };
+
   return (
     <div className="space-y-4">
       {/* Error State */}
