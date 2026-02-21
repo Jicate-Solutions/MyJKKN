@@ -15,11 +15,28 @@ import {
   ArrowRight,
   TrendingUp,
   TrendingDown,
+  Loader2,
 } from 'lucide-react';
+import { useAuth } from '@/hooks/use-auth';
+import { useCampusLivingOverview, useMessSummary } from '@/hooks/campus-living/use-campus-living-dashboard';
 
 export default function MessDashboardPage() {
-  // TODO: Replace with actual hooks
-  // const { data: dashboardData, isLoading } = useMessDashboard();
+  const { user } = useAuth();
+  const institutionId = user?.institution_id || '';
+  const { data: overviewData, isLoading: overviewLoading } = useCampusLivingOverview(institutionId);
+  const { data: messSummaryData, isLoading: messSummaryLoading } = useMessSummary(institutionId);
+
+  const isLoading = overviewLoading || messSummaryLoading;
+
+  if (isLoading) {
+    return (
+      <ContentLayout title="Mess Dashboard">
+        <div className="flex justify-center items-center p-12">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </div>
+      </ContentLayout>
+    );
+  }
 
   const todayMenu = [
     { meal: 'Breakfast', items: 'Idli, Sambar, Chutney, Tea', time: '7:00 - 9:00 AM' },
