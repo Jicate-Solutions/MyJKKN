@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { useAuth } from '@/hooks/use-auth';
+import { useHostelBlocks } from '@/hooks/campus-living/use-hostel-blocks';
 import {
   Building2,
   Plus,
@@ -21,56 +22,6 @@ import {
   ShieldCheck,
   Clock
 } from 'lucide-react';
-
-// Placeholder data until hooks are connected
-const useHostelBlocks = (institutionId: string | null) => {
-  return {
-    data: [
-      {
-        id: '1', name: 'Boys Hostel A', code: 'BHA', hostel_type: 'boys',
-        total_floors: 4, total_rooms: 80, total_capacity: 320, current_occupancy: 295,
-        status: 'active', contact_phone: '+91 98765 43210',
-        curfew_time_weekday: '21:30', curfew_time_weekend: '22:00',
-        warden_name: 'Dr. Rajesh Kumar', address: 'North Campus, Block A',
-        amenities: { wifi: true, laundry: true, gym: false, study_room: true, tv_room: true, parking: false },
-      },
-      {
-        id: '2', name: 'Boys Hostel B', code: 'BHB', hostel_type: 'boys',
-        total_floors: 3, total_rooms: 60, total_capacity: 240, current_occupancy: 210,
-        status: 'active', contact_phone: '+91 98765 43211',
-        curfew_time_weekday: '21:30', curfew_time_weekend: '22:00',
-        warden_name: 'Mr. Suresh Patel', address: 'North Campus, Block B',
-        amenities: { wifi: true, laundry: true, gym: true, study_room: true, tv_room: false, parking: true },
-      },
-      {
-        id: '3', name: 'Girls Hostel A', code: 'GHA', hostel_type: 'girls',
-        total_floors: 5, total_rooms: 100, total_capacity: 400, current_occupancy: 380,
-        status: 'active', contact_phone: '+91 98765 43212',
-        curfew_time_weekday: '21:00', curfew_time_weekend: '21:30',
-        warden_name: 'Dr. Priya Sharma', address: 'South Campus, Block A',
-        amenities: { wifi: true, laundry: true, gym: false, study_room: true, tv_room: true, parking: false },
-      },
-      {
-        id: '4', name: 'Girls Hostel B', code: 'GHB', hostel_type: 'girls',
-        total_floors: 4, total_rooms: 80, total_capacity: 320, current_occupancy: 280,
-        status: 'active', contact_phone: '+91 98765 43213',
-        curfew_time_weekday: '21:00', curfew_time_weekend: '21:30',
-        warden_name: 'Mrs. Lakshmi Devi', address: 'South Campus, Block B',
-        amenities: { wifi: true, laundry: false, gym: false, study_room: true, tv_room: true, parking: false },
-      },
-      {
-        id: '5', name: 'New Wing (Under Renovation)', code: 'NW', hostel_type: 'boys',
-        total_floors: 3, total_rooms: 50, total_capacity: 200, current_occupancy: 0,
-        status: 'under_maintenance', contact_phone: '+91 98765 43214',
-        curfew_time_weekday: '21:30', curfew_time_weekend: '22:00',
-        warden_name: 'Not Assigned', address: 'East Campus',
-        amenities: { wifi: false, laundry: false, gym: false, study_room: false, tv_room: false, parking: false },
-      },
-    ],
-    isLoading: false,
-    error: null,
-  };
-};
 
 const statusConfig: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' | 'success' }> = {
   active: { label: 'Active', variant: 'success' },
