@@ -200,9 +200,16 @@ export default function EarningsPage() {
 
         {/* Table */}
         <Card>
-          <CardHeader>
-            <CardTitle>Earnings History</CardTitle>
-            <CardDescription>Revenue distribution to stakeholders</CardDescription>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <div>
+              <CardTitle>Earnings History</CardTitle>
+              <CardDescription>Revenue distribution to stakeholders</CardDescription>
+            </div>
+            {earnings.length > 0 && (
+              <Button variant="outline" size="sm" onClick={handleExport}>
+                <Download className="mr-2 h-4 w-4" />Export
+              </Button>
+            )}
           </CardHeader>
           <CardContent className="p-0">
             {isLoading ? (
