@@ -356,6 +356,26 @@ export class CampusLivingSettings {
     }
   }
 
+  static async getCurfewException(id: string) {
+    try {
+      const supabase = createClientSupabaseClient();
+      const { data, error } = await supabase
+        .from('hostel_curfew_exceptions')
+        .select('*, hostel_blocks(name, code)')
+        .eq('id', id)
+        .single();
+
+      if (error) {
+        logger.error('campus-living/settings', 'Failed to fetch curfew exception', error);
+        throw error;
+      }
+      return data as HostelCurfewException & { hostel_blocks: unknown };
+    } catch (error) {
+      logger.error('campus-living/settings', 'Unexpected error in getCurfewException', error);
+      throw error;
+    }
+  }
+
   static async createCurfewException(payload: Omit<HostelCurfewException, 'id' | 'created_at' | 'updated_at'>) {
     try {
       const supabase = createClientSupabaseClient();
