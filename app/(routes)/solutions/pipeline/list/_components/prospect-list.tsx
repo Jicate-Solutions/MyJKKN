@@ -41,6 +41,7 @@ import { PipelineStageBadge } from '@/components/solutions/pipeline/pipeline-sta
 import { PipelineStats } from '@/components/solutions/pipeline/pipeline-stats';
 import type { PipelineStage } from '@/lib/services/solutions/types';
 import { PIPELINE_STAGE_LABELS } from '@/lib/services/solutions/prospects-service';
+import { downloadCsv, formatDateForCsv, formatCurrencyForCsv, type CsvColumn } from '@/lib/utils/csv-export';
 
 function formatCurrency(amount: number | null | undefined): string {
   if (!amount) return '-';
