@@ -13,22 +13,22 @@ import type {
 // Query key factory
 export const campusLivingSettingsKeys = {
   all: ['campus-living-settings'] as const,
-  feeConfig: (filters: Record<string, unknown>) => ['campus-living-settings', 'fee-config', filters] as const,
-  leaveConfig: (filters: Record<string, unknown>) => ['campus-living-settings', 'leave-config', filters] as const,
-  slaConfig: (filters: Record<string, unknown>) => ['campus-living-settings', 'sla-config', filters] as const,
-  curfewExceptions: (filters: Record<string, unknown>) => ['campus-living-settings', 'curfew-exceptions', filters] as const,
-  feeConfigDetail: (id: string) => ['campus-living-settings', 'fee-config', id] as const,
-  leaveConfigDetail: (id: string) => ['campus-living-settings', 'leave-config', id] as const,
-  slaConfigDetail: (id: string) => ['campus-living-settings', 'sla-config', id] as const,
-  curfewExceptionDetail: (id: string) => ['campus-living-settings', 'curfew-exception', id] as const,
+  feeConfig: (institutionId: string) => ['campus-living-settings', 'fee-config', institutionId] as const,
+  leaveConfig: (institutionId: string) => ['campus-living-settings', 'leave-config', institutionId] as const,
+  slaConfig: (institutionId: string) => ['campus-living-settings', 'sla-config', institutionId] as const,
+  curfewExceptions: (institutionId: string) => ['campus-living-settings', 'curfew-exceptions', institutionId] as const,
+  feeConfigDetail: (id: string) => ['campus-living-settings', 'fee-config', 'detail', id] as const,
+  leaveConfigDetail: (id: string) => ['campus-living-settings', 'leave-config', 'detail', id] as const,
+  slaConfigDetail: (id: string) => ['campus-living-settings', 'sla-config', 'detail', id] as const,
+  curfewExceptionDetail: (id: string) => ['campus-living-settings', 'curfew-exception', 'detail', id] as const,
 };
 
 // --- Fee Config hooks ---
 
-export function useHostelFeeConfigs(institutionId: string, filters?: Record<string, unknown>) {
+export function useHostelFeeConfigs(institutionId: string, academicYearId?: string) {
   return useQuery({
-    queryKey: campusLivingSettingsKeys.feeConfig({ institutionId, ...filters }),
-    queryFn: () => CampusLivingSettings.getFeeConfigs(institutionId, filters),
+    queryKey: campusLivingSettingsKeys.feeConfig(institutionId),
+    queryFn: () => CampusLivingSettings.getFeeConfigs(institutionId, academicYearId),
     enabled: !!institutionId,
   });
 }
@@ -88,10 +88,10 @@ export function useDeleteHostelFeeConfig() {
 
 // --- Leave Config hooks ---
 
-export function useHostelLeaveConfigs(institutionId: string, filters?: Record<string, unknown>) {
+export function useHostelLeaveConfigs(institutionId: string) {
   return useQuery({
-    queryKey: campusLivingSettingsKeys.leaveConfig({ institutionId, ...filters }),
-    queryFn: () => CampusLivingSettings.getLeaveTypeConfigs(institutionId, filters),
+    queryKey: campusLivingSettingsKeys.leaveConfig(institutionId),
+    queryFn: () => CampusLivingSettings.getLeaveTypeConfigs(institutionId),
     enabled: !!institutionId,
   });
 }
@@ -108,7 +108,7 @@ export function useCreateHostelLeaveConfig() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (payload: Omit<HostelLeaveTypeConfig, 'id' | 'created_at' | 'updated_at'>) =>
-      CampusLivingSettings.createLeaveConfig(payload),
+      CampusLivingSettings.createLeaveTypeConfig(payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: campusLivingSettingsKeys.all });
       toast.success('Leave configuration created');
@@ -123,7 +123,7 @@ export function useUpdateHostelLeaveConfig() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ id, payload }: { id: string; payload: Partial<HostelLeaveTypeConfig> }) =>
-      CampusLivingSettings.updateLeaveConfig(id, payload),
+      CampusLivingSettings.updateLeaveTypeConfig(id, payload),
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: campusLivingSettingsKeys.all });
       queryClient.invalidateQueries({ queryKey: campusLivingSettingsKeys.leaveConfigDetail(variables.id) });
@@ -138,7 +138,7 @@ export function useUpdateHostelLeaveConfig() {
 export function useDeleteHostelLeaveConfig() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => CampusLivingSettings.deleteLeaveConfig(id),
+    mutationFn: (id: string) => CampusLivingSettings.deleteLeaveTypeConfig(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: campusLivingSettingsKeys.all });
       toast.success('Leave configuration deleted');
@@ -151,10 +151,10 @@ export function useDeleteHostelLeaveConfig() {
 
 // --- SLA Config hooks ---
 
-export function useHostelSlaConfigs(institutionId: string, filters?: Record<string, unknown>) {
+export function useHostelSlaConfigs(institutionId: string) {
   return useQuery({
-    queryKey: campusLivingSettingsKeys.slaConfig({ institutionId, ...filters }),
-    queryFn: () => CampusLivingSettings.getSlaConfigs(institutionId, filters),
+    queryKey: campusLivingSettingsKeys.slaConfig(institutionId),
+    queryFn: () => CampusLivingSettings.getSlaConfigs(institutionId),
     enabled: !!institutionId,
   });
 }
@@ -214,10 +214,10 @@ export function useDeleteHostelSlaConfig() {
 
 // --- Curfew Exception hooks ---
 
-export function useHostelCurfewExceptions(institutionId: string, filters?: Record<string, unknown>) {
+export function useHostelCurfewExceptions(institutionId: string, activeOnly?: boolean) {
   return useQuery({
-    queryKey: campusLivingSettingsKeys.curfewExceptions({ institutionId, ...filters }),
-    queryFn: () => CampusLivingSettings.getCurfewExceptions(institutionId, filters),
+    queryKey: campusLivingSettingsKeys.curfewExceptions(institutionId),
+    queryFn: () => CampusLivingSettings.getCurfewExceptions(institutionId, activeOnly),
     enabled: !!institutionId,
   });
 }
