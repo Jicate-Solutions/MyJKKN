@@ -216,7 +216,7 @@ export function useDeleteHostelSlaConfig() {
 
 export function useHostelCurfewExceptions(institutionId: string, activeOnly?: boolean) {
   return useQuery({
-    queryKey: campusLivingSettingsKeys.curfewExceptions(institutionId),
+    queryKey: campusLivingSettingsKeys.curfewExceptions(institutionId, activeOnly),
     queryFn: () => CampusLivingSettings.getCurfewExceptions(institutionId, activeOnly),
     enabled: !!institutionId,
   });
