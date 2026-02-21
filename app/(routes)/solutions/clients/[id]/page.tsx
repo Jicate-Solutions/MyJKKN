@@ -26,10 +26,12 @@ import {
   FileText,
   Plus,
   AlertCircle,
+  GitBranch,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useClient, useUpdateClient, type UpdateClientInput } from '@/hooks/solutions/use-clients';
 import { useSolutions } from '@/hooks/solutions/use-solutions';
+import { useProspectsByClientId } from '@/hooks/solutions/use-prospects';
 import { ClientForm } from '@/components/solutions/clients/client-form';
 import { ProspectOriginCard } from '@/components/solutions/clients/prospect-origin-card';
 import type { PartnerStatus } from '@/hooks/solutions/use-clients';
@@ -59,6 +61,9 @@ export default function ClientDetailPage({ params }: ClientDetailPageProps) {
     client_id: id,
     limit: 20,
   });
+
+  // Fetch all prospects linked to this client (converted + repeat business)
+  const { data: relatedProspects, isLoading: prospectsLoading } = useProspectsByClientId(id);
 
   // Update client mutation
   const updateClient = useUpdateClient();
@@ -342,6 +347,73 @@ export default function ClientDetailPage({ params }: ClientDetailPageProps) {
             )}
           </CardContent>
         </Card>
+
+        {/* Pipeline History - shows all related prospects */}
+        {(prospectsLoading || (relatedProspects && relatedProspects.length > 0)) && (
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  <GitBranch className="h-5 w-5" />
+                  Pipeline History
+                </CardTitle>
+                <CardDescription>
+                  {prospectsLoading
+                    ? 'Loading prospects...'
+                    : `${relatedProspects!.length} prospect${relatedProspects!.length !== 1 ? 's' : ''} linked to this client`}
+                </CardDescription>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {prospectsLoading ? (
+                <div className="space-y-3">
+                  {[1, 2].map((i) => (
+                    <Skeleton key={i} className="h-16 w-full" />
+                  ))}
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {relatedProspects!.map((prospect) => {
+                    const isOriginalConversion = prospect.converted_client_id === id;
+                    const isRepeatBusiness = prospect.existing_client_id === id;
+                    return (
+                      <div
+                        key={prospect.id}
+                        className="flex items-center justify-between p-4 rounded-lg border"
+                      >
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <Link
+                              href={`/solutions/pipeline/${prospect.id}`}
+                              className="font-medium hover:underline"
+                            >
+                              {prospect.company_name}
+                            </Link>
+                            {isOriginalConversion && (
+                              <Badge className="bg-green-100 text-green-800 text-xs">Original Conversion</Badge>
+                            )}
+                            {isRepeatBusiness && (
+                              <Badge className="bg-blue-100 text-blue-800 text-xs">Repeat Business</Badge>
+                            )}
+                          </div>
+                          <p className="text-sm text-muted-foreground">
+                            {prospect.prospect_code} &middot; {new Date(prospect.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                            {prospect.expected_deal_size && ` · ₹${Number(prospect.expected_deal_size).toLocaleString('en-IN')}`}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Badge variant="outline" className="capitalize">
+                            {prospect.pipeline_stage}
+                          </Badge>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
       </div>
 
       {/* Edit Dialog */}

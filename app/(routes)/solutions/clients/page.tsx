@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { Card, CardContent } from '@/components/ui/card';
@@ -9,6 +10,13 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import {
   Table,
   TableBody,
@@ -20,6 +28,7 @@ import {
 import { Plus, Search, Building2, Mail, Phone, ArrowRight, AlertCircle } from 'lucide-react';
 import { useClients, type PartnerStatus, type SourceType } from '@/hooks/solutions/use-clients';
 import { useDebounceValue } from '@/hooks/use-debounce-value';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 
 const partnerConfig: Record<PartnerStatus, { label: string; color: string }> = {
   standard: { label: 'Standard', color: 'bg-gray-100 text-gray-800' },
@@ -41,6 +50,7 @@ const sourceConfig: Record<SourceType, string> = {
 
 export default function ClientsPage() {
   const [searchQuery, setSearchQuery] = useState('');
+  const [originFilter, setOriginFilter] = useState<'all' | 'pipeline' | 'direct'>('all');
   const debouncedSearch = useDebounceValue(searchQuery, 300);
 
   const { data: clientsData, isLoading, error } = useClients({
@@ -49,6 +59,26 @@ export default function ClientsPage() {
   });
 
   const clients = clientsData?.data || [];
+
+  // Fetch which client IDs were converted from prospects (pipeline clients)
+  const { data: pipelineClientIds } = useQuery({
+    queryKey: ['pipeline-client-ids'],
+    queryFn: async () => {
+      const supabase = createClientSupabaseClient();
+      const { data } = await (supabase as any)
+        .from('sh_prospects')
+        .select('converted_client_id')
+        .not('converted_client_id', 'is', null);
+      return new Set((data || []).map((r: any) => r.converted_client_id));
+    },
+  });
+
+  // Apply origin filter client-side
+  const filteredClients = clients.filter((c) => {
+    if (originFilter === 'pipeline') return pipelineClientIds?.has(c.id);
+    if (originFilter === 'direct') return !pipelineClientIds?.has(c.id);
+    return true;
+  });
 
   return (
     <ContentLayout title="Clients">
@@ -64,7 +94,9 @@ export default function ClientsPage() {
           <div>
             <h1 className="text-2xl font-bold py-1">Clients</h1>
             <p className="text-sm sm:text-base text-muted-foreground">
-              Manage clients and their solutions
+              {originFilter !== 'all'
+                ? `${filteredClients.length} of ${clients.length} clients`
+                : `Manage clients and their solutions`}
             </p>
           </div>
           <Button asChild>
@@ -75,17 +107,29 @@ export default function ClientsPage() {
           </Button>
         </div>
 
-        {/* Search */}
+        {/* Search & Filter */}
         <Card>
           <CardContent className="py-4">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search clients by name, email, or phone..."
-                className="pl-10"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-              />
+            <div className="flex gap-3">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search clients by name, email, or phone..."
+                  className="pl-10"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                />
+              </div>
+              <Select value={originFilter} onValueChange={(v) => setOriginFilter(v as 'all' | 'pipeline' | 'direct')}>
+                <SelectTrigger className="w-[160px]">
+                  <SelectValue placeholder="Origin" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Clients</SelectItem>
+                  <SelectItem value="pipeline">From Pipeline</SelectItem>
+                  <SelectItem value="direct">Direct</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </CardContent>
         </Card>
@@ -155,16 +199,16 @@ export default function ClientsPage() {
         {!isLoading && !error && (
           <Card>
             <CardContent className="p-0">
-              {clients.length === 0 ? (
+              {filteredClients.length === 0 ? (
                 <div className="py-10 text-center">
                   <Building2 className="mx-auto h-10 w-10 text-muted-foreground" />
                   <h3 className="mt-4 font-semibold">No clients found</h3>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    {searchQuery
-                      ? 'Try a different search term'
+                    {searchQuery || originFilter !== 'all'
+                      ? 'Try a different search term or filter'
                       : 'Get started by adding your first client'}
                   </p>
-                  {!searchQuery && (
+                  {!searchQuery && originFilter === 'all' && (
                     <Button asChild className="mt-4">
                       <Link href="/solutions/clients/new">
                         <Plus className="mr-2 h-4 w-4" />
@@ -186,7 +230,7 @@ export default function ClientsPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {clients.map((client) => {
+                    {filteredClients.map((client) => {
                       const partner = partnerConfig[client.partner_status as PartnerStatus] || partnerConfig.standard;
                       const source = sourceConfig[client.source_type as SourceType] || client.source_type;
                       return (

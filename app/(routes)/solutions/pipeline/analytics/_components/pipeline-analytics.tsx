@@ -52,7 +52,7 @@ function useSourceConversionAnalytics() {
       const supabase: any = createClient();
       const { data: prospects } = await supabase
         .from('sh_prospects')
-        .select('source_type, pipeline_stage, expected_deal_size, converted_client_id');
+        .select('source_type, pipeline_stage, expected_deal_size, converted_client_id, existing_client_id');
       const { data: clients } = await supabase
         .from('sh_clients')
         .select('id, referral_count');
@@ -111,7 +111,38 @@ function useSourceConversionAnalytics() {
           avgReferrals: Math.round((totalRef / cc) * 10) / 10,
         };
       });
-      return { sourceStats };
+      // Repeat vs new business breakdown
+      let newBusiness = 0;
+      let repeatBusiness = 0;
+      let newWon = 0;
+      let repeatWon = 0;
+      let newDealSum = 0;
+      let repeatDealSum = 0;
+      for (const p of prospects || []) {
+        if (p.existing_client_id) {
+          repeatBusiness++;
+          if (p.pipeline_stage === 'won') repeatWon++;
+          if (p.expected_deal_size) repeatDealSum += Number(p.expected_deal_size);
+        } else {
+          newBusiness++;
+          if (p.pipeline_stage === 'won') newWon++;
+          if (p.expected_deal_size) newDealSum += Number(p.expected_deal_size);
+        }
+      }
+
+      return {
+        sourceStats,
+        repeatVsNew: {
+          newBusiness,
+          repeatBusiness,
+          newWon,
+          repeatWon,
+          newWinRate: newBusiness > 0 ? Math.round((newWon / newBusiness) * 100) : 0,
+          repeatWinRate: repeatBusiness > 0 ? Math.round((repeatWon / repeatBusiness) * 100) : 0,
+          newDealValue: newDealSum,
+          repeatDealValue: repeatDealSum,
+        },
+      };
     },
   });
 }
