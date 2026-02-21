@@ -101,6 +101,10 @@ export default function PaymentsPage() {
 
   const payments = paymentsData?.data || [];
 
+  const handleExport = () => {
+    downloadCsv(payments, paymentCsvColumns, 'payments');
+  };
+
   // Calculate stats from real data
   const totalReceived = stats?.total_received || 0;
   const totalPending = stats?.total_pending || 0;
