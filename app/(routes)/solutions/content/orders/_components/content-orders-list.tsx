@@ -44,6 +44,21 @@ export function ContentOrdersList() {
     other: 'text-gray-600',
   };
 
+  const csvColumns: CsvColumn<(typeof orders)[number]>[] = [
+    { header: 'Title', accessor: (r) => r.solution?.title || 'Untitled Order' },
+    { header: 'Solution Code', accessor: (r) => r.solution?.solution_code || '' },
+    { header: 'Client', accessor: (r) => r.solution?.client?.name || '' },
+    { header: 'Division', accessor: (r) => r.division || '' },
+    { header: 'Order Type', accessor: (r) => r.order_type?.replace('_', ' ') || '' },
+    { header: 'Quantity', accessor: (r) => r.quantity },
+    { header: 'Revision Rounds', accessor: (r) => r.revision_rounds },
+    { header: 'Due Date', accessor: (r) => formatDateForCsv(r.due_date) },
+  ];
+
+  const handleExport = () => {
+    downloadCsv(orders, csvColumns, 'content-orders');
+  };
+
   if (error) {
     return (
       <Alert variant="destructive">
