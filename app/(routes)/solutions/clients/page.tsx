@@ -74,6 +74,26 @@ export default function ClientsPage() {
     },
   });
 
+  const csvColumns: CsvColumn<(typeof clients)[number]>[] = [
+    { header: 'Name', accessor: (r) => r.name },
+    { header: 'Contact Person', accessor: (r) => r.contact_person },
+    { header: 'Contact Email', accessor: (r) => r.contact_email },
+    { header: 'Contact Phone', accessor: (r) => r.contact_phone },
+    { header: 'Industry Sector', accessor: (r) => r.industry_sector },
+    { header: 'City', accessor: (r) => r.city },
+    { header: 'State', accessor: (r) => r.state },
+    { header: 'Partner Status', accessor: (r) => r.partner_status },
+    { header: 'Source Type', accessor: (r) => r.source_type },
+    { header: 'Referral Count', accessor: (r) => r.referral_count },
+    { header: 'Active', accessor: (r) => (r.is_active ? 'Yes' : 'No') },
+    { header: 'Tags', accessor: (r) => formatArrayForCsv(r.tags) },
+    { header: 'Created At', accessor: (r) => formatDateForCsv(r.created_at) },
+  ];
+
+  const handleExport = () => {
+    downloadCsv(filteredClients, csvColumns, 'clients');
+  };
+
   // Apply origin filter client-side
   const filteredClients = clients.filter((c) => {
     if (originFilter === 'pipeline') return pipelineClientIds?.has(c.id);
