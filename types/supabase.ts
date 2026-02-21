@@ -9177,7 +9177,7 @@ export type Database = {
       hostel_gate_passes: {
         Row: {
           actual_return: string | null
-          approved_by: string
+          approved_by: string | null
           created_at: string | null
           destination: string
           expected_return: string
@@ -9189,15 +9189,18 @@ export type Database = {
           leave_request_id: string | null
           out_time: string | null
           parent_notified: boolean | null
-          pass_number: string
+          pass_number: string | null
           pass_type: Database["public"]["Enums"]["gate_pass_type_enum"]
-          qr_code: string
+          qr_code: string | null
+          reason: string | null
+          rejected_by: string | null
+          rejection_reason: string | null
           status: Database["public"]["Enums"]["gate_pass_status_enum"]
           updated_at: string | null
         }
         Insert: {
           actual_return?: string | null
-          approved_by: string
+          approved_by?: string | null
           created_at?: string | null
           destination: string
           expected_return: string
@@ -9209,15 +9212,18 @@ export type Database = {
           leave_request_id?: string | null
           out_time?: string | null
           parent_notified?: boolean | null
-          pass_number: string
+          pass_number?: string | null
           pass_type: Database["public"]["Enums"]["gate_pass_type_enum"]
-          qr_code: string
+          qr_code?: string | null
+          reason?: string | null
+          rejected_by?: string | null
+          rejection_reason?: string | null
           status?: Database["public"]["Enums"]["gate_pass_status_enum"]
           updated_at?: string | null
         }
         Update: {
           actual_return?: string | null
-          approved_by?: string
+          approved_by?: string | null
           created_at?: string | null
           destination?: string
           expected_return?: string
@@ -9229,9 +9235,12 @@ export type Database = {
           leave_request_id?: string | null
           out_time?: string | null
           parent_notified?: boolean | null
-          pass_number?: string
+          pass_number?: string | null
           pass_type?: Database["public"]["Enums"]["gate_pass_type_enum"]
-          qr_code?: string
+          qr_code?: string | null
+          reason?: string | null
+          rejected_by?: string | null
+          rejection_reason?: string | null
           status?: Database["public"]["Enums"]["gate_pass_status_enum"]
           updated_at?: string | null
         }
@@ -9311,6 +9320,20 @@ export type Database = {
             columns: ["leave_request_id"]
             isOneToOne: false
             referencedRelation: "hostel_leave_requests"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_gate_passes_rejected_by_fkey"
+            columns: ["rejected_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "hostel_gate_passes_rejected_by_fkey"
+            columns: ["rejected_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -34160,6 +34183,8 @@ export type Database = {
         | "returned"
         | "overdue"
         | "cancelled"
+        | "requested"
+        | "rejected"
       gate_pass_type_enum:
         | "regular_out"
         | "overnight"
@@ -35168,6 +35193,8 @@ export const Constants = {
         "returned",
         "overdue",
         "cancelled",
+        "requested",
+        "rejected",
       ],
       gate_pass_type_enum: [
         "regular_out",
