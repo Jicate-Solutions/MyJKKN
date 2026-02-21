@@ -99,7 +99,7 @@ export function useHostelLeaveConfigs(institutionId: string, filters?: Record<st
 export function useHostelLeaveConfig(id: string) {
   return useQuery({
     queryKey: campusLivingSettingsKeys.leaveConfigDetail(id),
-    queryFn: () => CampusLivingSettings.getLeaveConfig(id),
+    queryFn: () => CampusLivingSettings.getLeaveTypeConfig(id),
     enabled: !!id,
   });
 }
