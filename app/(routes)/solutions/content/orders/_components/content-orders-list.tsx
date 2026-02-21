@@ -108,6 +108,13 @@ export function ContentOrdersList() {
   }
 
   return (
+    <div className="space-y-4">
+      <div className="flex justify-end">
+        <Button variant="outline" size="sm" onClick={handleExport}>
+          <Download className="mr-2 h-4 w-4" />
+          Export
+        </Button>
+      </div>
     <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
       {orders.map((order) => {
         const division = order.division || 'other';
