@@ -13,6 +13,7 @@ import type {
   PipelineStage,
   SourceType,
   SolutionType,
+  SourceConversionAnalytics,
 } from './types';
 
 // ============================================
@@ -50,6 +51,9 @@ export interface UpdateProspectInput {
   lost_reason?: string;
   proposal_url?: string;
   proposal_filename?: string;
+  reopen_date?: string;
+  existing_client_id?: string;
+  solution_types_interest?: SolutionType[];
 }
 
 // ============================================
@@ -113,7 +117,8 @@ export class ProspectsService extends BaseService {
       .select(`
         *,
         assigned_user:profiles!assigned_to(id, full_name, avatar_url),
-        converted_client:sh_clients!converted_client_id(id, name)
+        converted_client:sh_clients!converted_client_id(id, name),
+        existing_client:sh_clients!existing_client_id(id, name)
       `, { count: 'exact' })
       .order('updated_at', { ascending: false });
 
@@ -169,7 +174,8 @@ export class ProspectsService extends BaseService {
       .select(`
         *,
         assigned_user:profiles!assigned_to(id, full_name, avatar_url),
-        converted_client:sh_clients!converted_client_id(id, name)
+        converted_client:sh_clients!converted_client_id(id, name),
+        existing_client:sh_clients!existing_client_id(id, name)
       `)
       .eq('id', id)
       .single();
@@ -205,12 +211,15 @@ export class ProspectsService extends BaseService {
         next_action_date: input.next_action_date,
         notes: input.notes,
         tags: input.tags,
+        existing_client_id: input.existing_client_id,
+        solution_types_interest: input.solution_types_interest,
         is_active: true,
       })
       .select(`
         *,
         assigned_user:profiles!assigned_to(id, full_name, avatar_url),
-        converted_client:sh_clients!converted_client_id(id, name)
+        converted_client:sh_clients!converted_client_id(id, name),
+        existing_client:sh_clients!existing_client_id(id, name)
       `)
       .single();
 
@@ -242,6 +251,9 @@ export class ProspectsService extends BaseService {
     if (input.lost_reason !== undefined) updateData.lost_reason = input.lost_reason;
     if (input.proposal_url !== undefined) updateData.proposal_url = input.proposal_url;
     if (input.proposal_filename !== undefined) updateData.proposal_filename = input.proposal_filename;
+    if (input.reopen_date !== undefined) updateData.reopen_date = input.reopen_date;
+    if (input.existing_client_id !== undefined) updateData.existing_client_id = input.existing_client_id;
+    if (input.solution_types_interest !== undefined) updateData.solution_types_interest = input.solution_types_interest;
 
     const { data, error } = await this.supabase.from('sh_prospects')
       .update(updateData)
@@ -249,7 +261,8 @@ export class ProspectsService extends BaseService {
       .select(`
         *,
         assigned_user:profiles!assigned_to(id, full_name, avatar_url),
-        converted_client:sh_clients!converted_client_id(id, name)
+        converted_client:sh_clients!converted_client_id(id, name),
+        existing_client:sh_clients!existing_client_id(id, name)
       `)
       .single();
 
@@ -271,13 +284,16 @@ export class ProspectsService extends BaseService {
    * Update pipeline stage (with optional lost_reason)
    * Note: won→client conversion is handled by DB trigger
    */
-  static async updatePipelineStage(id: string, stage: PipelineStage, lostReason?: string): Promise<Prospect> {
+  static async updatePipelineStage(id: string, stage: PipelineStage, lostReason?: string, reopenDate?: string): Promise<Prospect> {
     const updateData: Record<string, unknown> = {
       pipeline_stage: stage,
       updated_at: new Date().toISOString(),
     };
     if (stage === 'lost' && lostReason) {
       updateData.lost_reason = lostReason;
+    }
+    if (reopenDate) {
+      updateData.reopen_date = reopenDate;
     }
 
     const { data, error } = await this.supabase.from('sh_prospects')
@@ -286,7 +302,8 @@ export class ProspectsService extends BaseService {
       .select(`
         *,
         assigned_user:profiles!assigned_to(id, full_name, avatar_url),
-        converted_client:sh_clients!converted_client_id(id, name)
+        converted_client:sh_clients!converted_client_id(id, name),
+        existing_client:sh_clients!existing_client_id(id, name)
       `)
       .single();
 
@@ -339,7 +356,7 @@ export class ProspectsService extends BaseService {
    */
   static async getProspectStats(): Promise<ProspectStats> {
     const { data: prospects, error } = await this.supabase.from('sh_prospects')
-      .select('pipeline_stage, expected_deal_size, next_action_date, created_at, updated_at, is_active')
+      .select('pipeline_stage, expected_deal_size, next_action_date, created_at, updated_at, is_active, reopen_date')
       .eq('is_active', true);
 
     if (error) throw new Error(`Failed to fetch prospect stats: ${error.message}`);
@@ -381,6 +398,15 @@ export class ProspectsService extends BaseService {
       }
     }
 
+    // Count prospects ready to re-engage (reopen_date <= today AND dormant/lost)
+    const today = new Date().toISOString().split('T')[0];
+    let readyToReengage = 0;
+    for (const p of allProspects) {
+      if (p.reopen_date && p.reopen_date <= today && ['dormant', 'lost'].includes(p.pipeline_stage)) {
+        readyToReengage++;
+      }
+    }
+
     return {
       total: allProspects.filter(p => !['won', 'lost', 'dormant'].includes(p.pipeline_stage)).length,
       byStage,
@@ -389,6 +415,7 @@ export class ProspectsService extends BaseService {
       wonThisMonth,
       lostThisMonth,
       avgDaysInPipeline: countForAvg > 0 ? Math.round(totalDays / countForAvg) : 0,
+      readyToReengage,
     };
   }
 
@@ -400,7 +427,8 @@ export class ProspectsService extends BaseService {
       .select(`
         *,
         assigned_user:profiles!assigned_to(id, full_name, avatar_url),
-        converted_client:sh_clients!converted_client_id(id, name)
+        converted_client:sh_clients!converted_client_id(id, name),
+        existing_client:sh_clients!existing_client_id(id, name)
       `)
       .eq('is_active', true)
       .order('next_action_date', { ascending: true, nullsFirst: false });
@@ -551,6 +579,146 @@ export class ProspectsService extends BaseService {
       monthlyProspects,
     };
   }
+
+  /**
+   * Get prospect that was converted to a specific client
+   */
+  static async getProspectByClientId(clientId: string): Promise<Prospect | null> {
+    const { data, error } = await this.supabase.from('sh_prospects')
+      .select(`
+        *,
+        assigned_user:profiles!assigned_to(id, full_name, avatar_url),
+        converted_client:sh_clients!converted_client_id(id, name)
+      `)
+      .eq('converted_client_id', clientId)
+      .limit(1)
+      .maybeSingle();
+    if (error) throw new Error(`Failed to fetch prospect by client: ${error.message}`);
+    return data as Prospect | null;
+  }
+
+  /**
+   * Get all prospects linked to a client (converted + repeat business via existing_client_id)
+   */
+  static async getProspectsByClientId(clientId: string): Promise<Prospect[]> {
+    const { data, error } = await this.supabase.from('sh_prospects')
+      .select(`
+        *,
+        assigned_user:profiles!assigned_to(id, full_name, avatar_url),
+        converted_client:sh_clients!converted_client_id(id, name)
+      `)
+      .or(`converted_client_id.eq.${clientId},existing_client_id.eq.${clientId}`)
+      .order('created_at', { ascending: false });
+    if (error) throw new Error(`Failed to fetch prospects for client: ${error.message}`);
+    return (data || []) as Prospect[];
+  }
+
+  /**
+   * Reactivate a dormant/lost prospect back to lead stage
+   */
+  static async reactivateProspect(id: string): Promise<Prospect> {
+    const { data, error } = await this.supabase.from('sh_prospects')
+      .update({
+        pipeline_stage: 'lead',
+        lost_reason: null,
+        reopen_date: null,
+        is_active: true,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', id)
+      .select(`
+        *,
+        assigned_user:profiles!assigned_to(id, full_name, avatar_url),
+        converted_client:sh_clients!converted_client_id(id, name),
+        existing_client:sh_clients!existing_client_id(id, name)
+      `)
+      .single();
+    if (error) throw new Error(`Failed to reactivate prospect: ${error.message}`);
+    return data as Prospect;
+  }
+
+  /**
+   * Get prospects that are ready to re-engage (reopen_date <= today, dormant/lost)
+   */
+  static async getReadyToReengage(): Promise<Prospect[]> {
+    const today = new Date().toISOString().split('T')[0];
+    const { data, error } = await this.supabase.from('sh_prospects')
+      .select(`
+        *,
+        assigned_user:profiles!assigned_to(id, full_name, avatar_url),
+        converted_client:sh_clients!converted_client_id(id, name)
+      `)
+      .lte('reopen_date', today)
+      .in('pipeline_stage', ['dormant', 'lost'])
+      .eq('is_active', true)
+      .order('reopen_date', { ascending: true });
+    if (error) throw new Error(`Failed to fetch re-engage prospects: ${error.message}`);
+    return (data || []) as Prospect[];
+  }
+
+  /**
+   * Get source conversion analytics (win rate, avg deal size, solutions per client, referrals by source)
+   */
+  static async getSourceConversionAnalytics(): Promise<SourceConversionAnalytics> {
+    // Get all prospects
+    const { data: prospects, error: pError } = await this.supabase.from('sh_prospects')
+      .select('source_type, pipeline_stage, expected_deal_size, converted_client_id');
+    if (pError) throw new Error(`Failed to fetch source analytics: ${pError.message}`);
+
+    // Get client solution counts and referral counts for converted clients
+    const { data: clients, error: cError } = await this.supabase.from('sh_clients')
+      .select('id, referral_count');
+    if (cError) throw new Error(`Failed to fetch client data: ${cError.message}`);
+
+    const { data: solutions, error: sError } = await this.supabase.from('sh_solutions')
+      .select('client_id');
+    if (sError) throw new Error(`Failed to fetch solutions: ${sError.message}`);
+
+    // Build client metrics map
+    const clientSolutionCount: Record<string, number> = {};
+    for (const s of (solutions || [])) {
+      clientSolutionCount[s.client_id] = (clientSolutionCount[s.client_id] || 0) + 1;
+    }
+    const clientRefMap: Record<string, number> = {};
+    for (const c of (clients || [])) {
+      clientRefMap[c.id] = c.referral_count || 0;
+    }
+
+    // Group by source
+    const sourceMap: Record<string, { total: number; won: number; lost: number; dealSizeSum: number; dealSizeCount: number; clientIds: string[] }> = {};
+    for (const p of (prospects || [])) {
+      const src = p.source_type || 'direct';
+      if (!sourceMap[src]) sourceMap[src] = { total: 0, won: 0, lost: 0, dealSizeSum: 0, dealSizeCount: 0, clientIds: [] };
+      sourceMap[src].total++;
+      if (p.pipeline_stage === 'won') {
+        sourceMap[src].won++;
+        if (p.converted_client_id) sourceMap[src].clientIds.push(p.converted_client_id);
+      }
+      if (p.pipeline_stage === 'lost') sourceMap[src].lost++;
+      if (p.expected_deal_size) {
+        sourceMap[src].dealSizeSum += Number(p.expected_deal_size);
+        sourceMap[src].dealSizeCount++;
+      }
+    }
+
+    const sourceStats = Object.entries(sourceMap).map(([source, d]) => {
+      const totalSolutions = d.clientIds.reduce((sum, cid) => sum + (clientSolutionCount[cid] || 0), 0);
+      const totalReferrals = d.clientIds.reduce((sum, cid) => sum + (clientRefMap[cid] || 0), 0);
+      const clientCount = d.clientIds.length || 1;
+      return {
+        source: source.charAt(0).toUpperCase() + source.slice(1),
+        total: d.total,
+        won: d.won,
+        lost: d.lost,
+        winRate: d.total > 0 ? Math.round((d.won / d.total) * 100) : 0,
+        avgDealSize: d.dealSizeCount > 0 ? Math.round(d.dealSizeSum / d.dealSizeCount) : 0,
+        avgSolutionsPerClient: Math.round((totalSolutions / clientCount) * 10) / 10,
+        avgReferrals: Math.round((totalReferrals / clientCount) * 10) / 10,
+      };
+    });
+
+    return { sourceStats };
+  }
 }
 
 // Singleton export
@@ -567,4 +735,9 @@ export const prospectsService = {
   getProspectStats: ProspectsService.getProspectStats.bind(ProspectsService),
   getPipelineBoard: ProspectsService.getPipelineBoard.bind(ProspectsService),
   getPipelineAnalytics: ProspectsService.getPipelineAnalytics.bind(ProspectsService),
+  getProspectByClientId: ProspectsService.getProspectByClientId.bind(ProspectsService),
+  getProspectsByClientId: ProspectsService.getProspectsByClientId.bind(ProspectsService),
+  reactivateProspect: ProspectsService.reactivateProspect.bind(ProspectsService),
+  getReadyToReengage: ProspectsService.getReadyToReengage.bind(ProspectsService),
+  getSourceConversionAnalytics: ProspectsService.getSourceConversionAnalytics.bind(ProspectsService),
 };

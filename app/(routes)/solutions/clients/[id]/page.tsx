@@ -31,6 +31,7 @@ import { toast } from 'sonner';
 import { useClient, useUpdateClient, type UpdateClientInput } from '@/hooks/solutions/use-clients';
 import { useSolutions } from '@/hooks/solutions/use-solutions';
 import { ClientForm } from '@/components/solutions/clients/client-form';
+import { ProspectOriginCard } from '@/components/solutions/clients/prospect-origin-card';
 import type { PartnerStatus } from '@/hooks/solutions/use-clients';
 
 interface ClientDetailPageProps {
@@ -183,6 +184,9 @@ export default function ClientDetailPage({ params }: ClientDetailPageProps) {
             Edit Client
           </Button>
         </div>
+
+        {/* Prospect Origin - shows if client was converted from pipeline */}
+        <ProspectOriginCard clientId={id} />
 
         <div className="grid gap-4 md:grid-cols-2">
           {/* Contact Info */}

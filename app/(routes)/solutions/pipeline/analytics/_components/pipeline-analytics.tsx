@@ -1,8 +1,11 @@
 'use client';
 
 import { usePipelineAnalytics, useProspectStats } from '@/hooks/solutions';
+import { useQuery } from '@tanstack/react-query';
+import { createClientSupabaseClient as createClient } from '@/lib/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
+import { SourceSuccessChart } from '@/components/solutions/pipeline/source-success-chart';
 import {
   BarChart,
   Bar,
@@ -41,9 +44,82 @@ const formatCurrency = (amount: number) =>
   }).format(amount);
 
 
+function useSourceConversionAnalytics() {
+  return useQuery({
+    queryKey: ['source-conversion-analytics'],
+    queryFn: async () => {
+      // Cast to any: sh_ tables are not in the generated Database types yet
+      const supabase: any = createClient();
+      const { data: prospects } = await supabase
+        .from('sh_prospects')
+        .select('source_type, pipeline_stage, expected_deal_size, converted_client_id');
+      const { data: clients } = await supabase
+        .from('sh_clients')
+        .select('id, referral_count');
+      const { data: solutions } = await supabase
+        .from('sh_solutions')
+        .select('client_id');
+
+      const clientSolCount: Record<string, number> = {};
+      for (const s of solutions || []) {
+        clientSolCount[s.client_id] = (clientSolCount[s.client_id] || 0) + 1;
+      }
+      const clientRefMap: Record<string, number> = {};
+      for (const c of clients || []) {
+        clientRefMap[c.id] = c.referral_count || 0;
+      }
+
+      const sourceMap: Record<
+        string,
+        { total: number; won: number; lost: number; dealSum: number; dealCount: number; clientIds: string[] }
+      > = {};
+      for (const p of prospects || []) {
+        const src = p.source_type || 'direct';
+        if (!sourceMap[src]) {
+          sourceMap[src] = { total: 0, won: 0, lost: 0, dealSum: 0, dealCount: 0, clientIds: [] };
+        }
+        sourceMap[src].total++;
+        if (p.pipeline_stage === 'won') {
+          sourceMap[src].won++;
+          if (p.converted_client_id) sourceMap[src].clientIds.push(p.converted_client_id);
+        }
+        if (p.pipeline_stage === 'lost') sourceMap[src].lost++;
+        if (p.expected_deal_size) {
+          sourceMap[src].dealSum += Number(p.expected_deal_size);
+          sourceMap[src].dealCount++;
+        }
+      }
+
+      const sourceStats = Object.entries(sourceMap).map(([source, d]) => {
+        const totalSol = d.clientIds.reduce(
+          (s: number, cid: string) => s + (clientSolCount[cid] || 0),
+          0,
+        );
+        const totalRef = d.clientIds.reduce(
+          (s: number, cid: string) => s + (clientRefMap[cid] || 0),
+          0,
+        );
+        const cc = d.clientIds.length || 1;
+        return {
+          source: source.charAt(0).toUpperCase() + source.slice(1),
+          total: d.total,
+          won: d.won,
+          lost: d.lost,
+          winRate: d.total > 0 ? Math.round((d.won / d.total) * 100) : 0,
+          avgDealSize: d.dealCount > 0 ? Math.round(d.dealSum / d.dealCount) : 0,
+          avgSolutionsPerClient: Math.round((totalSol / cc) * 10) / 10,
+          avgReferrals: Math.round((totalRef / cc) * 10) / 10,
+        };
+      });
+      return { sourceStats };
+    },
+  });
+}
+
 export function PipelineAnalytics() {
   const { data: analytics, isLoading: analyticsLoading } = usePipelineAnalytics();
   const { data: stats, isLoading: statsLoading } = useProspectStats();
+  const { data: sourceAnalytics, isLoading: sourceLoading } = useSourceConversionAnalytics();
 
   const isLoading = analyticsLoading || statsLoading;
 
@@ -168,7 +244,7 @@ export function PipelineAnalytics() {
                     label={({ source, count }) => `${source}: ${count}`}
                     labelLine={{ strokeWidth: 1 }}
                   >
-                    {analytics.sourceBreakdown.map((_, idx) => (
+                    {analytics.sourceBreakdown.map((_: unknown, idx: number) => (
                       <Cell key={idx} fill={SOURCE_COLORS[idx % SOURCE_COLORS.length]} />
                     ))}
                   </Pie>
@@ -231,7 +307,7 @@ export function PipelineAnalytics() {
                     ]}
                   />
                   <Bar dataKey="count" radius={[0, 6, 6, 0]}>
-                    {analytics.conversionFunnel.map((entry, idx) => (
+                    {analytics.conversionFunnel.map((entry: { stage: string; count: number; percentage: number }, idx: number) => (
                       <Cell
                         key={idx}
                         fill={STAGE_COLORS[entry.stage] || '#64748b'}
@@ -300,6 +376,12 @@ export function PipelineAnalytics() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Source-to-Success Analytics */}
+      <SourceSuccessChart
+        data={sourceAnalytics?.sourceStats || []}
+        isLoading={sourceLoading}
+      />
     </div>
   );
 }

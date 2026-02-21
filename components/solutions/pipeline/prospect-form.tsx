@@ -1,8 +1,10 @@
 'use client';
 
+import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
+import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -17,6 +19,7 @@ import {
 } from '@/components/ui/select';
 import { Hammer, BookOpen, Video, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 import type {
   Prospect,
   SourceType,
@@ -41,6 +44,8 @@ const prospectFormSchema = z.object({
   expected_deal_size: z.coerce.number().min(0).optional(),
   expected_close_date: z.string().optional(),
   solution_type_interest: z.enum(['software', 'training', 'content']).optional(),
+  solution_types_interest: z.array(z.enum(['software', 'training', 'content'])).optional(),
+  existing_client_id: z.string().optional(),
   assigned_to: z.string().optional(),
   next_action: z.string().optional(),
   next_action_date: z.string().optional(),
@@ -69,6 +74,108 @@ const SOLUTION_OPTIONS: { value: SolutionType; label: string; description: strin
   { value: 'training', label: 'Training', description: 'Workshops, bootcamps, certifications', icon: BookOpen, color: 'text-green-600 border-green-200 bg-green-50' },
   { value: 'content', label: 'Content', description: 'Videos, graphics, documents', icon: Video, color: 'text-purple-600 border-purple-200 bg-purple-50' },
 ];
+
+// ============================================
+// CLIENT SEARCH HOOK
+// ============================================
+
+interface ClientSearchResult {
+  id: string;
+  name: string;
+  company_code: string | null;
+  industry_sector: string | null;
+}
+
+function useClientsSearch(search: string) {
+  return useQuery({
+    queryKey: ['clients-search', search],
+    queryFn: async () => {
+      const supabase = createClientSupabaseClient();
+      // Cast to any to work around sh_clients not being in generated DB types
+      let query = (supabase as any).from('sh_clients')
+        .select('id, name, company_code, industry_sector')
+        .eq('is_active', true)
+        .order('name')
+        .limit(10);
+      if (search) {
+        query = query.ilike('name', `%${search}%`);
+      }
+      const { data, error } = await query;
+      if (error) throw error;
+      return (data || []) as ClientSearchResult[];
+    },
+    enabled: true,
+  });
+}
+
+// ============================================
+// EXISTING CLIENT PICKER
+// ============================================
+
+function ExistingClientPicker({ value, onChange }: { value: string; onChange: (id: string) => void }) {
+  const [search, setSearch] = useState('');
+  const [isOpen, setIsOpen] = useState(false);
+  const { data: clients, isLoading } = useClientsSearch(search);
+
+  const selectedClient = clients?.find(c => c.id === value);
+
+  return (
+    <div className="space-y-2">
+      {value && selectedClient ? (
+        <div className="flex items-center justify-between p-3 border rounded-lg bg-blue-50">
+          <div>
+            <p className="font-medium text-sm">{selectedClient.name}</p>
+            {selectedClient.industry_sector && (
+              <p className="text-xs text-muted-foreground">{selectedClient.industry_sector}</p>
+            )}
+          </div>
+          <Button type="button" variant="ghost" size="sm" onClick={() => { onChange(''); setSearch(''); }}>
+            Remove
+          </Button>
+        </div>
+      ) : (
+        <div className="relative">
+          <Input
+            placeholder="Search for an existing client..."
+            value={search}
+            onChange={(e) => { setSearch(e.target.value); setIsOpen(true); }}
+            onFocus={() => setIsOpen(true)}
+          />
+          {isOpen && search.length > 0 && (
+            <div className="absolute z-50 top-full mt-1 w-full bg-white border rounded-lg shadow-lg max-h-48 overflow-y-auto">
+              {isLoading ? (
+                <div className="p-3 text-sm text-muted-foreground">Searching...</div>
+              ) : clients && clients.length > 0 ? (
+                clients.map((client) => (
+                  <button
+                    key={client.id}
+                    type="button"
+                    className="w-full text-left p-3 hover:bg-muted text-sm border-b last:border-0"
+                    onClick={() => {
+                      onChange(client.id);
+                      setSearch('');
+                      setIsOpen(false);
+                    }}
+                  >
+                    <p className="font-medium">{client.name}</p>
+                    {client.industry_sector && (
+                      <p className="text-xs text-muted-foreground">{client.industry_sector}</p>
+                    )}
+                  </button>
+                ))
+              ) : (
+                <div className="p-3 text-sm text-muted-foreground">No clients found</div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+      <p className="text-xs text-muted-foreground">
+        Leave empty for new business. Select a client for repeat business opportunities.
+      </p>
+    </div>
+  );
+}
 
 // ============================================
 // COMPONENT
@@ -106,6 +213,9 @@ export function ProspectForm({
       expected_deal_size: defaultValues?.expected_deal_size || undefined,
       expected_close_date: defaultValues?.expected_close_date || '',
       solution_type_interest: defaultValues?.solution_type_interest || undefined,
+      solution_types_interest: defaultValues?.solution_types_interest ||
+        (defaultValues?.solution_type_interest ? [defaultValues.solution_type_interest] : []),
+      existing_client_id: defaultValues?.existing_client_id || '',
       assigned_to: defaultValues?.assigned_to || '',
       next_action: defaultValues?.next_action || '',
       next_action_date: defaultValues?.next_action_date || '',
@@ -113,8 +223,6 @@ export function ProspectForm({
       tags: defaultValues?.tags?.join(', ') || '',
     },
   });
-
-  const selectedSolution = watch('solution_type_interest');
 
   const handleFormSubmit = (values: ProspectFormValues) => {
     const input: CreateProspectInput = {
@@ -128,6 +236,9 @@ export function ProspectForm({
       expected_deal_size: values.expected_deal_size || undefined,
       expected_close_date: values.expected_close_date || undefined,
       solution_type_interest: values.solution_type_interest as SolutionType | undefined,
+      solution_types_interest: values.solution_types_interest ||
+        (values.solution_type_interest ? [values.solution_type_interest] : undefined),
+      existing_client_id: values.existing_client_id || undefined,
       assigned_to: values.assigned_to || undefined,
       next_action: values.next_action || undefined,
       next_action_date: values.next_action_date || undefined,
@@ -203,6 +314,22 @@ export function ProspectForm({
               )}
             </div>
           </div>
+        </CardContent>
+      </Card>
+
+      {/* Section 1b: Existing Client (Repeat Business) */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg">Existing Client (Optional)</CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Link this prospect to an existing client for repeat business tracking
+          </p>
+        </CardHeader>
+        <CardContent>
+          <ExistingClientPicker
+            value={watch('existing_client_id') || ''}
+            onChange={(clientId) => setValue('existing_client_id', clientId || '')}
+          />
         </CardContent>
       </Card>
 
@@ -293,23 +420,28 @@ export function ProspectForm({
             </div>
           </div>
 
-          {/* Solution Type Interest - Radio Cards */}
+          {/* Solution Types of Interest - Multi-Select Cards */}
           <div className="space-y-2">
-            <Label>Solution Type Interest</Label>
+            <Label>Solution Types of Interest</Label>
+            <p className="text-xs text-muted-foreground">Select all that apply</p>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               {SOLUTION_OPTIONS.map((opt) => {
                 const Icon = opt.icon;
-                const isSelected = selectedSolution === opt.value;
+                const selectedSolutions = watch('solution_types_interest') || [];
+                const isSelected = selectedSolutions.includes(opt.value);
                 return (
                   <button
                     key={opt.value}
                     type="button"
-                    onClick={() =>
-                      setValue(
-                        'solution_type_interest',
-                        isSelected ? undefined : (opt.value as SolutionType)
-                      )
-                    }
+                    onClick={() => {
+                      const current = watch('solution_types_interest') || [];
+                      const updated = current.includes(opt.value)
+                        ? current.filter((v: string) => v !== opt.value)
+                        : [...current, opt.value];
+                      setValue('solution_types_interest', updated as SolutionType[]);
+                      // Also set single value for backward compat
+                      setValue('solution_type_interest', updated[0] as SolutionType | undefined);
+                    }}
                     className={cn(
                       'flex items-start gap-3 rounded-lg border p-3 text-left transition-all',
                       isSelected

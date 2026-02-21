@@ -59,10 +59,12 @@ export function ProspectCard({ prospect, onClick, compact = false }: ProspectCar
 
   const isOverdue = isFollowUpOverdue || (daysSinceContact !== null && daysSinceContact > 7);
 
-  const solutionConfig = prospect.solution_type_interest
-    ? SOLUTION_CONFIG[prospect.solution_type_interest]
-    : null;
-  const SolutionIcon = solutionConfig?.icon;
+  // Multi-solution support with backward compat
+  const solutionTypes = prospect.solution_types_interest?.length
+    ? prospect.solution_types_interest
+    : prospect.solution_type_interest
+      ? [prospect.solution_type_interest]
+      : [];
 
   if (compact) {
     return (
@@ -88,13 +90,22 @@ export function ProspectCard({ prospect, onClick, compact = false }: ProspectCar
           </p>
 
           <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-1.5 flex-wrap">
               <Badge variant="outline" className="text-[10px] px-1.5 py-0">
                 {SOURCE_LABELS[prospect.source_type]}
               </Badge>
-              {solutionConfig && SolutionIcon && (
-                <SolutionIcon className={cn('h-3.5 w-3.5', solutionConfig.color)} />
+              {prospect.existing_client_id && (
+                <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-blue-600 border-blue-200 bg-blue-50">
+                  Repeat
+                </Badge>
               )}
+              {solutionTypes.map((type) => {
+                const config = SOLUTION_CONFIG[type];
+                const TypeIcon = config?.icon;
+                return TypeIcon ? (
+                  <TypeIcon key={type} className={cn('h-3.5 w-3.5', config.color)} />
+                ) : null;
+              })}
               {isFollowUpOverdue && (
                 <Badge variant="destructive" className="text-[10px] px-1.5 py-0">
                   Overdue
@@ -157,16 +168,26 @@ export function ProspectCard({ prospect, onClick, compact = false }: ProspectCar
             </div>
           ) : null}
 
-          {solutionConfig && SolutionIcon && (
-            <Badge variant="outline" className="text-xs gap-1">
-              <SolutionIcon className={cn('h-3 w-3', solutionConfig.color)} />
-              {solutionConfig.label}
-            </Badge>
-          )}
+          {solutionTypes.map((type) => {
+            const config = SOLUTION_CONFIG[type];
+            const TypeIcon = config?.icon;
+            return (
+              <Badge key={type} variant="outline" className="text-xs gap-1">
+                {TypeIcon && <TypeIcon className={cn('h-3 w-3', config.color)} />}
+                {config.label}
+              </Badge>
+            );
+          })}
 
           <Badge variant="outline" className="text-xs">
             {SOURCE_LABELS[prospect.source_type]}
           </Badge>
+
+          {prospect.existing_client_id && (
+            <Badge variant="outline" className="text-xs text-blue-600 border-blue-200 bg-blue-50">
+              Repeat
+            </Badge>
+          )}
 
           {isFollowUpOverdue && (
             <Badge variant="destructive" className="text-xs">

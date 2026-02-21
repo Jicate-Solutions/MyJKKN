@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { Building2, Phone, Mail, MapPin, Users, ExternalLink } from 'lucide-react'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { PartnerBadge } from './partner-badge'
 import type { SHClient } from '@/types/solutions'
@@ -10,9 +11,10 @@ import type { SHClient } from '@/types/solutions'
 interface ClientCardProps {
   client: SHClient
   showActions?: boolean
+  fromPipeline?: boolean
 }
 
-export function ClientCard({ client, showActions = true }: ClientCardProps) {
+export function ClientCard({ client, showActions = true, fromPipeline }: ClientCardProps) {
   return (
     <Card className="hover:shadow-md transition-shadow">
       <CardHeader className="pb-3">
@@ -26,7 +28,21 @@ export function ClientCard({ client, showActions = true }: ClientCardProps) {
               <p className="text-sm text-muted-foreground">{client.industry_sector}</p>
             </div>
           </div>
-          <PartnerBadge status={client.partner_status} showDiscount />
+          <div className="flex items-center gap-1.5">
+            <PartnerBadge status={client.partner_status} showDiscount />
+            {fromPipeline !== undefined && (
+              <Badge
+                variant="outline"
+                className={
+                  fromPipeline
+                    ? 'text-blue-600 border-blue-200 bg-blue-50 text-xs'
+                    : 'text-gray-500 border-gray-200 text-xs'
+                }
+              >
+                {fromPipeline ? '\u2197 Pipeline' : '+ Direct'}
+              </Badge>
+            )}
+          </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-3">

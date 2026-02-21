@@ -176,11 +176,15 @@ export interface Prospect extends BaseEntity {
   proposal_filename?: string;
   converted_client_id?: string;
   lost_reason?: string;
+  reopen_date?: string;
+  existing_client_id?: string;
+  solution_types_interest?: SolutionType[];
   is_active: boolean;
   created_by?: string;
   // Joined fields
   assigned_user?: { id: string; full_name: string; avatar_url?: string };
   converted_client?: { id: string; name: string };
+  existing_client?: { id: string; name: string };
 }
 
 export interface ProspectActivity extends BaseEntity {
@@ -211,6 +215,9 @@ export interface CreateProspectInput {
   next_action_date?: string;
   notes?: string;
   tags?: string[];
+  existing_client_id?: string;
+  solution_types_interest?: SolutionType[];
+  reopen_date?: string;
 }
 
 export interface CreateProspectActivityInput {
@@ -231,6 +238,7 @@ export interface ProspectStats {
   wonThisMonth: number;
   lostThisMonth: number;
   avgDaysInPipeline: number;
+  readyToReengage: number;
 }
 
 export interface PipelineAnalytics {
@@ -239,6 +247,19 @@ export interface PipelineAnalytics {
   avgDaysInPipeline: number;
   conversionFunnel: Array<{ stage: string; count: number; percentage: number }>;
   monthlyProspects: Array<{ month: string; new: number; won: number; lost: number }>;
+}
+
+export interface SourceConversionAnalytics {
+  sourceStats: Array<{
+    source: string;
+    total: number;
+    won: number;
+    lost: number;
+    winRate: number;
+    avgDealSize: number;
+    avgSolutionsPerClient: number;
+    avgReferrals: number;
+  }>;
 }
 
 // ============================================

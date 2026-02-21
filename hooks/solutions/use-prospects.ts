@@ -149,3 +149,55 @@ export function useLogProspectActivity() {
     },
   });
 }
+
+// ============================================
+// PIPELINE ↔ CLIENT IMPROVEMENT HOOKS
+// ============================================
+
+/** Get prospect that was converted to this client */
+export function useProspectByClientId(clientId: string | undefined) {
+  return useQuery({
+    queryKey: ['prospect-by-client', clientId],
+    queryFn: () => prospectsService.getProspectByClientId(clientId!),
+    enabled: !!clientId,
+  });
+}
+
+/** Get all prospects linked to a client (converted + repeat) */
+export function useProspectsByClientId(clientId: string | undefined) {
+  return useQuery({
+    queryKey: ['prospects-by-client', clientId],
+    queryFn: () => prospectsService.getProspectsByClientId(clientId!),
+    enabled: !!clientId,
+  });
+}
+
+/** Get prospects ready to re-engage (reopen_date reached) */
+export function useReadyToReengage() {
+  return useQuery({
+    queryKey: ['prospects-reengage'],
+    queryFn: () => prospectsService.getReadyToReengage(),
+  });
+}
+
+/** Reactivate a dormant/lost prospect back to lead stage */
+export function useReactivateProspect() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => prospectsService.reactivateProspect(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: solutionsHubKeys.prospects.all });
+      queryClient.invalidateQueries({ queryKey: ['prospects-reengage'] });
+      queryClient.invalidateQueries({ queryKey: solutionsHubKeys.prospects.stats() });
+      queryClient.invalidateQueries({ queryKey: solutionsHubKeys.prospects.pipelineBoard() });
+    },
+  });
+}
+
+/** Source conversion analytics (win rate, deal size, solutions per client by source) */
+export function useSourceConversionAnalytics() {
+  return useQuery({
+    queryKey: ['source-conversion-analytics'],
+    queryFn: () => prospectsService.getSourceConversionAnalytics(),
+  });
+}

@@ -35,17 +35,22 @@ import {
   ChevronRight,
   GripVertical,
   AlertTriangle,
+  RefreshCcw,
 } from 'lucide-react';
 import Link from 'next/link';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { solutionsHubKeys } from '@/lib/query-keys';
 import { usePipelineBoard, useUpdatePipelineStage } from '@/hooks/solutions/use-prospects';
 import { ProspectCard } from '@/components/solutions/pipeline/prospect-card';
 import { PipelineStats } from '@/components/solutions/pipeline/pipeline-stats';
 import { OverdueAlertBanner } from '@/components/solutions/pipeline/overdue-alert-banner';
 import { PipelineStageBadge } from '@/components/solutions/pipeline/pipeline-stage-badge';
 import { LostReasonDialog } from '@/components/solutions/pipeline/lost-reason-dialog';
+import { ReopenDateDialog } from '@/components/solutions/pipeline/reopen-date-dialog';
 import { ConvertToClientDialog } from '@/components/solutions/pipeline/convert-to-client-dialog';
 import type { Prospect, PipelineStage } from '@/lib/services/solutions/types';
 import {
@@ -53,6 +58,85 @@ import {
   PIPELINE_STAGE_COLORS,
   ACTIVE_STAGES,
 } from '@/lib/services/solutions/prospects-service';
+
+// ============================================
+// LOCAL HOOKS (until another agent adds to use-prospects.ts)
+// ============================================
+
+function useReadyToReengage() {
+  return useQuery({
+    queryKey: ['prospects-reengage'],
+    queryFn: async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const supabase: any = createClientSupabaseClient();
+      const today = new Date().toISOString().split('T')[0];
+      const { data, error } = await supabase
+        .from('sh_prospects')
+        .select('*, assigned_user:profiles!assigned_to(id, full_name, avatar_url)')
+        .lte('reopen_date', today)
+        .in('pipeline_stage', ['dormant', 'lost'])
+        .eq('is_active', true)
+        .order('reopen_date', { ascending: true });
+      if (error) throw error;
+      return (data || []) as Prospect[];
+    },
+  });
+}
+
+function useReactivateProspect() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const supabase: any = createClientSupabaseClient();
+      const { data, error } = await supabase
+        .from('sh_prospects')
+        .update({
+          pipeline_stage: 'lead',
+          lost_reason: null,
+          reopen_date: null,
+          is_active: true,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', id)
+        .select('*')
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['prospects-reengage'] });
+      queryClient.invalidateQueries({ queryKey: solutionsHubKeys.prospects.all });
+    },
+  });
+}
+
+function useUpdateStageWithReopen() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      id,
+      stage,
+      lostReason,
+      reopenDate,
+    }: {
+      id: string;
+      stage: PipelineStage;
+      lostReason?: string;
+      reopenDate?: string;
+    }) => {
+      const { prospectsService } = await import('@/lib/services/solutions/prospects-service');
+      return prospectsService.updatePipelineStage(id, stage, lostReason, reopenDate);
+    },
+    onSuccess: (data: Prospect) => {
+      if (data?.id) {
+        queryClient.setQueryData(solutionsHubKeys.prospects.detail(data.id), data);
+      }
+      queryClient.invalidateQueries({ queryKey: solutionsHubKeys.prospects.all });
+      queryClient.invalidateQueries({ queryKey: ['prospects-reengage'] });
+    },
+  });
+}
 
 // ============================================
 // HELPERS
@@ -247,6 +331,18 @@ export function PipelineBoard() {
   } | null>(null);
   const [wonDialogOpen, setWonDialogOpen] = useState(false);
   const [pendingWonProspect, setPendingWonProspect] = useState<Prospect | null>(null);
+  const [reopenDialogOpen, setReopenDialogOpen] = useState(false);
+  const [pendingReopenInfo, setPendingReopenInfo] = useState<{
+    id: string;
+    name: string;
+    stage: 'dormant' | 'lost';
+    lostReason?: string;
+  } | null>(null);
+
+  // Re-engagement data
+  const { data: reengageProspects } = useReadyToReengage();
+  const reactivate = useReactivateProspect();
+  const updateStageWithReopen = useUpdateStageWithReopen();
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -316,6 +412,17 @@ export function PipelineBoard() {
       return;
     }
 
+    // If target is 'dormant', show the reopen date dialog
+    if (targetStage === 'dormant') {
+      setPendingReopenInfo({
+        id: prospectId,
+        name: prospect.company_name,
+        stage: 'dormant',
+      });
+      setReopenDialogOpen(true);
+      return;
+    }
+
     // Otherwise, update the stage directly
     updateStage.mutate(
       { id: prospectId, stage: targetStage },
@@ -335,20 +442,42 @@ export function PipelineBoard() {
   const handleLostConfirm = (reason: string) => {
     if (!pendingLostProspect) return;
 
-    updateStage.mutate(
+    // Close the lost dialog and open the reopen date dialog
+    setLostDialogOpen(false);
+    setPendingReopenInfo({
+      id: pendingLostProspect.id,
+      name: pendingLostProspect.name,
+      stage: 'lost',
+      lostReason: reason,
+    });
+    setPendingLostProspect(null);
+    setReopenDialogOpen(true);
+  };
+
+  const handleReopenDateConfirm = (reopenDate: string | null) => {
+    if (!pendingReopenInfo) return;
+
+    updateStageWithReopen.mutate(
       {
-        id: pendingLostProspect.id,
-        stage: 'lost',
-        lostReason: reason,
+        id: pendingReopenInfo.id,
+        stage: pendingReopenInfo.stage,
+        lostReason: pendingReopenInfo.lostReason,
+        reopenDate: reopenDate ?? undefined,
       },
       {
         onSuccess: () => {
-          toast.success(`"${pendingLostProspect.name}" marked as lost`);
-          setLostDialogOpen(false);
-          setPendingLostProspect(null);
+          const label = PIPELINE_STAGE_LABELS[pendingReopenInfo.stage];
+          const reopenMsg = reopenDate
+            ? ` Re-engage on ${new Date(reopenDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}`
+            : '';
+          toast.success(`"${pendingReopenInfo.name}" marked as ${label}.${reopenMsg}`);
+          setReopenDialogOpen(false);
+          setPendingReopenInfo(null);
         },
         onError: () => {
           toast.error('Failed to update pipeline stage');
+          setReopenDialogOpen(false);
+          setPendingReopenInfo(null);
         },
       }
     );
@@ -406,6 +535,83 @@ export function PipelineBoard() {
 
       {/* Stats */}
       <PipelineStats />
+
+      {/* Re-engagement Section */}
+      {reengageProspects && reengageProspects.length > 0 && (
+        <Card className="border-amber-200 bg-amber-50/50">
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base flex items-center gap-2">
+                <RefreshCcw className="h-4 w-4 text-amber-600" />
+                Ready to Re-engage ({reengageProspects.length})
+              </CardTitle>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              These prospects are due for a follow-up attempt
+            </p>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+              {reengageProspects.map((prospect) => (
+                <div
+                  key={prospect.id}
+                  className="flex items-center justify-between p-3 rounded-lg border bg-white"
+                >
+                  <div className="min-w-0 flex-1">
+                    <Link
+                      href={`/solutions/pipeline/${prospect.id}`}
+                      className="font-medium text-sm hover:underline truncate block"
+                    >
+                      {prospect.company_name}
+                    </Link>
+                    <div className="flex items-center gap-2 mt-1">
+                      <Badge
+                        variant={
+                          prospect.pipeline_stage === 'lost'
+                            ? 'destructive'
+                            : 'secondary'
+                        }
+                        className="text-xs"
+                      >
+                        {prospect.pipeline_stage}
+                      </Badge>
+                      {prospect.reopen_date && (
+                        <span className="text-xs text-muted-foreground">
+                          Due:{' '}
+                          {new Date(prospect.reopen_date).toLocaleDateString(
+                            'en-IN',
+                            { day: 'numeric', month: 'short' }
+                          )}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex gap-1 ml-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="text-green-600 border-green-200 hover:bg-green-50"
+                      onClick={async () => {
+                        try {
+                          await reactivate.mutateAsync(prospect.id);
+                          toast.success(
+                            `${prospect.company_name} moved back to Lead`
+                          );
+                        } catch {
+                          toast.error('Failed to reactivate');
+                        }
+                      }}
+                      disabled={reactivate.isPending}
+                    >
+                      Reactivate
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Board */}
       <DndContext
@@ -468,6 +674,18 @@ export function PipelineBoard() {
           if (!open) setPendingWonProspect(null);
         }}
         prospect={pendingWonProspect}
+      />
+
+      {/* Reopen Date Dialog (shown after dormant/lost stage selection) */}
+      <ReopenDateDialog
+        open={reopenDialogOpen}
+        onOpenChange={(open) => {
+          setReopenDialogOpen(open);
+          if (!open) setPendingReopenInfo(null);
+        }}
+        stage={pendingReopenInfo?.stage || 'dormant'}
+        onConfirm={handleReopenDateConfirm}
+        isLoading={updateStageWithReopen.isPending}
       />
     </div>
   );

@@ -2,7 +2,7 @@
 
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Users, IndianRupee, Trophy, AlertTriangle } from 'lucide-react';
+import { Users, IndianRupee, Trophy, AlertTriangle, RefreshCcw } from 'lucide-react';
 import { useProspectStats } from '@/hooks/solutions/use-prospects';
 
 function formatCurrency(amount: number): string {
@@ -24,8 +24,8 @@ export function PipelineStats() {
 
   if (isLoading) {
     return (
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        {Array.from({ length: 4 }).map((_, i) => (
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+        {Array.from({ length: 5 }).map((_, i) => (
           <Card key={i}>
             <CardContent className="p-4">
               <Skeleton className="h-4 w-20 mb-2" />
@@ -68,10 +68,17 @@ export function PipelineStats() {
       color: stats.overdueFollowUps > 0 ? 'text-red-600' : 'text-gray-600',
       bgColor: stats.overdueFollowUps > 0 ? 'bg-red-50' : 'bg-gray-50',
     },
+    {
+      label: 'Ready to Re-engage',
+      value: stats.readyToReengage || 0,
+      icon: RefreshCcw,
+      color: (stats.readyToReengage || 0) > 0 ? 'text-amber-600' : 'text-gray-600',
+      bgColor: (stats.readyToReengage || 0) > 0 ? 'bg-amber-50' : 'bg-gray-50',
+    },
   ];
 
   return (
-    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+    <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
       {cards.map((card) => {
         const Icon = card.icon;
         return (
