@@ -18,6 +18,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { useAuth } from '@/hooks/use-auth';
+import { useHostelLeaveRequests } from '@/hooks/campus-living/use-hostel-leave';
 import {
   Plus,
   Search,
@@ -32,23 +33,6 @@ import {
   User
 } from 'lucide-react';
 
-// Placeholder data
-const useHostelLeaveRequests = (institutionId: string | null) => {
-  return {
-    data: [
-      { id: 'lv1', student_name: 'Rahul Kumar', roll: 'CS2024001', block: 'Boys Hostel A', leave_type: 'home_visit', from_date: '2026-02-22', to_date: '2026-02-24', status: 'pending_warden', parent_consent: 'approved', destination: 'Chennai', reason: 'Family function' },
-      { id: 'lv2', student_name: 'Priya Sharma', roll: 'CS2024008', block: 'Girls Hostel A', leave_type: 'medical', from_date: '2026-02-21', to_date: '2026-02-23', status: 'approved', parent_consent: 'approved', destination: 'Home - Coimbatore', reason: 'Doctor appointment' },
-      { id: 'lv3', student_name: 'Arjun Patel', roll: 'EC2024015', block: 'Boys Hostel A', leave_type: 'weekend', from_date: '2026-02-22', to_date: '2026-02-23', status: 'pending_parent', parent_consent: 'pending', destination: 'Friend house - Salem', reason: 'Weekend outing' },
-      { id: 'lv4', student_name: 'Meera Jain', roll: 'ME2024022', block: 'Girls Hostel A', leave_type: 'emergency', from_date: '2026-02-21', to_date: '2026-02-25', status: 'pending_chief', parent_consent: 'approved', destination: 'Home - Madurai', reason: 'Family emergency' },
-      { id: 'lv5', student_name: 'Vikram Singh', roll: 'CE2023010', block: 'Boys Hostel B', leave_type: 'academic', from_date: '2026-02-25', to_date: '2026-02-25', status: 'approved', parent_consent: 'not_required', destination: 'Industrial visit', reason: 'Department organized plant visit' },
-      { id: 'lv6', student_name: 'Deepa L', roll: 'IT2024003', block: 'Girls Hostel B', leave_type: 'night_out', from_date: '2026-02-21', to_date: '2026-02-22', status: 'rejected', parent_consent: 'rejected', destination: 'Hostel nearby', reason: 'Late night study group' },
-      { id: 'lv7', student_name: 'Karthik R', roll: 'CS2023005', block: 'Boys Hostel A', leave_type: 'home_visit', from_date: '2026-02-20', to_date: '2026-02-21', status: 'approved', parent_consent: 'approved', destination: 'Home - Trichy', reason: 'Planned home visit' },
-      { id: 'lv8', student_name: 'Sneha G', roll: 'EC2025010', block: 'Girls Hostel A', leave_type: 'vacation', from_date: '2026-03-01', to_date: '2026-03-10', status: 'pending_warden', parent_consent: 'approved', destination: 'Home - Kerala', reason: 'Mid-semester break' },
-    ],
-    isLoading: false,
-    error: null,
-  };
-};
 
 const statusConfig: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' | 'success'; icon: React.ReactNode }> = {
   draft: { label: 'Draft', variant: 'outline', icon: <Calendar className="h-3.5 w-3.5" /> },
@@ -73,7 +57,7 @@ const leaveTypeConfig: Record<string, { label: string; color: string }> = {
 
 export default function LeaveRequestsPage() {
   const { profile } = useAuth();
-  const { data: requests, isLoading } = useHostelLeaveRequests(profile?.institution_id ?? null);
+  const { data: requests, isLoading } = useHostelLeaveRequests(profile?.institution_id ?? '');
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState('pending');
 

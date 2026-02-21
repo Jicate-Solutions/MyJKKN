@@ -18,6 +18,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { useAuth } from '@/hooks/use-auth';
+import { useGatePasses } from '@/hooks/campus-living/use-gate-passes';
 import {
   Search,
   Loader2,
@@ -31,23 +32,6 @@ import {
   Download
 } from 'lucide-react';
 
-// Placeholder data
-const useGatePasses = (institutionId: string | null) => {
-  return {
-    data: [
-      { id: 'gp1', pass_number: 'GP-20260221-0001', student_name: 'Rahul Kumar', roll: 'CS2024001', block: 'Boys Hostel A', pass_type: 'regular_out', out_time: '2026-02-21 14:30', expected_return: '2026-02-21 18:00', actual_return: null, destination: 'City Market', status: 'active', parent_notified: true },
-      { id: 'gp2', pass_number: 'GP-20260221-0002', student_name: 'Priya Sharma', roll: 'CS2024008', block: 'Girls Hostel A', pass_type: 'overnight', out_time: '2026-02-21 16:00', expected_return: '2026-02-22 08:00', actual_return: null, destination: 'Home - Coimbatore', status: 'active', parent_notified: true },
-      { id: 'gp3', pass_number: 'GP-20260221-0003', student_name: 'Arjun Patel', roll: 'EC2024015', block: 'Boys Hostel A', pass_type: 'regular_out', out_time: '2026-02-21 10:00', expected_return: '2026-02-21 13:00', actual_return: '2026-02-21 12:45', destination: 'Hospital', status: 'returned', parent_notified: false },
-      { id: 'gp4', pass_number: 'GP-20260221-0004', student_name: 'Meera Jain', roll: 'ME2024022', block: 'Girls Hostel A', pass_type: 'regular_out', out_time: '2026-02-21 09:00', expected_return: '2026-02-21 15:00', actual_return: null, destination: 'Shopping', status: 'overdue', parent_notified: true },
-      { id: 'gp5', pass_number: 'GP-20260220-0008', student_name: 'Vikram Singh', roll: 'CE2023010', block: 'Boys Hostel B', pass_type: 'regular_out', out_time: '2026-02-20 11:00', expected_return: '2026-02-20 17:00', actual_return: '2026-02-20 16:30', destination: 'Bank', status: 'returned', parent_notified: false },
-      { id: 'gp6', pass_number: 'GP-20260220-0009', student_name: 'Karthik R', roll: 'CS2023005', block: 'Boys Hostel A', pass_type: 'overnight', out_time: '2026-02-20 17:00', expected_return: '2026-02-21 08:00', actual_return: '2026-02-21 07:45', destination: 'Relative house', status: 'returned', parent_notified: true },
-      { id: 'gp7', pass_number: 'GP-20260221-0005', student_name: 'Deepa M', roll: 'IT2024003', block: 'Girls Hostel B', pass_type: 'emergency', out_time: '2026-02-21 08:00', expected_return: '2026-02-21 20:00', actual_return: null, destination: 'Hospital - Emergency', status: 'active', parent_notified: true },
-      { id: 'gp8', pass_number: 'GP-20260219-0012', student_name: 'Anil K', roll: 'ME2024008', block: 'Boys Hostel B', pass_type: 'regular_out', out_time: '2026-02-19 14:00', expected_return: '2026-02-19 18:00', actual_return: null, destination: 'Unknown', status: 'overdue', parent_notified: true },
-    ],
-    isLoading: false,
-    error: null,
-  };
-};
 
 const statusConfig: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' | 'success' }> = {
   issued: { label: 'Issued', variant: 'outline' },
@@ -66,7 +50,7 @@ const passTypeConfig: Record<string, { label: string; color: string }> = {
 
 export default function GatePassesPage() {
   const { profile } = useAuth();
-  const { data: passes, isLoading } = useGatePasses(profile?.institution_id ?? null);
+  const { data: passes, isLoading } = useGatePasses(profile?.institution_id ?? '');
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState('active');
 

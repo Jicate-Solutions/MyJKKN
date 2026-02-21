@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/hooks/use-auth';
+import { useHostelAllocation } from '@/hooks/campus-living/use-hostel-allocations';
 import {
   ArrowLeft,
   User,
@@ -24,63 +25,6 @@ import {
   CreditCard
 } from 'lucide-react';
 
-// Placeholder data
-const useAllocationDetail = (allocationId: string) => {
-  return {
-    data: {
-      id: allocationId,
-      student: {
-        id: 'l1',
-        name: 'Rahul Kumar',
-        roll_number: 'CS2024001',
-        department: 'Computer Science',
-        semester: '4th Semester',
-        phone: '+91 98765 11111',
-        email: 'rahul.kumar@student.jkkn.ac.in',
-        gender: 'male',
-      },
-      block: {
-        id: '1',
-        name: 'Boys Hostel A',
-        code: 'BHA',
-      },
-      room: {
-        id: 'r1',
-        room_number: 'G-101',
-        room_type: 'double',
-        floor: 0,
-      },
-      bed: {
-        id: 'b1',
-        bed_number: 'A',
-        bed_type: 'single',
-      },
-      allocation_type: 'fresh',
-      allocation_date: '2025-07-01',
-      expected_vacate_date: '2026-05-31',
-      actual_vacate_date: null,
-      status: 'active',
-      fee_status: 'paid',
-      deposit_paid: 5000,
-      emergency_contact_name: 'Mr. Suresh Kumar',
-      emergency_contact_phone: '+91 98765 00000',
-      emergency_contact_relation: 'Father',
-      medical_conditions: 'Mild dust allergy',
-      food_preference: 'vegetarian',
-      roommate_preference_ids: [],
-      allocated_by: 'Admin User',
-      created_at: '2025-06-28',
-      history: [
-        { id: 'h1', action: 'Allocated', details: 'Fresh allocation to BHA G-101 Bed A', date: '2025-07-01', by: 'Admin User' },
-        { id: 'h2', action: 'Fee Payment', details: 'Hostel fee INR 45,000 paid', date: '2025-07-05', by: 'System' },
-        { id: 'h3', action: 'Deposit', details: 'Caution deposit INR 5,000 received', date: '2025-07-05', by: 'System' },
-      ],
-    },
-    isLoading: false,
-    error: null,
-  };
-};
-
 const statusConfig: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' | 'success' }> = {
   active: { label: 'Active', variant: 'success' },
   vacated: { label: 'Vacated', variant: 'secondary' },
@@ -91,7 +35,7 @@ const statusConfig: Record<string, { label: string; variant: 'default' | 'second
 export default function AllocationDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const { profile } = useAuth();
-  const { data: allocation, isLoading } = useAllocationDetail(id);
+  const { data: allocation, isLoading } = useHostelAllocation(id);
 
   if (isLoading || !allocation) {
     return (

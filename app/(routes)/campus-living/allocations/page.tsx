@@ -17,6 +17,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { useAuth } from '@/hooks/use-auth';
+import { useHostelAllocations } from '@/hooks/campus-living/use-hostel-allocations';
 import {
   Plus,
   Search,
@@ -29,25 +30,6 @@ import {
   Download,
   UserCheck
 } from 'lucide-react';
-
-// Placeholder data
-const useHostelAllocations = (institutionId: string | null) => {
-  return {
-    data: [
-      { id: 'a1', student_name: 'Rahul Kumar', roll_number: 'CS2024001', department: 'Computer Science', block_name: 'Boys Hostel A', room_number: 'G-101', bed_number: 'A', allocation_type: 'fresh', status: 'active', fee_status: 'paid', allocation_date: '2025-07-01' },
-      { id: 'a2', student_name: 'Arjun Patel', roll_number: 'EC2024015', department: 'Electronics', block_name: 'Boys Hostel A', room_number: 'G-101', bed_number: 'B', allocation_type: 'fresh', status: 'active', fee_status: 'paid', allocation_date: '2025-07-01' },
-      { id: 'a3', student_name: 'Priya Sharma', roll_number: 'CS2024008', department: 'Computer Science', block_name: 'Girls Hostel A', room_number: 'G-201', bed_number: 'A', allocation_type: 'renewal', status: 'active', fee_status: 'partial', allocation_date: '2025-07-01' },
-      { id: 'a4', student_name: 'Meera Jain', roll_number: 'ME2024022', department: 'Mechanical', block_name: 'Girls Hostel A', room_number: 'F1-305', bed_number: 'B', allocation_type: 'transfer', status: 'active', fee_status: 'pending', allocation_date: '2026-01-10' },
-      { id: 'a5', student_name: 'Vikram Singh', roll_number: 'CE2023010', department: 'Civil', block_name: 'Boys Hostel B', room_number: 'F1-108', bed_number: 'A', allocation_type: 'fresh', status: 'active', fee_status: 'paid', allocation_date: '2025-07-01' },
-      { id: 'a6', student_name: 'Anita Devi', roll_number: 'IT2024003', department: 'IT', block_name: 'Girls Hostel B', room_number: 'G-102', bed_number: 'C', allocation_type: 'fresh', status: 'active', fee_status: 'paid', allocation_date: '2025-07-01' },
-      { id: 'a7', student_name: 'Karthik Rajan', roll_number: 'CS2023005', department: 'Computer Science', block_name: 'Boys Hostel A', room_number: 'F2-301', bed_number: 'A', allocation_type: 'renewal', status: 'active', fee_status: 'waived', allocation_date: '2025-07-01' },
-      { id: 'a8', student_name: 'Deepa Lakshmi', roll_number: 'EC2024020', department: 'Electronics', block_name: 'Girls Hostel C', room_number: 'G-110', bed_number: 'A', allocation_type: 'fresh', status: 'suspended', fee_status: 'pending', allocation_date: '2025-07-01' },
-      { id: 'a9', student_name: 'Ravi Verma', roll_number: 'ME2022018', department: 'Mechanical', block_name: 'Boys Hostel B', room_number: 'F3-405', bed_number: 'B', allocation_type: 'fresh', status: 'vacated', fee_status: 'paid', allocation_date: '2024-07-01' },
-    ],
-    isLoading: false,
-    error: null,
-  };
-};
 
 const statusConfig: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' | 'success' }> = {
   active: { label: 'Active', variant: 'success' },
@@ -65,7 +47,7 @@ const feeStatusConfig: Record<string, { label: string; variant: 'default' | 'sec
 
 export default function AllocationsPage() {
   const { profile } = useAuth();
-  const { data: allocations, isLoading } = useHostelAllocations(profile?.institution_id ?? null);
+  const { data: allocations, isLoading } = useHostelAllocations(profile?.institution_id ?? '');
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('active');
   const [blockFilter, setBlockFilter] = useState<string>('all');

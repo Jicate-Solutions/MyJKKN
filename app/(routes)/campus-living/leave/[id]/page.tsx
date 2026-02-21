@@ -10,6 +10,7 @@ import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { useAuth } from '@/hooks/use-auth';
+import { useHostelLeaveRequest } from '@/hooks/campus-living/use-hostel-leave';
 import {
   ArrowLeft,
   User,
@@ -25,58 +26,6 @@ import {
   FileText
 } from 'lucide-react';
 
-// Placeholder data
-const useLeaveDetail = (leaveId: string) => {
-  return {
-    data: {
-      id: leaveId,
-      student: {
-        id: 'l1',
-        name: 'Rahul Kumar',
-        roll_number: 'CS2024001',
-        department: 'Computer Science',
-        semester: '4th Semester',
-        block: 'Boys Hostel A',
-        room: 'G-101',
-        phone: '+91 98765 11111',
-      },
-      leave_type: 'home_visit',
-      from_date: '2026-02-22',
-      to_date: '2026-02-24',
-      from_time: null,
-      expected_return_time: '2026-02-24T18:00:00Z',
-      actual_return_time: null,
-      reason: 'Family function - sister\'s wedding. Need to travel to Chennai for 3 days.',
-      destination: 'Home - Chennai',
-      destination_address: '42, Second Cross Street, T. Nagar, Chennai 600017',
-      destination_contact: '+91 98765 00001',
-      attachment_url: null,
-      status: 'pending_warden',
-      parent_consent_status: 'approved',
-      parent_consent_at: '2026-02-21T10:30:00Z',
-      parent_consent_method: 'otp',
-      warden_approval_status: 'pending',
-      warden_id: null,
-      warden_remarks: null,
-      chief_warden_required: false,
-      chief_warden_status: null,
-      is_overdue: false,
-      created_at: '2026-02-21T08:00:00Z',
-      emergency_contact: {
-        name: 'Mr. Suresh Kumar',
-        phone: '+91 98765 00000',
-        relation: 'Father',
-      },
-      workflow_history: [
-        { step: 'submitted', label: 'Request Submitted', by: 'Rahul Kumar', at: '2026-02-21 08:00', status: 'completed' },
-        { step: 'parent_consent', label: 'Parent Consent (OTP)', by: 'Mr. Suresh Kumar', at: '2026-02-21 10:30', status: 'completed', note: 'OTP verified via SMS' },
-        { step: 'warden_review', label: 'Warden Review', by: null, at: null, status: 'pending' },
-      ],
-    },
-    isLoading: false,
-    error: null,
-  };
-};
 
 const statusConfig: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' | 'success' }> = {
   pending_parent: { label: 'Pending Parent Consent', variant: 'default' },
@@ -100,7 +49,7 @@ const leaveTypeLabels: Record<string, string> = {
 export default function LeaveDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const { profile } = useAuth();
-  const { data: leave, isLoading } = useLeaveDetail(id);
+  const { data: leave, isLoading } = useHostelLeaveRequest(id);
 
   if (isLoading || !leave) {
     return (

@@ -10,6 +10,10 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { useAuth } from '@/hooks/use-auth';
+import { useCreateHostelAllocation } from '@/hooks/campus-living/use-hostel-allocations';
+import { useHostelBlocks } from '@/hooks/campus-living/use-hostel-blocks';
+import { useRoomsByBlock } from '@/hooks/campus-living/use-hostel-rooms';
+import { useBedsByRoom } from '@/hooks/campus-living/use-hostel-beds';
 import {
   ArrowLeft,
   Save,
@@ -44,6 +48,11 @@ export default function NewAllocationPage() {
     food_preference: 'vegetarian',
   });
 
+  const createAllocation = useCreateHostelAllocation();
+  const { data: blocks } = useHostelBlocks(profile?.institution_id ?? '');
+  const { data: rooms } = useRoomsByBlock(formData.block_id);
+  const { data: beds } = useBedsByRoom(formData.room_id);
+
   const handleChange = (field: string, value: string) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
   };
@@ -52,35 +61,26 @@ export default function NewAllocationPage() {
     e.preventDefault();
     setIsSubmitting(true);
     try {
-      // TODO: Replace with actual mutation
-      console.log('Creating allocation:', formData);
-      await new Promise((r) => setTimeout(r, 1000));
+      await createAllocation.mutateAsync({
+        institution_id: profile?.institution_id ?? '',
+        learner_id: formData.learner_id,
+        block_id: formData.block_id,
+        room_id: formData.room_id,
+        bed_id: formData.bed_id,
+        allocation_type: formData.allocation_type,
+        emergency_contact_name: formData.emergency_contact_name,
+        emergency_contact_phone: formData.emergency_contact_phone,
+        emergency_contact_relation: formData.emergency_contact_relation,
+        medical_conditions: formData.medical_conditions,
+        food_preference: formData.food_preference,
+      } as any);
       router.push('/campus-living/allocations');
     } catch (error) {
-      console.error('Failed to create allocation:', error);
+      // Error is handled by the mutation hook via toast
     } finally {
       setIsSubmitting(false);
     }
   };
-
-  // Placeholder data for dropdowns
-  const blocks = [
-    { id: '1', name: 'Boys Hostel A (BHA)' },
-    { id: '2', name: 'Boys Hostel B (BHB)' },
-    { id: '3', name: 'Girls Hostel A (GHA)' },
-    { id: '4', name: 'Girls Hostel B (GHB)' },
-  ];
-
-  const rooms = [
-    { id: 'r1', label: 'G-101 (Double, 1 bed available)' },
-    { id: 'r2', label: 'G-102 (Double, 1 bed available)' },
-    { id: 'r3', label: 'G-103 (Triple, 3 beds available)' },
-  ];
-
-  const beds = [
-    { id: 'b1', label: 'Bed A (Single)' },
-    { id: 'b2', label: 'Bed B (Single)' },
-  ];
 
   return (
     <ContentLayout title="New Allocation">

@@ -11,6 +11,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/hooks/use-auth';
+import { useCreateHostelLeave } from '@/hooks/campus-living/use-hostel-leave';
 import {
   ArrowLeft,
   Save,
@@ -34,6 +35,7 @@ const leaveTypeRules: Record<string, { label: string; maxDays: string; parentCon
 export default function NewLeaveRequestPage() {
   const router = useRouter();
   const { profile } = useAuth();
+  const createLeave = useCreateHostelLeave();
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const [formData, setFormData] = useState({
@@ -57,12 +59,24 @@ export default function NewLeaveRequestPage() {
     e.preventDefault();
     setIsSubmitting(true);
     try {
-      // TODO: Replace with actual API call
-      console.log('Creating leave request:', formData);
-      await new Promise((r) => setTimeout(r, 1000));
+      await createLeave.mutateAsync({
+        ...formData,
+        institution_id: profile?.institution_id ?? '',
+        learner_id: profile?.id ?? '',
+        block_id: '',
+        expected_return_time: null,
+        attachment_url: null,
+        parent_consent_status: 'pending' as const,
+        parent_consent_method: null,
+        warden_approval_status: 'pending' as const,
+        warden_id: null,
+        chief_warden_required: false,
+        chief_warden_status: null,
+        status: 'pending_parent' as const,
+      });
       router.push('/campus-living/leave');
     } catch (error) {
-      console.error('Failed to create leave request:', error);
+      // Error is handled by the mutation hook's onError callback
     } finally {
       setIsSubmitting(false);
     }

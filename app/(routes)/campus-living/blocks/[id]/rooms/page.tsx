@@ -18,6 +18,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { useAuth } from '@/hooks/use-auth';
+import { useRoomsByBlock } from '@/hooks/campus-living/use-hostel-rooms';
 import {
   ArrowLeft,
   Search,
@@ -27,30 +28,6 @@ import {
   Filter,
   Users
 } from 'lucide-react';
-
-// Placeholder data
-const useHostelRooms = (blockId: string, floor?: number | null) => {
-  const allRooms = [
-    { id: 'r1', room_number: 'G-101', floor: 0, room_type: 'double', ac_status: 'non_ac', capacity: 2, current_occupancy: 2, status: 'full', has_attached_bathroom: true, annual_fee: 45000 },
-    { id: 'r2', room_number: 'G-102', floor: 0, room_type: 'double', ac_status: 'non_ac', capacity: 2, current_occupancy: 1, status: 'partially_occupied', has_attached_bathroom: true, annual_fee: 45000 },
-    { id: 'r3', room_number: 'G-103', floor: 0, room_type: 'triple', ac_status: 'non_ac', capacity: 3, current_occupancy: 0, status: 'available', has_attached_bathroom: false, annual_fee: 35000 },
-    { id: 'r4', room_number: 'G-104', floor: 0, room_type: 'triple', ac_status: 'non_ac', capacity: 3, current_occupancy: 3, status: 'full', has_attached_bathroom: false, annual_fee: 35000 },
-    { id: 'r5', room_number: 'G-105', floor: 0, room_type: 'single', ac_status: 'ac', capacity: 1, current_occupancy: 0, status: 'maintenance', has_attached_bathroom: true, annual_fee: 75000 },
-    { id: 'r6', room_number: 'F1-201', floor: 1, room_type: 'double', ac_status: 'ac', capacity: 2, current_occupancy: 2, status: 'full', has_attached_bathroom: true, annual_fee: 65000 },
-    { id: 'r7', room_number: 'F1-202', floor: 1, room_type: 'double', ac_status: 'ac', capacity: 2, current_occupancy: 1, status: 'partially_occupied', has_attached_bathroom: true, annual_fee: 65000 },
-    { id: 'r8', room_number: 'F1-203', floor: 1, room_type: 'triple', ac_status: 'non_ac', capacity: 3, current_occupancy: 2, status: 'partially_occupied', has_attached_bathroom: false, annual_fee: 35000 },
-    { id: 'r9', room_number: 'F2-301', floor: 2, room_type: 'quad', ac_status: 'non_ac', capacity: 4, current_occupancy: 4, status: 'full', has_attached_bathroom: false, annual_fee: 30000 },
-    { id: 'r10', room_number: 'F2-302', floor: 2, room_type: 'quad', ac_status: 'non_ac', capacity: 4, current_occupancy: 3, status: 'partially_occupied', has_attached_bathroom: false, annual_fee: 30000 },
-    { id: 'r11', room_number: 'F3-401', floor: 3, room_type: 'double', ac_status: 'cooler', capacity: 2, current_occupancy: 0, status: 'reserved', has_attached_bathroom: true, annual_fee: 50000 },
-    { id: 'r12', room_number: 'F3-402', floor: 3, room_type: 'double', ac_status: 'cooler', capacity: 2, current_occupancy: 2, status: 'full', has_attached_bathroom: true, annual_fee: 50000 },
-  ];
-
-  const rooms = floor !== null && floor !== undefined
-    ? allRooms.filter((r) => r.floor === floor)
-    : allRooms;
-
-  return { data: rooms, isLoading: false, error: null };
-};
 
 const statusConfig: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' | 'success' }> = {
   available: { label: 'Available', variant: 'success' },
@@ -73,12 +50,13 @@ export default function BlockRoomsPage({ params }: { params: Promise<{ id: strin
     floorParam !== null ? parseInt(floorParam) : null
   );
 
-  const { data: rooms, isLoading } = useHostelRooms(id, selectedFloor);
+  const { data: rooms, isLoading } = useRoomsByBlock(id);
 
   const filteredRooms = rooms?.filter((room) => {
     const matchesSearch = room.room_number.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesStatus = statusFilter === 'all' || room.status === statusFilter;
-    return matchesSearch && matchesStatus;
+    const matchesFloor = selectedFloor === null || room.floor === selectedFloor;
+    return matchesSearch && matchesStatus && matchesFloor;
   }) ?? [];
 
   const floorLabels = ['Ground Floor', '1st Floor', '2nd Floor', '3rd Floor'];

@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/hooks/use-auth';
+import { useHostelWardens } from '@/hooks/campus-living/use-hostel-wardens';
 import {
   ArrowLeft,
   ShieldCheck,
@@ -21,64 +22,6 @@ import {
   Home,
   UserCog
 } from 'lucide-react';
-
-// Placeholder data
-const useBlockWardens = (blockId: string) => {
-  return {
-    data: [
-      {
-        id: 'w1',
-        name: 'Dr. Rajesh Kumar',
-        designation: 'warden',
-        phone: '+91 98765 11111',
-        email: 'rajesh.kumar@jkkn.ac.in',
-        is_residential: true,
-        shift: 'full_time',
-        assigned_floors: [0, 1, 2, 3],
-        assigned_at: '2024-07-01',
-        is_active: true,
-      },
-      {
-        id: 'w2',
-        name: 'Mr. Arun Singh',
-        designation: 'deputy_warden',
-        phone: '+91 98765 22222',
-        email: 'arun.singh@jkkn.ac.in',
-        is_residential: false,
-        shift: 'day',
-        assigned_floors: [0, 1],
-        assigned_at: '2025-01-15',
-        is_active: true,
-      },
-      {
-        id: 'w3',
-        name: 'Mr. Karthik Rajan',
-        designation: 'floor_supervisor',
-        phone: '+91 98765 33333',
-        email: 'karthik.rajan@jkkn.ac.in',
-        is_residential: false,
-        shift: 'day',
-        assigned_floors: [2, 3],
-        assigned_at: '2025-06-01',
-        is_active: true,
-      },
-      {
-        id: 'w4',
-        name: 'Mr. Ravi Verma',
-        designation: 'night_watcher',
-        phone: '+91 98765 44444',
-        email: 'ravi.verma@jkkn.ac.in',
-        is_residential: true,
-        shift: 'night',
-        assigned_floors: [0, 1, 2, 3],
-        assigned_at: '2025-03-10',
-        is_active: true,
-      },
-    ],
-    isLoading: false,
-    error: null,
-  };
-};
 
 const designationConfig: Record<string, { label: string; color: string }> = {
   chief_warden: { label: 'Chief Warden', color: 'bg-purple-100 text-purple-800' },
@@ -99,7 +42,7 @@ const floorLabels = ['Ground', '1st', '2nd', '3rd', '4th', '5th'];
 export default function BlockWardensPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const { profile } = useAuth();
-  const { data: wardens, isLoading } = useBlockWardens(id);
+  const { data: wardens, isLoading } = useHostelWardens(profile?.institution_id ?? '', { block_id: id });
 
   if (isLoading) {
     return (

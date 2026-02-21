@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/hooks/use-auth';
+import { useHostelRoom } from '@/hooks/campus-living/use-hostel-rooms';
 import {
   ArrowLeft,
   BedDouble,
@@ -19,69 +20,6 @@ import {
   Edit,
   UserPlus
 } from 'lucide-react';
-
-// Placeholder data
-const useRoomDetail = (blockId: string, roomId: string) => {
-  return {
-    data: {
-      id: roomId,
-      block_id: blockId,
-      block_name: 'Boys Hostel A',
-      room_number: 'G-101',
-      floor: 0,
-      room_type: 'double',
-      ac_status: 'non_ac',
-      capacity: 2,
-      current_occupancy: 2,
-      is_accessible: false,
-      has_attached_bathroom: true,
-      status: 'full',
-      annual_fee: 45000,
-      furniture: { beds: 2, desks: 2, chairs: 2, wardrobes: 2, shelves: 2 },
-      last_inspection_date: '2026-01-15',
-      maintenance_notes: null,
-      beds: [
-        {
-          id: 'b1',
-          bed_number: 'A',
-          bed_type: 'single',
-          status: 'occupied',
-          occupant: {
-            id: 'l1',
-            name: 'Rahul Kumar',
-            roll_number: 'CS2024001',
-            department: 'Computer Science',
-            semester: '4th Semester',
-            phone: '+91 98765 11111',
-            allocation_date: '2025-07-01',
-          },
-        },
-        {
-          id: 'b2',
-          bed_number: 'B',
-          bed_type: 'single',
-          status: 'occupied',
-          occupant: {
-            id: 'l2',
-            name: 'Arjun Patel',
-            roll_number: 'EC2024015',
-            department: 'Electronics',
-            semester: '4th Semester',
-            phone: '+91 98765 22222',
-            allocation_date: '2025-07-01',
-          },
-        },
-      ],
-      maintenance_history: [
-        { id: 'm1', title: 'Fan replacement', priority: 'medium', status: 'completed', reported_date: '2026-01-10', resolved_date: '2026-01-12' },
-        { id: 'm2', title: 'Door lock repair', priority: 'high', status: 'completed', reported_date: '2025-11-20', resolved_date: '2025-11-21' },
-        { id: 'm3', title: 'Bathroom tile crack', priority: 'low', status: 'completed', reported_date: '2025-09-15', resolved_date: '2025-09-25' },
-      ],
-    },
-    isLoading: false,
-    error: null,
-  };
-};
 
 const bedStatusConfig: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' | 'success' }> = {
   available: { label: 'Available', variant: 'success' },
@@ -104,7 +42,7 @@ export default function RoomDetailPage({
 }) {
   const { id, roomId } = use(params);
   const { profile } = useAuth();
-  const { data: room, isLoading } = useRoomDetail(id, roomId);
+  const { data: room, isLoading } = useHostelRoom(roomId);
 
   if (isLoading || !room) {
     return (

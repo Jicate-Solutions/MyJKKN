@@ -22,6 +22,7 @@ import {
 export default function NewBlockPage() {
   const router = useRouter();
   const { profile } = useAuth();
+  const createBlock = useCreateHostelBlock();
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const [formData, setFormData] = useState({
@@ -64,16 +65,28 @@ export default function NewBlockPage() {
     setIsSubmitting(true);
 
     try {
-      // TODO: Replace with actual API call via React Query mutation
-      // await createHostelBlock({ ...formData, institution_id: profile?.institution_id });
-      console.log('Creating block:', formData);
-
-      // Simulate API delay
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      await createBlock.mutateAsync({
+        institution_id: profile?.institution_id ?? '',
+        name: formData.name,
+        code: formData.code,
+        hostel_type: formData.hostel_type as 'boys' | 'girls' | 'mixed',
+        total_floors: parseInt(formData.total_floors) || 0,
+        address: formData.address || null,
+        contact_phone: formData.contact_phone || null,
+        curfew_time_weekday: formData.curfew_time_weekday || null,
+        curfew_time_weekend: formData.curfew_time_weekend || null,
+        visiting_hours_start: formData.visiting_hours_start || null,
+        visiting_hours_end: formData.visiting_hours_end || null,
+        amenities: formData.amenities,
+        warden_id: null,
+        deputy_warden_id: null,
+        status: 'active' as const,
+        metadata: null,
+      });
 
       router.push('/campus-living/blocks');
     } catch (error) {
-      console.error('Failed to create block:', error);
+      // Error is handled by the mutation hook's onError
     } finally {
       setIsSubmitting(false);
     }
