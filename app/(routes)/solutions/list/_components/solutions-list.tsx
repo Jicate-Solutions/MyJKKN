@@ -31,6 +31,7 @@ import {
   Video,
   MoreHorizontal,
   AlertCircle,
+  Download,
 } from 'lucide-react';
 import {
   DropdownMenu,
