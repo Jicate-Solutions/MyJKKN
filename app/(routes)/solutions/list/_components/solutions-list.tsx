@@ -102,6 +102,28 @@ export function SolutionsList({ searchParams }: SolutionsListProps) {
 
   const solutions = solutionsData?.data || [];
 
+  // CSV export column definitions
+  const csvColumns: CsvColumn<SolutionWithClient>[] = [
+    { header: 'Code', accessor: (r) => r.solution_code },
+    { header: 'Title', accessor: (r) => r.title },
+    { header: 'Type', accessor: (r) => r.solution_type },
+    { header: 'Status', accessor: (r) => r.status },
+    { header: 'Client', accessor: (r) => r.client?.name ?? '' },
+    { header: 'Department', accessor: (r) => r.department?.name ?? '' },
+    { header: 'Base Price', accessor: (r) => r.base_price ?? '' },
+    { header: 'Discount %', accessor: (r) => r.discount_percentage ?? '' },
+    { header: 'Final Price', accessor: (r) => r.final_price ?? '' },
+    { header: 'Start Date', accessor: (r) => formatDateForCsv(r.start_date) },
+    { header: 'Target Date', accessor: (r) => formatDateForCsv(r.target_date) },
+    { header: 'Completion Date', accessor: (r) => formatDateForCsv(r.completion_date) },
+    { header: 'Tags', accessor: (r) => formatArrayForCsv(r.tags) },
+    { header: 'Created', accessor: (r) => formatDateForCsv(r.created_at) },
+  ];
+
+  const handleExport = () => {
+    downloadCsv(solutions, csvColumns, 'solutions');
+  };
+
   return (
     <div className="space-y-4">
       {/* Filters */}
