@@ -71,6 +71,23 @@ export function ProspectList() {
   const prospects = data?.data || [];
   const metadata = data?.metadata;
 
+  const csvColumns: CsvColumn<typeof prospects[number]>[] = [
+    { header: 'Company Name', accessor: (r) => r.company_name },
+    { header: 'Prospect Code', accessor: (r) => r.prospect_code },
+    { header: 'Pipeline Stage', accessor: (r) => PIPELINE_STAGE_LABELS[r.pipeline_stage] || r.pipeline_stage },
+    { header: 'Contact Person', accessor: (r) => r.contact_person },
+    { header: 'Contact Email', accessor: (r) => r.contact_email },
+    { header: 'Expected Deal Size', accessor: (r) => formatCurrencyForCsv(r.expected_deal_size) },
+    { header: 'Expected Close Date', accessor: (r) => formatDateForCsv(r.expected_close_date) },
+    { header: 'Source', accessor: (r) => r.source_type },
+    { header: 'Notes', accessor: (r) => r.notes },
+    { header: 'Created At', accessor: (r) => formatDateForCsv(r.created_at) },
+  ];
+
+  const handleExport = () => {
+    downloadCsv(prospects, csvColumns, 'pipeline-prospects');
+  };
+
   const handleRowClick = (id: string) => {
     router.push(`/solutions/pipeline/${id}`);
   };
