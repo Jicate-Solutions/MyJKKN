@@ -58,9 +58,9 @@ export default function GatePassesPage() {
   const getFilteredPasses = (tab: string) => {
     return passes?.filter((p) => {
       const matchesSearch =
-        p.student_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        p.roll.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        p.pass_number.toLowerCase().includes(searchQuery.toLowerCase());
+        (p.learner?.full_name ?? '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (p.learner_id ?? '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (p.pass_number ?? '').toLowerCase().includes(searchQuery.toLowerCase());
       const matchesTab =
         tab === 'all' ? true :
         tab === 'active' ? (p.status === 'active' || p.status === 'issued') :
@@ -218,11 +218,11 @@ export default function GatePassesPage() {
                             <TableCell className="font-mono text-xs">{pass.pass_number}</TableCell>
                             <TableCell>
                               <div>
-                                <p className="font-medium">{pass.student_name}</p>
-                                <p className="text-xs text-muted-foreground">{pass.roll}</p>
+                                <p className="font-medium">{pass.learner?.full_name ?? 'Unknown'}</p>
+                                <p className="text-xs text-muted-foreground">{pass.learner_id?.slice(0, 8)}</p>
                               </div>
                             </TableCell>
-                            <TableCell className="text-sm">{pass.block}</TableCell>
+                            <TableCell className="text-sm">{pass.block?.name ?? ''}</TableCell>
                             <TableCell>
                               <Badge className={`text-xs ${ptCfg.color}`}>{ptCfg.label}</Badge>
                             </TableCell>

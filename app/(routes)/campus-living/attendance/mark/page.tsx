@@ -66,7 +66,7 @@ export default function MarkAttendancePage() {
   const handleMarkAllPresent = useCallback(() => {
     const allPresent: Record<string, AttendanceStatus> = {};
     students?.forEach((s) => {
-      if (s.current_status !== 'on_leave') {
+      if (s.evening_status !== 'on_leave') {
         allPresent[s.id] = 'present';
       } else {
         allPresent[s.id] = 'on_leave';
@@ -104,9 +104,8 @@ export default function MarkAttendancePage() {
   };
 
   const filteredStudents = students?.filter((s) =>
-    s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    s.roll_number.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    s.room.toLowerCase().includes(searchQuery.toLowerCase())
+    (s.learner?.full_name ?? '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+    (s.learner_id ?? '').toLowerCase().includes(searchQuery.toLowerCase())
   ) ?? [];
 
   const markedCount = Object.values(attendance).filter(Boolean).length;
@@ -212,7 +211,7 @@ export default function MarkAttendancePage() {
         ) : (
           <div className="space-y-2">
             {filteredStudents.map((student) => {
-              const status = attendance[student.id] ?? student.current_status;
+              const status = attendance[student.id] ?? student.evening_status;
               return (
                 <Card key={student.id} className={status ? 'border-l-4' : ''} style={{
                   borderLeftColor: status === 'present' ? '#16a34a' : status === 'absent' ? '#dc2626' : status === 'on_leave' ? '#d97706' : status === 'late_entry' ? '#ea580c' : status === 'medical' ? '#9333ea' : undefined,
@@ -224,12 +223,12 @@ export default function MarkAttendancePage() {
                           <Users className="h-5 w-5 text-muted-foreground" />
                         </div>
                         <div>
-                          <p className="font-medium">{student.name}</p>
+                          <p className="font-medium">{student.learner?.full_name ?? 'Unknown'}</p>
                           <p className="text-sm text-muted-foreground">
-                            {student.roll_number} &middot; Room {student.room} &middot; Bed {student.bed}
+                            {student.learner_id?.slice(0, 8)} &middot; Block {student.block_id?.slice(0, 8)}
                           </p>
                         </div>
-                        {student.current_status === 'on_leave' && (
+                        {student.evening_status === 'on_leave' && (
                           <Badge variant="outline" className="text-amber-600 bg-amber-50">
                             On Approved Leave
                           </Badge>

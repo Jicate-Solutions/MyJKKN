@@ -10,16 +10,13 @@ import {
   useMarkCommunicationRead,
 } from '@/hooks/parent-portal';
 import { useSubmitNPSResponse } from '@/hooks/stakeholder-nps';
-import { ensureArray, ensureNumber } from '@/lib/utils/validation';
+import { ensureArray } from '@/lib/utils/validation';
 import { ParentHeader } from './parent-header';
 import { DashboardOverview } from './dashboard-overview';
 import { LearnerCard } from './learner-card';
 import { CommunicationList } from './communication-list';
 import { NPSSurveyPrompt } from './nps-survey-prompt';
 import type { NPSSurvey } from '@/types/stakeholder-nps';
-
-// For demo purposes - in production, this would come from auth context
-const DEMO_PARENT_ID = 'demo-parent-id';
 
 export function ParentPortalClient() {
   const router = useRouter();

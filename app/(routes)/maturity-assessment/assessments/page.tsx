@@ -1,196 +1,211 @@
-import { Metadata } from 'next';
-import { redirect } from 'next/navigation';
+'use client';
+
 import Link from 'next/link';
-import { ContentLayout } from '@/components/layout/content-layout';
-import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
+import { Loader2, Plus, ClipboardCheck, Clock, CheckCircle, BarChart3 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { getEnhancedUserProfile } from '@/lib/supabase/server';
-import {
-  Plus,
-  ClipboardCheck,
-  Clock,
-  CheckCircle,
-  BarChart3
-} from 'lucide-react';
 import { format } from 'date-fns';
+import { useAuth } from '@/hooks/use-auth';
+import { useMaturityAssessments } from '@/hooks/maturity-assessment/use-maturity-assessments';
+import type { AssessmentStatus } from '@/types/maturity-assessment';
 
-export const metadata: Metadata = {
-  title: 'Assessments | Maturity Assessment',
-  description: 'View and manage organizational maturity assessments',
+const statusColors: Record<AssessmentStatus, { bg: string; label: string }> = {
+  draft: { bg: 'bg-gray-100 text-gray-700', label: 'Draft' },
+  submitted: { bg: 'bg-yellow-100 text-yellow-700', label: 'Submitted' },
+  approved: { bg: 'bg-green-100 text-green-700', label: 'Approved' },
+  archived: { bg: 'bg-gray-100 text-gray-500', label: 'Archived' },
 };
 
-export default async function MaturityAssessmentsPage() {
-  const { profile } = await getEnhancedUserProfile();
+export default function MaturityAssessmentsPage() {
+  const { profile } = useAuth();
+  const institutionId = profile?.institution_id;
 
-  if (!profile?.institution_id) {
-    redirect('/');
+  const {
+    assessments,
+    loading,
+    error,
+    metadata,
+  } = useMaturityAssessments({
+    institution_id: institutionId || '',
+    page: 1,
+    limit: 50,
+  });
+
+  if (!institutionId) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Card className="max-w-md">
+          <CardContent className="pt-6 text-center">
+            <p className="text-muted-foreground">
+              You need to be assigned to an institution to access maturity assessments.
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    );
   }
 
-  // Placeholder assessments data
-  const assessments = [
-    {
-      id: '1',
-      name: 'Q1 2026 Institutional Assessment',
-      type: 'Full Assessment',
-      status: 'completed',
-      score: 78,
-      created_at: '2026-01-15',
-      completed_at: '2026-01-28',
-    },
-    {
-      id: '2',
-      name: 'Digital Transformation Readiness',
-      type: 'Focused Assessment',
-      status: 'in_progress',
-      score: null,
-      created_at: '2026-02-01',
-      completed_at: null,
-    },
-    {
-      id: '3',
-      name: 'Q4 2025 Institutional Assessment',
-      type: 'Full Assessment',
-      status: 'completed',
-      score: 72,
-      created_at: '2025-10-10',
-      completed_at: '2025-10-25',
-    },
-    {
-      id: '4',
-      name: 'Academic Excellence Review',
-      type: 'Focused Assessment',
-      status: 'completed',
-      score: 85,
-      created_at: '2025-09-01',
-      completed_at: '2025-09-15',
-    },
-  ];
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Loader2 className="h-8 w-8 animate-spin" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Card className="max-w-md">
+          <CardContent className="pt-6 text-center">
+            <p className="text-red-600">Failed to load assessments. Please try again.</p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  // Stats from real data
+  const totalAssessments = metadata.total;
+  const inProgressCount = assessments.filter(
+    (a) => a.status === 'draft' || a.status === 'submitted'
+  ).length;
+  const completedCount = assessments.filter(
+    (a) => a.status === 'approved'
+  ).length;
+  const latestApproved = assessments.find((a) => a.status === 'approved');
 
   return (
-    <ContentLayout title="Assessments">
-      <PageBreadcrumb
-        items={[
-          { label: 'Home', href: '/' },
-          { label: 'Maturity Assessment', href: '/maturity-assessment' },
-          { label: 'Assessments' },
-        ]}
-      />
-
-      <div className="space-y-6 mt-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold py-1">Maturity Assessments</h1>
-            <p className="text-sm text-muted-foreground">
-              Track and manage organizational maturity assessments
-            </p>
-          </div>
-          <Button asChild>
-            <Link href="/maturity-assessment/new">
-              <Plus className="mr-2 h-4 w-4" />
-              New Assessment
-            </Link>
-          </Button>
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-xl font-bold py-1">All Assessments</h2>
+          <p className="text-sm text-muted-foreground">
+            Track and manage organizational maturity assessments
+          </p>
         </div>
+        <Button asChild>
+          <Link href="/maturity-assessment/new">
+            <Plus className="mr-2 h-4 w-4" />
+            New Assessment
+          </Link>
+        </Button>
+      </div>
 
-        {/* Summary Stats */}
-        <div className="grid gap-4 md:grid-cols-4">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Assessments</CardTitle>
-              <ClipboardCheck className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{assessments.length}</div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">In Progress</CardTitle>
-              <Clock className="h-4 w-4 text-yellow-500" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">
-                {assessments.filter(a => a.status === 'in_progress').length}
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Completed</CardTitle>
-              <CheckCircle className="h-4 w-4 text-green-500" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">
-                {assessments.filter(a => a.status === 'completed').length}
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Latest Score</CardTitle>
-              <BarChart3 className="h-4 w-4 text-blue-500" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">
-                {assessments.find(a => a.status === 'completed')?.score || '-'}%
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Assessments List */}
+      {/* Summary Stats */}
+      <div className="grid gap-4 md:grid-cols-4">
         <Card>
-          <CardHeader>
-            <CardTitle>All Assessments</CardTitle>
-            <CardDescription>View and manage your maturity assessments</CardDescription>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Total Assessments</CardTitle>
+            <ClipboardCheck className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="space-y-4">
-              {assessments.map((assessment) => (
-                <Link
-                  key={assessment.id}
-                  href={`/maturity-assessment/${assessment.id}`}
-                  className="block"
-                >
-                  <div className="flex items-center justify-between p-4 rounded-lg border hover:bg-muted/50 transition-colors">
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium">{assessment.name}</span>
-                        <Badge variant="outline">{assessment.type}</Badge>
-                      </div>
-                      <p className="text-sm text-muted-foreground">
-                        Started: {format(new Date(assessment.created_at), 'dd MMM yyyy')}
-                        {assessment.completed_at && (
-                          <> • Completed: {format(new Date(assessment.completed_at), 'dd MMM yyyy')}</>
-                        )}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-4">
-                      {assessment.score !== null && (
-                        <div className="text-right">
-                          <p className="text-2xl font-bold text-primary">{assessment.score}%</p>
-                          <p className="text-xs text-muted-foreground">Score</p>
-                        </div>
-                      )}
-                      <Badge
-                        variant={assessment.status === 'completed' ? 'default' : 'secondary'}
-                        className={assessment.status === 'completed' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}
-                      >
-                        {assessment.status === 'in_progress' ? 'In Progress' : 'Completed'}
-                      </Badge>
-                    </div>
-                  </div>
-                </Link>
-              ))}
+            <div className="text-2xl font-bold">{totalAssessments}</div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">In Progress</CardTitle>
+            <Clock className="h-4 w-4 text-yellow-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{inProgressCount}</div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Approved</CardTitle>
+            <CheckCircle className="h-4 w-4 text-green-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{completedCount}</div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Latest Stage</CardTitle>
+            <BarChart3 className="h-4 w-4 text-blue-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">
+              {latestApproved ? `Stage ${latestApproved.overall_stage}` : '-'}
             </div>
           </CardContent>
         </Card>
       </div>
-    </ContentLayout>
+
+      {/* Assessments List */}
+      <Card>
+        <CardHeader>
+          <CardTitle>All Assessments</CardTitle>
+          <CardDescription>View and manage your maturity assessments</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {assessments.length === 0 ? (
+            <div className="text-center py-12 text-muted-foreground">
+              <p>No assessments found.</p>
+              <p className="text-sm mt-2">
+                Create your first assessment to start tracking organizational maturity.
+              </p>
+              <Button asChild className="mt-4">
+                <Link href="/maturity-assessment/new">Create First Assessment</Link>
+              </Button>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {assessments.map((assessment) => {
+                const deptName =
+                  (assessment as any).department?.department_name ||
+                  (assessment as any).department?.name ||
+                  null;
+                const statusInfo = statusColors[assessment.status] || statusColors.draft;
+
+                return (
+                  <Link
+                    key={assessment.id}
+                    href={`/maturity-assessment/${assessment.id}`}
+                    className="block"
+                  >
+                    <div className="flex items-center justify-between p-4 rounded-lg border hover:bg-muted/50 transition-colors">
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium">
+                            {deptName || 'Institution-wide'} Assessment
+                          </span>
+                          <Badge variant="outline">
+                            Stage {assessment.overall_stage}
+                          </Badge>
+                        </div>
+                        <p className="text-sm text-muted-foreground">
+                          Date: {format(new Date(assessment.assessment_date), 'dd MMM yyyy')}
+                          {(assessment as any).assessor?.full_name && (
+                            <> &middot; By: {(assessment as any).assessor.full_name}</>
+                          )}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-4">
+                        <div className="text-right">
+                          <p className="text-2xl font-bold text-primary">
+                            {assessment.overall_stage}
+                          </p>
+                          <p className="text-xs text-muted-foreground">Stage</p>
+                        </div>
+                        <Badge className={statusInfo.bg}>
+                          {statusInfo.label}
+                        </Badge>
+                      </div>
+                    </div>
+                  </Link>
+                );
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
   );
 }

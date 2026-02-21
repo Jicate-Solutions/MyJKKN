@@ -114,8 +114,10 @@ export default function ClientDetailPage({ params }: ClientDetailPageProps) {
     );
   }
 
-  // Error state
+  // Error state — distinguish between auth issues and actual missing data
   if (clientError || !client) {
+    const errorMessage = clientError instanceof Error ? clientError.message : '';
+    const isAuthIssue = errorMessage.includes('JWT') || errorMessage.includes('token') || errorMessage.includes('auth');
     return (
       <ContentLayout title="Client Not Found">
         <PageBreadcrumb
@@ -132,14 +134,23 @@ export default function ClientDetailPage({ params }: ClientDetailPageProps) {
               <div className="flex flex-col items-center justify-center gap-4 text-center">
                 <AlertCircle className="h-10 w-10 text-destructive" />
                 <div>
-                  <h3 className="font-semibold">Client not found</h3>
+                  <h3 className="font-semibold">
+                    {isAuthIssue ? 'Session expired' : 'Client not found'}
+                  </h3>
                   <p className="text-sm text-muted-foreground">
-                    The client you are looking for does not exist or you don&apos;t have permission to view it.
+                    {isAuthIssue
+                      ? 'Your session has expired. Please refresh the page or log in again.'
+                      : 'The client you are looking for does not exist or you don\u0027t have permission to view it.'}
                   </p>
                 </div>
-                <Button variant="outline" onClick={() => router.push('/solutions/clients')}>
-                  Back to Clients
-                </Button>
+                <div className="flex gap-2">
+                  <Button variant="outline" onClick={() => window.location.reload()}>
+                    Retry
+                  </Button>
+                  <Button variant="outline" onClick={() => router.push('/solutions/clients')}>
+                    Back to Clients
+                  </Button>
+                </div>
               </div>
             </CardContent>
           </Card>

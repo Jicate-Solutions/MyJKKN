@@ -65,8 +65,8 @@ export default function LeaveRequestsPage() {
   const getFilteredRequests = (tab: string) => {
     return requests.filter((r: any) => {
       const matchesSearch =
-        r.student_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        r.roll.toLowerCase().includes(searchQuery.toLowerCase());
+        ((r as any).learner?.full_name ?? '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (r.learner_id ?? '').toLowerCase().includes(searchQuery.toLowerCase());
       const matchesTab =
         tab === 'all' ? true :
         tab === 'pending' ? r.status.startsWith('pending') :
@@ -203,8 +203,8 @@ export default function LeaveRequestsPage() {
                           <TableRow key={req.id}>
                             <TableCell>
                               <div>
-                                <p className="font-medium">{req.student_name}</p>
-                                <p className="text-xs text-muted-foreground">{req.roll} &middot; {req.block}</p>
+                                <p className="font-medium">{(req as any).learner?.full_name ?? 'Unknown'}</p>
+                                <p className="text-xs text-muted-foreground">{req.learner_id?.slice(0, 8) ?? ''} &middot; {(req as any).block?.name ?? ''}</p>
                               </div>
                             </TableCell>
                             <TableCell>
@@ -219,10 +219,10 @@ export default function LeaveRequestsPage() {
                             <TableCell className="max-w-[200px] truncate">{req.destination}</TableCell>
                             <TableCell>
                               <Badge
-                                variant={req.parent_consent === 'approved' ? 'success' : req.parent_consent === 'rejected' ? 'destructive' : req.parent_consent === 'not_required' ? 'outline' : 'default'}
+                                variant={req.parent_consent_status === 'approved' ? 'success' : req.parent_consent_status === 'rejected' ? 'destructive' : req.parent_consent_status === 'not_required' ? 'outline' : 'default'}
                                 className="text-xs"
                               >
-                                {req.parent_consent === 'not_required' ? 'N/A' : req.parent_consent}
+                                {req.parent_consent_status === 'not_required' ? 'N/A' : req.parent_consent_status}
                               </Badge>
                             </TableCell>
                             <TableCell>

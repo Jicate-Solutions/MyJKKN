@@ -3,13 +3,11 @@ import { redirect } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { getEnhancedUserProfile } from '@/lib/supabase/server';
 import {
   MessageSquare,
-  Star,
   Send,
   CheckCircle,
   Clock
@@ -26,34 +24,6 @@ export default async function ParentFeedbackPage() {
   if (!profile?.institution_id) {
     redirect('/');
   }
-
-  // Placeholder feedback history
-  const feedbackHistory = [
-    {
-      id: '1',
-      subject: 'Excellent Academic Support',
-      type: 'appreciation',
-      status: 'acknowledged',
-      date: '2026-02-01',
-      response: 'Thank you for your kind words. We are committed to providing the best education.',
-    },
-    {
-      id: '2',
-      subject: 'Request for Extra Tutoring',
-      type: 'suggestion',
-      status: 'in_progress',
-      date: '2026-01-25',
-      response: 'We are reviewing your request and will get back to you shortly.',
-    },
-    {
-      id: '3',
-      subject: 'Library Hours Extension',
-      type: 'suggestion',
-      status: 'resolved',
-      date: '2026-01-15',
-      response: 'Library hours have been extended to 8 PM on weekdays.',
-    },
-  ];
 
   return (
     <ContentLayout title="Feedback">
@@ -81,7 +51,7 @@ export default async function ParentFeedbackPage() {
               <MessageSquare className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{feedbackHistory.length}</div>
+              <div className="text-2xl font-bold">0</div>
             </CardContent>
           </Card>
 
@@ -91,9 +61,7 @@ export default async function ParentFeedbackPage() {
               <CheckCircle className="h-4 w-4 text-green-500" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">
-                {feedbackHistory.filter(f => f.status === 'resolved' || f.status === 'acknowledged').length}
-              </div>
+              <div className="text-2xl font-bold">0</div>
             </CardContent>
           </Card>
 
@@ -103,9 +71,7 @@ export default async function ParentFeedbackPage() {
               <Clock className="h-4 w-4 text-yellow-500" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">
-                {feedbackHistory.filter(f => f.status === 'in_progress').length}
-              </div>
+              <div className="text-2xl font-bold">0</div>
             </CardContent>
           </Card>
         </div>
@@ -162,10 +128,13 @@ export default async function ParentFeedbackPage() {
               />
             </div>
 
-            <Button>
+            <Button disabled>
               <Send className="mr-2 h-4 w-4" />
               Submit Feedback
             </Button>
+            <p className="text-xs text-muted-foreground">
+              Feedback submission will be available once the feedback system is set up.
+            </p>
           </CardContent>
         </Card>
 
@@ -176,35 +145,12 @@ export default async function ParentFeedbackPage() {
             <CardDescription>Track the status of your previous feedback</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="space-y-4">
-              {feedbackHistory.map((feedback) => (
-                <div key={feedback.id} className="p-4 rounded-lg border">
-                  <div className="flex items-start justify-between">
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium">{feedback.subject}</span>
-                        <Badge variant="outline">{feedback.type}</Badge>
-                      </div>
-                      <p className="text-sm text-muted-foreground">{feedback.date}</p>
-                    </div>
-                    <Badge
-                      className={
-                        feedback.status === 'resolved' || feedback.status === 'acknowledged'
-                          ? 'bg-green-100 text-green-700'
-                          : 'bg-yellow-100 text-yellow-700'
-                      }
-                    >
-                      {feedback.status}
-                    </Badge>
-                  </div>
-                  {feedback.response && (
-                    <div className="mt-3 p-3 rounded bg-muted">
-                      <p className="text-sm font-medium mb-1">Response:</p>
-                      <p className="text-sm text-muted-foreground">{feedback.response}</p>
-                    </div>
-                  )}
-                </div>
-              ))}
+            <div className="flex flex-col items-center justify-center py-12 text-center">
+              <MessageSquare className="h-12 w-12 text-gray-300" />
+              <p className="mt-4 text-gray-500">No feedback submitted yet</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Your feedback history will appear here once you submit feedback.
+              </p>
             </div>
           </CardContent>
         </Card>

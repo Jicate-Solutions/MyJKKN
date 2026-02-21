@@ -7,7 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { getEnhancedUserProfile } from '@/lib/supabase/server';
-import { createClient } from '@/lib/supabase/server';
+import { getTickets } from '../_data/get-tickets';
 import {
   Plus,
   Clock,
@@ -29,19 +29,16 @@ export default async function GrievanceTicketsPage() {
     redirect('/');
   }
 
-  const supabase = await createClient();
+  // Fetch tickets using the shared data function
+  const ticketsResult = await getTickets({
+    institution_id: profile.institution_id,
+    page: 1,
+    limit: 50,
+    sortBy: 'created_at',
+    sortDirection: 'desc',
+  });
 
-  // Fetch tickets
-  const { data: tickets } = await supabase
-    .from('grievance_tickets')
-    .select(`
-      *,
-      category:grievance_categories(name),
-      submitter:profiles!grievance_tickets_submitted_by_fkey(full_name)
-    `)
-    .eq('institution_id', profile.institution_id)
-    .order('created_at', { ascending: false })
-    .limit(50);
+  const tickets = ticketsResult.data || [];
 
   const statusColors: Record<string, string> = {
     open: 'bg-blue-100 text-blue-700',
@@ -52,7 +49,7 @@ export default async function GrievanceTicketsPage() {
   };
 
   const priorityColors: Record<string, string> = {
-    critical: 'bg-red-100 text-red-700',
+    urgent: 'bg-red-100 text-red-700',
     high: 'bg-orange-100 text-orange-700',
     medium: 'bg-yellow-100 text-yellow-700',
     low: 'bg-green-100 text-green-700',
@@ -93,7 +90,7 @@ export default async function GrievanceTicketsPage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">
-                {tickets?.filter(t => t.status === 'open').length || 0}
+                {tickets.filter(t => t.status === 'open').length}
               </div>
             </CardContent>
           </Card>
@@ -105,7 +102,7 @@ export default async function GrievanceTicketsPage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">
-                {tickets?.filter(t => t.status === 'in_progress').length || 0}
+                {tickets.filter(t => t.status === 'in_progress').length}
               </div>
             </CardContent>
           </Card>
@@ -117,7 +114,7 @@ export default async function GrievanceTicketsPage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">
-                {tickets?.filter(t => t.status === 'resolved').length || 0}
+                {tickets.filter(t => t.status === 'resolved').length}
               </div>
             </CardContent>
           </Card>
@@ -128,7 +125,7 @@ export default async function GrievanceTicketsPage() {
               <MessageSquare className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{tickets?.length || 0}</div>
+              <div className="text-2xl font-bold">{ticketsResult.metadata.total}</div>
             </CardContent>
           </Card>
         </div>
@@ -137,11 +134,11 @@ export default async function GrievanceTicketsPage() {
         <Card>
           <CardHeader>
             <CardTitle>Recent Tickets</CardTitle>
-            <CardDescription>Showing latest 50 tickets</CardDescription>
+            <CardDescription>Showing latest {tickets.length} of {ticketsResult.metadata.total} tickets</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {tickets?.map((ticket) => (
+              {tickets.map((ticket) => (
                 <Link
                   key={ticket.id}
                   href={`/grievance/tickets/${ticket.id}`}
@@ -157,9 +154,9 @@ export default async function GrievanceTicketsPage() {
                           {ticket.priority}
                         </Badge>
                       </div>
-                      <p className="font-medium">{ticket.title}</p>
+                      <p className="font-medium">{ticket.subject}</p>
                       <p className="text-sm text-muted-foreground">
-                        {ticket.category?.name || 'Uncategorized'} • by {ticket.submitter?.full_name || 'Unknown'}
+                        {(ticket.category as any)?.name || 'Uncategorized'} • by {ticket.raised_by_name}
                       </p>
                     </div>
                     <div className="text-right space-y-1">
@@ -174,7 +171,7 @@ export default async function GrievanceTicketsPage() {
                 </Link>
               ))}
 
-              {(!tickets || tickets.length === 0) && (
+              {tickets.length === 0 && (
                 <div className="py-12 text-center">
                   <MessageSquare className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
                   <p className="text-lg font-medium">No Tickets Found</p>

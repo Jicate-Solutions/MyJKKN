@@ -1,19 +1,20 @@
 import { Metadata } from 'next';
 import { redirect } from 'next/navigation';
+import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation/Breadcrumbs';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { getEnhancedUserProfile } from '@/lib/supabase/server';
+import { getTickets } from '../_data/get-tickets';
 import {
   AlertTriangle,
   Clock,
-  ArrowUpRight,
   User,
   Calendar
 } from 'lucide-react';
-import { format } from 'date-fns';
+import { formatDistanceToNow, format } from 'date-fns';
 
 export const metadata: Metadata = {
   title: 'Escalations | Grievance',
@@ -33,45 +34,38 @@ export default async function GrievanceEscalationsPage() {
     redirect('/grievance');
   }
 
-  // Placeholder escalations data
+  // Fetch SLA-breached tickets (these are the real "escalations")
+  const breachedResult = await getTickets({
+    institution_id: profile.institution_id,
+    sla_status: 'breached',
+    page: 1,
+    limit: 50,
+    sortBy: 'created_at',
+    sortDirection: 'desc',
+  });
+
+  // Also fetch urgent/high priority open tickets that are at risk
+  const atRiskResult = await getTickets({
+    institution_id: profile.institution_id,
+    sla_status: 'at_risk',
+    page: 1,
+    limit: 50,
+    sortBy: 'created_at',
+    sortDirection: 'desc',
+  });
+
+  const breachedTickets = breachedResult.data || [];
+  const atRiskTickets = atRiskResult.data || [];
+
+  // Combine: breached first, then at-risk urgent/high only
   const escalations = [
-    {
-      id: 'ESC-001',
-      ticket_number: 'GRV-2026-0045',
-      title: 'Repeated network issues in Block A',
-      category: 'Infrastructure',
-      escalated_by: 'Dr. Kumar',
-      escalated_to: 'Principal',
-      escalated_at: new Date('2026-02-04T10:00:00'),
-      reason: 'Issue persisting for more than 2 weeks despite multiple attempts',
-      priority: 'high',
-      status: 'pending',
-    },
-    {
-      id: 'ESC-002',
-      ticket_number: 'GRV-2026-0038',
-      title: 'Faculty behavior complaint',
-      category: 'Faculty',
-      escalated_by: 'HOD - CSE',
-      escalated_to: 'Principal',
-      escalated_at: new Date('2026-02-03T14:30:00'),
-      reason: 'Sensitive matter requiring higher authority intervention',
-      priority: 'critical',
-      status: 'under_review',
-    },
-    {
-      id: 'ESC-003',
-      ticket_number: 'GRV-2026-0029',
-      title: 'Scholarship disbursement delay',
-      category: 'Administrative',
-      escalated_by: 'Accounts Officer',
-      escalated_to: 'Dean - Student Affairs',
-      escalated_at: new Date('2026-02-02T09:15:00'),
-      reason: 'Budget allocation issue - needs management approval',
-      priority: 'medium',
-      status: 'pending',
-    },
+    ...breachedTickets,
+    ...atRiskTickets.filter(t => t.priority === 'urgent' || t.priority === 'high'),
   ];
+
+  const urgentCount = escalations.filter(t => t.priority === 'urgent').length;
+  const highCount = escalations.filter(t => t.priority === 'high').length;
+  const breachedCount = breachedTickets.length;
 
   return (
     <ContentLayout title="Escalations">
@@ -88,7 +82,7 @@ export default async function GrievanceEscalationsPage() {
           <div>
             <h1 className="text-2xl font-bold py-1">Escalated Tickets</h1>
             <p className="text-sm text-muted-foreground">
-              Review and resolve escalated grievances requiring higher authority
+              SLA-breached and at-risk high-priority tickets requiring immediate attention
             </p>
           </div>
           <Badge variant="destructive" className="text-lg px-4 py-2">
@@ -100,33 +94,33 @@ export default async function GrievanceEscalationsPage() {
         <div className="grid gap-4 md:grid-cols-3">
           <Card className="border-red-200 bg-red-50">
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-red-700">Critical</CardTitle>
+              <CardTitle className="text-sm font-medium text-red-700">SLA Breached</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold text-red-700">
-                {escalations.filter(e => e.priority === 'critical').length}
+                {breachedCount}
               </div>
             </CardContent>
           </Card>
 
           <Card className="border-yellow-200 bg-yellow-50">
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-yellow-700">High Priority</CardTitle>
+              <CardTitle className="text-sm font-medium text-yellow-700">Urgent Priority</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold text-yellow-700">
-                {escalations.filter(e => e.priority === 'high').length}
+                {urgentCount}
               </div>
             </CardContent>
           </Card>
 
-          <Card className="border-blue-200 bg-blue-50">
+          <Card className="border-orange-200 bg-orange-50">
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-blue-700">Medium</CardTitle>
+              <CardTitle className="text-sm font-medium text-orange-700">High Priority</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-blue-700">
-                {escalations.filter(e => e.priority === 'medium').length}
+              <div className="text-2xl font-bold text-orange-700">
+                {highCount}
               </div>
             </CardContent>
           </Card>
@@ -134,60 +128,77 @@ export default async function GrievanceEscalationsPage() {
 
         {/* Escalation List */}
         <div className="space-y-4">
-          {escalations.map((esc) => (
-            <Card key={esc.id} className={
-              esc.priority === 'critical' ? 'border-red-300' :
-              esc.priority === 'high' ? 'border-yellow-300' : ''
+          {escalations.map((ticket) => (
+            <Card key={ticket.id} className={
+              ticket.sla_status === 'breached' ? 'border-red-300' :
+              ticket.priority === 'urgent' ? 'border-red-300' :
+              ticket.priority === 'high' ? 'border-yellow-300' : ''
             }>
               <CardHeader>
                 <div className="flex items-start justify-between">
                   <div className="space-y-1">
                     <div className="flex items-center gap-2">
                       <AlertTriangle className={
-                        esc.priority === 'critical' ? 'h-4 w-4 text-red-500' :
-                        esc.priority === 'high' ? 'h-4 w-4 text-yellow-500' :
+                        ticket.sla_status === 'breached' ? 'h-4 w-4 text-red-500' :
+                        ticket.priority === 'urgent' ? 'h-4 w-4 text-red-500' :
+                        ticket.priority === 'high' ? 'h-4 w-4 text-yellow-500' :
                         'h-4 w-4 text-blue-500'
                       } />
-                      <span className="text-sm font-mono text-muted-foreground">{esc.ticket_number}</span>
+                      <span className="text-sm font-mono text-muted-foreground">{ticket.ticket_number}</span>
                     </div>
-                    <CardTitle className="text-lg">{esc.title}</CardTitle>
-                    <CardDescription>{esc.category}</CardDescription>
+                    <CardTitle className="text-lg">{ticket.subject}</CardTitle>
+                    <CardDescription>{(ticket.category as any)?.name || 'Uncategorized'}</CardDescription>
                   </div>
                   <div className="flex gap-2">
                     <Badge
                       variant={
-                        esc.priority === 'critical' ? 'destructive' :
-                        esc.priority === 'high' ? 'default' : 'secondary'
+                        ticket.priority === 'urgent' ? 'destructive' :
+                        ticket.priority === 'high' ? 'default' : 'secondary'
                       }
                     >
-                      {esc.priority}
+                      {ticket.priority}
                     </Badge>
-                    <Badge variant="outline">{esc.status.replace('_', ' ')}</Badge>
+                    <Badge variant="outline" className={
+                      ticket.sla_status === 'breached' ? 'bg-red-100 text-red-700' :
+                      ticket.sla_status === 'at_risk' ? 'bg-yellow-100 text-yellow-700' :
+                      'bg-green-100 text-green-700'
+                    }>
+                      {ticket.sla_status.replace('_', ' ')}
+                    </Badge>
+                    <Badge variant="outline">{ticket.status.replace('_', ' ')}</Badge>
                   </div>
                 </div>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="p-3 rounded-lg bg-muted">
-                  <p className="text-sm font-medium mb-1">Escalation Reason:</p>
-                  <p className="text-sm text-muted-foreground">{esc.reason}</p>
-                </div>
+                {ticket.sla_status === 'breached' && ticket.sla_deadline && (
+                  <div className="p-3 rounded-lg bg-red-50 border border-red-200">
+                    <p className="text-sm font-medium text-red-800 mb-1">SLA Breached</p>
+                    <p className="text-sm text-red-700">
+                      Deadline was {format(new Date(ticket.sla_deadline), 'dd MMM yyyy, HH:mm')} — overdue by {formatDistanceToNow(new Date(ticket.sla_deadline))}
+                    </p>
+                  </div>
+                )}
 
                 <div className="flex items-center justify-between text-sm">
                   <div className="flex items-center gap-4">
                     <div className="flex items-center gap-1">
                       <User className="h-4 w-4 text-muted-foreground" />
-                      <span>From: {esc.escalated_by}</span>
+                      <span>Raised by: {ticket.raised_by_name}</span>
                     </div>
-                    <div className="flex items-center gap-1">
-                      <ArrowUpRight className="h-4 w-4 text-muted-foreground" />
-                      <span>To: {esc.escalated_to}</span>
-                    </div>
+                    {(ticket as any).assignee?.full_name && (
+                      <div className="flex items-center gap-1">
+                        <User className="h-4 w-4 text-muted-foreground" />
+                        <span>Assigned to: {(ticket as any).assignee.full_name}</span>
+                      </div>
+                    )}
                     <div className="flex items-center gap-1">
                       <Calendar className="h-4 w-4 text-muted-foreground" />
-                      <span>{format(esc.escalated_at, 'dd MMM yyyy, HH:mm')}</span>
+                      <span>{format(new Date(ticket.created_at), 'dd MMM yyyy, HH:mm')}</span>
                     </div>
                   </div>
-                  <Button size="sm">Review</Button>
+                  <Button size="sm" asChild>
+                    <Link href={`/grievance/tickets/${ticket.id}`}>Review</Link>
+                  </Button>
                 </div>
               </CardContent>
             </Card>
@@ -199,7 +210,7 @@ export default async function GrievanceEscalationsPage() {
             <CardContent className="py-12 text-center">
               <AlertTriangle className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
               <p className="text-lg font-medium">No Active Escalations</p>
-              <p className="text-muted-foreground">All escalated tickets have been resolved</p>
+              <p className="text-muted-foreground">No SLA-breached or at-risk high-priority tickets found</p>
             </CardContent>
           </Card>
         )}

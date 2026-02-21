@@ -18,7 +18,7 @@ export class GatePassService {
       const supabase = createClientSupabaseClient();
       let query = supabase
         .from('hostel_gate_passes')
-        .select('*', { count: 'exact' })
+        .select('*, learner:users_profiles!learner_id(id, full_name, email), block:hostel_blocks!block_id(id, name, code)', { count: 'exact' })
         .eq('institution_id', institutionId);
 
       if (filters?.status) query = query.eq('status', filters.status);

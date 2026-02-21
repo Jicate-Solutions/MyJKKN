@@ -20,7 +20,7 @@ export class HostelLeaveService {
       const supabase = createClientSupabaseClient();
       let query = supabase
         .from('hostel_leave_requests')
-        .select('*', { count: 'exact' })
+        .select('*, learner:users_profiles!learner_id(id, full_name, email), block:hostel_blocks!block_id(id, name, code)', { count: 'exact' })
         .eq('institution_id', institutionId);
 
       if (filters?.block_id) query = query.eq('block_id', filters.block_id);
