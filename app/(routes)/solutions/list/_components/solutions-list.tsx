@@ -164,6 +164,10 @@ export function SolutionsList({ searchParams }: SolutionsListProps) {
                 <SelectItem value="in_amc">In AMC</SelectItem>
               </SelectContent>
             </Select>
+            <Button variant="outline" size="sm" onClick={handleExport}>
+              <Download className="mr-2 h-4 w-4" />
+              Export
+            </Button>
             <Button asChild>
               <Link href="/solutions/new">
                 <Plus className="mr-2 h-4 w-4" />
