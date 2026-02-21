@@ -284,6 +284,10 @@ export function BuildersList() {
                 </div>
               </PopoverContent>
             </Popover>
+            <Button variant="outline" size="sm" onClick={handleExport}>
+              <Download className="mr-2 h-4 w-4" />
+              Export
+            </Button>
             <Button asChild>
               <Link href="/solutions/builders/new">
                 <Plus className="mr-2 h-4 w-4" />
