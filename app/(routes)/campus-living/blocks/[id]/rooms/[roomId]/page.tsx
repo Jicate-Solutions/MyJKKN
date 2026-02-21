@@ -42,7 +42,8 @@ export default function RoomDetailPage({
 }) {
   const { id, roomId } = use(params);
   const { profile } = useAuth();
-  const { data: room, isLoading } = useHostelRoom(roomId);
+  const { data: roomData, isLoading } = useHostelRoom(roomId);
+  const room = roomData as any;
 
   if (isLoading || !room) {
     return (

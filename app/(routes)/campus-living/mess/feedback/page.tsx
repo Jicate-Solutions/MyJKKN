@@ -19,33 +19,52 @@ import {
   TrendingUp,
   ThumbsUp,
   ThumbsDown,
+  Loader2,
 } from 'lucide-react';
 import { useState } from 'react';
+import { useAuth } from '@/hooks/use-auth';
+import { useMessFeedback } from '@/hooks/campus-living/use-mess-feedback';
 
 export default function MessFeedbackPage() {
   const [mealFilter, setMealFilter] = useState('all');
 
-  // TODO: Replace with actual hook
-  // const { data: feedback, isLoading } = useMessFeedback();
+  const { profile } = useAuth();
+  const institutionId = profile?.institution_id || '';
+  const { data, isLoading } = useMessFeedback(institutionId, mealFilter !== 'all' ? { meal_type: mealFilter } : undefined);
 
-  const ratingsSummary = {
-    overall: 3.8,
-    food_quality: 3.9,
-    hygiene: 4.1,
-    variety: 3.5,
-    service: 3.7,
-    total_responses: 156,
-  };
+  if (isLoading) {
+    return (
+      <ContentLayout title="Mess Feedback">
+        <div className="flex items-center justify-center min-h-[400px]">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      </ContentLayout>
+    );
+  }
 
-  const recentFeedback = [
-    { id: '1', student: 'Arun Kumar', meal: 'Lunch', rating: 4, comment: 'Good quality food today. Paneer was fresh.', date: '2026-02-21', type: 'positive' },
-    { id: '2', student: 'Priya Sharma', meal: 'Dinner', rating: 2, comment: 'Rice was undercooked. Need improvement.', date: '2026-02-21', type: 'complaint' },
-    { id: '3', student: 'Rahul Patel', meal: 'Breakfast', rating: 5, comment: 'Excellent dosa and sambar. Keep it up!', date: '2026-02-20', type: 'positive' },
-    { id: '4', student: 'Sneha Reddy', meal: 'Lunch', rating: 1, comment: 'Found hair in the food. Very unhygienic.', date: '2026-02-20', type: 'complaint' },
-    { id: '5', student: 'Vikram Singh', meal: 'Dinner', rating: 3, comment: 'Average food. Needs more variety.', date: '2026-02-19', type: 'neutral' },
-  ];
+  const feedbackData = (data as any)?.data || data || [];
+  const recentFeedback: any[] = Array.isArray(feedbackData) ? feedbackData : [];
 
-  const complaints = recentFeedback.filter((f) => f.type === 'complaint');
+  // Compute ratings summary from feedback data
+  const ratingsSummary = (() => {
+    if (recentFeedback.length === 0) {
+      return { overall: 0, food_quality: 0, hygiene: 0, variety: 0, service: 0, total_responses: 0 };
+    }
+    const avg = (key: string) => {
+      const vals = recentFeedback.filter((f: any) => f[key] != null).map((f: any) => f[key]);
+      return vals.length > 0 ? Math.round((vals.reduce((a: number, b: number) => a + b, 0) / vals.length) * 10) / 10 : 0;
+    };
+    return {
+      overall: avg('rating'),
+      food_quality: avg('food_quality') || avg('rating'),
+      hygiene: avg('hygiene') || avg('rating'),
+      variety: avg('variety') || avg('rating'),
+      service: avg('service') || avg('rating'),
+      total_responses: recentFeedback.length,
+    };
+  })();
+
+  const complaints = recentFeedback.filter((f: any) => f.type === 'complaint' || (f.rating != null && f.rating <= 2));
 
   const renderStars = (rating: number) => {
     return (
@@ -132,7 +151,7 @@ export default function MessFeedbackPage() {
           </Card>
         </div>
 
-        {/* Rating Distribution Chart Placeholder */}
+        {/* Rating Distribution */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -143,8 +162,8 @@ export default function MessFeedbackPage() {
           <CardContent>
             <div className="space-y-3">
               {[5, 4, 3, 2, 1].map((star) => {
-                const count = recentFeedback.filter((f) => f.rating === star).length;
-                const percentage = (count / recentFeedback.length) * 100;
+                const count = recentFeedback.filter((f: any) => f.rating === star).length;
+                const percentage = recentFeedback.length > 0 ? (count / recentFeedback.length) * 100 : 0;
                 return (
                   <div key={star} className="flex items-center gap-3">
                     <span className="text-sm font-medium w-8">{star} star</span>
@@ -182,9 +201,9 @@ export default function MessFeedbackPage() {
                   <div className="flex items-start justify-between">
                     <div className="flex items-start gap-3">
                       <div className="mt-1">
-                        {fb.type === 'positive' ? (
+                        {fb.type === 'positive' || (fb.rating && fb.rating >= 4) ? (
                           <ThumbsUp className="h-5 w-5 text-green-600" />
-                        ) : fb.type === 'complaint' ? (
+                        ) : fb.type === 'complaint' || (fb.rating && fb.rating <= 2) ? (
                           <AlertTriangle className="h-5 w-5 text-red-600" />
                         ) : (
                           <MessageSquare className="h-5 w-5 text-gray-400" />

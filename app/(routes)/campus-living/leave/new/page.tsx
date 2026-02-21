@@ -60,19 +60,26 @@ export default function NewLeaveRequestPage() {
     setIsSubmitting(true);
     try {
       await createLeave.mutateAsync({
-        ...formData,
         institution_id: profile?.institution_id ?? '',
         learner_id: profile?.id ?? '',
         block_id: '',
+        leave_type: formData.leave_type as any,
+        from_date: formData.from_date,
+        to_date: formData.to_date,
+        from_time: formData.from_time || null,
         expected_return_time: null,
+        reason: formData.reason,
+        destination: formData.destination,
+        destination_address: formData.destination_address || null,
+        destination_contact: formData.destination_contact || null,
         attachment_url: null,
-        parent_consent_status: 'pending' as const,
+        parent_consent_status: 'pending' as any,
         parent_consent_method: null,
-        warden_approval_status: 'pending' as const,
+        warden_approval_status: 'pending' as any,
         warden_id: null,
         chief_warden_required: false,
         chief_warden_status: null,
-        status: 'pending_parent' as const,
+        status: 'pending_parent' as any,
       });
       router.push('/campus-living/leave');
     } catch (error) {

@@ -27,23 +27,31 @@ import {
   Users,
   UserMinus,
   UserPlus,
+  Loader2,
 } from 'lucide-react';
 import { useState } from 'react';
+import { useAuth } from '@/hooks/use-auth';
+import { useMessMeals } from '@/hooks/campus-living/use-mess-meals';
 
 export default function MealBookingsPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
 
-  // TODO: Replace with actual hook
-  // const { data: bookings, isLoading } = useMealBookings();
+  const { profile } = useAuth();
+  const institutionId = profile?.institution_id || '';
+  const { data, isLoading } = useMessMeals(institutionId);
 
-  const bookings = [
-    { id: '1', student: 'Arun Kumar', roll: 'CS2024001', block: 'Block A', meal: 'Dinner', date: '2026-02-22', type: 'opt-out', reason: 'Going home', status: 'approved' },
-    { id: '2', student: 'Priya Sharma', roll: 'EC2024015', block: 'Block B', meal: 'All', date: '2026-02-22 - 2026-02-24', type: 'opt-out', reason: 'Medical leave', status: 'pending' },
-    { id: '3', student: 'Rahul Patel', roll: 'ME2024003', block: 'Block A', meal: 'Breakfast', date: '2026-02-22', type: 'opt-out', reason: 'Fasting', status: 'approved' },
-    { id: '4', student: 'Guest Student', roll: '-', block: 'Block C', meal: 'Lunch', date: '2026-02-22', type: 'guest', reason: 'Campus visit', status: 'approved' },
-    { id: '5', student: 'Vikram Singh', roll: 'EE2024010', block: 'Block A', meal: 'Dinner', date: '2026-02-21', type: 'opt-out', reason: 'Event dinner', status: 'rejected' },
-  ];
+  if (isLoading) {
+    return (
+      <ContentLayout title="Meal Bookings">
+        <div className="flex items-center justify-center min-h-[400px]">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      </ContentLayout>
+    );
+  }
+
+  const bookings: any[] = (data as any)?.data || data || [];
 
   const filteredBookings = bookings.filter((b) => {
     const matchesSearch =

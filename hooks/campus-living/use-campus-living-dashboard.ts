@@ -19,53 +19,26 @@ export const campusLivingDashboardKeys = {
 export function useCampusLivingOverview(institutionId: string) {
   return useQuery({
     queryKey: campusLivingDashboardKeys.overview(institutionId),
-    queryFn: () => CampusLivingDashboard.getOverview(institutionId),
+    queryFn: () => CampusLivingDashboard.getDashboardData(institutionId),
     enabled: !!institutionId,
     staleTime: 2 * 60 * 1000, // 2 minutes — dashboard data refreshes less often
   });
 }
 
-export function useHostelSummary(institutionId: string) {
+export function useQuickStats(institutionId: string) {
   return useQuery({
     queryKey: campusLivingDashboardKeys.hostelSummary(institutionId),
-    queryFn: () => CampusLivingDashboard.getHostelSummary(institutionId),
+    queryFn: () => CampusLivingDashboard.getQuickStats(institutionId),
     enabled: !!institutionId,
     staleTime: 2 * 60 * 1000,
   });
 }
 
-export function useMessSummary(institutionId: string) {
+export function useBlockDashboard(blockId: string) {
   return useQuery({
-    queryKey: campusLivingDashboardKeys.messSummary(institutionId),
-    queryFn: () => CampusLivingDashboard.getMessSummary(institutionId),
-    enabled: !!institutionId,
+    queryKey: ['campus-living-dashboard', 'block', blockId] as const,
+    queryFn: () => CampusLivingDashboard.getBlockDashboard(blockId),
+    enabled: !!blockId,
     staleTime: 2 * 60 * 1000,
-  });
-}
-
-export function useSafetySummary(institutionId: string) {
-  return useQuery({
-    queryKey: campusLivingDashboardKeys.safetySummary(institutionId),
-    queryFn: () => CampusLivingDashboard.getSafetySummary(institutionId),
-    enabled: !!institutionId,
-    staleTime: 2 * 60 * 1000,
-  });
-}
-
-export function useDashboardAlerts(institutionId: string) {
-  return useQuery({
-    queryKey: campusLivingDashboardKeys.alerts(institutionId),
-    queryFn: () => CampusLivingDashboard.getAlerts(institutionId),
-    enabled: !!institutionId,
-    staleTime: 60 * 1000, // 1 minute — alerts refresh more often
-  });
-}
-
-export function useRecentActivity(institutionId: string) {
-  return useQuery({
-    queryKey: campusLivingDashboardKeys.recentActivity(institutionId),
-    queryFn: () => CampusLivingDashboard.getRecentActivity(institutionId),
-    enabled: !!institutionId,
-    staleTime: 60 * 1000,
   });
 }

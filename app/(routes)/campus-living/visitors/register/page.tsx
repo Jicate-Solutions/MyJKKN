@@ -16,20 +16,45 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { ArrowLeft, Save, UserPlus } from 'lucide-react';
-import { useState } from 'react';
+import { useAuth } from '@/hooks/use-auth';
+import { useCheckInVisitor } from '@/hooks/campus-living/use-hostel-visitors';
+import type { CreateHostelVisitorDTO } from '@/types/campus-living';
 
 export default function VisitorRegistrationPage() {
   const router = useRouter();
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const { profile } = useAuth();
+  const checkInMutation = useCheckInVisitor();
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    setIsSubmitting(true);
-    // TODO: Implement visitor registration
-    setTimeout(() => {
-      setIsSubmitting(false);
-      router.push('/campus-living/visitors');
-    }, 1000);
+    const formData = new FormData(e.currentTarget);
+
+    const payload: CreateHostelVisitorDTO = {
+      institution_id: profile?.institution_id || '',
+      learner_id: '', // Will be resolved from student lookup
+      block_id: formData.get('block') as string || '',
+      visitor_name: formData.get('name') as string || '',
+      visitor_phone: formData.get('phone') as string || '',
+      visitor_relationship: (formData.get('relationship') as string || 'other') as CreateHostelVisitorDTO['visitor_relationship'],
+      visitor_gender: 'male' as CreateHostelVisitorDTO['visitor_gender'],
+      id_proof_type: (formData.get('id_type') as string || null) as CreateHostelVisitorDTO['id_proof_type'],
+      id_proof_number: formData.get('id_number') as string || null,
+      visitor_photo_url: null,
+      purpose: formData.get('purpose') as string || '',
+      number_of_visitors: parseInt(formData.get('num_visitors') as string || '1', 10),
+      check_in_time: new Date().toISOString(),
+      meeting_location: 'common_area' as CreateHostelVisitorDTO['meeting_location'],
+      approved_by: null,
+      is_overnight_stay: false,
+      guest_room_id: null,
+      vehicle_number: formData.get('vehicle_number') as string || null,
+      items_brought: formData.get('notes') as string || null,
+      status: 'checked_in' as CreateHostelVisitorDTO['status'],
+      rejection_reason: null,
+    };
+
+    await checkInMutation.mutateAsync(payload);
+    router.push('/campus-living/visitors');
   };
 
   return (
@@ -165,9 +190,9 @@ export default function VisitorRegistrationPage() {
             <Button type="button" variant="outline" asChild>
               <Link href="/campus-living/visitors">Cancel</Link>
             </Button>
-            <Button type="submit" disabled={isSubmitting}>
+            <Button type="submit" disabled={checkInMutation.isPending}>
               <UserPlus className="mr-2 h-4 w-4" />
-              {isSubmitting ? 'Registering...' : 'Register & Check-in'}
+              {checkInMutation.isPending ? 'Registering...' : 'Register & Check-in'}
             </Button>
           </div>
         </form>

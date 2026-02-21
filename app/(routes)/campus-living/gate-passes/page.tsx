@@ -50,7 +50,8 @@ const passTypeConfig: Record<string, { label: string; color: string }> = {
 
 export default function GatePassesPage() {
   const { profile } = useAuth();
-  const { data: passes, isLoading } = useGatePasses(profile?.institution_id ?? '');
+  const { data: passesRaw, isLoading } = useGatePasses(profile?.institution_id ?? '');
+  const passes = ((passesRaw as any)?.data ?? []) as any[];
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState('active');
 

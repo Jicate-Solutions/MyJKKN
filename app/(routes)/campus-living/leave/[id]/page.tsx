@@ -49,7 +49,8 @@ const leaveTypeLabels: Record<string, string> = {
 export default function LeaveDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const { profile } = useAuth();
-  const { data: leave, isLoading } = useHostelLeaveRequest(id);
+  const { data: leaveData, isLoading } = useHostelLeaveRequest(id);
+  const leave = leaveData as any;
 
   if (isLoading || !leave) {
     return (

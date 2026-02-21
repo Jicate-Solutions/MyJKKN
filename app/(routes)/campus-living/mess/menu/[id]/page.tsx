@@ -16,8 +16,9 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { ArrowLeft, Save, Send, Edit, X } from 'lucide-react';
+import { ArrowLeft, Save, Send, Edit, X, Loader2 } from 'lucide-react';
 import { useState } from 'react';
+import { useMessMenu } from '@/hooks/campus-living/use-mess-menus';
 
 interface MenuDetailPageProps {
   params: Promise<{ id: string }>;
@@ -27,65 +28,33 @@ export default function MenuDetailPage({ params }: MenuDetailPageProps) {
   const { id } = use(params);
   const [isEditing, setIsEditing] = useState(false);
 
-  // TODO: Replace with actual hook
-  // const { data: menu, isLoading } = useMessMenuDetail(id);
+  const { data: menuData, isLoading } = useMessMenu(id);
 
-  const menu = {
+  if (isLoading) {
+    return (
+      <ContentLayout title="Menu Detail">
+        <div className="flex items-center justify-center min-h-[400px]">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      </ContentLayout>
+    );
+  }
+
+  const menuRaw = (menuData as any)?.data || menuData;
+  const menu = menuRaw || {
     id,
-    week: 'Feb 17 - Feb 23, 2026',
-    status: 'published',
-    caterer: 'Annapurna Catering Services',
-    created_by: 'Admin',
-    created_at: '2026-02-14',
+    week: 'N/A',
+    status: 'draft',
+    caterer: 'N/A',
+    created_by: 'N/A',
+    created_at: new Date().toISOString(),
   };
 
   const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
   const meals = ['Breakfast', 'Lunch', 'Snacks', 'Dinner'];
 
-  const menuData: Record<string, Record<string, string>> = {
-    Monday: {
-      Breakfast: 'Idli, Sambar, Chutney, Tea/Coffee',
-      Lunch: 'Rice, Dal, Paneer Masala, Roti, Salad, Curd',
-      Snacks: 'Samosa, Tea',
-      Dinner: 'Rice, Chicken Curry, Chapati, Raita',
-    },
-    Tuesday: {
-      Breakfast: 'Dosa, Coconut Chutney, Sambar, Milk',
-      Lunch: 'Rice, Rasam, Aloo Gobi, Roti, Pickle',
-      Snacks: 'Bread Pakora, Coffee',
-      Dinner: 'Biryani, Raita, Salad',
-    },
-    Wednesday: {
-      Breakfast: 'Poha, Boiled Eggs, Tea/Coffee',
-      Lunch: 'Rice, Sambar, Bhindi Fry, Roti, Buttermilk',
-      Snacks: 'Biscuits, Banana, Tea',
-      Dinner: 'Rice, Dal Makhani, Chapati, Salad',
-    },
-    Thursday: {
-      Breakfast: 'Upma, Vada, Chutney, Tea/Coffee',
-      Lunch: 'Rice, Kootu, Fish Fry, Roti, Curd',
-      Snacks: 'Cutlet, Coffee',
-      Dinner: 'Rice, Egg Curry, Chapati, Pickle',
-    },
-    Friday: {
-      Breakfast: 'Pongal, Chutney, Sambar, Milk',
-      Lunch: 'Rice, Rasam, Mixed Veg, Roti, Papad',
-      Snacks: 'Sundal, Tea',
-      Dinner: 'Fried Rice, Gobi Manchurian, Soup',
-    },
-    Saturday: {
-      Breakfast: 'Paratha, Curd, Pickle, Tea/Coffee',
-      Lunch: 'Rice, Sambar, Chicken 65, Roti, Salad',
-      Snacks: 'Cake, Juice',
-      Dinner: 'Chapati, Paneer Butter Masala, Rice, Dal',
-    },
-    Sunday: {
-      Breakfast: 'Chole Bhature, Lassi',
-      Lunch: 'Special Biryani, Raita, Gulab Jamun',
-      Snacks: 'Fruit Salad, Milkshake',
-      Dinner: 'Rice, Egg Masala, Chapati, Ice Cream',
-    },
-  };
+  // Build menu grid from API data or use stored menu_items
+  const menuGrid: Record<string, Record<string, string>> = menu.menu_items || menu.menuData || {};
 
   return (
     <ContentLayout title="Menu Detail">
@@ -161,11 +130,11 @@ export default function MenuDetailPage({ params }: MenuDetailPageProps) {
                         <TableCell key={meal}>
                           {isEditing ? (
                             <Input
-                              defaultValue={menuData[day]?.[meal] || ''}
+                              defaultValue={menuGrid[day]?.[meal] || ''}
                               className="min-w-[200px]"
                             />
                           ) : (
-                            <span className="text-sm">{menuData[day]?.[meal] || '-'}</span>
+                            <span className="text-sm">{menuGrid[day]?.[meal] || '-'}</span>
                           )}
                         </TableCell>
                       ))}

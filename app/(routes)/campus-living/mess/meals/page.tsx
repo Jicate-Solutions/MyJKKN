@@ -27,30 +27,67 @@ import {
   ScanLine,
   CalendarDays,
   Search,
+  Loader2,
 } from 'lucide-react';
 import { useState } from 'react';
+import { useAuth } from '@/hooks/use-auth';
+import { useMessMeals } from '@/hooks/campus-living/use-mess-meals';
 
 export default function MealTrackingPage() {
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [selectedMeal, setSelectedMeal] = useState('all');
 
-  // TODO: Replace with actual hook
-  // const { data: mealData, isLoading } = useMealTracking(selectedDate);
+  const { profile } = useAuth();
+  const institutionId = profile?.institution_id || '';
+  const { data, isLoading } = useMessMeals(institutionId, {
+    date: selectedDate,
+    ...(selectedMeal !== 'all' ? { meal_type: selectedMeal as any } : {}),
+  });
 
-  const mealSummary = [
-    { meal: 'Breakfast', time: '7:00 - 9:00 AM', scanned: 312, booked: 350, status: 'completed' },
-    { meal: 'Lunch', time: '12:00 - 2:00 PM', scanned: 410, booked: 420, status: 'completed' },
-    { meal: 'Snacks', time: '4:00 - 5:00 PM', scanned: 180, booked: 300, status: 'in-progress' },
-    { meal: 'Dinner', time: '7:00 - 9:00 PM', scanned: 0, booked: 400, status: 'upcoming' },
-  ];
+  if (isLoading) {
+    return (
+      <ContentLayout title="Meal Tracking">
+        <div className="flex items-center justify-center min-h-[400px]">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      </ContentLayout>
+    );
+  }
 
-  const recentScans = [
-    { id: '1', student: 'Arun Kumar', roll: 'CS2024001', meal: 'Lunch', scanned_at: '12:15 PM', block: 'Block A' },
-    { id: '2', student: 'Priya Sharma', roll: 'EC2024015', meal: 'Lunch', scanned_at: '12:18 PM', block: 'Block B' },
-    { id: '3', student: 'Rahul Patel', roll: 'ME2024003', meal: 'Lunch', scanned_at: '12:22 PM', block: 'Block A' },
-    { id: '4', student: 'Sneha Reddy', roll: 'CS2024042', meal: 'Lunch', scanned_at: '12:25 PM', block: 'Block C' },
-    { id: '5', student: 'Vikram Singh', roll: 'EE2024010', meal: 'Lunch', scanned_at: '12:30 PM', block: 'Block A' },
-  ];
+  const mealRecords: any[] = (data as any)?.data || data || [];
+
+  // Derive meal summary from records
+  const mealTypes = ['Breakfast', 'Lunch', 'Snacks', 'Dinner'];
+  const mealTimes: Record<string, string> = {
+    Breakfast: '7:00 - 9:00 AM',
+    Lunch: '12:00 - 2:00 PM',
+    Snacks: '4:00 - 5:00 PM',
+    Dinner: '7:00 - 9:00 PM',
+  };
+  const mealSummary = mealTypes.map((meal) => {
+    const records = mealRecords.filter((r: any) =>
+      (r.meal_type || r.meal || '').toLowerCase() === meal.toLowerCase()
+    );
+    const scanned = records.length;
+    const booked = records.length > 0 ? (records[0]?.booked_count || scanned) : 0;
+    const now = new Date();
+    const hour = now.getHours();
+    let status = 'upcoming';
+    if (meal === 'Breakfast' && hour >= 9) status = 'completed';
+    else if (meal === 'Lunch' && hour >= 14) status = 'completed';
+    else if (meal === 'Snacks' && hour >= 17) status = 'completed';
+    else if (meal === 'Dinner' && hour >= 21) status = 'completed';
+    else if (
+      (meal === 'Breakfast' && hour >= 7) ||
+      (meal === 'Lunch' && hour >= 12) ||
+      (meal === 'Snacks' && hour >= 16) ||
+      (meal === 'Dinner' && hour >= 19)
+    ) status = 'in-progress';
+    return { meal, time: mealTimes[meal], scanned, booked: booked || scanned, status };
+  });
+
+  // Recent scans from records
+  const recentScans = mealRecords.slice(0, 10);
 
   return (
     <ContentLayout title="Meal Tracking">
@@ -165,15 +202,15 @@ export default function MealTrackingPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {recentScans.map((scan) => (
+                {recentScans.map((scan: any) => (
                   <TableRow key={scan.id}>
-                    <TableCell className="font-medium">{scan.student}</TableCell>
-                    <TableCell>{scan.roll}</TableCell>
+                    <TableCell className="font-medium">{scan.student || scan.learner_name || scan.learner_id || '-'}</TableCell>
+                    <TableCell>{scan.roll || scan.learner_roll || '-'}</TableCell>
                     <TableCell>
-                      <Badge variant="outline">{scan.meal}</Badge>
+                      <Badge variant="outline">{scan.meal || scan.meal_type || '-'}</Badge>
                     </TableCell>
-                    <TableCell>{scan.block}</TableCell>
-                    <TableCell>{scan.scanned_at}</TableCell>
+                    <TableCell>{scan.block || scan.block_name || '-'}</TableCell>
+                    <TableCell>{scan.scanned_at || scan.scan_time || '-'}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>

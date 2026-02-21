@@ -21,26 +21,24 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { Plus, Search, AlertTriangle } from 'lucide-react';
+import { Plus, Search, AlertTriangle, Loader2 } from 'lucide-react';
 import { useState } from 'react';
+import { useAuth } from '@/hooks/use-auth';
+import { useHostelIncidents } from '@/hooks/campus-living/use-hostel-incidents';
 
 export default function IncidentsPage() {
+  const { profile } = useAuth();
+  const institutionId = profile?.institution_id || '';
   const [searchQuery, setSearchQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState('all');
   const [severityFilter, setSeverityFilter] = useState('all');
 
-  // TODO: Replace with actual hook
-  const incidents = [
-    { id: '1', title: 'Unauthorized entry attempt', type: 'security', severity: 'medium', location: 'Block A - Main Gate', reported_by: 'Security Guard', date: '2026-02-21', status: 'investigating' },
-    { id: '2', title: 'Minor injury during sports', type: 'medical', severity: 'low', location: 'Sports Ground', reported_by: 'Warden', date: '2026-02-20', status: 'resolved' },
-    { id: '3', title: 'Fire alarm triggered - false', type: 'fire', severity: 'high', location: 'Block C - 3rd Floor', reported_by: 'Fire Marshal', date: '2026-02-19', status: 'resolved' },
-    { id: '4', title: 'Theft complaint - mobile phone', type: 'theft', severity: 'medium', location: 'Block B - Room 205', reported_by: 'Priya Sharma', date: '2026-02-18', status: 'investigating' },
-    { id: '5', title: 'Ragging complaint (verbal)', type: 'ragging', severity: 'high', location: 'Block A - Common Area', reported_by: 'Anonymous', date: '2026-02-17', status: 'investigating' },
-  ];
+  const { data: incidentData, isLoading } = useHostelIncidents(institutionId);
+  const incidents = incidentData?.data || [];
 
   const filteredIncidents = incidents.filter((i) => {
     const matchesSearch = i.title.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesType = typeFilter === 'all' || i.type === typeFilter;
+    const matchesType = typeFilter === 'all' || i.incident_type === typeFilter;
     const matchesSeverity = severityFilter === 'all' || i.severity === severityFilter;
     return matchesSearch && matchesType && matchesSeverity;
   });
@@ -48,22 +46,33 @@ export default function IncidentsPage() {
   const getSeverityBadge = (severity: string) => {
     switch (severity) {
       case 'critical': return <Badge className="bg-red-100 text-red-800 hover:bg-red-100">Critical</Badge>;
-      case 'high': return <Badge className="bg-orange-100 text-orange-800 hover:bg-orange-100">High</Badge>;
-      case 'medium': return <Badge className="bg-yellow-100 text-yellow-800 hover:bg-yellow-100">Medium</Badge>;
-      case 'low': return <Badge className="bg-blue-100 text-blue-800 hover:bg-blue-100">Low</Badge>;
+      case 'major': return <Badge className="bg-orange-100 text-orange-800 hover:bg-orange-100">Major</Badge>;
+      case 'moderate': return <Badge className="bg-yellow-100 text-yellow-800 hover:bg-yellow-100">Moderate</Badge>;
+      case 'minor': return <Badge className="bg-blue-100 text-blue-800 hover:bg-blue-100">Minor</Badge>;
       default: return <Badge variant="outline">{severity}</Badge>;
     }
   };
 
   const getStatusBadge = (status: string) => {
     switch (status) {
-      case 'investigating': return <Badge className="bg-purple-100 text-purple-800 hover:bg-purple-100">Investigating</Badge>;
-      case 'resolved': return <Badge className="bg-green-100 text-green-800 hover:bg-green-100">Resolved</Badge>;
-      case 'open': return <Badge variant="outline">Open</Badge>;
-      case 'closed': return <Badge variant="secondary">Closed</Badge>;
+      case 'under_investigation': return <Badge className="bg-purple-100 text-purple-800 hover:bg-purple-100">Investigating</Badge>;
+      case 'action_taken': return <Badge className="bg-orange-100 text-orange-800 hover:bg-orange-100">Action Taken</Badge>;
+      case 'reported': return <Badge variant="outline">Reported</Badge>;
+      case 'closed': return <Badge className="bg-green-100 text-green-800 hover:bg-green-100">Closed</Badge>;
+      case 'reopened': return <Badge variant="destructive">Reopened</Badge>;
       default: return <Badge variant="outline">{status}</Badge>;
     }
   };
+
+  if (isLoading) {
+    return (
+      <ContentLayout title="Incidents">
+        <div className="flex items-center justify-center min-h-[400px]">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      </ContentLayout>
+    );
+  }
 
   return (
     <ContentLayout title="Incidents">
@@ -92,19 +101,19 @@ export default function IncidentsPage() {
           <Card>
             <CardContent className="p-4">
               <p className="text-sm text-muted-foreground">Investigating</p>
-              <p className="text-2xl font-bold text-purple-600">{incidents.filter(i => i.status === 'investigating').length}</p>
+              <p className="text-2xl font-bold text-purple-600">{incidents.filter((i) => i.status === 'under_investigation').length}</p>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="p-4">
               <p className="text-sm text-muted-foreground">High Severity</p>
-              <p className="text-2xl font-bold text-orange-600">{incidents.filter(i => i.severity === 'high' || i.severity === 'critical').length}</p>
+              <p className="text-2xl font-bold text-orange-600">{incidents.filter((i) => i.severity === 'major' || i.severity === 'critical').length}</p>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="p-4">
               <p className="text-sm text-muted-foreground">Resolved</p>
-              <p className="text-2xl font-bold text-green-600">{incidents.filter(i => i.status === 'resolved').length}</p>
+              <p className="text-2xl font-bold text-green-600">{incidents.filter((i) => i.status === 'closed').length}</p>
             </CardContent>
           </Card>
         </div>
@@ -123,11 +132,15 @@ export default function IncidentsPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Types</SelectItem>
-                  <SelectItem value="security">Security</SelectItem>
-                  <SelectItem value="medical">Medical</SelectItem>
-                  <SelectItem value="fire">Fire</SelectItem>
-                  <SelectItem value="theft">Theft</SelectItem>
                   <SelectItem value="ragging">Ragging</SelectItem>
+                  <SelectItem value="theft">Theft</SelectItem>
+                  <SelectItem value="harassment">Harassment</SelectItem>
+                  <SelectItem value="medical_emergency">Medical Emergency</SelectItem>
+                  <SelectItem value="fire">Fire</SelectItem>
+                  <SelectItem value="unauthorized_entry">Unauthorized Entry</SelectItem>
+                  <SelectItem value="property_damage">Property Damage</SelectItem>
+                  <SelectItem value="fight">Fight</SelectItem>
+                  <SelectItem value="other">Other</SelectItem>
                 </SelectContent>
               </Select>
               <Select value={severityFilter} onValueChange={setSeverityFilter}>
@@ -137,9 +150,9 @@ export default function IncidentsPage() {
                 <SelectContent>
                   <SelectItem value="all">All Severity</SelectItem>
                   <SelectItem value="critical">Critical</SelectItem>
-                  <SelectItem value="high">High</SelectItem>
-                  <SelectItem value="medium">Medium</SelectItem>
-                  <SelectItem value="low">Low</SelectItem>
+                  <SelectItem value="major">Major</SelectItem>
+                  <SelectItem value="moderate">Moderate</SelectItem>
+                  <SelectItem value="minor">Minor</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -162,11 +175,11 @@ export default function IncidentsPage() {
                 {filteredIncidents.map((incident) => (
                   <TableRow key={incident.id}>
                     <TableCell className="font-medium">{incident.title}</TableCell>
-                    <TableCell><Badge variant="outline" className="capitalize">{incident.type}</Badge></TableCell>
+                    <TableCell><Badge variant="outline" className="capitalize">{incident.incident_type}</Badge></TableCell>
                     <TableCell>{getSeverityBadge(incident.severity)}</TableCell>
                     <TableCell className="text-sm">{incident.location}</TableCell>
                     <TableCell className="text-sm">{incident.reported_by}</TableCell>
-                    <TableCell className="text-sm">{incident.date}</TableCell>
+                    <TableCell className="text-sm">{incident.incident_date}</TableCell>
                     <TableCell>{getStatusBadge(incident.status)}</TableCell>
                     <TableCell className="text-right">
                       <Button variant="ghost" size="sm" asChild>

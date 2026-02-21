@@ -57,12 +57,13 @@ const leaveTypeConfig: Record<string, { label: string; color: string }> = {
 
 export default function LeaveRequestsPage() {
   const { profile } = useAuth();
-  const { data: requests, isLoading } = useHostelLeaveRequests(profile?.institution_id ?? '');
+  const { data: requestsData, isLoading } = useHostelLeaveRequests(profile?.institution_id ?? '');
+  const requests = (requestsData as any)?.data ?? [] as any[];
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState('pending');
 
   const getFilteredRequests = (tab: string) => {
-    return requests?.filter((r) => {
+    return requests.filter((r: any) => {
       const matchesSearch =
         r.student_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         r.roll.toLowerCase().includes(searchQuery.toLowerCase());

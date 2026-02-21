@@ -17,6 +17,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { useAuth } from '@/hooks/use-auth';
+import { useHostelAttendance } from '@/hooks/campus-living/use-hostel-attendance';
 import {
   ArrowLeft,
   Search,
@@ -29,22 +30,6 @@ import {
   Download
 } from 'lucide-react';
 
-// Placeholder data
-const useAbsentees = (institutionId: string | null) => {
-  return {
-    data: [
-      { id: 'a1', name: 'Ravi Kumar', roll: 'CS2024010', department: 'Computer Science', block: 'Boys Hostel A', room: 'G-105', consecutive_days: 4, last_present: '2026-02-17', parent_notified: true, warden_notified: true, status: 'critical' },
-      { id: 'a2', name: 'Priya Menon', roll: 'EC2024008', department: 'Electronics', block: 'Girls Hostel A', room: 'F1-210', consecutive_days: 3, last_present: '2026-02-18', parent_notified: true, warden_notified: true, status: 'warning' },
-      { id: 'a3', name: 'Amit Shah', roll: 'ME2024015', department: 'Mechanical', block: 'Boys Hostel B', room: 'F2-305', consecutive_days: 2, last_present: '2026-02-19', parent_notified: true, warden_notified: false, status: 'warning' },
-      { id: 'a4', name: 'Deepa M', roll: 'IT2024020', department: 'IT', block: 'Girls Hostel B', room: 'G-108', consecutive_days: 1, last_present: '2026-02-20', parent_notified: false, warden_notified: false, status: 'normal' },
-      { id: 'a5', name: 'Karthik S', roll: 'CE2024005', department: 'Civil', block: 'Boys Hostel A', room: 'F3-402', consecutive_days: 1, last_present: '2026-02-20', parent_notified: false, warden_notified: false, status: 'normal' },
-      { id: 'a6', name: 'Lakshmi R', roll: 'CS2024018', department: 'Computer Science', block: 'Girls Hostel A', room: 'F2-315', consecutive_days: 5, last_present: '2026-02-16', parent_notified: true, warden_notified: true, status: 'critical' },
-    ],
-    isLoading: false,
-    error: null,
-  };
-};
-
 const statusConfig: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' | 'success'; icon: React.ReactNode }> = {
   critical: { label: 'Critical (3+ days)', variant: 'destructive', icon: <AlertTriangle className="h-3.5 w-3.5" /> },
   warning: { label: 'Warning (2+ days)', variant: 'default', icon: <AlertTriangle className="h-3.5 w-3.5" /> },
@@ -53,7 +38,8 @@ const statusConfig: Record<string, { label: string; variant: 'default' | 'second
 
 export default function AbsenteesPage() {
   const { profile } = useAuth();
-  const { data: absentees, isLoading } = useAbsentees(profile?.institution_id ?? null);
+  const { data: rawAbsentees, isLoading } = useHostelAttendance(profile?.institution_id ?? '', { status: 'absent' });
+  const absentees = rawAbsentees as any;
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
 

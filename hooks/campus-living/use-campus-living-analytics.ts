@@ -1,7 +1,6 @@
 'use client';
 
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { toast } from 'sonner';
+import { useQuery } from '@tanstack/react-query';
 import { CampusLivingAnalytics } from '@/lib/services/campus-living/campus-living-analytics';
 
 // Query key factory
@@ -17,50 +16,50 @@ export const campusLivingAnalyticsKeys = {
 
 // --- Query hooks ---
 
-export function useOccupancyAnalytics(institutionId: string, filters?: Record<string, unknown>) {
+export function useOccupancyAnalytics(institutionId: string) {
   return useQuery({
-    queryKey: campusLivingAnalyticsKeys.occupancy({ institutionId, ...filters }),
-    queryFn: () => CampusLivingAnalytics.getOccupancyAnalytics(institutionId, filters),
+    queryKey: campusLivingAnalyticsKeys.occupancy({ institutionId }),
+    queryFn: () => CampusLivingAnalytics.getOccupancyAnalytics(institutionId),
     enabled: !!institutionId,
   });
 }
 
-export function useAttendanceAnalytics(institutionId: string, filters?: Record<string, unknown>) {
+export function useAttendanceTrend(institutionId: string, dateFrom: string, dateTo: string, blockId?: string) {
   return useQuery({
-    queryKey: campusLivingAnalyticsKeys.attendance({ institutionId, ...filters }),
-    queryFn: () => CampusLivingAnalytics.getAttendanceAnalytics(institutionId, filters),
+    queryKey: campusLivingAnalyticsKeys.attendance({ institutionId, dateFrom, dateTo, blockId }),
+    queryFn: () => CampusLivingAnalytics.getAttendanceTrend(institutionId, dateFrom, dateTo, blockId),
+    enabled: !!institutionId && !!dateFrom && !!dateTo,
+  });
+}
+
+export function useMaintenanceAnalytics(institutionId: string, dateFrom?: string, dateTo?: string) {
+  return useQuery({
+    queryKey: campusLivingAnalyticsKeys.maintenance({ institutionId, dateFrom, dateTo }),
+    queryFn: () => CampusLivingAnalytics.getMaintenanceAnalytics(institutionId, dateFrom, dateTo),
     enabled: !!institutionId,
   });
 }
 
-export function useMaintenanceAnalytics(institutionId: string, filters?: Record<string, unknown>) {
+export function useMessAnalytics(institutionId: string, dateFrom: string, dateTo: string) {
   return useQuery({
-    queryKey: campusLivingAnalyticsKeys.maintenance({ institutionId, ...filters }),
-    queryFn: () => CampusLivingAnalytics.getMaintenanceAnalytics(institutionId, filters),
+    queryKey: campusLivingAnalyticsKeys.mess({ institutionId, dateFrom, dateTo }),
+    queryFn: () => CampusLivingAnalytics.getMessAnalytics(institutionId, dateFrom, dateTo),
+    enabled: !!institutionId && !!dateFrom && !!dateTo,
+  });
+}
+
+export function useIncidentAnalytics(institutionId: string, dateFrom?: string, dateTo?: string) {
+  return useQuery({
+    queryKey: campusLivingAnalyticsKeys.incidents({ institutionId, dateFrom, dateTo }),
+    queryFn: () => CampusLivingAnalytics.getIncidentAnalytics(institutionId, dateFrom, dateTo),
     enabled: !!institutionId,
   });
 }
 
-export function useMessAnalytics(institutionId: string, filters?: Record<string, unknown>) {
+export function useRiskAlerts(institutionId: string) {
   return useQuery({
-    queryKey: campusLivingAnalyticsKeys.mess({ institutionId, ...filters }),
-    queryFn: () => CampusLivingAnalytics.getMessAnalytics(institutionId, filters),
-    enabled: !!institutionId,
-  });
-}
-
-export function useIncidentAnalytics(institutionId: string, filters?: Record<string, unknown>) {
-  return useQuery({
-    queryKey: campusLivingAnalyticsKeys.incidents({ institutionId, ...filters }),
-    queryFn: () => CampusLivingAnalytics.getIncidentAnalytics(institutionId, filters),
-    enabled: !!institutionId,
-  });
-}
-
-export function useTrendAnalytics(institutionId: string, filters?: Record<string, unknown>) {
-  return useQuery({
-    queryKey: campusLivingAnalyticsKeys.trends({ institutionId, ...filters }),
-    queryFn: () => CampusLivingAnalytics.getTrendAnalytics(institutionId, filters),
+    queryKey: campusLivingAnalyticsKeys.trends({ institutionId }),
+    queryFn: () => CampusLivingAnalytics.generateRiskAlerts(institutionId),
     enabled: !!institutionId,
   });
 }

@@ -22,8 +22,10 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { ArrowLeft, Download, Search, Send } from 'lucide-react';
+import { ArrowLeft, Download, Search, Send, Loader2 } from 'lucide-react';
 import { useState } from 'react';
+import { useAuth } from '@/hooks/use-auth';
+import { useMessBillingPeriod, useMessStudentBilling } from '@/hooks/campus-living/use-mess-billing';
 
 interface BillingDetailPageProps {
   params: Promise<{ id: string }>;
@@ -34,24 +36,33 @@ export default function BillingDetailPage({ params }: BillingDetailPageProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
 
-  // TODO: Replace with actual hook
-  // const { data: billing, isLoading } = useMessBillingDetail(id);
+  const { profile } = useAuth();
+  const institutionId = profile?.institution_id || '';
+  const { data: billingData, isLoading: billingLoading } = useMessBillingPeriod(id);
+  const { data: studentData, isLoading: studentsLoading } = useMessStudentBilling(institutionId, { billing_period_id: id });
 
-  const billing = {
+  const isLoading = billingLoading || studentsLoading;
+
+  if (isLoading) {
+    return (
+      <ContentLayout title="Billing Detail">
+        <div className="flex items-center justify-center min-h-[400px]">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      </ContentLayout>
+    );
+  }
+
+  const billingRaw = (billingData as any)?.data || billingData;
+  const billing = billingRaw || {
     id,
-    period: 'February 2026',
-    caterer: 'Annapurna Catering Services',
-    rate: 4500,
-    status: 'active',
+    period: 'N/A',
+    caterer: 'N/A',
+    rate: 0,
+    status: 'unknown',
   };
 
-  const students = [
-    { id: '1', name: 'Arun Kumar', roll: 'CS2024001', block: 'Block A', room: '101', meals_taken: 56, total: 4500, paid: 4500, status: 'paid' },
-    { id: '2', name: 'Priya Sharma', roll: 'EC2024015', block: 'Block B', room: '205', meals_taken: 52, total: 4500, paid: 0, status: 'pending' },
-    { id: '3', name: 'Rahul Patel', roll: 'ME2024003', block: 'Block A', room: '103', meals_taken: 48, total: 4500, paid: 2250, status: 'partial' },
-    { id: '4', name: 'Sneha Reddy', roll: 'CS2024042', block: 'Block C', room: '312', meals_taken: 60, total: 4500, paid: 4500, status: 'paid' },
-    { id: '5', name: 'Vikram Singh', roll: 'EE2024010', block: 'Block A', room: '108', meals_taken: 45, total: 4500, paid: 0, status: 'pending' },
-  ];
+  const students: any[] = (studentData as any)?.data || studentData || [];
 
   const filteredStudents = students.filter((s) => {
     const matchesSearch =

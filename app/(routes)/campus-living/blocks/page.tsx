@@ -39,7 +39,7 @@ export default function HostelBlocksPage() {
   const { profile } = useAuth();
   const institutionId = profile?.institution_id || '';
   const { data, isLoading } = useHostelBlocks(institutionId);
-  const blocks = data?.data || [];
+  const blocks = (data as any)?.data || [] as any[];
   const [searchQuery, setSearchQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState<string>('all');
 

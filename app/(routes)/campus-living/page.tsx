@@ -1,6 +1,5 @@
 'use client';
 
-import { useState } from 'react';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
@@ -8,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/hooks/use-auth';
+import { useCampusLivingOverview } from '@/hooks/campus-living/use-campus-living-dashboard';
 import {
   Building2,
   Users,
@@ -27,43 +27,10 @@ import {
   Percent
 } from 'lucide-react';
 
-// Placeholder stats until hooks are available
-const useCampusLivingDashboard = (institutionId: string | null) => {
-  // This will be replaced with a real React Query hook
-  return {
-    data: {
-      totalHostellers: 4280,
-      totalCapacity: 5000,
-      occupancyRate: 85.6,
-      todayPresent: 3920,
-      todayAbsent: 180,
-      todayOnLeave: 180,
-      pendingLeaveRequests: 23,
-      pendingMaintenance: 12,
-      criticalMaintenance: 3,
-      activeGatePasses: 45,
-      overdueGatePasses: 2,
-      messRating: 3.8,
-      feeCollected: 78,
-      recentIncidents: 2,
-      blocks: [
-        { id: '1', name: 'Boys Hostel A', code: 'BHA', type: 'boys', capacity: 800, occupied: 720, status: 'active' },
-        { id: '2', name: 'Boys Hostel B', code: 'BHB', type: 'boys', capacity: 600, occupied: 540, status: 'active' },
-        { id: '3', name: 'Girls Hostel A', code: 'GHA', type: 'girls', capacity: 1000, occupied: 880, status: 'active' },
-        { id: '4', name: 'Girls Hostel B', code: 'GHB', type: 'girls', capacity: 800, occupied: 700, status: 'active' },
-        { id: '5', name: 'Girls Hostel C', code: 'GHC', type: 'girls', capacity: 900, occupied: 780, status: 'active' },
-        { id: '6', name: 'PG Hostel', code: 'PGH', type: 'mixed', capacity: 400, occupied: 340, status: 'active' },
-        { id: '7', name: 'New Wing', code: 'NW', type: 'boys', capacity: 500, occupied: 320, status: 'under_maintenance' },
-      ],
-    },
-    isLoading: false,
-    error: null,
-  };
-};
-
 export default function CampusLivingDashboardPage() {
   const { profile } = useAuth();
-  const { data: stats, isLoading, error } = useCampusLivingDashboard(profile?.institution_id ?? null);
+  const institutionId = profile?.institution_id ?? '';
+  const { data: dashboardData, isLoading, error } = useCampusLivingOverview(institutionId);
 
   if (isLoading) {
     return (
@@ -74,6 +41,30 @@ export default function CampusLivingDashboardPage() {
       </ContentLayout>
     );
   }
+
+  // Map dashboard data to the shape the UI expects
+  const stats = dashboardData ? {
+    totalHostellers: dashboardData.occupancy.total_occupancy,
+    totalCapacity: dashboardData.occupancy.total_capacity,
+    occupancyRate: dashboardData.occupancy.percentage,
+    todayPresent: dashboardData.attendance_today.present,
+    todayAbsent: dashboardData.attendance_today.absent,
+    todayOnLeave: dashboardData.attendance_today.on_leave,
+    pendingLeaveRequests: dashboardData.leaves.pending_approval,
+    pendingMaintenance: dashboardData.maintenance.pending,
+    criticalMaintenance: dashboardData.maintenance.critical,
+    overdueGatePasses: dashboardData.gate_passes.overdue,
+    recentIncidents: dashboardData.incidents.active,
+    blocks: dashboardData.occupancy.blocks.map((b) => ({
+      id: b.id,
+      name: b.name,
+      code: b.code,
+      type: b.type,
+      capacity: b.capacity,
+      occupied: b.occupancy,
+      status: 'active' as const,
+    })),
+  } : null;
 
   return (
     <ContentLayout title="Campus Living">
@@ -131,9 +122,8 @@ export default function CampusLivingDashboardPage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{stats?.occupancyRate}%</div>
-              <p className="text-xs text-green-600 flex items-center gap-1">
-                <TrendingUp className="h-3 w-3" />
-                +2.1% from last month
+              <p className="text-xs text-muted-foreground">
+                Current occupancy
               </p>
             </CardContent>
           </Card>
@@ -180,13 +170,13 @@ export default function CampusLivingDashboardPage() {
 
           <Card>
             <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
-              <CardTitle className="text-sm font-medium">Mess Rating</CardTitle>
-              <UtensilsCrossed className="h-4 w-4 text-muted-foreground" />
+              <CardTitle className="text-sm font-medium">Active Incidents</CardTitle>
+              <ShieldAlert className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{stats?.messRating}/5</div>
+              <div className="text-2xl font-bold">{stats?.recentIncidents}</div>
               <p className="text-xs text-muted-foreground">
-                This week&apos;s average
+                Open incidents
               </p>
             </CardContent>
           </Card>
@@ -241,10 +231,14 @@ export default function CampusLivingDashboardPage() {
                 <div className="flex items-center gap-3 p-3 bg-red-50 dark:bg-red-950 rounded-lg">
                   <ShieldAlert className="h-5 w-5 text-destructive shrink-0" />
                   <div className="flex-1">
-                    <p className="text-sm font-medium">{stats.recentIncidents} Incidents (7 days)</p>
+                    <p className="text-sm font-medium">{stats.recentIncidents} Active Incidents</p>
                     <p className="text-xs text-muted-foreground">Safety incidents reported</p>
                   </div>
                 </div>
+              )}
+
+              {!stats?.overdueGatePasses && !stats?.pendingLeaveRequests && !stats?.criticalMaintenance && !stats?.recentIncidents && (
+                <p className="text-sm text-muted-foreground text-center py-4">No active alerts</p>
               )}
             </CardContent>
           </Card>
@@ -283,11 +277,6 @@ export default function CampusLivingDashboardPage() {
                           >
                             {block.type}
                           </Badge>
-                          {block.status === 'under_maintenance' && (
-                            <Badge variant="destructive" className="text-xs">
-                              Maintenance
-                            </Badge>
-                          )}
                         </div>
                         <span className="text-muted-foreground">
                           {block.occupied}/{block.capacity} ({percentage}%)
@@ -302,6 +291,9 @@ export default function CampusLivingDashboardPage() {
                     </div>
                   );
                 })}
+                {(!stats?.blocks || stats.blocks.length === 0) && (
+                  <p className="text-sm text-muted-foreground text-center py-4">No hostel blocks configured</p>
+                )}
               </div>
             </CardContent>
           </Card>

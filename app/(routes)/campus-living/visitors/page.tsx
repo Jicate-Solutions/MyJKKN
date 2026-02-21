@@ -22,27 +22,36 @@ import {
   LogOut,
   Clock,
   ShieldCheck,
+  Loader2,
 } from 'lucide-react';
 import { useState } from 'react';
+import { useAuth } from '@/hooks/use-auth';
+import { useHostelVisitors, useCheckOutVisitor } from '@/hooks/campus-living/use-hostel-visitors';
 
 export default function VisitorsPage() {
+  const { profile } = useAuth();
+  const institutionId = profile?.institution_id || '';
   const [searchQuery, setSearchQuery] = useState('');
 
-  // TODO: Replace with actual hook
-  // const { data: visitors, isLoading } = useHostelVisitors();
-
-  const visitors = [
-    { id: '1', name: 'Mr. Ramesh Kumar', phone: '+91 98765 43210', visiting: 'Arun Kumar (CS2024001)', purpose: 'Parent visit', check_in: '10:30 AM', check_out: null, id_type: 'Aadhaar', status: 'checked_in' },
-    { id: '2', name: 'Ms. Lakshmi Devi', phone: '+91 87654 32109', visiting: 'Priya Sharma (EC2024015)', purpose: 'Parent visit', check_in: '11:00 AM', check_out: null, id_type: 'Voter ID', status: 'checked_in' },
-    { id: '3', name: 'Suresh (Electrician)', phone: '+91 76543 21098', visiting: 'Block A - Room 105', purpose: 'Maintenance', check_in: '9:00 AM', check_out: '11:45 AM', id_type: 'Company ID', status: 'checked_out' },
-    { id: '4', name: 'Dr. Meena', phone: '+91 65432 10987', visiting: 'Medical Room', purpose: 'Medical visit', check_in: '2:00 PM', check_out: null, id_type: 'Hospital ID', status: 'checked_in' },
-  ];
+  const { data: visitorData, isLoading } = useHostelVisitors(institutionId);
+  const visitors = visitorData?.data || [];
+  const checkOutMutation = useCheckOutVisitor();
 
   const filteredVisitors = visitors.filter(
     (v) =>
-      v.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      v.visiting.toLowerCase().includes(searchQuery.toLowerCase())
+      v.visitor_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      v.purpose.toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+  if (isLoading) {
+    return (
+      <ContentLayout title="Visitors">
+        <div className="flex items-center justify-center min-h-[400px]">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      </ContentLayout>
+    );
+  }
 
   return (
     <ContentLayout title="Visitors">
@@ -135,8 +144,8 @@ export default function VisitorsPage() {
                 <TableRow>
                   <TableHead>Visitor Name</TableHead>
                   <TableHead>Phone</TableHead>
-                  <TableHead>Visiting</TableHead>
                   <TableHead>Purpose</TableHead>
+                  <TableHead>Relationship</TableHead>
                   <TableHead>ID Type</TableHead>
                   <TableHead>Check-in</TableHead>
                   <TableHead>Check-out</TableHead>
@@ -147,13 +156,13 @@ export default function VisitorsPage() {
               <TableBody>
                 {filteredVisitors.map((visitor) => (
                   <TableRow key={visitor.id}>
-                    <TableCell className="font-medium">{visitor.name}</TableCell>
-                    <TableCell>{visitor.phone}</TableCell>
-                    <TableCell>{visitor.visiting}</TableCell>
+                    <TableCell className="font-medium">{visitor.visitor_name}</TableCell>
+                    <TableCell>{visitor.visitor_phone}</TableCell>
                     <TableCell>{visitor.purpose}</TableCell>
-                    <TableCell>{visitor.id_type}</TableCell>
-                    <TableCell>{visitor.check_in}</TableCell>
-                    <TableCell>{visitor.check_out || '-'}</TableCell>
+                    <TableCell>{visitor.visitor_relationship}</TableCell>
+                    <TableCell>{visitor.id_proof_type || '-'}</TableCell>
+                    <TableCell>{visitor.check_in_time ? new Date(visitor.check_in_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '-'}</TableCell>
+                    <TableCell>{visitor.check_out_time ? new Date(visitor.check_out_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '-'}</TableCell>
                     <TableCell>
                       <Badge
                         className={
@@ -172,7 +181,12 @@ export default function VisitorsPage() {
                           <Link href={`/campus-living/visitors/${visitor.id}`}>View</Link>
                         </Button>
                         {visitor.status === 'checked_in' && (
-                          <Button variant="outline" size="sm">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={checkOutMutation.isPending}
+                            onClick={() => checkOutMutation.mutate({ id: visitor.id, payload: { check_out_time: new Date().toISOString() } })}
+                          >
                             <LogOut className="mr-1 h-3 w-3" />
                             Check-out
                           </Button>

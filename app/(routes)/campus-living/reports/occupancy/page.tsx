@@ -19,11 +19,15 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { Download, Printer, Building2 } from 'lucide-react';
+import { Download, Printer, Building2, Loader2 } from 'lucide-react';
 import { useState } from 'react';
+import { useAuth } from '@/hooks/use-auth';
+import { useExportReport } from '@/hooks/campus-living/use-campus-living-reports';
 
 export default function OccupancyReportPage() {
   const [blockFilter, setBlockFilter] = useState('all');
+  const { profile } = useAuth();
+  const exportReport = useExportReport();
 
   const occupancyData = [
     { block: 'Block A', floor: 'Ground', total_rooms: 25, occupied: 24, vacant: 1, total_beds: 50, beds_occupied: 48 },
@@ -47,7 +51,18 @@ export default function OccupancyReportPage() {
           </div>
           <div className="flex gap-2">
             <Button variant="outline"><Printer className="mr-2 h-4 w-4" />Print</Button>
-            <Button variant="outline"><Download className="mr-2 h-4 w-4" />Export PDF</Button>
+            <Button
+              variant="outline"
+              disabled={exportReport.isPending}
+              onClick={() => exportReport.mutate({
+                institutionId: profile?.institution_id ?? '',
+                reportType: 'occupancy',
+                format: 'json',
+              })}
+            >
+              {exportReport.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
+              Export
+            </Button>
           </div>
         </div>
 

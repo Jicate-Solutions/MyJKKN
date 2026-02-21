@@ -42,7 +42,8 @@ const floorLabels = ['Ground', '1st', '2nd', '3rd', '4th', '5th'];
 export default function BlockWardensPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const { profile } = useAuth();
-  const { data: wardens, isLoading } = useHostelWardens(profile?.institution_id ?? '', { block_id: id });
+  const { data: rawWardens, isLoading } = useHostelWardens(profile?.institution_id ?? '', { block_id: id });
+  const wardens = rawWardens as any[] | undefined;
 
   if (isLoading) {
     return (

@@ -24,7 +24,9 @@ import {
   Wrench,
   Camera,
   MessageSquare,
+  Loader2,
 } from 'lucide-react';
+import { useHostelMaintenanceRequest } from '@/hooks/campus-living/use-hostel-maintenance';
 
 interface MaintenanceDetailPageProps {
   params: Promise<{ id: string }>;
@@ -33,30 +35,17 @@ interface MaintenanceDetailPageProps {
 export default function MaintenanceDetailPage({ params }: MaintenanceDetailPageProps) {
   const { id } = use(params);
 
-  // TODO: Replace with actual hook
-  // const { data: request, isLoading } = useMaintenanceRequest(id);
+  const { data: request, isLoading } = useHostelMaintenanceRequest(id);
 
-  const request = {
-    id,
-    title: 'Leaking tap in bathroom',
-    description: 'The hot water tap in the bathroom has been leaking constantly for 2 days. Water is pooling on the floor and could be a slip hazard.',
-    category: 'Plumbing',
-    room: 'Block A - Room 101',
-    reported_by: 'Arun Kumar (CS2024001)',
-    priority: 'high',
-    status: 'in_progress',
-    created_at: '2026-02-20 09:30 AM',
-    sla_deadline: '2026-02-21 09:30 AM',
-    assigned_to: 'Suresh (Plumber)',
-    assigned_at: '2026-02-20 10:15 AM',
-  };
-
-  const timeline = [
-    { time: '2026-02-20 09:30 AM', event: 'Request created', by: 'Arun Kumar', type: 'created' },
-    { time: '2026-02-20 10:15 AM', event: 'Assigned to Suresh (Plumber)', by: 'Warden', type: 'assigned' },
-    { time: '2026-02-20 11:00 AM', event: 'Inspection started', by: 'Suresh', type: 'update' },
-    { time: '2026-02-20 11:30 AM', event: 'Parts ordered - washer replacement needed', by: 'Suresh', type: 'update' },
-  ];
+  if (isLoading || !request) {
+    return (
+      <ContentLayout title="Maintenance Request">
+        <div className="flex items-center justify-center min-h-[400px]">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      </ContentLayout>
+    );
+  }
 
   const getPriorityBadge = (priority: string) => {
     switch (priority) {
@@ -91,9 +80,13 @@ export default function MaintenanceDetailPage({ params }: MaintenanceDetailPageP
           </div>
           <div className="flex gap-2">
             {getPriorityBadge(request.priority)}
-            <Badge className="bg-blue-100 text-blue-800 hover:bg-blue-100">
+            <Badge className={
+              request.status === 'resolved' ? 'bg-green-100 text-green-800 hover:bg-green-100' :
+              request.status === 'in_progress' ? 'bg-blue-100 text-blue-800 hover:bg-blue-100' :
+              ''
+            }>
               <Clock className="mr-1 h-3 w-3" />
-              In Progress
+              {request.status === 'resolved' ? 'Resolved' : request.status === 'in_progress' ? 'In Progress' : request.status.replace('_', ' ')}
             </Badge>
           </div>
         </div>
@@ -115,28 +108,28 @@ export default function MaintenanceDetailPage({ params }: MaintenanceDetailPageP
                     <Wrench className="h-4 w-4 text-muted-foreground" />
                     <div>
                       <p className="text-sm text-muted-foreground">Category</p>
-                      <p className="font-medium">{request.category}</p>
+                      <p className="font-medium capitalize">{request.category}{request.subcategory ? ` / ${request.subcategory}` : ''}</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
                     <MapPin className="h-4 w-4 text-muted-foreground" />
                     <div>
                       <p className="text-sm text-muted-foreground">Location</p>
-                      <p className="font-medium">{request.room}</p>
+                      <p className="font-medium">{(request as any).hostel_blocks?.name || request.block_id}{(request as any).hostel_rooms?.room_number ? ` - Room ${(request as any).hostel_rooms.room_number}` : ''}</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
                     <User className="h-4 w-4 text-muted-foreground" />
                     <div>
                       <p className="text-sm text-muted-foreground">Reported By</p>
-                      <p className="font-medium">{request.reported_by}</p>
+                      <p className="font-medium">{request.learner_id}</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
                     <User className="h-4 w-4 text-muted-foreground" />
                     <div>
                       <p className="text-sm text-muted-foreground">Assigned To</p>
-                      <p className="font-medium">{request.assigned_to || 'Unassigned'}</p>
+                      <p className="font-medium">{request.assigned_to_name || 'Unassigned'}</p>
                     </div>
                   </div>
                 </div>
@@ -207,16 +200,31 @@ export default function MaintenanceDetailPage({ params }: MaintenanceDetailPageP
                 <div className="space-y-3">
                   <div>
                     <p className="text-xs text-muted-foreground">Created</p>
-                    <p className="text-sm font-medium">{request.created_at}</p>
+                    <p className="text-sm font-medium">{request.created_at ? new Date(request.created_at).toLocaleString() : '-'}</p>
                   </div>
                   <div>
                     <p className="text-xs text-muted-foreground">SLA Deadline</p>
-                    <p className="text-sm font-medium text-orange-600">{request.sla_deadline}</p>
+                    <p className="text-sm font-medium text-orange-600">{request.sla_deadline ? new Date(request.sla_deadline).toLocaleString() : '-'}</p>
                   </div>
-                  <div className="w-full bg-gray-200 rounded-full h-2">
-                    <div className="bg-orange-500 rounded-full h-2" style={{ width: '75%' }} />
-                  </div>
-                  <p className="text-xs text-orange-600">75% of SLA time elapsed</p>
+                  {(() => {
+                    const created = new Date(request.created_at).getTime();
+                    const deadline = new Date(request.sla_deadline).getTime();
+                    const now = Date.now();
+                    const total = deadline - created;
+                    const elapsed = now - created;
+                    const pct = total > 0 ? Math.min(100, Math.round((elapsed / total) * 100)) : 0;
+                    const isOverdue = now > deadline;
+                    return (
+                      <>
+                        <div className="w-full bg-gray-200 rounded-full h-2">
+                          <div className={`${isOverdue ? 'bg-red-500' : pct > 75 ? 'bg-orange-500' : 'bg-green-500'} rounded-full h-2`} style={{ width: `${pct}%` }} />
+                        </div>
+                        <p className={`text-xs ${isOverdue ? 'text-red-600' : 'text-orange-600'}`}>
+                          {isOverdue ? 'SLA breached' : `${pct}% of SLA time elapsed`}
+                        </p>
+                      </>
+                    );
+                  })()}
                 </div>
               </CardContent>
             </Card>
@@ -228,22 +236,28 @@ export default function MaintenanceDetailPage({ params }: MaintenanceDetailPageP
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  {timeline.map((item, idx) => (
+                  {[
+                    { time: request.created_at, event: 'Request created', type: 'created' },
+                    ...(request.assigned_at ? [{ time: request.assigned_at, event: `Assigned to ${request.assigned_to_name || 'staff'}`, type: 'assigned' }] : []),
+                    ...(request.resolved_at ? [{ time: request.resolved_at, event: 'Request resolved', type: 'resolved' }] : []),
+                    ...(request.verified_at ? [{ time: request.verified_at, event: `Verified by ${request.verified_by || 'staff'}`, type: 'verified' }] : []),
+                  ].map((item, idx, arr) => (
                     <div key={idx} className="flex gap-3">
                       <div className="flex flex-col items-center">
                         <div className={`w-2 h-2 rounded-full mt-2 ${
                           item.type === 'created' ? 'bg-blue-500' :
                           item.type === 'assigned' ? 'bg-purple-500' :
+                          item.type === 'resolved' ? 'bg-green-500' :
                           'bg-gray-400'
                         }`} />
-                        {idx < timeline.length - 1 && (
+                        {idx < arr.length - 1 && (
                           <div className="w-px flex-1 bg-gray-200 mt-1" />
                         )}
                       </div>
                       <div className="pb-4">
                         <p className="text-sm font-medium">{item.event}</p>
                         <p className="text-xs text-muted-foreground">
-                          {item.by} - {item.time}
+                          {item.time ? new Date(item.time).toLocaleString() : ''}
                         </p>
                       </div>
                     </div>

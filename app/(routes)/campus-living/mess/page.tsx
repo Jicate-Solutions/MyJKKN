@@ -18,15 +18,14 @@ import {
   Loader2,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
-import { useCampusLivingOverview, useMessSummary } from '@/hooks/campus-living/use-campus-living-dashboard';
+import { useCampusLivingOverview } from '@/hooks/campus-living/use-campus-living-dashboard';
 
 export default function MessDashboardPage() {
-  const { user } = useAuth();
-  const institutionId = user?.institution_id || '';
-  const { data: overviewData, isLoading: overviewLoading } = useCampusLivingOverview(institutionId);
-  const { data: messSummaryData, isLoading: messSummaryLoading } = useMessSummary(institutionId);
+  const { profile } = useAuth();
+  const institutionId = profile?.institution_id || '';
+  const { isLoading: overviewLoading } = useCampusLivingOverview(institutionId);
 
-  const isLoading = overviewLoading || messSummaryLoading;
+  const isLoading = overviewLoading;
 
   if (isLoading) {
     return (

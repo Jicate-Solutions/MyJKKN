@@ -29,27 +29,24 @@ import {
   CheckCircle2,
   AlertTriangle,
   AlertCircle,
+  Loader2,
 } from 'lucide-react';
 import { useState } from 'react';
+import { useAuth } from '@/hooks/use-auth';
+import { useHostelMaintenanceRequests } from '@/hooks/campus-living/use-hostel-maintenance';
 
 export default function MaintenancePage() {
+  const { profile } = useAuth();
+  const institutionId = profile?.institution_id || '';
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [priorityFilter, setPriorityFilter] = useState('all');
 
-  // TODO: Replace with actual hook
-  // const { data: requests, isLoading } = useMaintenanceRequests();
-
-  const requests = [
-    { id: '1', title: 'Leaking tap in bathroom', category: 'Plumbing', room: 'Block A - 101', reported_by: 'Arun Kumar', priority: 'high', status: 'in_progress', created_at: '2026-02-20', sla_deadline: '2026-02-21', assigned_to: 'Suresh (Plumber)' },
-    { id: '2', title: 'AC not cooling', category: 'Electrical', room: 'Block B - 205', reported_by: 'Priya Sharma', priority: 'medium', status: 'open', created_at: '2026-02-21', sla_deadline: '2026-02-23', assigned_to: null },
-    { id: '3', title: 'Broken window latch', category: 'Civil', room: 'Block A - 103', reported_by: 'Rahul Patel', priority: 'low', status: 'open', created_at: '2026-02-21', sla_deadline: '2026-02-28', assigned_to: null },
-    { id: '4', title: 'Electrical short circuit', category: 'Electrical', room: 'Block C - 312', reported_by: 'Sneha Reddy', priority: 'critical', status: 'in_progress', created_at: '2026-02-19', sla_deadline: '2026-02-20', assigned_to: 'Ravi (Electrician)' },
-    { id: '5', title: 'Clogged drain', category: 'Plumbing', room: 'Block D - 108', reported_by: 'Vikram Singh', priority: 'medium', status: 'resolved', created_at: '2026-02-18', sla_deadline: '2026-02-20', assigned_to: 'Suresh (Plumber)' },
-  ];
+  const { data: maintenanceData, isLoading } = useHostelMaintenanceRequests(institutionId);
+  const requests = maintenanceData?.data || [];
 
   const filteredRequests = requests.filter((r) => {
-    const matchesSearch = r.title.toLowerCase().includes(searchQuery.toLowerCase()) || r.room.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesSearch = r.title.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesStatus = statusFilter === 'all' || r.status === statusFilter;
     const matchesPriority = priorityFilter === 'all' || r.priority === priorityFilter;
     return matchesSearch && matchesStatus && matchesPriority;
@@ -94,6 +91,16 @@ export default function MaintenancePage() {
     if (hoursLeft < 4) return <span className="text-xs text-orange-600 font-medium">Due soon</span>;
     return <span className="text-xs text-muted-foreground">{Math.round(hoursLeft)}h left</span>;
   };
+
+  if (isLoading) {
+    return (
+      <ContentLayout title="Maintenance">
+        <div className="flex items-center justify-center min-h-[400px]">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      </ContentLayout>
+    );
+  }
 
   return (
     <ContentLayout title="Maintenance">
@@ -154,7 +161,9 @@ export default function MaintenancePage() {
               <AlertTriangle className="h-4 w-4 text-red-600" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-red-600">1</div>
+              <div className="text-2xl font-bold text-red-600">
+                {requests.filter((r) => r.sla_status === 'breached').length}
+              </div>
             </CardContent>
           </Card>
         </div>
@@ -203,7 +212,7 @@ export default function MaintenancePage() {
                 <TableRow>
                   <TableHead>Request</TableHead>
                   <TableHead>Category</TableHead>
-                  <TableHead>Location</TableHead>
+                  <TableHead>Subcategory</TableHead>
                   <TableHead>Priority</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>SLA</TableHead>
@@ -216,17 +225,17 @@ export default function MaintenancePage() {
                   <TableRow key={request.id}>
                     <TableCell>
                       <div className="font-medium">{request.title}</div>
-                      <div className="text-xs text-muted-foreground">by {request.reported_by} | {request.created_at}</div>
+                      <div className="text-xs text-muted-foreground">{request.created_at ? new Date(request.created_at).toLocaleDateString() : ''}</div>
                     </TableCell>
                     <TableCell>
-                      <Badge variant="outline">{request.category}</Badge>
+                      <Badge variant="outline" className="capitalize">{request.category}</Badge>
                     </TableCell>
-                    <TableCell>{request.room}</TableCell>
+                    <TableCell className="text-sm">{request.subcategory || '-'}</TableCell>
                     <TableCell>{getPriorityBadge(request.priority)}</TableCell>
                     <TableCell>{getStatusBadge(request.status)}</TableCell>
                     <TableCell>{getSlaIndicator(request.sla_deadline, request.status)}</TableCell>
                     <TableCell className="text-sm">
-                      {request.assigned_to || <span className="text-muted-foreground">Unassigned</span>}
+                      {request.assigned_to_name || <span className="text-muted-foreground">Unassigned</span>}
                     </TableCell>
                     <TableCell className="text-right">
                       <Button variant="ghost" size="sm" asChild>

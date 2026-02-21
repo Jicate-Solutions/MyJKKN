@@ -24,6 +24,8 @@ import {
   Users,
 } from 'lucide-react';
 import { useState } from 'react';
+import { useAuth } from '@/hooks/use-auth';
+import { useScanMeal, useMessMeals } from '@/hooks/campus-living/use-mess-meals';
 
 export default function MealScanPage() {
   const [scanMode, setScanMode] = useState<'qr' | 'manual'>('qr');
@@ -36,32 +38,62 @@ export default function MealScanPage() {
     message: string;
   } | null>(null);
 
-  const handleManualEntry = () => {
+  const { profile } = useAuth();
+  const institutionId = profile?.institution_id || '';
+  const scanMealMutation = useScanMeal();
+  const today = new Date().toISOString().split('T')[0];
+  const { data: mealsData } = useMessMeals(institutionId, { date: today, meal_type: selectedMeal as any });
+
+  const mealRecords: any[] = (mealsData as any)?.data || mealsData || [];
+
+  const handleManualEntry = async () => {
     if (!manualInput.trim()) return;
-    // TODO: Call API to validate and record meal scan
-    setLastScan({
-      student: 'Arun Kumar',
-      roll: manualInput,
-      status: 'success',
-      message: 'Meal recorded successfully',
-    });
+    try {
+      await scanMealMutation.mutateAsync({
+        institution_id: institutionId,
+        learner_id: manualInput.trim(),
+        menu_id: null,
+        date: today,
+        meal_type: selectedMeal as any,
+        consumed: true,
+        scan_method: 'manual' as any,
+        scan_time: new Date().toISOString(),
+        is_guest_meal: false,
+        guest_name: null,
+        guest_count: 0,
+        feedback_rating: null,
+        feedback_comment: null,
+      });
+      setLastScan({
+        student: manualInput.trim(),
+        roll: manualInput,
+        status: 'success',
+        message: 'Meal recorded successfully',
+      });
+    } catch {
+      setLastScan({
+        student: '-',
+        roll: manualInput,
+        status: 'error',
+        message: 'Failed to record meal scan',
+      });
+    }
     setManualInput('');
   };
 
   const todayStats = {
-    total_scanned: 312,
-    total_booked: 420,
-    current_meal: 'Lunch',
-    serving_time: '12:00 - 2:00 PM',
+    total_scanned: mealRecords.length,
+    total_booked: mealRecords.length > 0 ? (mealRecords[0]?.booked_count || mealRecords.length) : 0,
+    current_meal: selectedMeal.charAt(0).toUpperCase() + selectedMeal.slice(1),
+    serving_time: selectedMeal === 'breakfast' ? '7:00 - 9:00 AM' : selectedMeal === 'lunch' ? '12:00 - 2:00 PM' : selectedMeal === 'snacks' ? '4:00 - 5:00 PM' : '7:00 - 9:00 PM',
   };
 
-  const recentScans = [
-    { roll: 'CS2024001', name: 'Arun Kumar', time: '12:15 PM', status: 'success' },
-    { roll: 'EC2024015', name: 'Priya Sharma', time: '12:14 PM', status: 'success' },
-    { roll: 'ME2024003', name: 'Rahul Patel', time: '12:12 PM', status: 'success' },
-    { roll: 'INVALID001', name: '-', time: '12:10 PM', status: 'error' },
-    { roll: 'CS2024042', name: 'Sneha Reddy', time: '12:08 PM', status: 'success' },
-  ];
+  const recentScans = mealRecords.slice(0, 5).map((r: any) => ({
+    roll: r.learner_id || r.roll || '-',
+    name: r.learner_name || r.student || r.learner_id || '-',
+    time: r.scan_time ? new Date(r.scan_time).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '-',
+    status: r.consumed ? 'success' : 'error',
+  }));
 
   return (
     <ContentLayout title="Meal Scan">

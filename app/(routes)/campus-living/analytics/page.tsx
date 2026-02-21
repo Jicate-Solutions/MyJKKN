@@ -1,8 +1,22 @@
 'use client';
 
+import { useMemo } from 'react';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { useAuth } from '@/hooks/use-auth';
+import { useOccupancyAnalytics, useMaintenanceAnalytics, useIncidentAnalytics } from '@/hooks/campus-living/use-campus-living-analytics';
+import { useCampusLivingOverview } from '@/hooks/campus-living/use-campus-living-dashboard';
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+} from 'recharts';
 import {
   Building2,
   Users,
@@ -16,17 +30,48 @@ import {
   ArrowRight,
   TrendingUp,
   TrendingDown,
+  Loader2,
 } from 'lucide-react';
 
 export default function AnalyticsDashboardPage() {
-  const metrics = [
-    { label: 'Occupancy Rate', value: '94%', trend: '+2%', trendUp: true, icon: Building2 },
-    { label: 'Attendance Today', value: '89%', trend: '-1%', trendUp: false, icon: Users },
-    { label: 'Mess Rating', value: '3.8/5', trend: '+0.2', trendUp: true, icon: UtensilsCrossed },
-    { label: 'Open Maintenance', value: '12', trend: '-3', trendUp: true, icon: Wrench },
-    { label: 'Safety Score', value: '92%', trend: '+1%', trendUp: true, icon: Shield },
-    { label: 'Fee Collection', value: '82%', trend: '+5%', trendUp: true, icon: IndianRupee },
-  ];
+  const { profile } = useAuth();
+  const institutionId = profile?.institution_id ?? '';
+
+  const { data: overview, isLoading: overviewLoading } = useCampusLivingOverview(institutionId);
+  const { data: occupancy, isLoading: occupancyLoading } = useOccupancyAnalytics(institutionId);
+  const { data: maintenance, isLoading: maintenanceLoading } = useMaintenanceAnalytics(institutionId);
+  const { data: incidents, isLoading: incidentsLoading } = useIncidentAnalytics(institutionId);
+
+  const isLoading = overviewLoading || occupancyLoading || maintenanceLoading || incidentsLoading;
+
+  // Build metrics from real data
+  const metrics = useMemo(() => {
+    const occupancyPct = occupancy?.occupancy_percentage ?? 0;
+    const attendancePct = overview?.attendance_today?.percentage ?? 0;
+    const openMaintenance = maintenance?.total ?? 0;
+    const slaCompliance = maintenance?.sla_compliance?.compliance_percentage ?? 0;
+    const activeIncidents = incidents?.open_incidents ?? 0;
+
+    return [
+      { label: 'Occupancy Rate', value: `${occupancyPct}%`, trend: '', trendUp: occupancyPct >= 80, icon: Building2 },
+      { label: 'Attendance Today', value: `${attendancePct}%`, trend: '', trendUp: attendancePct >= 85, icon: Users },
+      { label: 'Open Maintenance', value: `${openMaintenance}`, trend: '', trendUp: openMaintenance < 10, icon: Wrench },
+      { label: 'SLA Compliance', value: `${slaCompliance}%`, trend: '', trendUp: slaCompliance >= 90, icon: Shield },
+      { label: 'Active Incidents', value: `${activeIncidents}`, trend: '', trendUp: activeIncidents === 0, icon: Activity },
+      { label: 'Total Blocks', value: `${occupancy?.total_blocks ?? 0}`, trend: '', trendUp: true, icon: Building2 },
+    ];
+  }, [occupancy, overview, maintenance, incidents]);
+
+  // Build chart data from block occupancy
+  const chartData = useMemo(() => {
+    if (!occupancy?.by_block) return [];
+    return occupancy.by_block.map((b) => ({
+      name: b.code || b.name,
+      Capacity: b.capacity,
+      Occupied: b.occupancy,
+      Available: b.available,
+    }));
+  }, [occupancy]);
 
   const analyticsPages = [
     { title: 'Occupancy Trends', desc: 'Room occupancy over time by block, floor, and type', href: '/campus-living/analytics/occupancy', icon: Building2 },
@@ -39,6 +84,16 @@ export default function AnalyticsDashboardPage() {
     { title: 'Risk Alerts', desc: 'Active alerts and anomaly detection', href: '/campus-living/analytics/alerts', icon: Bell },
     { title: 'Alert Rules', desc: 'Configure alert thresholds and rules', href: '/campus-living/analytics/alert-rules', icon: Settings },
   ];
+
+  if (isLoading) {
+    return (
+      <ContentLayout title="Analytics">
+        <div className="flex items-center justify-center min-h-[400px]">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      </ContentLayout>
+    );
+  }
 
   return (
     <ContentLayout title="Analytics">
@@ -65,25 +120,77 @@ export default function AnalyticsDashboardPage() {
                 </div>
                 <p className="text-2xl font-bold">{metric.value}</p>
                 <p className="text-xs text-muted-foreground">{metric.label}</p>
-                <p className={`text-xs ${metric.trendUp ? 'text-green-600' : 'text-red-600'}`}>
-                  {metric.trend} vs last month
-                </p>
               </CardContent>
             </Card>
           ))}
         </div>
 
-        {/* Chart Placeholder */}
+        {/* Block Occupancy Chart */}
         <Card>
           <CardHeader>
-            <CardTitle>Overall Trends (Last 30 Days)</CardTitle>
+            <CardTitle>Block-wise Occupancy</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="h-[300px] flex items-center justify-center border-2 border-dashed rounded-lg bg-muted/50">
-              <p className="text-muted-foreground">Chart: Multi-line trend chart showing Occupancy, Attendance, Safety Score over time</p>
-            </div>
+            {chartData.length > 0 ? (
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={chartData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                  <XAxis dataKey="name" className="text-xs" />
+                  <YAxis className="text-xs" />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: 'hsl(var(--popover))',
+                      border: '1px solid hsl(var(--border))',
+                      borderRadius: '8px',
+                      color: 'hsl(var(--popover-foreground))',
+                    }}
+                  />
+                  <Legend />
+                  <Bar dataKey="Occupied" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="Available" fill="hsl(var(--muted-foreground) / 0.3)" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-[300px] flex items-center justify-center border-2 border-dashed rounded-lg bg-muted/50">
+                <p className="text-muted-foreground">No block data available to display chart</p>
+              </div>
+            )}
           </CardContent>
         </Card>
+
+        {/* Maintenance Breakdown */}
+        {maintenance && (
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <Card>
+              <CardContent className="p-4 text-center">
+                <p className="text-sm text-muted-foreground">Total Requests</p>
+                <p className="text-2xl font-bold">{maintenance.total}</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-4 text-center">
+                <p className="text-sm text-muted-foreground">SLA Compliance</p>
+                <p className={`text-2xl font-bold ${maintenance.sla_compliance.compliance_percentage >= 90 ? 'text-green-600' : 'text-amber-600'}`}>
+                  {maintenance.sla_compliance.compliance_percentage}%
+                </p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-4 text-center">
+                <p className="text-sm text-muted-foreground">Avg Resolution</p>
+                <p className="text-2xl font-bold">{maintenance.average_resolution_hours}h</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-4 text-center">
+                <p className="text-sm text-muted-foreground">Critical Priority</p>
+                <p className={`text-2xl font-bold ${maintenance.by_priority.critical > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                  {maintenance.by_priority.critical}
+                </p>
+              </CardContent>
+            </Card>
+          </div>
+        )}
 
         {/* Analytics Links */}
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

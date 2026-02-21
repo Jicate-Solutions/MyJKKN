@@ -20,9 +20,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Download, ArrowLeft, Shield, FileText, AlertTriangle, CheckCircle2, Clock } from 'lucide-react';
+import { Download, ArrowLeft, Shield, FileText, AlertTriangle, CheckCircle2, Clock, Loader2 } from 'lucide-react';
+import { useAuth } from '@/hooks/use-auth';
+import { useExportReport } from '@/hooks/campus-living/use-campus-living-reports';
 
 export default function AntiRaggingComplianceReportPage() {
+  const { profile } = useAuth();
+  const exportReport = useExportReport();
   const summaryStats = [
     { label: 'Total Complaints', value: '3', icon: AlertTriangle, color: 'text-orange-600' },
     { label: 'Resolved', value: '2', icon: CheckCircle2, color: 'text-green-600' },
@@ -69,7 +73,18 @@ export default function AntiRaggingComplianceReportPage() {
               <p className="text-muted-foreground">UGC/AICTE regulatory compliance report for anti-ragging measures</p>
             </div>
           </div>
-          <Button><Download className="mr-2 h-4 w-4" />Generate PDF</Button>
+          <Button
+            disabled={exportReport.isPending}
+            onClick={() => exportReport.mutate({
+              institutionId: profile?.institution_id ?? '',
+              reportType: 'anti-ragging',
+              format: 'json',
+              filters: { academicYearId: '2025-26' },
+            })}
+          >
+            {exportReport.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
+            Generate Report
+          </Button>
         </div>
 
         {/* Academic Year Selector */}

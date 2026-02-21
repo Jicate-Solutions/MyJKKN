@@ -21,9 +21,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Download, ArrowLeft, IndianRupee, TrendingUp, AlertCircle, CheckCircle2, Search } from 'lucide-react';
+import { Download, ArrowLeft, IndianRupee, TrendingUp, AlertCircle, CheckCircle2, Search, Loader2 } from 'lucide-react';
+import { useAuth } from '@/hooks/use-auth';
+import { useExportReport } from '@/hooks/campus-living/use-campus-living-reports';
 
 export default function FeeCollectionReportPage() {
+  const { profile } = useAuth();
+  const exportReport = useExportReport();
   const formatCurrency = (amount: number) =>
     amount.toLocaleString('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 });
 
@@ -71,7 +75,17 @@ export default function FeeCollectionReportPage() {
               <p className="text-muted-foreground">Hostel and mess fee collection summary with defaulter tracking</p>
             </div>
           </div>
-          <Button><Download className="mr-2 h-4 w-4" />Export Report</Button>
+          <Button
+            disabled={exportReport.isPending}
+            onClick={() => exportReport.mutate({
+              institutionId: profile?.institution_id ?? '',
+              reportType: 'fee-collection',
+              format: 'json',
+            })}
+          >
+            {exportReport.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
+            Export Report
+          </Button>
         </div>
 
         {/* Summary Cards */}

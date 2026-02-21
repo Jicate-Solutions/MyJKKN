@@ -17,6 +17,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { useAuth } from '@/hooks/use-auth';
+import { useHostelWaitlist } from '@/hooks/campus-living/use-hostel-waitlist';
 import {
   ArrowLeft,
   Search,
@@ -28,22 +29,6 @@ import {
   UserPlus,
   CalendarClock
 } from 'lucide-react';
-
-// Placeholder data
-const useWaitlist = (institutionId: string | null) => {
-  return {
-    data: [
-      { id: 'w1', student_name: 'Sneha Gupta', roll_number: 'EC2025010', department: 'Electronics', preferred_block: 'Girls Hostel A', preferred_room_type: 'double', priority: 1, status: 'waiting', requested_date: '2026-01-15', position: 1, reason: 'New admission - Hosteller' },
-      { id: 'w2', student_name: 'Amit Verma', roll_number: 'CS2025020', department: 'Computer Science', preferred_block: 'Boys Hostel A', preferred_room_type: 'triple', priority: 2, status: 'waiting', requested_date: '2026-01-16', position: 2, reason: 'Transfer from day scholar' },
-      { id: 'w3', student_name: 'Pooja Nair', roll_number: 'IT2025005', department: 'IT', preferred_block: 'Girls Hostel B', preferred_room_type: 'double', priority: 1, status: 'waiting', requested_date: '2026-01-17', position: 3, reason: 'New admission - Hosteller' },
-      { id: 'w4', student_name: 'Rohan Das', roll_number: 'ME2025008', department: 'Mechanical', preferred_block: 'Boys Hostel B', preferred_room_type: 'quad', priority: 3, status: 'offered', requested_date: '2026-01-10', position: 4, reason: 'Room upgrade request' },
-      { id: 'w5', student_name: 'Lakshmi S', roll_number: 'CE2025015', department: 'Civil', preferred_block: 'Girls Hostel A', preferred_room_type: 'single', priority: 2, status: 'waiting', requested_date: '2026-01-18', position: 5, reason: 'New admission - Hosteller' },
-      { id: 'w6', student_name: 'Arun M', roll_number: 'EC2025022', department: 'Electronics', preferred_block: 'Boys Hostel A', preferred_room_type: 'double', priority: 1, status: 'expired', requested_date: '2025-12-01', position: 6, reason: 'New admission - did not respond' },
-    ],
-    isLoading: false,
-    error: null,
-  };
-};
 
 const statusConfig: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' | 'success' }> = {
   waiting: { label: 'Waiting', variant: 'default' },
@@ -62,14 +47,16 @@ const priorityConfig: Record<number, { label: string; color: string }> = {
 
 export default function WaitlistPage() {
   const { profile } = useAuth();
-  const { data: waitlist, isLoading } = useWaitlist(profile?.institution_id ?? null);
+  const { data: waitlistResult, isLoading } = useHostelWaitlist(profile?.institution_id ?? '');
+  const waitlist = waitlistResult?.data;
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('waiting');
 
   const filteredWaitlist = waitlist?.filter((w) => {
     const matchesSearch =
-      w.student_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      w.roll_number.toLowerCase().includes(searchQuery.toLowerCase());
+      searchQuery.length === 0 ||
+      w.learner_id.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (w.notes ?? '').toLowerCase().includes(searchQuery.toLowerCase());
     const matchesStatus = statusFilter === 'all' || w.status === statusFilter;
     return matchesSearch && matchesStatus;
   }) ?? [];
@@ -141,7 +128,7 @@ export default function WaitlistPage() {
             <CardContent className="p-4 flex items-center gap-3">
               <ArrowUp className="h-8 w-8 text-red-600" />
               <div>
-                <p className="text-2xl font-bold">{waitlist?.filter((w) => w.priority === 1).length}</p>
+                <p className="text-2xl font-bold">{waitlist?.filter((w) => w.priority_score >= 80).length}</p>
                 <p className="text-xs text-muted-foreground">High Priority</p>
               </div>
             </CardContent>
@@ -188,40 +175,34 @@ export default function WaitlistPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-16">#</TableHead>
-                  <TableHead>Student</TableHead>
-                  <TableHead>Department</TableHead>
-                  <TableHead>Preferred Block</TableHead>
+                  <TableHead>Learner ID</TableHead>
                   <TableHead>Room Type</TableHead>
-                  <TableHead>Priority</TableHead>
+                  <TableHead>Priority Score</TableHead>
                   <TableHead>Status</TableHead>
-                  <TableHead>Requested</TableHead>
+                  <TableHead>Submitted</TableHead>
+                  <TableHead>Notes</TableHead>
                   <TableHead></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filteredWaitlist.map((entry) => {
                   const sCfg = statusConfig[entry.status] ?? { label: entry.status, variant: 'outline' as const };
-                  const pCfg = priorityConfig[entry.priority] ?? { label: 'Normal', color: '' };
+                  const priorityLevel = entry.priority_score >= 80 ? 1 : entry.priority_score >= 50 ? 2 : 3;
+                  const pCfg = priorityConfig[priorityLevel] ?? { label: 'Normal', color: '' };
                   return (
                     <TableRow key={entry.id}>
-                      <TableCell className="font-medium">{entry.position}</TableCell>
                       <TableCell>
-                        <div>
-                          <p className="font-medium">{entry.student_name}</p>
-                          <p className="text-xs text-muted-foreground">{entry.roll_number}</p>
-                        </div>
+                        <p className="font-medium">{entry.learner_id}</p>
                       </TableCell>
-                      <TableCell>{entry.department}</TableCell>
-                      <TableCell>{entry.preferred_block}</TableCell>
-                      <TableCell className="capitalize">{entry.preferred_room_type}</TableCell>
+                      <TableCell className="capitalize">{entry.preferred_room_type ?? 'Any'}</TableCell>
                       <TableCell>
-                        <Badge className={`text-xs ${pCfg.color}`}>{pCfg.label}</Badge>
+                        <Badge className={`text-xs ${pCfg.color}`}>{entry.priority_score} ({pCfg.label})</Badge>
                       </TableCell>
                       <TableCell>
                         <Badge variant={sCfg.variant}>{sCfg.label}</Badge>
                       </TableCell>
-                      <TableCell className="text-sm text-muted-foreground">{entry.requested_date}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground">{new Date(entry.created_at).toLocaleDateString()}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground max-w-[200px] truncate">{entry.notes ?? '-'}</TableCell>
                       <TableCell>
                         <div className="flex gap-1">
                           {entry.status === 'waiting' && (
@@ -241,7 +222,7 @@ export default function WaitlistPage() {
                 })}
                 {filteredWaitlist.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
+                    <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
                       No waitlist entries found
                     </TableCell>
                   </TableRow>

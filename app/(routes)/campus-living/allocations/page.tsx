@@ -45,24 +45,31 @@ const feeStatusConfig: Record<string, { label: string; variant: 'default' | 'sec
   waived: { label: 'Waived', variant: 'outline' },
 };
 
+// Helper to safely access joined Supabase relations
+const getJoined = (row: any, relation: string, field: string): string =>
+  row?.[relation]?.[field] ?? '';
+
 export default function AllocationsPage() {
   const { profile } = useAuth();
-  const { data: allocations, isLoading } = useHostelAllocations(profile?.institution_id ?? '');
+  const { data: allocationsResult, isLoading } = useHostelAllocations(profile?.institution_id ?? '');
+  const allocations = allocationsResult?.data;
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('active');
   const [blockFilter, setBlockFilter] = useState<string>('all');
 
-  const filteredAllocations = allocations?.filter((a) => {
+  const filteredAllocations = allocations?.filter((a: any) => {
+    const blockName = getJoined(a, 'hostel_blocks', 'name');
+    const roomNumber = getJoined(a, 'hostel_rooms', 'room_number');
     const matchesSearch =
-      a.student_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      a.roll_number.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      a.room_number.toLowerCase().includes(searchQuery.toLowerCase());
+      (a.emergency_contact_name ?? '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (a.learner_id ?? '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+      roomNumber.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesStatus = statusFilter === 'all' || a.status === statusFilter;
-    const matchesBlock = blockFilter === 'all' || a.block_name === blockFilter;
+    const matchesBlock = blockFilter === 'all' || blockName === blockFilter;
     return matchesSearch && matchesStatus && matchesBlock;
   }) ?? [];
 
-  const blockNames = [...new Set(allocations?.map((a) => a.block_name) ?? [])];
+  const blockNames = [...new Set(allocations?.map((a: any) => getJoined(a, 'hostel_blocks', 'name')).filter(Boolean) ?? [])];
 
   if (isLoading) {
     return (
@@ -190,33 +197,31 @@ export default function AllocationsPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Student</TableHead>
-                  <TableHead>Roll No.</TableHead>
-                  <TableHead>Department</TableHead>
+                  <TableHead>Learner ID</TableHead>
                   <TableHead>Block</TableHead>
                   <TableHead>Room</TableHead>
                   <TableHead>Bed</TableHead>
                   <TableHead>Type</TableHead>
+                  <TableHead>Date</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Fee</TableHead>
                   <TableHead></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredAllocations.map((alloc) => {
+                {filteredAllocations.map((alloc: any) => {
                   const sCfg = statusConfig[alloc.status] ?? { label: alloc.status, variant: 'outline' as const };
                   const fCfg = feeStatusConfig[alloc.fee_status] ?? { label: alloc.fee_status, variant: 'outline' as const };
                   return (
                     <TableRow key={alloc.id}>
-                      <TableCell className="font-medium">{alloc.student_name}</TableCell>
-                      <TableCell className="text-muted-foreground">{alloc.roll_number}</TableCell>
-                      <TableCell>{alloc.department}</TableCell>
-                      <TableCell>{alloc.block_name}</TableCell>
-                      <TableCell>{alloc.room_number}</TableCell>
-                      <TableCell>{alloc.bed_number}</TableCell>
+                      <TableCell className="font-medium">{alloc.learner_id}</TableCell>
+                      <TableCell>{getJoined(alloc, 'hostel_blocks', 'name')}</TableCell>
+                      <TableCell>{getJoined(alloc, 'hostel_rooms', 'room_number')}</TableCell>
+                      <TableCell>{getJoined(alloc, 'hostel_beds', 'bed_number')}</TableCell>
                       <TableCell>
                         <Badge variant="outline" className="text-xs capitalize">{alloc.allocation_type}</Badge>
                       </TableCell>
+                      <TableCell className="text-muted-foreground">{alloc.allocation_date}</TableCell>
                       <TableCell>
                         <Badge variant={sCfg.variant}>{sCfg.label}</Badge>
                       </TableCell>
@@ -235,7 +240,7 @@ export default function AllocationsPage() {
                 })}
                 {filteredAllocations.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={10} className="text-center py-8 text-muted-foreground">
+                    <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
                       No allocations found matching your filters
                     </TableCell>
                   </TableRow>

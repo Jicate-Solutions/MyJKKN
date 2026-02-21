@@ -32,6 +32,10 @@ const statusConfig: Record<string, { label: string; variant: 'default' | 'second
   suspended: { label: 'Suspended', variant: 'destructive' },
 };
 
+// Helper to safely access joined Supabase relations
+const getJoined = (row: any, relation: string, field: string): string =>
+  row?.[relation]?.[field] ?? '';
+
 export default function AllocationDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const { profile } = useAuth();
@@ -47,6 +51,13 @@ export default function AllocationDetailPage({ params }: { params: Promise<{ id:
     );
   }
 
+  const alloc = allocation as any;
+  const blockName = getJoined(alloc, 'hostel_blocks', 'name');
+  const blockCode = getJoined(alloc, 'hostel_blocks', 'code');
+  const roomNumber = getJoined(alloc, 'hostel_rooms', 'room_number');
+  const roomType = getJoined(alloc, 'hostel_rooms', 'room_type');
+  const bedNumber = getJoined(alloc, 'hostel_beds', 'bed_number');
+  const bedType = getJoined(alloc, 'hostel_beds', 'bed_type');
   const sCfg = statusConfig[allocation.status] ?? { label: allocation.status, variant: 'outline' as const };
 
   return (
@@ -56,7 +67,7 @@ export default function AllocationDetailPage({ params }: { params: Promise<{ id:
           { label: 'Home', href: '/' },
           { label: 'Campus Living', href: '/campus-living' },
           { label: 'Allocations', href: '/campus-living/allocations' },
-          { label: allocation.student.name },
+          { label: `${blockName} - ${roomNumber}` },
         ]}
       />
 
@@ -71,11 +82,11 @@ export default function AllocationDetailPage({ params }: { params: Promise<{ id:
             </Button>
             <div>
               <div className="flex items-center gap-2">
-                <h1 className="text-2xl font-bold">{allocation.student.name}</h1>
+                <h1 className="text-2xl font-bold">Allocation Details</h1>
                 <Badge variant={sCfg.variant}>{sCfg.label}</Badge>
               </div>
               <p className="text-sm text-muted-foreground">
-                {allocation.student.roll_number} &middot; {allocation.student.department}
+                Learner: {allocation.learner_id}
               </p>
             </div>
           </div>
@@ -108,18 +119,18 @@ export default function AllocationDetailPage({ params }: { params: Promise<{ id:
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                   <div className="p-3 bg-muted/50 rounded-lg">
                     <p className="text-xs text-muted-foreground">Block</p>
-                    <p className="font-medium mt-1">{allocation.block.name}</p>
-                    <p className="text-xs text-muted-foreground">{allocation.block.code}</p>
+                    <p className="font-medium mt-1">{blockName}</p>
+                    <p className="text-xs text-muted-foreground">{blockCode}</p>
                   </div>
                   <div className="p-3 bg-muted/50 rounded-lg">
                     <p className="text-xs text-muted-foreground">Room</p>
-                    <p className="font-medium mt-1">{allocation.room.room_number}</p>
-                    <p className="text-xs text-muted-foreground capitalize">{allocation.room.room_type}</p>
+                    <p className="font-medium mt-1">{roomNumber}</p>
+                    <p className="text-xs text-muted-foreground capitalize">{roomType}</p>
                   </div>
                   <div className="p-3 bg-muted/50 rounded-lg">
                     <p className="text-xs text-muted-foreground">Bed</p>
-                    <p className="font-medium mt-1">Bed {allocation.bed.bed_number}</p>
-                    <p className="text-xs text-muted-foreground capitalize">{allocation.bed.bed_type}</p>
+                    <p className="font-medium mt-1">Bed {bedNumber}</p>
+                    <p className="text-xs text-muted-foreground capitalize">{bedType}</p>
                   </div>
                   <div className="p-3 bg-muted/50 rounded-lg">
                     <p className="text-xs text-muted-foreground">Allocation Type</p>
@@ -139,45 +150,37 @@ export default function AllocationDetailPage({ params }: { params: Promise<{ id:
                     <Calendar className="h-4 w-4 text-muted-foreground" />
                     <div>
                       <p className="text-muted-foreground">Expected Vacate</p>
-                      <p className="font-medium">{allocation.expected_vacate_date}</p>
+                      <p className="font-medium">{allocation.expected_vacate_date ?? 'N/A'}</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-2 text-sm">
                     <User className="h-4 w-4 text-muted-foreground" />
                     <div>
                       <p className="text-muted-foreground">Allocated By</p>
-                      <p className="font-medium">{allocation.allocated_by}</p>
+                      <p className="font-medium">{allocation.allocated_by ?? 'N/A'}</p>
                     </div>
                   </div>
                 </div>
               </CardContent>
             </Card>
 
-            {/* Student Details */}
+            {/* Allocation Details */}
             <Card>
               <CardHeader>
                 <CardTitle className="text-base flex items-center gap-2">
                   <User className="h-5 w-5" />
-                  Student Information
+                  Additional Information
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="grid grid-cols-2 gap-4 text-sm">
                   <div>
-                    <p className="text-muted-foreground">Phone</p>
-                    <p className="font-medium">{allocation.student.phone}</p>
-                  </div>
-                  <div>
-                    <p className="text-muted-foreground">Email</p>
-                    <p className="font-medium">{allocation.student.email}</p>
-                  </div>
-                  <div>
-                    <p className="text-muted-foreground">Semester</p>
-                    <p className="font-medium">{allocation.student.semester}</p>
+                    <p className="text-muted-foreground">Learner ID</p>
+                    <p className="font-medium">{allocation.learner_id}</p>
                   </div>
                   <div>
                     <p className="text-muted-foreground">Food Preference</p>
-                    <p className="font-medium capitalize">{allocation.food_preference.replace('_', ' ')}</p>
+                    <p className="font-medium capitalize">{(allocation.food_preference ?? '').replace('_', ' ') || 'N/A'}</p>
                   </div>
                   {allocation.medical_conditions && (
                     <div className="col-span-2">
@@ -187,32 +190,6 @@ export default function AllocationDetailPage({ params }: { params: Promise<{ id:
                       <p className="font-medium">{allocation.medical_conditions}</p>
                     </div>
                   )}
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* History */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Allocation History</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {allocation.history.map((entry) => (
-                    <div key={entry.id} className="flex items-start gap-3 pb-4 border-b last:border-0 last:pb-0">
-                      <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center shrink-0 mt-0.5">
-                        <Calendar className="h-4 w-4 text-muted-foreground" />
-                      </div>
-                      <div className="flex-1">
-                        <div className="flex items-center justify-between">
-                          <p className="font-medium text-sm">{entry.action}</p>
-                          <p className="text-xs text-muted-foreground">{entry.date}</p>
-                        </div>
-                        <p className="text-sm text-muted-foreground">{entry.details}</p>
-                        <p className="text-xs text-muted-foreground mt-1">By: {entry.by}</p>
-                      </div>
-                    </div>
-                  ))}
                 </div>
               </CardContent>
             </Card>
@@ -275,13 +252,13 @@ export default function AllocationDetailPage({ params }: { params: Promise<{ id:
               </CardHeader>
               <CardContent className="space-y-2">
                 <Button variant="outline" size="sm" className="w-full justify-start" asChild>
-                  <Link href={`/campus-living/blocks/${allocation.block.id}/rooms/${allocation.room.id}`}>
+                  <Link href={`/campus-living/blocks/${allocation.block_id}/rooms/${allocation.room_id}`}>
                     <BedDouble className="mr-2 h-4 w-4" />
                     View Room
                   </Link>
                 </Button>
                 <Button variant="outline" size="sm" className="w-full justify-start" asChild>
-                  <Link href={`/campus-living/blocks/${allocation.block.id}`}>
+                  <Link href={`/campus-living/blocks/${allocation.block_id}`}>
                     <Building2 className="mr-2 h-4 w-4" />
                     View Block
                   </Link>

@@ -15,7 +15,9 @@ import {
   MapPin,
   Clock,
   Car,
+  Loader2,
 } from 'lucide-react';
+import { useHostelVisitor, useCheckOutVisitor } from '@/hooks/campus-living/use-hostel-visitors';
 
 interface VisitorDetailPageProps {
   params: Promise<{ id: string }>;
@@ -24,32 +26,18 @@ interface VisitorDetailPageProps {
 export default function VisitorDetailPage({ params }: VisitorDetailPageProps) {
   const { id } = use(params);
 
-  // TODO: Replace with actual hook
-  // const { data: visitor, isLoading } = useHostelVisitor(id);
+  const { data: visitor, isLoading } = useHostelVisitor(id);
+  const checkOutMutation = useCheckOutVisitor();
 
-  const visitor = {
-    id,
-    name: 'Mr. Ramesh Kumar',
-    phone: '+91 98765 43210',
-    id_type: 'Aadhaar',
-    id_number: 'XXXX-XXXX-1234',
-    relationship: 'Parent',
-    visiting_student: 'Arun Kumar',
-    student_roll: 'CS2024001',
-    block: 'Block A',
-    room: '101',
-    purpose: 'Parent visit',
-    vehicle_number: 'TN 72 AB 1234',
-    check_in: '2026-02-21 10:30 AM',
-    check_out: null,
-    status: 'checked_in',
-    num_visitors: 2,
-    notes: 'Accompanied by mother. Carrying food items for student.',
-    previous_visits: [
-      { date: '2026-01-15', check_in: '11:00 AM', check_out: '4:00 PM' },
-      { date: '2025-12-20', check_in: '10:00 AM', check_out: '3:30 PM' },
-    ],
-  };
+  if (isLoading || !visitor) {
+    return (
+      <ContentLayout title="Visitor Details">
+        <div className="flex items-center justify-center min-h-[400px]">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      </ContentLayout>
+    );
+  }
 
   return (
     <ContentLayout title="Visitor Details">
@@ -63,7 +51,7 @@ export default function VisitorDetailPage({ params }: VisitorDetailPageProps) {
               </Link>
             </Button>
             <div>
-              <h1 className="text-2xl font-bold">{visitor.name}</h1>
+              <h1 className="text-2xl font-bold">{visitor.visitor_name}</h1>
               <p className="text-muted-foreground">Visitor ID: {visitor.id}</p>
             </div>
           </div>
@@ -79,9 +67,13 @@ export default function VisitorDetailPage({ params }: VisitorDetailPageProps) {
               {visitor.status === 'checked_in' ? 'Currently Inside' : 'Checked Out'}
             </Badge>
             {visitor.status === 'checked_in' && (
-              <Button variant="outline">
+              <Button
+                variant="outline"
+                disabled={checkOutMutation.isPending}
+                onClick={() => checkOutMutation.mutate({ id: visitor.id, payload: { check_out_time: new Date().toISOString() } })}
+              >
                 <LogOut className="mr-2 h-4 w-4" />
-                Check-out
+                {checkOutMutation.isPending ? 'Checking out...' : 'Check-out'}
               </Button>
             )}
           </div>
@@ -98,28 +90,28 @@ export default function VisitorDetailPage({ params }: VisitorDetailPageProps) {
                 <User className="h-4 w-4 text-muted-foreground" />
                 <div>
                   <p className="text-sm text-muted-foreground">Name</p>
-                  <p className="font-medium">{visitor.name}</p>
+                  <p className="font-medium">{visitor.visitor_name}</p>
                 </div>
               </div>
               <div className="flex items-center gap-3">
                 <Phone className="h-4 w-4 text-muted-foreground" />
                 <div>
                   <p className="text-sm text-muted-foreground">Phone</p>
-                  <p className="font-medium">{visitor.phone}</p>
+                  <p className="font-medium">{visitor.visitor_phone}</p>
                 </div>
               </div>
               <div className="flex items-center gap-3">
                 <CreditCard className="h-4 w-4 text-muted-foreground" />
                 <div>
                   <p className="text-sm text-muted-foreground">ID Proof</p>
-                  <p className="font-medium">{visitor.id_type} - {visitor.id_number}</p>
+                  <p className="font-medium">{visitor.id_proof_type || 'N/A'} {visitor.id_proof_number ? `- ${visitor.id_proof_number}` : ''}</p>
                 </div>
               </div>
               <div className="flex items-center gap-3">
                 <User className="h-4 w-4 text-muted-foreground" />
                 <div>
                   <p className="text-sm text-muted-foreground">Relationship</p>
-                  <p className="font-medium">{visitor.relationship}</p>
+                  <p className="font-medium">{visitor.visitor_relationship}</p>
                 </div>
               </div>
               {visitor.vehicle_number && (
@@ -143,64 +135,40 @@ export default function VisitorDetailPage({ params }: VisitorDetailPageProps) {
               <div className="flex items-center gap-3">
                 <User className="h-4 w-4 text-muted-foreground" />
                 <div>
-                  <p className="text-sm text-muted-foreground">Visiting Student</p>
-                  <p className="font-medium">{visitor.visiting_student} ({visitor.student_roll})</p>
+                  <p className="text-sm text-muted-foreground">Purpose</p>
+                  <p className="font-medium">{visitor.purpose}</p>
                 </div>
               </div>
               <div className="flex items-center gap-3">
                 <MapPin className="h-4 w-4 text-muted-foreground" />
                 <div>
-                  <p className="text-sm text-muted-foreground">Location</p>
-                  <p className="font-medium">{visitor.block} - Room {visitor.room}</p>
+                  <p className="text-sm text-muted-foreground">Meeting Location</p>
+                  <p className="font-medium">{visitor.meeting_location}</p>
                 </div>
               </div>
               <div className="flex items-center gap-3">
                 <Clock className="h-4 w-4 text-muted-foreground" />
                 <div>
                   <p className="text-sm text-muted-foreground">Check-in Time</p>
-                  <p className="font-medium">{visitor.check_in}</p>
+                  <p className="font-medium">{visitor.check_in_time ? new Date(visitor.check_in_time).toLocaleString() : '-'}</p>
                 </div>
               </div>
               <div className="flex items-center gap-3">
                 <Clock className="h-4 w-4 text-muted-foreground" />
                 <div>
                   <p className="text-sm text-muted-foreground">Check-out Time</p>
-                  <p className="font-medium">{visitor.check_out || 'Still inside'}</p>
+                  <p className="font-medium">{visitor.check_out_time ? new Date(visitor.check_out_time).toLocaleString() : 'Still inside'}</p>
                 </div>
               </div>
-              {visitor.notes && (
+              {visitor.items_brought && (
                 <div>
-                  <p className="text-sm text-muted-foreground mb-1">Notes</p>
-                  <p className="text-sm bg-muted p-3 rounded-lg">{visitor.notes}</p>
+                  <p className="text-sm text-muted-foreground mb-1">Items Brought</p>
+                  <p className="text-sm bg-muted p-3 rounded-lg">{visitor.items_brought}</p>
                 </div>
               )}
             </CardContent>
           </Card>
         </div>
-
-        {/* Previous Visits */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Previous Visits</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {visitor.previous_visits.length > 0 ? (
-              <div className="space-y-3">
-                {visitor.previous_visits.map((visit, idx) => (
-                  <div key={idx} className="flex items-center justify-between p-3 border rounded-lg">
-                    <span className="font-medium">{visit.date}</span>
-                    <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                      <span>In: {visit.check_in}</span>
-                      <span>Out: {visit.check_out}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="text-muted-foreground text-center py-4">No previous visits recorded</p>
-            )}
-          </CardContent>
-        </Card>
       </div>
     </ContentLayout>
   );

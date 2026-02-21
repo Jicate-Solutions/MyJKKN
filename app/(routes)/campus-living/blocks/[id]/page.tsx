@@ -32,7 +32,8 @@ import {
 export default function BlockDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const { profile } = useAuth();
-  const { data: block, isLoading } = useHostelBlock(id);
+  const { data: blockData, isLoading } = useHostelBlock(id);
+  const block = blockData as any;
 
   if (isLoading || !block) {
     return (

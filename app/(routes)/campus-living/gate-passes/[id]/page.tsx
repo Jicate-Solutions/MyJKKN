@@ -26,45 +26,6 @@ import {
   Bell
 } from 'lucide-react';
 
-// Placeholder data
-const useGatePassDetail = (passId: string) => {
-  return {
-    data: {
-      id: passId,
-      pass_number: 'GP-20260221-0001',
-      student: {
-        id: 'l1',
-        name: 'Rahul Kumar',
-        roll_number: 'CS2024001',
-        department: 'Computer Science',
-        block: 'Boys Hostel A',
-        room: 'G-101',
-        phone: '+91 98765 11111',
-      },
-      pass_type: 'regular_out',
-      out_time: '2026-02-21 14:30',
-      expected_return: '2026-02-21 18:00',
-      actual_return: null,
-      destination: 'City Market - Shopping for project supplies',
-      approved_by: 'Dr. Rajesh Kumar (Warden)',
-      gate_security_out: 'Security Officer - Raju',
-      gate_security_in: null,
-      status: 'active',
-      qr_code: 'GP-20260221-0001-QR-TOKEN-ABCDEF',
-      parent_notified: true,
-      leave_request_id: null,
-      created_at: '2026-02-21T14:00:00Z',
-      timeline: [
-        { event: 'Pass Issued', time: '2026-02-21 14:00', by: 'System', icon: 'issued' },
-        { event: 'Approved by Warden', time: '2026-02-21 14:15', by: 'Dr. Rajesh Kumar', icon: 'approved' },
-        { event: 'QR Scanned at Gate - Exit', time: '2026-02-21 14:30', by: 'Security - Raju', icon: 'exit' },
-        { event: 'Parent Notified', time: '2026-02-21 14:31', by: 'SMS System', icon: 'notified' },
-      ],
-    },
-    isLoading: false,
-    error: null,
-  };
-};
 
 const statusConfig: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' | 'success'; color: string }> = {
   issued: { label: 'Issued', variant: 'outline', color: 'text-gray-600' },
@@ -93,7 +54,8 @@ const timelineIcons: Record<string, React.ReactNode> = {
 export default function GatePassDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const { profile } = useAuth();
-  const { data: pass, isLoading } = useGatePassDetail(id);
+  const { data: passData, isLoading } = useGatePass(id);
+  const pass = passData as any;
 
   if (isLoading || !pass) {
     return (

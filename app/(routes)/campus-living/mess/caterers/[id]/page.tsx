@@ -47,7 +47,7 @@ export default function CatererDetailPage({ params }: CatererDetailPageProps) {
     );
   }
 
-  const caterer = catererData || {
+  const caterer = (catererData as any) || {
     id,
     name: 'Annapurna Catering Services',
     contact_person: 'Rajesh Kumar',

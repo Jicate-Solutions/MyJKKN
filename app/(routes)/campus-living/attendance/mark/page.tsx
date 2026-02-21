@@ -12,6 +12,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useAuth } from '@/hooks/use-auth';
+import { useAttendanceByDate, useMarkAttendance } from '@/hooks/campus-living/use-hostel-attendance';
+import { useHostelBlocks } from '@/hooks/campus-living/use-hostel-blocks';
+import type { HostelAttendanceStatus } from '@/types/campus-living';
 import {
   ArrowLeft,
   ClipboardCheck,
@@ -26,35 +29,6 @@ import {
 } from 'lucide-react';
 
 type AttendanceStatus = 'present' | 'absent' | 'on_leave' | 'late_entry' | 'medical';
-
-// Placeholder data
-const useHostelStudentsForAttendance = (blockId: string | null) => {
-  return {
-    data: [
-      { id: 'l1', name: 'Rahul Kumar', roll_number: 'CS2024001', room: 'G-101', bed: 'A', current_status: null as AttendanceStatus | null },
-      { id: 'l2', name: 'Arjun Patel', roll_number: 'EC2024015', room: 'G-101', bed: 'B', current_status: null as AttendanceStatus | null },
-      { id: 'l3', name: 'Vikram Singh', roll_number: 'CE2023010', room: 'F1-108', bed: 'A', current_status: null as AttendanceStatus | null },
-      { id: 'l4', name: 'Karthik Rajan', roll_number: 'CS2023005', room: 'F2-301', bed: 'A', current_status: null as AttendanceStatus | null },
-      { id: 'l5', name: 'Anil Kumar', roll_number: 'IT2024008', room: 'F2-301', bed: 'B', current_status: null as AttendanceStatus | null },
-      { id: 'l6', name: 'Deepak M', roll_number: 'ME2024012', room: 'F2-301', bed: 'C', current_status: null as AttendanceStatus | null },
-      { id: 'l7', name: 'Suresh Raj', roll_number: 'CS2025005', room: 'G-102', bed: 'A', current_status: 'on_leave' as AttendanceStatus },
-      { id: 'l8', name: 'Praveen Das', roll_number: 'EC2025012', room: 'G-103', bed: 'A', current_status: null as AttendanceStatus | null },
-      { id: 'l9', name: 'Ravi Shankar', roll_number: 'ME2025003', room: 'F1-201', bed: 'A', current_status: null as AttendanceStatus | null },
-      { id: 'l10', name: 'Gopal Krishna', roll_number: 'CE2024020', room: 'F1-201', bed: 'B', current_status: null as AttendanceStatus | null },
-    ],
-    isLoading: false,
-    error: null,
-  };
-};
-
-const blocks = [
-  { id: '1', name: 'Boys Hostel A (BHA)' },
-  { id: '2', name: 'Boys Hostel B (BHB)' },
-  { id: '3', name: 'Girls Hostel A (GHA)' },
-  { id: '4', name: 'Girls Hostel B (GHB)' },
-  { id: '5', name: 'Girls Hostel C (GHC)' },
-  { id: '6', name: 'PG Hostel (PGH)' },
-];
 
 const statusOptions: { value: AttendanceStatus; label: string; icon: React.ReactNode; color: string }[] = [
   { value: 'present', label: 'Present', icon: <CheckCircle2 className="h-4 w-4" />, color: 'text-green-600 bg-green-50 border-green-200' },
@@ -74,7 +48,11 @@ export default function MarkAttendancePage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const { data: students, isLoading } = useHostelStudentsForAttendance(selectedBlock);
+  const { data: blocksData } = useHostelBlocks(profile?.institution_id ?? '');
+  const blocks = blocksData as any;
+  const { data: rawStudents, isLoading } = useAttendanceByDate(profile?.institution_id ?? '', attendanceDate);
+  const students = rawStudents as any[] | undefined;
+  const markAttendance = useMarkAttendance();
 
   const [attendance, setAttendance] = useState<Record<string, AttendanceStatus>>({});
 
@@ -100,11 +78,26 @@ export default function MarkAttendancePage() {
   const handleSubmit = async () => {
     setIsSubmitting(true);
     try {
-      // TODO: Replace with actual API call
-      console.log('Submitting attendance:', { block: selectedBlock, date: attendanceDate, attendance });
-      await new Promise((r) => setTimeout(r, 1000));
+      const records = Object.entries(attendance)
+        .filter(([, status]) => !!status)
+        .map(([learnerId, status]) => ({
+          institution_id: profile?.institution_id ?? '',
+          learner_id: learnerId,
+          block_id: selectedBlock,
+          date: attendanceDate,
+          check_in_time: null,
+          check_out_time: null,
+          evening_status: status as HostelAttendanceStatus,
+          morning_status: null,
+          marked_by: profile?.id ?? null,
+          marking_method: 'manual' as const,
+          is_curfew_violation: false,
+          late_minutes: status === 'late_entry' ? 0 : null,
+          remarks: null,
+        }));
+      await markAttendance.mutateAsync(records);
     } catch (error) {
-      console.error('Failed to save attendance:', error);
+      // Error is handled by the mutation hook's onError
     } finally {
       setIsSubmitting(false);
     }
@@ -160,8 +153,8 @@ export default function MarkAttendancePage() {
                   value={selectedBlock}
                   onChange={(e) => setSelectedBlock(e.target.value)}
                 >
-                  {blocks.map((b) => (
-                    <option key={b.id} value={b.id}>{b.name}</option>
+                  {blocks?.data?.map((b) => (
+                    <option key={b.id} value={b.id}>{b.name} ({b.code})</option>
                   ))}
                 </select>
               </div>

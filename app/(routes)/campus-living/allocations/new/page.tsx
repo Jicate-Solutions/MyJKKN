@@ -49,7 +49,8 @@ export default function NewAllocationPage() {
   });
 
   const createAllocation = useCreateHostelAllocation();
-  const { data: blocks } = useHostelBlocks(profile?.institution_id ?? '');
+  const { data: blocksResult } = useHostelBlocks(profile?.institution_id ?? '');
+  const blocks = blocksResult?.data;
   const { data: rooms } = useRoomsByBlock(formData.block_id);
   const { data: beds } = useBedsByRoom(formData.room_id);
 
@@ -255,12 +256,16 @@ export default function NewAllocationPage() {
                     <select
                       className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                       value={formData.block_id}
-                      onChange={(e) => handleChange('block_id', e.target.value)}
+                      onChange={(e) => {
+                        handleChange('block_id', e.target.value);
+                        handleChange('room_id', '');
+                        handleChange('bed_id', '');
+                      }}
                       required
                     >
                       <option value="">Select Block</option>
-                      {blocks.map((b) => (
-                        <option key={b.id} value={b.id}>{b.name}</option>
+                      {blocks?.map((b) => (
+                        <option key={b.id} value={b.id}>{b.name} ({b.code})</option>
                       ))}
                     </select>
                   </div>
@@ -269,12 +274,15 @@ export default function NewAllocationPage() {
                     <select
                       className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                       value={formData.room_id}
-                      onChange={(e) => handleChange('room_id', e.target.value)}
+                      onChange={(e) => {
+                        handleChange('room_id', e.target.value);
+                        handleChange('bed_id', '');
+                      }}
                       required
                     >
                       <option value="">Select Room</option>
-                      {rooms.map((r) => (
-                        <option key={r.id} value={r.id}>{r.label}</option>
+                      {rooms?.map((r) => (
+                        <option key={r.id} value={r.id}>{r.room_number} ({r.room_type}, capacity {r.capacity})</option>
                       ))}
                     </select>
                   </div>
@@ -287,8 +295,8 @@ export default function NewAllocationPage() {
                       required
                     >
                       <option value="">Select Bed</option>
-                      {beds.map((b) => (
-                        <option key={b.id} value={b.id}>{b.label}</option>
+                      {beds?.map((b) => (
+                        <option key={b.id} value={b.id}>Bed {b.bed_number} ({b.bed_type})</option>
                       ))}
                     </select>
                   </div>
@@ -376,8 +384,8 @@ export default function NewAllocationPage() {
                   <div className="grid grid-cols-2 gap-2 text-sm">
                     <p className="text-muted-foreground">Student: <span className="text-foreground">{formData.student_name || 'Not selected'}</span></p>
                     <p className="text-muted-foreground">Type: <span className="text-foreground capitalize">{formData.allocation_type}</span></p>
-                    <p className="text-muted-foreground">Block: <span className="text-foreground">{blocks.find((b) => b.id === formData.block_id)?.name || 'Not selected'}</span></p>
-                    <p className="text-muted-foreground">Room: <span className="text-foreground">{rooms.find((r) => r.id === formData.room_id)?.label || 'Not selected'}</span></p>
+                    <p className="text-muted-foreground">Block: <span className="text-foreground">{blocks?.find((b) => b.id === formData.block_id)?.name || 'Not selected'}</span></p>
+                    <p className="text-muted-foreground">Room: <span className="text-foreground">{rooms?.find((r) => r.id === formData.room_id)?.room_number || 'Not selected'}</span></p>
                   </div>
                 </div>
 

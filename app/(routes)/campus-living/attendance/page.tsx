@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/hooks/use-auth';
+import { useHostelAttendance } from '@/hooks/campus-living/use-hostel-attendance';
 import {
   ClipboardCheck,
   Users,
@@ -22,45 +23,10 @@ import {
   Building2
 } from 'lucide-react';
 
-// Placeholder data
-const useHostelAttendanceDashboard = (institutionId: string | null) => {
-  return {
-    data: {
-      date: '2026-02-21',
-      total_hostellers: 4280,
-      present: 3920,
-      absent: 180,
-      on_leave: 150,
-      late_entry: 30,
-      not_marked: 0,
-      attendance_rate: 91.6,
-      curfew_violations: 5,
-      blocks: [
-        { id: '1', name: 'Boys Hostel A', code: 'BHA', total: 295, present: 270, absent: 15, on_leave: 8, late: 2, marked: true },
-        { id: '2', name: 'Boys Hostel B', code: 'BHB', total: 210, present: 195, absent: 8, on_leave: 5, late: 2, marked: true },
-        { id: '3', name: 'Girls Hostel A', code: 'GHA', total: 380, present: 355, absent: 12, on_leave: 10, late: 3, marked: true },
-        { id: '4', name: 'Girls Hostel B', code: 'GHB', total: 280, present: 260, absent: 10, on_leave: 8, late: 2, marked: true },
-        { id: '5', name: 'Girls Hostel C', code: 'GHC', total: 780, present: 720, absent: 30, on_leave: 20, late: 10, marked: false },
-        { id: '6', name: 'PG Hostel', code: 'PGH', total: 340, present: 310, absent: 15, on_leave: 10, late: 5, marked: true },
-      ],
-      weekly_trend: [
-        { day: 'Mon', present: 3950, absent: 150 },
-        { day: 'Tue', present: 3930, absent: 170 },
-        { day: 'Wed', present: 3920, absent: 180 },
-        { day: 'Thu', present: 3940, absent: 160 },
-        { day: 'Fri', present: 3880, absent: 220 },
-        { day: 'Sat', present: 3500, absent: 600 },
-        { day: 'Sun', present: 3600, absent: 500 },
-      ],
-    },
-    isLoading: false,
-    error: null,
-  };
-};
-
 export default function AttendanceDashboardPage() {
   const { profile } = useAuth();
-  const { data: stats, isLoading } = useHostelAttendanceDashboard(profile?.institution_id ?? null);
+  const { data: rawStats, isLoading } = useHostelAttendance(profile?.institution_id ?? '');
+  const stats = rawStats as any;
 
   if (isLoading || !stats) {
     return (

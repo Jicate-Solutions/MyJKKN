@@ -16,11 +16,29 @@ import {
   ArrowRight,
   CheckCircle2,
   XCircle,
+  Loader2,
 } from 'lucide-react';
+import { useAuth } from '@/hooks/use-auth';
+import { useHostelIncidents } from '@/hooks/campus-living/use-hostel-incidents';
 
 export default function SafetyDashboardPage() {
-  // TODO: Replace with actual hook
-  // const { data: safetyData, isLoading } = useSafetyDashboard();
+  const { profile } = useAuth();
+  const institutionId = profile?.institution_id || '';
+  const { data: incidentData, isLoading } = useHostelIncidents(institutionId);
+  const incidents = incidentData?.data || [];
+
+  const openIncidents = incidents.filter((i) => i.status === 'reported' || i.status === 'under_investigation');
+  const investigatingCount = incidents.filter((i) => i.status === 'under_investigation').length;
+
+  if (isLoading) {
+    return (
+      <ContentLayout title="Safety & Compliance">
+        <div className="flex items-center justify-center min-h-[400px]">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      </ContentLayout>
+    );
+  }
 
   return (
     <ContentLayout title="Safety & Compliance">
@@ -48,8 +66,8 @@ export default function SafetyDashboardPage() {
               <AlertTriangle className="h-4 w-4 text-yellow-600" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-yellow-600">3</div>
-              <p className="text-xs text-muted-foreground">2 under investigation</p>
+              <div className="text-2xl font-bold text-yellow-600">{openIncidents.length}</div>
+              <p className="text-xs text-muted-foreground">{investigatingCount} under investigation</p>
             </CardContent>
           </Card>
           <Card>

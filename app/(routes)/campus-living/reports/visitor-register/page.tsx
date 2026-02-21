@@ -21,9 +21,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Download, ArrowLeft, UserPlus, Search, Users, Clock } from 'lucide-react';
+import { Download, ArrowLeft, UserPlus, Search, Users, Clock, Loader2 } from 'lucide-react';
+import { useAuth } from '@/hooks/use-auth';
+import { useExportReport } from '@/hooks/campus-living/use-campus-living-reports';
 
 export default function VisitorRegisterReportPage() {
+  const { profile } = useAuth();
+  const exportReport = useExportReport();
   const summaryStats = [
     { label: 'Total Visitors Today', value: '24', icon: Users },
     { label: 'Currently Inside', value: '3', icon: UserPlus },
@@ -54,7 +58,17 @@ export default function VisitorRegisterReportPage() {
               <p className="text-muted-foreground">NCPCR-compliant visitor log with check-in/check-out records</p>
             </div>
           </div>
-          <Button><Download className="mr-2 h-4 w-4" />Export CSV</Button>
+          <Button
+            disabled={exportReport.isPending}
+            onClick={() => exportReport.mutate({
+              institutionId: profile?.institution_id ?? '',
+              reportType: 'visitor',
+              format: 'csv',
+            })}
+          >
+            {exportReport.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
+            Export CSV
+          </Button>
         </div>
 
         {/* Summary Cards */}

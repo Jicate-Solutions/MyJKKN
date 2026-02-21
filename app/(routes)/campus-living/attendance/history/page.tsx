@@ -18,6 +18,8 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { useAuth } from '@/hooks/use-auth';
+import { useHostelAttendance } from '@/hooks/campus-living/use-hostel-attendance';
+import { useHostelBlocks } from '@/hooks/campus-living/use-hostel-blocks';
 import {
   ArrowLeft,
   Search,
@@ -29,29 +31,6 @@ import {
   ChevronRight
 } from 'lucide-react';
 
-// Placeholder data
-const useAttendanceHistory = (filters: { block?: string; from?: string; to?: string; page?: number }) => {
-  return {
-    data: {
-      records: [
-        { date: '2026-02-21', block: 'Boys Hostel A', total: 295, present: 270, absent: 15, on_leave: 8, late: 2, rate: 91.5 },
-        { date: '2026-02-21', block: 'Boys Hostel B', total: 210, present: 195, absent: 8, on_leave: 5, late: 2, rate: 92.9 },
-        { date: '2026-02-21', block: 'Girls Hostel A', total: 380, present: 355, absent: 12, on_leave: 10, late: 3, rate: 93.4 },
-        { date: '2026-02-20', block: 'Boys Hostel A', total: 295, present: 280, absent: 8, on_leave: 5, late: 2, rate: 94.9 },
-        { date: '2026-02-20', block: 'Boys Hostel B', total: 210, present: 200, absent: 5, on_leave: 3, late: 2, rate: 95.2 },
-        { date: '2026-02-20', block: 'Girls Hostel A', total: 380, present: 360, absent: 10, on_leave: 8, late: 2, rate: 94.7 },
-        { date: '2026-02-19', block: 'Boys Hostel A', total: 295, present: 268, absent: 18, on_leave: 7, late: 2, rate: 90.8 },
-        { date: '2026-02-19', block: 'Girls Hostel B', total: 280, present: 265, absent: 8, on_leave: 5, late: 2, rate: 94.6 },
-        { date: '2026-02-18', block: 'Boys Hostel A', total: 295, present: 275, absent: 12, on_leave: 6, late: 2, rate: 93.2 },
-        { date: '2026-02-18', block: 'Girls Hostel A', total: 380, present: 358, absent: 12, on_leave: 8, late: 2, rate: 94.2 },
-      ],
-      pagination: { page: 1, totalPages: 5, total: 50 },
-    },
-    isLoading: false,
-    error: null,
-  };
-};
-
 export default function AttendanceHistoryPage() {
   const { profile } = useAuth();
   const [selectedBlock, setSelectedBlock] = useState('all');
@@ -60,16 +39,18 @@ export default function AttendanceHistoryPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [page, setPage] = useState(1);
 
-  const { data, isLoading } = useAttendanceHistory({ block: selectedBlock, from: fromDate, to: toDate, page });
+  const filters = {
+    ...(selectedBlock !== 'all' ? { block_id: selectedBlock } : {}),
+    ...(fromDate ? { date: fromDate } : {}),
+  };
+  const { data: rawData, isLoading } = useHostelAttendance(profile?.institution_id ?? '', filters);
+  const data = rawData as any;
+  const { data: blockListData } = useHostelBlocks(profile?.institution_id ?? '');
+  const blockList = blockListData as any;
 
   const blocks = [
     { id: 'all', name: 'All Blocks' },
-    { id: '1', name: 'Boys Hostel A' },
-    { id: '2', name: 'Boys Hostel B' },
-    { id: '3', name: 'Girls Hostel A' },
-    { id: '4', name: 'Girls Hostel B' },
-    { id: '5', name: 'Girls Hostel C' },
-    { id: '6', name: 'PG Hostel' },
+    ...(blockList?.data?.map((b) => ({ id: b.id, name: b.name })) ?? []),
   ];
 
   if (isLoading) {

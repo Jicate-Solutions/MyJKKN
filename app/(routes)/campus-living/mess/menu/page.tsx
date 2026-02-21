@@ -26,8 +26,8 @@ import { useAuth } from '@/hooks/use-auth';
 import { useMessMenus } from '@/hooks/campus-living/use-mess-menus';
 
 export default function MenuPlannerPage() {
-  const { user } = useAuth();
-  const institutionId = user?.institution_id || '';
+  const { profile } = useAuth();
+  const institutionId = profile?.institution_id || '';
   const [selectedWeek, setSelectedWeek] = useState('current');
   const { data: menuListData, isLoading } = useMessMenus(institutionId);
 

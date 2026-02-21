@@ -16,20 +16,38 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { ArrowLeft, Save, Upload } from 'lucide-react';
-import { useState } from 'react';
+import { useAuth } from '@/hooks/use-auth';
+import { useCreateHostelMaintenance } from '@/hooks/campus-living/use-hostel-maintenance';
+import type { CreateHostelMaintenanceRequestDTO } from '@/types/campus-living';
 
 export default function NewMaintenanceRequestPage() {
   const router = useRouter();
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const { profile } = useAuth();
+  const createMutation = useCreateHostelMaintenance();
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    setIsSubmitting(true);
-    // TODO: Implement maintenance request creation
-    setTimeout(() => {
-      setIsSubmitting(false);
-      router.push('/campus-living/maintenance');
-    }, 1000);
+    const formData = new FormData(e.currentTarget);
+
+    const payload: CreateHostelMaintenanceRequestDTO = {
+      institution_id: profile?.institution_id || '',
+      learner_id: profile?.id || '',
+      block_id: formData.get('block') as string || '',
+      room_id: formData.get('room') as string || null,
+      category: (formData.get('category') as string || 'other') as CreateHostelMaintenanceRequestDTO['category'],
+      subcategory: null,
+      title: formData.get('title') as string || '',
+      description: formData.get('description') as string || '',
+      priority: (formData.get('priority') as string || 'medium') as CreateHostelMaintenanceRequestDTO['priority'],
+      photo_urls_before: null,
+      status: 'open' as CreateHostelMaintenanceRequestDTO['status'],
+      sla_hours: 24,
+      sla_deadline: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      cost_estimate: null,
+    };
+
+    await createMutation.mutateAsync(payload);
+    router.push('/campus-living/maintenance');
   };
 
   return (
@@ -171,9 +189,9 @@ export default function NewMaintenanceRequestPage() {
             <Button type="button" variant="outline" asChild>
               <Link href="/campus-living/maintenance">Cancel</Link>
             </Button>
-            <Button type="submit" disabled={isSubmitting}>
+            <Button type="submit" disabled={createMutation.isPending}>
               <Save className="mr-2 h-4 w-4" />
-              {isSubmitting ? 'Submitting...' : 'Submit Request'}
+              {createMutation.isPending ? 'Submitting...' : 'Submit Request'}
             </Button>
           </div>
         </form>

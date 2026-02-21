@@ -21,47 +21,27 @@ import {
   Download,
   CheckCircle2,
   Clock,
+  Loader2,
 } from 'lucide-react';
+import { useAuth } from '@/hooks/use-auth';
+import { useMessBillingPeriods } from '@/hooks/campus-living/use-mess-billing';
 
 export default function MessBillingPage() {
-  // TODO: Replace with actual hook
-  // const { data: billingPeriods, isLoading } = useMessBilling();
+  const { profile } = useAuth();
+  const institutionId = profile?.institution_id || '';
+  const { data, isLoading } = useMessBillingPeriods(institutionId);
 
-  const billingPeriods = [
-    {
-      id: '1',
-      period: 'February 2026',
-      start_date: '2026-02-01',
-      end_date: '2026-02-28',
-      status: 'active',
-      total_students: 420,
-      total_amount: 1890000,
-      collected: 1512000,
-      pending: 378000,
-    },
-    {
-      id: '2',
-      period: 'January 2026',
-      start_date: '2026-01-01',
-      end_date: '2026-01-31',
-      status: 'closed',
-      total_students: 415,
-      total_amount: 1867500,
-      collected: 1830150,
-      pending: 37350,
-    },
-    {
-      id: '3',
-      period: 'December 2025',
-      start_date: '2025-12-01',
-      end_date: '2025-12-31',
-      status: 'closed',
-      total_students: 410,
-      total_amount: 1845000,
-      collected: 1845000,
-      pending: 0,
-    },
-  ];
+  if (isLoading) {
+    return (
+      <ContentLayout title="Mess Billing">
+        <div className="flex items-center justify-center min-h-[400px]">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      </ContentLayout>
+    );
+  }
+
+  const billingPeriods = (data as any)?.data || data || [];
 
   const formatCurrency = (amount: number) =>
     amount.toLocaleString('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 });
@@ -96,38 +76,47 @@ export default function MessBillingPage() {
         </div>
 
         {/* Summary Cards */}
-        <div className="grid gap-4 grid-cols-1 sm:grid-cols-3">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium">Current Period</CardTitle>
-              <CalendarDays className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">February 2026</div>
-              <p className="text-xs text-muted-foreground">420 students enrolled</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium">Collected</CardTitle>
-              <CheckCircle2 className="h-4 w-4 text-green-600" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-green-600">{formatCurrency(1512000)}</div>
-              <p className="text-xs text-muted-foreground">80% collection rate</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium">Pending</CardTitle>
-              <Clock className="h-4 w-4 text-yellow-600" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-yellow-600">{formatCurrency(378000)}</div>
-              <p className="text-xs text-muted-foreground">84 students with dues</p>
-            </CardContent>
-          </Card>
-        </div>
+        {(() => {
+          const activePeriod = billingPeriods.find((p: any) => p.status === 'active') || billingPeriods[0];
+          const collected = activePeriod?.collected ?? 0;
+          const totalAmount = activePeriod?.total_amount ?? 0;
+          const pending = activePeriod?.pending ?? 0;
+          const collectionRate = totalAmount > 0 ? Math.round((collected / totalAmount) * 100) : 0;
+          return (
+            <div className="grid gap-4 grid-cols-1 sm:grid-cols-3">
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between pb-2">
+                  <CardTitle className="text-sm font-medium">Current Period</CardTitle>
+                  <CalendarDays className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{activePeriod?.period ?? 'N/A'}</div>
+                  <p className="text-xs text-muted-foreground">{activePeriod?.total_students ?? 0} students enrolled</p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between pb-2">
+                  <CardTitle className="text-sm font-medium">Collected</CardTitle>
+                  <CheckCircle2 className="h-4 w-4 text-green-600" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold text-green-600">{formatCurrency(collected)}</div>
+                  <p className="text-xs text-muted-foreground">{collectionRate}% collection rate</p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between pb-2">
+                  <CardTitle className="text-sm font-medium">Pending</CardTitle>
+                  <Clock className="h-4 w-4 text-yellow-600" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold text-yellow-600">{formatCurrency(pending)}</div>
+                  <p className="text-xs text-muted-foreground">{activePeriod?.total_students ? Math.round(pending / (totalAmount / activePeriod.total_students)) : 0} students with dues</p>
+                </CardContent>
+              </Card>
+            </div>
+          );
+        })()}
 
         {/* Billing Periods Table */}
         <Card>

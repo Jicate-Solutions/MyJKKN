@@ -28,8 +28,8 @@ import { useAuth } from '@/hooks/use-auth';
 import { useMessCaterers } from '@/hooks/campus-living/use-mess-caterers';
 
 export default function CaterersPage() {
-  const { user } = useAuth();
-  const institutionId = user?.institution_id || '';
+  const { profile } = useAuth();
+  const institutionId = profile?.institution_id || '';
   const [searchQuery, setSearchQuery] = useState('');
   const { data, isLoading } = useMessCaterers(institutionId);
 

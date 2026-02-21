@@ -17,21 +17,48 @@ import {
 } from '@/components/ui/select';
 import { ArrowLeft, Save } from 'lucide-react';
 import { useState } from 'react';
+import { useAuth } from '@/hooks/use-auth';
+import { useCreateMessCaterer } from '@/hooks/campus-living/use-mess-caterers';
 
 export default function NewCatererPage() {
   const router = useRouter();
+  const { profile } = useAuth();
+  const institutionId = profile?.institution_id || '';
+  const createCaterer = useCreateMessCaterer();
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setIsSubmitting(true);
-    // TODO: Implement caterer creation
-    // const formData = new FormData(e.currentTarget);
-    // await createCaterer(formData);
-    setTimeout(() => {
-      setIsSubmitting(false);
+    const formData = new FormData(e.currentTarget);
+    try {
+      await createCaterer.mutateAsync({
+        institution_id: institutionId,
+        name: formData.get('name') as string,
+        owner_name: formData.get('contact_person') as string,
+        phone: formData.get('phone') as string,
+        email: (formData.get('email') as string) || null,
+        fssai_license_number: (formData.get('fssai_number') as string) || null,
+        fssai_expiry_date: (formData.get('fssai_expiry') as string) || null,
+        gst_number: (formData.get('gst_number') as string) || null,
+        contract_start_date: formData.get('contract_start') as string,
+        contract_end_date: formData.get('contract_end') as string,
+        contract_amount_monthly: parseFloat(formData.get('monthly_rate') as string) || null,
+        billing_model: 'monthly' as any,
+        status: 'active' as any,
+        bank_details: null,
+        metadata: {
+          pan_number: formData.get('pan_number') || null,
+          meal_type: formData.get('meal_type') || null,
+          contract_notes: formData.get('contract_notes') || null,
+        },
+      });
       router.push('/campus-living/mess/caterers');
-    }, 1000);
+    } catch {
+      // Error handled by mutation hook
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (

@@ -12,9 +12,13 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { Download, Printer, Shield, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { Download, Printer, Shield, CheckCircle2, AlertTriangle, Loader2 } from 'lucide-react';
+import { useAuth } from '@/hooks/use-auth';
+import { useExportReport } from '@/hooks/campus-living/use-campus-living-reports';
 
 export default function SafetyAuditReportPage() {
+  const { profile } = useAuth();
+  const exportReport = useExportReport();
   const inspections = [
     { name: 'Fire Safety Audit', date: '2026-01-10', agency: 'District Fire Dept', score: 95, findings: 2, critical: 0, resolved: 2 },
     { name: 'Electrical Safety', date: '2025-11-20', agency: 'Internal Audit', score: 88, findings: 4, critical: 1, resolved: 4 },
@@ -43,7 +47,18 @@ export default function SafetyAuditReportPage() {
           </div>
           <div className="flex gap-2">
             <Button variant="outline"><Printer className="mr-2 h-4 w-4" />Print</Button>
-            <Button variant="outline"><Download className="mr-2 h-4 w-4" />Export PDF</Button>
+            <Button
+              variant="outline"
+              disabled={exportReport.isPending}
+              onClick={() => exportReport.mutate({
+                institutionId: profile?.institution_id ?? '',
+                reportType: 'safety',
+                format: 'json',
+              })}
+            >
+              {exportReport.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
+              Export
+            </Button>
           </div>
         </div>
 

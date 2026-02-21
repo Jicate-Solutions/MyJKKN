@@ -20,12 +20,16 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { Download, Printer, Users } from 'lucide-react';
+import { Download, Printer, Users, Loader2 } from 'lucide-react';
 import { useState } from 'react';
+import { useAuth } from '@/hooks/use-auth';
+import { useExportReport } from '@/hooks/campus-living/use-campus-living-reports';
 
 export default function AttendanceRegisterPage() {
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [blockFilter, setBlockFilter] = useState('all');
+  const { profile } = useAuth();
+  const exportReport = useExportReport();
 
   const students = [
     { name: 'Arun Kumar', roll: 'CS2024001', block: 'Block A', room: '101', morning: 'P', night: 'P', remarks: '' },
@@ -47,7 +51,19 @@ export default function AttendanceRegisterPage() {
           </div>
           <div className="flex gap-2">
             <Button variant="outline"><Printer className="mr-2 h-4 w-4" />Print</Button>
-            <Button variant="outline"><Download className="mr-2 h-4 w-4" />Export</Button>
+            <Button
+              variant="outline"
+              disabled={exportReport.isPending}
+              onClick={() => exportReport.mutate({
+                institutionId: profile?.institution_id ?? '',
+                reportType: 'attendance',
+                format: 'json',
+                filters: { dateFrom: selectedDate, dateTo: selectedDate, blockId: blockFilter === 'all' ? undefined : blockFilter },
+              })}
+            >
+              {exportReport.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
+              Export
+            </Button>
           </div>
         </div>
 
