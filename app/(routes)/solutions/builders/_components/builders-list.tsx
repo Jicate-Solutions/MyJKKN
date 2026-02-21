@@ -105,7 +105,7 @@ export function BuildersList() {
   const csvColumns: CsvColumn<BuilderWithDetails>[] = useMemo(() => [
     { header: 'Name', accessor: (b) => b.name || '' },
     { header: 'Email', accessor: (b) => b.email || '' },
-    { header: 'Person Type', accessor: (b) => b.person_type || '' },
+    { header: 'Specialization', accessor: (b) => b.specialization || '' },
     { header: 'Department', accessor: (b) => b.department?.name || b.department?.department_name || '' },
     { header: 'Skills', accessor: (b) => formatArrayForCsv(b.skills?.map((s: { skill_name: string }) => s.skill_name)) },
     { header: 'Active Assignments', accessor: (b) => b.assignments?.filter((a: { status: string }) => a.status === 'active').length || 0 },
