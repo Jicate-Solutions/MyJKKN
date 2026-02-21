@@ -356,7 +356,8 @@ export class UnifiedEarningsService extends BaseService {
       .single();
 
     if (error && error.code !== 'PGRST116') {
-      console.warn('Failed to fetch builder profile:', error.message);
+      console.error('[solutions/earnings] Failed to fetch builder profile:', error.message);
+      throw new Error(`Failed to fetch builder profile: ${error.message}`);
     }
 
     return data;
@@ -373,7 +374,8 @@ export class UnifiedEarningsService extends BaseService {
       .single();
 
     if (error && error.code !== 'PGRST116') {
-      console.warn('Failed to fetch cohort member profile:', error.message);
+      console.error('[solutions/earnings] Failed to fetch cohort member profile:', error.message);
+      throw new Error(`Failed to fetch cohort member profile: ${error.message}`);
     }
 
     return data;
@@ -390,7 +392,8 @@ export class UnifiedEarningsService extends BaseService {
       .single();
 
     if (error && error.code !== 'PGRST116') {
-      console.warn('Failed to fetch production learner profile:', error.message);
+      console.error('[solutions/earnings] Failed to fetch production learner profile:', error.message);
+      throw new Error(`Failed to fetch production learner profile: ${error.message}`);
     }
 
     return data;
