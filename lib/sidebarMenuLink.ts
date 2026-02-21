@@ -2507,6 +2507,145 @@ export function GetPages(pathname: string): MenuGroup[] {
       ],
     },
     {
+      groupLabel: 'Campus Living',
+      menus: [
+        {
+          href: '/campus-living',
+          label: 'Dashboard',
+          active: pathname === '/campus-living',
+          icon: Building2,
+          submenus: []
+        },
+        {
+          href: '/campus-living/blocks',
+          label: 'Hostel Blocks',
+          active: pathname.startsWith('/campus-living/blocks'),
+          icon: Hotel,
+          submenus: [
+            {
+              href: '/campus-living/allocations',
+              label: 'Room Allocations',
+              active: pathname.startsWith('/campus-living/allocations')
+            },
+            {
+              href: '/campus-living/allocations/roommate-matching',
+              label: 'Roommate Matching',
+              active: pathname === '/campus-living/allocations/roommate-matching'
+            }
+          ]
+        },
+        {
+          href: '/campus-living/attendance',
+          label: 'Attendance',
+          active: pathname.startsWith('/campus-living/attendance'),
+          icon: UserCheck,
+          submenus: [
+            {
+              href: '/campus-living/leave',
+              label: 'Leave Management',
+              active: pathname.startsWith('/campus-living/leave')
+            },
+            {
+              href: '/campus-living/gate-passes',
+              label: 'Gate Passes',
+              active: pathname.startsWith('/campus-living/gate-passes')
+            }
+          ]
+        },
+        {
+          href: '/campus-living/mess',
+          label: 'Mess & Cafeteria',
+          active: pathname.startsWith('/campus-living/mess'),
+          icon: UtensilsCrossed,
+          submenus: [
+            {
+              href: '/campus-living/mess/menu',
+              label: 'Menu',
+              active: pathname.startsWith('/campus-living/mess/menu')
+            },
+            {
+              href: '/campus-living/mess/meals',
+              label: 'Meal Tracking',
+              active: pathname.startsWith('/campus-living/mess/meals')
+            },
+            {
+              href: '/campus-living/mess/billing',
+              label: 'Mess Billing',
+              active: pathname.startsWith('/campus-living/mess/billing')
+            },
+            {
+              href: '/campus-living/mess/feedback',
+              label: 'Feedback',
+              active: pathname === '/campus-living/mess/feedback'
+            },
+            {
+              href: '/campus-living/mess/waste',
+              label: 'Waste Tracking',
+              active: pathname === '/campus-living/mess/waste'
+            }
+          ]
+        },
+        {
+          href: '/campus-living/visitors',
+          label: 'Visitors',
+          active: pathname.startsWith('/campus-living/visitors'),
+          icon: UserPlus,
+          submenus: []
+        },
+        {
+          href: '/campus-living/maintenance',
+          label: 'Maintenance',
+          active: pathname.startsWith('/campus-living/maintenance'),
+          icon: Wrench,
+          submenus: []
+        },
+        {
+          href: '/campus-living/safety',
+          label: 'Safety & Compliance',
+          active: pathname.startsWith('/campus-living/safety'),
+          icon: ShieldCheck,
+          submenus: [
+            {
+              href: '/campus-living/safety/incidents',
+              label: 'Incidents',
+              active: pathname.startsWith('/campus-living/safety/incidents')
+            },
+            {
+              href: '/campus-living/safety/anti-ragging',
+              label: 'Anti-Ragging',
+              active: pathname === '/campus-living/safety/anti-ragging'
+            },
+            {
+              href: '/campus-living/safety/inspections',
+              label: 'Inspections',
+              active: pathname.startsWith('/campus-living/safety/inspections')
+            }
+          ]
+        },
+        {
+          href: '/campus-living/analytics',
+          label: 'Analytics',
+          active: pathname.startsWith('/campus-living/analytics'),
+          icon: BarChart3,
+          submenus: []
+        },
+        {
+          href: '/campus-living/reports',
+          label: 'Reports',
+          active: pathname.startsWith('/campus-living/reports'),
+          icon: FileText,
+          submenus: []
+        },
+        {
+          href: '/campus-living/settings',
+          label: 'Settings',
+          active: pathname.startsWith('/campus-living/settings'),
+          icon: Settings,
+          submenus: []
+        }
+      ]
+    },
+    {
       groupLabel: 'Administration',
       menus: [
         {
