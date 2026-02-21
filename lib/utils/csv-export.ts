@@ -59,7 +59,8 @@ export function downloadCsv<T>(
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
-  URL.revokeObjectURL(url);
+  // Delay revocation to ensure the browser has started the download
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 /**
