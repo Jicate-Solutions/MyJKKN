@@ -29,6 +29,7 @@ import { Plus, Search, Building2, Mail, Phone, ArrowRight, AlertCircle, Download
 import { useClients, type PartnerStatus, type SourceType } from '@/hooks/solutions/use-clients';
 import { useDebounceValue } from '@/hooks/use-debounce-value';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { downloadCsv, formatDateForCsv, formatArrayForCsv, type CsvColumn } from '@/lib/utils/csv-export';
 
 const partnerConfig: Record<PartnerStatus, { label: string; color: string }> = {
   standard: { label: 'Standard', color: 'bg-gray-100 text-gray-800' },
