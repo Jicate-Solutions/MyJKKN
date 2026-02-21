@@ -29,7 +29,7 @@ CREATE TABLE IF NOT EXISTS public.chatbot_knowledge_base (
     source_type TEXT NOT NULL,        -- url | document | manual
     source_url TEXT,
     content TEXT NOT NULL,            -- Extracted/processed text content
-    content_embedding VECTOR(1536),   -- For semantic search (if pgvector available)
+    content_embedding TEXT,            -- Placeholder for vector embeddings (enable pgvector later)
     status TEXT NOT NULL DEFAULT 'active',  -- active | processing | failed
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
