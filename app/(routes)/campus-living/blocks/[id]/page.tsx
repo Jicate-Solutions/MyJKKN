@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAuth } from '@/hooks/use-auth';
+import { useHostelBlock } from '@/hooks/campus-living/use-hostel-blocks';
 import {
   Building2,
   ArrowLeft,
@@ -27,68 +28,6 @@ import {
   CalendarOff,
   Settings
 } from 'lucide-react';
-
-// Placeholder data
-const useHostelBlock = (blockId: string) => {
-  return {
-    data: {
-      id: blockId,
-      name: 'Boys Hostel A',
-      code: 'BHA',
-      hostel_type: 'boys',
-      total_floors: 4,
-      total_rooms: 80,
-      total_capacity: 320,
-      current_occupancy: 295,
-      status: 'active',
-      contact_phone: '+91 98765 43210',
-      address: 'North Campus, Block A',
-      curfew_time_weekday: '21:30',
-      curfew_time_weekend: '22:00',
-      visiting_hours_start: '16:00',
-      visiting_hours_end: '19:00',
-      amenities: { wifi: true, laundry: true, gym: false, study_room: true, tv_room: true, parking: false },
-      warden: {
-        id: 'w1',
-        name: 'Dr. Rajesh Kumar',
-        phone: '+91 98765 11111',
-        designation: 'warden',
-        is_residential: true,
-        shift: 'full_time',
-      },
-      deputy_warden: {
-        id: 'w2',
-        name: 'Mr. Arun Singh',
-        phone: '+91 98765 22222',
-        designation: 'deputy_warden',
-        is_residential: false,
-        shift: 'day',
-      },
-      rooms_summary: {
-        available: 12,
-        partially_occupied: 18,
-        full: 45,
-        maintenance: 3,
-        reserved: 2,
-      },
-      floor_summary: [
-        { floor: 0, label: 'Ground Floor', rooms: 20, occupied: 18, capacity: 80 },
-        { floor: 1, label: '1st Floor', rooms: 20, occupied: 19, capacity: 80 },
-        { floor: 2, label: '2nd Floor', rooms: 20, occupied: 20, capacity: 80 },
-        { floor: 3, label: '3rd Floor', rooms: 20, occupied: 17, capacity: 80 },
-      ],
-      recent_activities: [
-        { id: '1', type: 'allocation', description: 'Rahul Kumar allocated to Room G-102, Bed A', time: '2 hours ago' },
-        { id: '2', type: 'leave', description: 'Arjun Patel leave request approved (Home Visit)', time: '4 hours ago' },
-        { id: '3', type: 'maintenance', description: 'Room F2-205 reported water leakage', time: '6 hours ago' },
-        { id: '4', type: 'attendance', description: 'Evening attendance marked: 290/295 present', time: '8 hours ago' },
-        { id: '5', type: 'transfer', description: 'Vikram Singh transferred to Room F1-108', time: '1 day ago' },
-      ],
-    },
-    isLoading: false,
-    error: null,
-  };
-};
 
 export default function BlockDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
