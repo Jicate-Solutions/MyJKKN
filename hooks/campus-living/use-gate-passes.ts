@@ -4,7 +4,6 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { GatePassService } from '@/lib/services/campus-living/gate-pass-service';
 import type {
-  HostelGatePass,
   CreateHostelGatePassDTO,
 } from '@/types/campus-living';
 
