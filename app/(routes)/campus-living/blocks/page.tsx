@@ -43,13 +43,13 @@ export default function HostelBlocksPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState<string>('all');
 
-  const filteredBlocks = blocks?.filter((block) => {
+  const filteredBlocks = blocks.filter((block: any) => {
     const matchesSearch =
-      block.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      block.code.toLowerCase().includes(searchQuery.toLowerCase());
+      block.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      block.code?.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesType = typeFilter === 'all' || block.hostel_type === typeFilter;
     return matchesSearch && matchesType;
-  }) ?? [];
+  });
 
   if (isLoading) {
     return (
