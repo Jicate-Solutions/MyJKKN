@@ -299,4 +299,146 @@ export class GatePassService {
       throw error;
     }
   }
+
+  // ══════════════════════════════════════════════════════════════════
+  // REQUEST WORKFLOW — Student requests, Staff approves/rejects
+  // ══════════════════════════════════════════════════════════════════
+
+  // ── Student submits a gate pass request ─────────────────────────
+  static async requestGatePass(payload: {
+    institution_id: string;
+    learner_id: string;
+    pass_type: string;
+    expected_return: string;
+    destination: string;
+    reason: string;
+    leave_request_id?: string;
+  }) {
+    try {
+      const supabase = createClientSupabaseClient();
+      const { data, error } = await supabase
+        .from('hostel_gate_passes')
+        .insert({
+          institution_id: payload.institution_id,
+          learner_id: payload.learner_id,
+          pass_type: payload.pass_type,
+          expected_return: payload.expected_return,
+          destination: payload.destination,
+          reason: payload.reason,
+          leave_request_id: payload.leave_request_id || null,
+          status: 'requested',
+          parent_notified: false,
+        } as any)
+        .select()
+        .single();
+
+      if (error) {
+        logger.error('campus-living/gate-pass', 'Failed to request gate pass', error);
+        throw error;
+      }
+      return data as HostelGatePass;
+    } catch (error) {
+      logger.error('campus-living/gate-pass', 'Unexpected error in requestGatePass', error);
+      throw error;
+    }
+  }
+
+  // ── Staff approves a gate pass request ──────────────────────────
+  static async approveGatePass(id: string, approverId: string) {
+    try {
+      const supabase = createClientSupabaseClient();
+      const passNumber = `GP-${Date.now()}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+      const qrCode = `QR-${crypto.randomUUID()}`;
+
+      const { data, error } = await supabase
+        .from('hostel_gate_passes')
+        .update({
+          status: 'issued',
+          approved_by: approverId,
+          pass_number: passNumber,
+          qr_code: qrCode,
+        } as any)
+        .eq('id', id)
+        .select()
+        .single();
+
+      if (error) {
+        logger.error('campus-living/gate-pass', 'Failed to approve gate pass', error);
+        throw error;
+      }
+      return data as HostelGatePass;
+    } catch (error) {
+      logger.error('campus-living/gate-pass', 'Unexpected error in approveGatePass', error);
+      throw error;
+    }
+  }
+
+  // ── Staff rejects a gate pass request ───────────────────────────
+  static async rejectGatePass(id: string, rejectedBy: string, rejectionReason: string) {
+    try {
+      const supabase = createClientSupabaseClient();
+      const { data, error } = await supabase
+        .from('hostel_gate_passes')
+        .update({
+          status: 'rejected',
+          rejected_by: rejectedBy,
+          rejection_reason: rejectionReason,
+        } as any)
+        .eq('id', id)
+        .select()
+        .single();
+
+      if (error) {
+        logger.error('campus-living/gate-pass', 'Failed to reject gate pass', error);
+        throw error;
+      }
+      return data as HostelGatePass;
+    } catch (error) {
+      logger.error('campus-living/gate-pass', 'Unexpected error in rejectGatePass', error);
+      throw error;
+    }
+  }
+
+  // ── Student views own gate passes (all statuses) ────────────────
+  static async getMyGatePasses(learnerId: string) {
+    try {
+      const supabase = createClientSupabaseClient();
+      const { data, error } = await supabase
+        .from('hostel_gate_passes')
+        .select('*')
+        .eq('learner_id', learnerId)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        logger.error('campus-living/gate-pass', 'Failed to fetch learner gate passes', error);
+        throw error;
+      }
+      return data as HostelGatePass[];
+    } catch (error) {
+      logger.error('campus-living/gate-pass', 'Unexpected error in getMyGatePasses', error);
+      throw error;
+    }
+  }
+
+  // ── Staff views pending requests ────────────────────────────────
+  static async getPendingRequests(institutionId: string) {
+    try {
+      const supabase = createClientSupabaseClient();
+      const { data, error } = await supabase
+        .from('hostel_gate_passes')
+        .select('*, learner:profiles!hostel_gate_passes_learner_id_fkey(id, full_name, email)')
+        .eq('institution_id', institutionId)
+        .eq('status', 'requested')
+        .order('created_at', { ascending: true });
+
+      if (error) {
+        logger.error('campus-living/gate-pass', 'Failed to fetch pending requests', error);
+        throw error;
+      }
+      return data as (HostelGatePass & { learner: { id: string; full_name: string; email: string } | null })[];
+    } catch (error) {
+      logger.error('campus-living/gate-pass', 'Unexpected error in getPendingRequests', error);
+      throw error;
+    }
+  }
 }
