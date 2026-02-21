@@ -8,6 +8,25 @@
 -- =============================================================================
 
 -- ============================================================
+-- DROP OLD HOSTEL SCHEMA (from previous design iteration)
+-- These old tables use a different structure (hostels, hostel_floors, etc.)
+-- and must be replaced with the new block-based design
+-- ============================================================
+DROP VIEW IF EXISTS hostel_active_allocations CASCADE;
+DROP VIEW IF EXISTS hostel_occupancy_summary CASCADE;
+DROP VIEW IF EXISTS hostel_room_availability CASCADE;
+DROP TABLE IF EXISTS hostel_complaints CASCADE;
+DROP TABLE IF EXISTS hostel_fee_structure CASCADE;
+DROP TABLE IF EXISTS hostel_allocation_requests CASCADE;
+DROP TABLE IF EXISTS hostel_attendance CASCADE;
+DROP TABLE IF EXISTS hostel_allocations CASCADE;
+DROP TABLE IF EXISTS hostel_wardens CASCADE;
+DROP TABLE IF EXISTS hostel_beds CASCADE;
+DROP TABLE IF EXISTS hostel_rooms CASCADE;
+DROP TABLE IF EXISTS hostel_floors CASCADE;
+DROP TABLE IF EXISTS hostels CASCADE;
+
+-- ============================================================
 -- ENUM TYPES (60+ custom types for Campus Living)
 -- Wrapped in DO blocks so they don't fail if already created
 -- ============================================================
