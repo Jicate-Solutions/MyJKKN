@@ -4,114 +4,333 @@
 -- Created: 2026-02-22
 -- Description: Complete schema for hostel management, mess management,
 --              safety & security, visitor management, and analytics
+-- NOTE: Uses IF NOT EXISTS / DO blocks for idempotent application
 -- =============================================================================
 
 -- ============================================================
 -- ENUM TYPES (60+ custom types for Campus Living)
+-- Wrapped in DO blocks so they don't fail if already created
 -- ============================================================
+DO $$ BEGIN
+    CREATE TYPE hostel_type_enum AS ENUM ('boys', 'girls', 'mixed');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
--- Hostel core enums
-CREATE TYPE hostel_type_enum AS ENUM ('boys', 'girls', 'mixed');
-CREATE TYPE block_status_enum AS ENUM ('active', 'under_maintenance', 'closed');
-CREATE TYPE room_type_enum AS ENUM ('single', 'double', 'triple', 'quad', 'dormitory');
-CREATE TYPE ac_status_enum AS ENUM ('ac', 'non_ac', 'cooler');
-CREATE TYPE room_status_enum AS ENUM ('available', 'partially_occupied', 'full', 'maintenance', 'reserved', 'closed');
-CREATE TYPE bed_status_enum AS ENUM ('available', 'occupied', 'reserved', 'maintenance');
-CREATE TYPE bed_type_enum AS ENUM ('single', 'bunk_upper', 'bunk_lower');
+DO $$ BEGIN
+    CREATE TYPE block_status_enum AS ENUM ('active', 'under_maintenance', 'closed');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
--- Allocation enums
-CREATE TYPE allocation_type_enum AS ENUM ('fresh', 'renewal', 'transfer', 'temporary');
-CREATE TYPE allocation_status_enum AS ENUM ('active', 'vacated', 'transferred', 'suspended');
-CREATE TYPE vacate_reason_enum AS ENUM ('graduation', 'withdrawal', 'transfer', 'disciplinary', 'voluntary', 'semester_end');
+DO $$ BEGIN
+    CREATE TYPE room_type_enum AS ENUM ('single', 'double', 'triple', 'quad', 'dormitory');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
--- Warden enums
-CREATE TYPE warden_designation_enum AS ENUM ('chief_warden', 'warden', 'deputy_warden', 'floor_supervisor', 'night_watcher');
-CREATE TYPE warden_shift_enum AS ENUM ('day', 'night', 'full_time');
+DO $$ BEGIN
+    CREATE TYPE ac_status_enum AS ENUM ('ac', 'non_ac', 'cooler');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
--- Food & attendance enums
-CREATE TYPE food_preference_enum AS ENUM ('vegetarian', 'non_vegetarian', 'vegan', 'jain', 'eggetarian');
-CREATE TYPE hostel_attendance_status_enum AS ENUM ('present', 'absent', 'on_leave', 'late_entry', 'medical');
-CREATE TYPE marking_method_enum AS ENUM ('manual', 'biometric', 'qr_scan', 'rfid');
+DO $$ BEGIN
+    CREATE TYPE room_status_enum AS ENUM ('available', 'partially_occupied', 'full', 'maintenance', 'reserved', 'closed');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
--- Leave enums
-CREATE TYPE hostel_leave_type_enum AS ENUM ('home_visit', 'weekend', 'vacation', 'emergency', 'medical', 'academic', 'night_out');
-CREATE TYPE parent_consent_status_enum AS ENUM ('pending', 'approved', 'rejected', 'not_required');
-CREATE TYPE parent_consent_method_enum AS ENUM ('otp', 'app_approval', 'sms_reply', 'in_person');
-CREATE TYPE leave_status_enum AS ENUM ('draft', 'pending_parent', 'pending_warden', 'pending_chief', 'approved', 'rejected', 'cancelled', 'expired');
+DO $$ BEGIN
+    CREATE TYPE bed_status_enum AS ENUM ('available', 'occupied', 'reserved', 'maintenance');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
--- Gate pass enums
-CREATE TYPE gate_pass_type_enum AS ENUM ('regular_out', 'overnight', 'emergency', 'visitor_accompanied');
-CREATE TYPE gate_pass_status_enum AS ENUM ('issued', 'active', 'returned', 'overdue', 'cancelled');
+DO $$ BEGIN
+    CREATE TYPE bed_type_enum AS ENUM ('single', 'bunk_upper', 'bunk_lower');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
--- Fee & deposit enums
-CREATE TYPE fee_status_enum AS ENUM ('pending', 'partial', 'paid', 'waived');
-CREATE TYPE deposit_type_enum AS ENUM ('hostel_caution', 'mess_caution', 'key_deposit', 'electricity_deposit');
-CREATE TYPE deposit_status_enum AS ENUM ('pending', 'paid', 'refund_processing', 'refunded', 'forfeited');
-CREATE TYPE electricity_charges_enum AS ENUM ('included', 'metered', 'fixed_monthly');
+DO $$ BEGIN
+    CREATE TYPE allocation_type_enum AS ENUM ('fresh', 'renewal', 'transfer', 'temporary');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
--- Mess enums
-CREATE TYPE meal_type_enum AS ENUM ('breakfast', 'lunch', 'snacks', 'dinner');
-CREATE TYPE billing_model_enum AS ENUM ('fixed_monthly', 'per_meal', 'bdmr', 'semester_advance');
-CREATE TYPE caterer_status_enum AS ENUM ('active', 'contract_ended', 'suspended', 'blacklisted');
-CREATE TYPE menu_status_enum AS ENUM ('planned', 'confirmed', 'served', 'cancelled');
-CREATE TYPE scan_method_enum AS ENUM ('qr_code', 'manual', 'rfid', 'biometric');
-CREATE TYPE mess_billing_status_enum AS ENUM ('open', 'closed', 'billed', 'paid');
-CREATE TYPE payment_status_enum AS ENUM ('pending', 'paid', 'partial', 'overdue');
-CREATE TYPE booking_status_enum AS ENUM ('booked', 'cancelled', 'consumed', 'no_show');
-CREATE TYPE waste_category_enum AS ENUM ('overproduction', 'plate_waste', 'spoilage', 'other');
+DO $$ BEGIN
+    CREATE TYPE allocation_status_enum AS ENUM ('active', 'vacated', 'transferred', 'suspended');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
--- Visitor enums
-CREATE TYPE visitor_status_enum AS ENUM ('checked_in', 'checked_out', 'rejected', 'cancelled');
-CREATE TYPE visitor_gender_enum AS ENUM ('male', 'female', 'other');
-CREATE TYPE visitor_relationship_enum AS ENUM ('parent', 'guardian', 'sibling', 'relative', 'friend', 'other');
-CREATE TYPE id_proof_type_enum AS ENUM ('aadhaar', 'driving_license', 'voter_id', 'passport', 'college_id');
-CREATE TYPE meeting_location_enum AS ENUM ('gate', 'common_area', 'room', 'guest_room');
+DO $$ BEGIN
+    CREATE TYPE vacate_reason_enum AS ENUM ('graduation', 'withdrawal', 'transfer', 'disciplinary', 'voluntary', 'semester_end');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
--- Maintenance enums
-CREATE TYPE maintenance_category_enum AS ENUM ('electrical', 'plumbing', 'civil', 'pest_control', 'cleaning', 'internet', 'water_supply', 'furniture', 'safety', 'other');
-CREATE TYPE maintenance_status_enum AS ENUM ('open', 'assigned', 'in_progress', 'pending_verification', 'resolved', 'closed', 'reopened');
-CREATE TYPE maintenance_priority_enum AS ENUM ('critical', 'high', 'medium', 'low');
-CREATE TYPE sla_status_enum AS ENUM ('on_track', 'at_risk', 'breached');
+DO $$ BEGIN
+    CREATE TYPE warden_designation_enum AS ENUM ('chief_warden', 'warden', 'deputy_warden', 'floor_supervisor', 'night_watcher');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
--- Incident enums
-CREATE TYPE incident_type_enum AS ENUM ('ragging', 'theft', 'harassment', 'medical_emergency', 'fire', 'natural_disaster', 'substance_abuse', 'property_damage', 'unauthorized_entry', 'fight', 'other');
-CREATE TYPE incident_severity_enum AS ENUM ('minor', 'moderate', 'major', 'critical');
-CREATE TYPE incident_status_enum AS ENUM ('reported', 'under_investigation', 'action_taken', 'closed', 'reopened');
-CREATE TYPE disciplinary_action_enum AS ENUM ('warning', 'fine', 'suspension', 'rustication', 'fir_filed', 'counseling');
+DO $$ BEGIN
+    CREATE TYPE warden_shift_enum AS ENUM ('day', 'night', 'full_time');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
--- Inspection enums
-CREATE TYPE inspection_type_enum AS ENUM ('routine', 'surprise', 'fire_safety', 'hygiene', 'anti_ragging', 'cctv_check', 'health');
+DO $$ BEGIN
+    CREATE TYPE food_preference_enum AS ENUM ('vegetarian', 'non_vegetarian', 'vegan', 'jain', 'eggetarian');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
--- Affidavit & waitlist enums
-CREATE TYPE affidavit_status_enum AS ENUM ('pending', 'partial', 'complete', 'verified');
-CREATE TYPE waitlist_status_enum AS ENUM ('waiting', 'offered', 'accepted', 'declined', 'expired', 'allocated');
+DO $$ BEGIN
+    CREATE TYPE hostel_attendance_status_enum AS ENUM ('present', 'absent', 'on_leave', 'late_entry', 'medical');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
--- Access log enums
-CREATE TYPE access_log_person_type_enum AS ENUM ('student', 'staff', 'visitor', 'delivery', 'unknown');
-CREATE TYPE access_log_direction_enum AS ENUM ('entry', 'exit');
-CREATE TYPE access_log_method_enum AS ENUM ('qr_scan', 'rfid', 'biometric', 'manual', 'cctv');
+DO $$ BEGIN
+    CREATE TYPE marking_method_enum AS ENUM ('manual', 'biometric', 'qr_scan', 'rfid');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
--- Curfew & alert enums
-CREATE TYPE curfew_exception_type_enum AS ENUM ('exam_period', 'event', 'medical', 'permanent', 'one_time');
-CREATE TYPE alert_type_enum AS ENUM ('dropout_risk', 'mental_health', 'fee_default', 'caterer_quality', 'attendance_drop', 'meal_skip');
-CREATE TYPE alert_severity_enum AS ENUM ('info', 'warning', 'critical');
-CREATE TYPE alert_status_enum AS ENUM ('active', 'acknowledged', 'resolved', 'dismissed', 'false_positive');
+DO $$ BEGIN
+    CREATE TYPE hostel_leave_type_enum AS ENUM ('home_visit', 'weekend', 'vacation', 'emergency', 'medical', 'academic', 'night_out');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
--- Incident party enum
-CREATE TYPE incident_party_type_enum AS ENUM ('involved_student', 'involved_staff', 'witness', 'reporter');
+DO $$ BEGIN
+    CREATE TYPE parent_consent_status_enum AS ENUM ('pending', 'approved', 'rejected', 'not_required');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
--- Roommate preference enums
-CREATE TYPE sleep_schedule_enum AS ENUM ('early_bird', 'night_owl', 'flexible');
-CREATE TYPE study_habits_enum AS ENUM ('quiet_studier', 'group_studier', 'library_goer');
-CREATE TYPE cleanliness_level_enum AS ENUM ('very_tidy', 'moderate', 'relaxed');
-CREATE TYPE noise_tolerance_enum AS ENUM ('needs_silence', 'moderate', 'doesnt_mind');
-CREATE TYPE visitor_frequency_enum AS ENUM ('rarely', 'sometimes', 'often');
+DO $$ BEGIN
+    CREATE TYPE parent_consent_method_enum AS ENUM ('otp', 'app_approval', 'sms_reply', 'in_person');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE leave_status_enum AS ENUM ('draft', 'pending_parent', 'pending_warden', 'pending_chief', 'approved', 'rejected', 'cancelled', 'expired');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE gate_pass_type_enum AS ENUM ('regular_out', 'overnight', 'emergency', 'visitor_accompanied');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE gate_pass_status_enum AS ENUM ('issued', 'active', 'returned', 'overdue', 'cancelled');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE fee_status_enum AS ENUM ('pending', 'partial', 'paid', 'waived');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE deposit_type_enum AS ENUM ('hostel_caution', 'mess_caution', 'key_deposit', 'electricity_deposit');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE deposit_status_enum AS ENUM ('pending', 'paid', 'refund_processing', 'refunded', 'forfeited');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE electricity_charges_enum AS ENUM ('included', 'metered', 'fixed_monthly');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE meal_type_enum AS ENUM ('breakfast', 'lunch', 'snacks', 'dinner');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE billing_model_enum AS ENUM ('fixed_monthly', 'per_meal', 'bdmr', 'semester_advance');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE caterer_status_enum AS ENUM ('active', 'contract_ended', 'suspended', 'blacklisted');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE menu_status_enum AS ENUM ('planned', 'confirmed', 'served', 'cancelled');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE scan_method_enum AS ENUM ('qr_code', 'manual', 'rfid', 'biometric');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE mess_billing_status_enum AS ENUM ('open', 'closed', 'billed', 'paid');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE payment_status_enum AS ENUM ('pending', 'paid', 'partial', 'overdue');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE booking_status_enum AS ENUM ('booked', 'cancelled', 'consumed', 'no_show');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE waste_category_enum AS ENUM ('overproduction', 'plate_waste', 'spoilage', 'other');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE visitor_status_enum AS ENUM ('checked_in', 'checked_out', 'rejected', 'cancelled');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE visitor_gender_enum AS ENUM ('male', 'female', 'other');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE visitor_relationship_enum AS ENUM ('parent', 'guardian', 'sibling', 'relative', 'friend', 'other');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE id_proof_type_enum AS ENUM ('aadhaar', 'driving_license', 'voter_id', 'passport', 'college_id');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE meeting_location_enum AS ENUM ('gate', 'common_area', 'room', 'guest_room');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE maintenance_category_enum AS ENUM ('electrical', 'plumbing', 'civil', 'pest_control', 'cleaning', 'internet', 'water_supply', 'furniture', 'safety', 'other');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE maintenance_status_enum AS ENUM ('open', 'assigned', 'in_progress', 'pending_verification', 'resolved', 'closed', 'reopened');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE maintenance_priority_enum AS ENUM ('critical', 'high', 'medium', 'low');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE sla_status_enum AS ENUM ('on_track', 'at_risk', 'breached');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE incident_type_enum AS ENUM ('ragging', 'theft', 'harassment', 'medical_emergency', 'fire', 'natural_disaster', 'substance_abuse', 'property_damage', 'unauthorized_entry', 'fight', 'other');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE incident_severity_enum AS ENUM ('minor', 'moderate', 'major', 'critical');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE incident_status_enum AS ENUM ('reported', 'under_investigation', 'action_taken', 'closed', 'reopened');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE disciplinary_action_enum AS ENUM ('warning', 'fine', 'suspension', 'rustication', 'fir_filed', 'counseling');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE inspection_type_enum AS ENUM ('routine', 'surprise', 'fire_safety', 'hygiene', 'anti_ragging', 'cctv_check', 'health');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE affidavit_status_enum AS ENUM ('pending', 'partial', 'complete', 'verified');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE waitlist_status_enum AS ENUM ('waiting', 'offered', 'accepted', 'declined', 'expired', 'allocated');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE access_log_person_type_enum AS ENUM ('student', 'staff', 'visitor', 'delivery', 'unknown');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE access_log_direction_enum AS ENUM ('entry', 'exit');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE access_log_method_enum AS ENUM ('qr_scan', 'rfid', 'biometric', 'manual', 'cctv');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE curfew_exception_type_enum AS ENUM ('exam_period', 'event', 'medical', 'permanent', 'one_time');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE alert_type_enum AS ENUM ('dropout_risk', 'mental_health', 'fee_default', 'caterer_quality', 'attendance_drop', 'meal_skip');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE alert_severity_enum AS ENUM ('info', 'warning', 'critical');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE alert_status_enum AS ENUM ('active', 'acknowledged', 'resolved', 'dismissed', 'false_positive');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE incident_party_type_enum AS ENUM ('involved_student', 'involved_staff', 'witness', 'reporter');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE sleep_schedule_enum AS ENUM ('early_bird', 'night_owl', 'flexible');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE study_habits_enum AS ENUM ('quiet_studier', 'group_studier', 'library_goer');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE cleanliness_level_enum AS ENUM ('very_tidy', 'moderate', 'relaxed');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE noise_tolerance_enum AS ENUM ('needs_silence', 'moderate', 'doesnt_mind');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE visitor_frequency_enum AS ENUM ('rarely', 'sometimes', 'often');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 
 -- ============================================================
 -- TABLE 1: hostel_blocks
 -- ============================================================
-CREATE TABLE hostel_blocks (
+CREATE TABLE IF NOT EXISTS hostel_blocks (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     institution_id UUID NOT NULL REFERENCES institutions(id),
     name TEXT NOT NULL,
@@ -139,7 +358,7 @@ CREATE TABLE hostel_blocks (
 -- ============================================================
 -- TABLE 2: hostel_rooms
 -- ============================================================
-CREATE TABLE hostel_rooms (
+CREATE TABLE IF NOT EXISTS hostel_rooms (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     block_id UUID NOT NULL REFERENCES hostel_blocks(id),
     institution_id UUID NOT NULL REFERENCES institutions(id),
@@ -165,7 +384,7 @@ CREATE TABLE hostel_rooms (
 -- ============================================================
 -- TABLE 3: hostel_beds
 -- ============================================================
-CREATE TABLE hostel_beds (
+CREATE TABLE IF NOT EXISTS hostel_beds (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     room_id UUID NOT NULL REFERENCES hostel_rooms(id),
     institution_id UUID NOT NULL REFERENCES institutions(id),
@@ -182,7 +401,7 @@ CREATE TABLE hostel_beds (
 -- ============================================================
 -- TABLE 4: hostel_wardens
 -- ============================================================
-CREATE TABLE hostel_wardens (
+CREATE TABLE IF NOT EXISTS hostel_wardens (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     institution_id UUID NOT NULL REFERENCES institutions(id),
     staff_id UUID NOT NULL,
@@ -203,7 +422,7 @@ CREATE TABLE hostel_wardens (
 -- ============================================================
 -- TABLE 5: hostel_allocations
 -- ============================================================
-CREATE TABLE hostel_allocations (
+CREATE TABLE IF NOT EXISTS hostel_allocations (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     institution_id UUID NOT NULL REFERENCES institutions(id),
     learner_id UUID NOT NULL,
@@ -235,7 +454,7 @@ CREATE TABLE hostel_allocations (
 -- ============================================================
 -- TABLE 6: hostel_roommate_preferences
 -- ============================================================
-CREATE TABLE hostel_roommate_preferences (
+CREATE TABLE IF NOT EXISTS hostel_roommate_preferences (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     learner_id UUID NOT NULL,
     institution_id UUID NOT NULL REFERENCES institutions(id),
@@ -257,7 +476,7 @@ CREATE TABLE hostel_roommate_preferences (
 -- ============================================================
 -- TABLE 7: hostel_attendance
 -- ============================================================
-CREATE TABLE hostel_attendance (
+CREATE TABLE IF NOT EXISTS hostel_attendance (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     institution_id UUID NOT NULL REFERENCES institutions(id),
     learner_id UUID NOT NULL,
@@ -280,7 +499,7 @@ CREATE TABLE hostel_attendance (
 -- ============================================================
 -- TABLE 8: hostel_leave_requests
 -- ============================================================
-CREATE TABLE hostel_leave_requests (
+CREATE TABLE IF NOT EXISTS hostel_leave_requests (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     institution_id UUID NOT NULL REFERENCES institutions(id),
     learner_id UUID NOT NULL,
@@ -318,7 +537,7 @@ CREATE TABLE hostel_leave_requests (
 -- ============================================================
 -- TABLE 9: hostel_gate_passes
 -- ============================================================
-CREATE TABLE hostel_gate_passes (
+CREATE TABLE IF NOT EXISTS hostel_gate_passes (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     institution_id UUID NOT NULL REFERENCES institutions(id),
     learner_id UUID NOT NULL,
@@ -342,7 +561,7 @@ CREATE TABLE hostel_gate_passes (
 -- ============================================================
 -- TABLE 10: mess_caterers
 -- ============================================================
-CREATE TABLE mess_caterers (
+CREATE TABLE IF NOT EXISTS mess_caterers (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     institution_id UUID NOT NULL REFERENCES institutions(id),
     name TEXT NOT NULL,
@@ -367,7 +586,7 @@ CREATE TABLE mess_caterers (
 -- ============================================================
 -- TABLE 11: mess_menus
 -- ============================================================
-CREATE TABLE mess_menus (
+CREATE TABLE IF NOT EXISTS mess_menus (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     institution_id UUID NOT NULL REFERENCES institutions(id),
     caterer_id UUID NOT NULL REFERENCES mess_caterers(id),
@@ -389,7 +608,7 @@ CREATE TABLE mess_menus (
 -- ============================================================
 -- TABLE 12: mess_meal_records
 -- ============================================================
-CREATE TABLE mess_meal_records (
+CREATE TABLE IF NOT EXISTS mess_meal_records (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     institution_id UUID NOT NULL REFERENCES institutions(id),
     learner_id UUID NOT NULL,
@@ -410,7 +629,7 @@ CREATE TABLE mess_meal_records (
 -- ============================================================
 -- TABLE 13: mess_billing_periods
 -- ============================================================
-CREATE TABLE mess_billing_periods (
+CREATE TABLE IF NOT EXISTS mess_billing_periods (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     institution_id UUID NOT NULL REFERENCES institutions(id),
     caterer_id UUID NOT NULL REFERENCES mess_caterers(id),
@@ -426,7 +645,7 @@ CREATE TABLE mess_billing_periods (
 -- ============================================================
 -- TABLE 14: mess_student_billing
 -- ============================================================
-CREATE TABLE mess_student_billing (
+CREATE TABLE IF NOT EXISTS mess_student_billing (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     institution_id UUID NOT NULL REFERENCES institutions(id),
     learner_id UUID NOT NULL,
@@ -447,7 +666,7 @@ CREATE TABLE mess_student_billing (
 -- ============================================================
 -- TABLE 15: mess_feedback
 -- ============================================================
-CREATE TABLE mess_feedback (
+CREATE TABLE IF NOT EXISTS mess_feedback (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     institution_id UUID NOT NULL REFERENCES institutions(id),
     learner_id UUID NOT NULL,
@@ -469,7 +688,7 @@ CREATE TABLE mess_feedback (
 -- ============================================================
 -- TABLE 16: mess_waste_log
 -- ============================================================
-CREATE TABLE mess_waste_log (
+CREATE TABLE IF NOT EXISTS mess_waste_log (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     institution_id UUID NOT NULL REFERENCES institutions(id),
     caterer_id UUID NOT NULL REFERENCES mess_caterers(id),
@@ -491,7 +710,7 @@ CREATE TABLE mess_waste_log (
 -- ============================================================
 -- TABLE 17: mess_meal_bookings
 -- ============================================================
-CREATE TABLE mess_meal_bookings (
+CREATE TABLE IF NOT EXISTS mess_meal_bookings (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     institution_id UUID NOT NULL REFERENCES institutions(id),
     learner_id UUID NOT NULL,
@@ -508,7 +727,7 @@ CREATE TABLE mess_meal_bookings (
 -- ============================================================
 -- TABLE 18: hostel_visitors
 -- ============================================================
-CREATE TABLE hostel_visitors (
+CREATE TABLE IF NOT EXISTS hostel_visitors (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     institution_id UUID NOT NULL REFERENCES institutions(id),
     learner_id UUID NOT NULL,
@@ -538,7 +757,7 @@ CREATE TABLE hostel_visitors (
 -- ============================================================
 -- TABLE 19: hostel_maintenance_requests
 -- ============================================================
-CREATE TABLE hostel_maintenance_requests (
+CREATE TABLE IF NOT EXISTS hostel_maintenance_requests (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     institution_id UUID NOT NULL REFERENCES institutions(id),
     learner_id UUID NOT NULL,
@@ -576,7 +795,7 @@ CREATE TABLE hostel_maintenance_requests (
 -- ============================================================
 -- TABLE 20: hostel_incidents
 -- ============================================================
-CREATE TABLE hostel_incidents (
+CREATE TABLE IF NOT EXISTS hostel_incidents (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     institution_id UUID NOT NULL REFERENCES institutions(id),
     block_id UUID NOT NULL REFERENCES hostel_blocks(id),
@@ -611,7 +830,7 @@ CREATE TABLE hostel_incidents (
 -- ============================================================
 -- TABLE 21: anti_ragging_affidavits
 -- ============================================================
-CREATE TABLE anti_ragging_affidavits (
+CREATE TABLE IF NOT EXISTS anti_ragging_affidavits (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     institution_id UUID NOT NULL REFERENCES institutions(id),
     learner_id UUID NOT NULL,
@@ -631,7 +850,7 @@ CREATE TABLE anti_ragging_affidavits (
 -- ============================================================
 -- TABLE 22: hostel_inspections
 -- ============================================================
-CREATE TABLE hostel_inspections (
+CREATE TABLE IF NOT EXISTS hostel_inspections (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     institution_id UUID NOT NULL REFERENCES institutions(id),
     block_id UUID NOT NULL REFERENCES hostel_blocks(id),
@@ -652,7 +871,7 @@ CREATE TABLE hostel_inspections (
 -- ============================================================
 -- TABLE 23: hostel_fee_config
 -- ============================================================
-CREATE TABLE hostel_fee_config (
+CREATE TABLE IF NOT EXISTS hostel_fee_config (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     institution_id UUID NOT NULL REFERENCES institutions(id),
     academic_year_id UUID NOT NULL,
@@ -673,7 +892,7 @@ CREATE TABLE hostel_fee_config (
 -- ============================================================
 -- TABLE 24: hostel_deposits
 -- ============================================================
-CREATE TABLE hostel_deposits (
+CREATE TABLE IF NOT EXISTS hostel_deposits (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     institution_id UUID NOT NULL REFERENCES institutions(id),
     learner_id UUID NOT NULL,
@@ -694,7 +913,7 @@ CREATE TABLE hostel_deposits (
 -- ============================================================
 -- TABLE 25: mess_caterer_blocks
 -- ============================================================
-CREATE TABLE mess_caterer_blocks (
+CREATE TABLE IF NOT EXISTS mess_caterer_blocks (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     institution_id UUID NOT NULL REFERENCES institutions(id),
     caterer_id UUID NOT NULL REFERENCES mess_caterers(id),
@@ -708,7 +927,7 @@ CREATE TABLE mess_caterer_blocks (
 -- ============================================================
 -- TABLE 26: hostel_incident_parties
 -- ============================================================
-CREATE TABLE hostel_incident_parties (
+CREATE TABLE IF NOT EXISTS hostel_incident_parties (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     incident_id UUID NOT NULL REFERENCES hostel_incidents(id),
     institution_id UUID NOT NULL REFERENCES institutions(id),
@@ -722,7 +941,7 @@ CREATE TABLE hostel_incident_parties (
 -- ============================================================
 -- TABLE 27: hostel_waitlist
 -- ============================================================
-CREATE TABLE hostel_waitlist (
+CREATE TABLE IF NOT EXISTS hostel_waitlist (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     institution_id UUID NOT NULL REFERENCES institutions(id),
     learner_id UUID NOT NULL,
@@ -743,7 +962,7 @@ CREATE TABLE hostel_waitlist (
 -- ============================================================
 -- TABLE 28: hostel_access_log
 -- ============================================================
-CREATE TABLE hostel_access_log (
+CREATE TABLE IF NOT EXISTS hostel_access_log (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     institution_id UUID NOT NULL REFERENCES institutions(id),
     block_id UUID NOT NULL REFERENCES hostel_blocks(id),
@@ -765,7 +984,7 @@ CREATE TABLE hostel_access_log (
 -- ============================================================
 -- TABLE 29: hostel_known_visitors
 -- ============================================================
-CREATE TABLE hostel_known_visitors (
+CREATE TABLE IF NOT EXISTS hostel_known_visitors (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     institution_id UUID NOT NULL REFERENCES institutions(id),
     learner_id UUID NOT NULL,
@@ -786,7 +1005,7 @@ CREATE TABLE hostel_known_visitors (
 -- ============================================================
 -- TABLE 30: hostel_curfew_exceptions
 -- ============================================================
-CREATE TABLE hostel_curfew_exceptions (
+CREATE TABLE IF NOT EXISTS hostel_curfew_exceptions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     institution_id UUID NOT NULL REFERENCES institutions(id),
     block_id UUID REFERENCES hostel_blocks(id),
@@ -806,7 +1025,7 @@ CREATE TABLE hostel_curfew_exceptions (
 -- ============================================================
 -- TABLE 31: hostel_alert_rules
 -- ============================================================
-CREATE TABLE hostel_alert_rules (
+CREATE TABLE IF NOT EXISTS hostel_alert_rules (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     institution_id UUID NOT NULL REFERENCES institutions(id),
     alert_type alert_type_enum NOT NULL,
@@ -825,7 +1044,7 @@ CREATE TABLE hostel_alert_rules (
 -- ============================================================
 -- TABLE 32: hostel_risk_alerts
 -- ============================================================
-CREATE TABLE hostel_risk_alerts (
+CREATE TABLE IF NOT EXISTS hostel_risk_alerts (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     institution_id UUID NOT NULL REFERENCES institutions(id),
     alert_rule_id UUID REFERENCES hostel_alert_rules(id),
@@ -849,7 +1068,7 @@ CREATE TABLE hostel_risk_alerts (
 -- ============================================================
 -- TABLE 33: hostel_leave_type_config
 -- ============================================================
-CREATE TABLE hostel_leave_type_config (
+CREATE TABLE IF NOT EXISTS hostel_leave_type_config (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     institution_id UUID NOT NULL REFERENCES institutions(id),
     leave_type hostel_leave_type_enum NOT NULL,
@@ -867,7 +1086,7 @@ CREATE TABLE hostel_leave_type_config (
 -- ============================================================
 -- TABLE 34: hostel_maintenance_sla_config
 -- ============================================================
-CREATE TABLE hostel_maintenance_sla_config (
+CREATE TABLE IF NOT EXISTS hostel_maintenance_sla_config (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     institution_id UUID NOT NULL REFERENCES institutions(id),
     category maintenance_category_enum NOT NULL,
