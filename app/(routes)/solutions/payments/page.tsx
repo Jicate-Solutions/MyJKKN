@@ -127,12 +127,18 @@ export default function PaymentsPage() {
               Track payments and revenue
             </p>
           </div>
-          <Button asChild>
-            <Link href="/solutions/payments/new">
-              <Plus className="mr-2 h-4 w-4" />
-              Record Payment
-            </Link>
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={handleExport} disabled={isLoading || payments.length === 0}>
+              <Download className="mr-2 h-4 w-4" />
+              Export
+            </Button>
+            <Button asChild>
+              <Link href="/solutions/payments/new">
+                <Plus className="mr-2 h-4 w-4" />
+                Record Payment
+              </Link>
+            </Button>
+          </div>
         </div>
 
         {/* Error State */}
