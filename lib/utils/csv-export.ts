@@ -25,13 +25,21 @@ function toCsvString<T>(data: T[], columns: CsvColumn<T>[]): string {
 }
 
 /**
- * Escape a CSV field — wraps in quotes if it contains comma, newline, or quote
+ * Escape a CSV field — wraps in quotes if needed and prevents CSV injection.
+ * Fields starting with =, +, -, @, \t, \r are prefixed with a single quote
+ * to prevent formula execution in spreadsheet applications.
  */
 function escapeCsvField(field: string): string {
-  if (field.includes(',') || field.includes('\n') || field.includes('"')) {
-    return `"${field.replace(/"/g, '""')}"`;
+  // Prevent CSV injection: prefix dangerous characters that spreadsheets interpret as formulas
+  let sanitized = field;
+  if (/^[=+\-@\t\r]/.test(sanitized)) {
+    sanitized = `'${sanitized}`;
   }
-  return field;
+
+  if (sanitized.includes(',') || sanitized.includes('\n') || sanitized.includes('\r') || sanitized.includes('"')) {
+    return `"${sanitized.replace(/"/g, '""')}"`;
+  }
+  return sanitized;
 }
 
 /**
