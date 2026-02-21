@@ -366,17 +366,20 @@ export interface HostelGatePass {
   learner_id: string;
   leave_request_id: string | null;
   pass_type: GatePassType;
-  pass_number: string;
+  pass_number: string | null;
   out_time: string | null;
   expected_return: string;
   actual_return: string | null;
   destination: string;
-  approved_by: string;
+  approved_by: string | null;
   gate_security_out: string | null;
   gate_security_in: string | null;
   status: GatePassStatus;
-  qr_code: string;
+  qr_code: string | null;
   parent_notified: boolean;
+  reason: string | null;
+  rejected_by: string | null;
+  rejection_reason: string | null;
   created_at: string;
   updated_at: string;
 }
