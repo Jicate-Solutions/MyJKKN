@@ -282,7 +282,7 @@ export class UnifiedEarningsService extends BaseService {
     // Convert monthly totals to array and sort
     summary.by_month = Array.from(monthlyTotals.entries())
       .map(([monthKey, totals]) => {
-        const [year, month] = monthKey.split('-');
+        const [year] = monthKey.split('-');
         return {
           month: monthKey,
           year: parseInt(year),
