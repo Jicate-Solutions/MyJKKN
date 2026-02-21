@@ -168,7 +168,7 @@ export function PipelineAnalytics() {
       </div>
 
       {/* Key Metrics Summary */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         <MetricCard
           title="Win Rate (This Month)"
           value={`${currentMonthWinRate}%`}
@@ -192,6 +192,12 @@ export function PipelineAnalytics() {
           value={`${stats?.total ?? 0}`}
           icon={<Users className="h-4 w-4 text-muted-foreground" />}
           loading={isLoading}
+        />
+        <MetricCard
+          title="Repeat Business"
+          value={`${sourceAnalytics?.repeatVsNew?.repeatBusiness ?? 0}`}
+          icon={<RefreshCcw className="h-4 w-4 text-muted-foreground" />}
+          loading={sourceLoading}
         />
       </div>
 
@@ -408,6 +414,82 @@ export function PipelineAnalytics() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Repeat vs New Business */}
+      {!sourceLoading && sourceAnalytics?.repeatVsNew && (sourceAnalytics.repeatVsNew.newBusiness > 0 || sourceAnalytics.repeatVsNew.repeatBusiness > 0) && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">New vs Repeat Business</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Donut Chart */}
+              <ResponsiveContainer width="100%" height={200}>
+                <PieChart>
+                  <Pie
+                    data={[
+                      { name: 'New Business', value: sourceAnalytics.repeatVsNew.newBusiness },
+                      { name: 'Repeat Business', value: sourceAnalytics.repeatVsNew.repeatBusiness },
+                    ]}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={45}
+                    outerRadius={75}
+                    paddingAngle={3}
+                    dataKey="value"
+                  >
+                    <Cell fill="#3b82f6" />
+                    <Cell fill="#8b5cf6" />
+                  </Pie>
+                  <RechartsTooltip
+                    contentStyle={{
+                      fontSize: 12,
+                      borderRadius: 8,
+                      border: '1px solid hsl(var(--border))',
+                      background: 'hsl(var(--card))',
+                      color: 'hsl(var(--card-foreground))',
+                    }}
+                  />
+                  <Legend wrapperStyle={{ fontSize: 12 }} />
+                </PieChart>
+              </ResponsiveContainer>
+
+              {/* Comparison Table */}
+              <div className="space-y-3">
+                <div className="grid grid-cols-3 gap-2 text-sm">
+                  <div className="font-medium text-muted-foreground"></div>
+                  <div className="font-medium text-center">New</div>
+                  <div className="font-medium text-center">Repeat</div>
+                </div>
+                <div className="grid grid-cols-3 gap-2 text-sm border-t pt-2">
+                  <div className="text-muted-foreground">Total</div>
+                  <div className="text-center font-medium">{sourceAnalytics.repeatVsNew.newBusiness}</div>
+                  <div className="text-center font-medium">{sourceAnalytics.repeatVsNew.repeatBusiness}</div>
+                </div>
+                <div className="grid grid-cols-3 gap-2 text-sm border-t pt-2">
+                  <div className="text-muted-foreground">Won</div>
+                  <div className="text-center font-medium">{sourceAnalytics.repeatVsNew.newWon}</div>
+                  <div className="text-center font-medium">{sourceAnalytics.repeatVsNew.repeatWon}</div>
+                </div>
+                <div className="grid grid-cols-3 gap-2 text-sm border-t pt-2">
+                  <div className="text-muted-foreground">Win Rate</div>
+                  <div className="text-center">
+                    <Badge variant="outline">{sourceAnalytics.repeatVsNew.newWinRate}%</Badge>
+                  </div>
+                  <div className="text-center">
+                    <Badge variant="outline">{sourceAnalytics.repeatVsNew.repeatWinRate}%</Badge>
+                  </div>
+                </div>
+                <div className="grid grid-cols-3 gap-2 text-sm border-t pt-2">
+                  <div className="text-muted-foreground">Deal Value</div>
+                  <div className="text-center text-xs">{formatCurrency(sourceAnalytics.repeatVsNew.newDealValue)}</div>
+                  <div className="text-center text-xs">{formatCurrency(sourceAnalytics.repeatVsNew.repeatDealValue)}</div>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Source-to-Success Analytics */}
       <SourceSuccessChart

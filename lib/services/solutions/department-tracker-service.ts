@@ -693,4 +693,163 @@ export class DepartmentTrackerService extends BaseService {
     const { error } = await this.supabase.rpc('update_department_statuses');
     if (error) throw error;
   }
+
+  // ----------------------------------------
+  // NOMINATIONS
+  // ----------------------------------------
+
+  /**
+   * Submit a nomination for an academic department to become a solution department
+   */
+  static async nominateDepartment(input: {
+    department_id: string;
+    institution_id: string;
+    nomination_reason: string;
+    suggested_capabilities?: string[];
+    nominated_by?: string;
+  }): Promise<DepartmentNomination> {
+    const { data, error } = await this.supabase
+      .from('sh_department_nominations')
+      .insert({
+        department_id: input.department_id,
+        institution_id: input.institution_id,
+        nomination_reason: input.nomination_reason,
+        suggested_capabilities: input.suggested_capabilities || [],
+        nominated_by: input.nominated_by || null,
+        status: 'pending',
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
+  }
+
+  /**
+   * List nominations with optional status filter
+   */
+  static async getNominations(
+    status?: NominationStatus
+  ): Promise<DepartmentNominationWithDetails[]> {
+    let query = this.supabase
+      .from('sh_department_nominations')
+      .select(`
+        *,
+        department:departments!department_id(id, department_name, department_code),
+        institution:institutions!institution_id(id, name)
+      `)
+      .order('created_at', { ascending: false });
+
+    if (status) {
+      query = query.eq('status', status);
+    }
+
+    const { data, error } = await query;
+    if (error) throw error;
+    return data || [];
+  }
+
+  /**
+   * Approve a pending nomination (uses DB function for atomic operation)
+   */
+  static async approveNomination(
+    nominationId: string,
+    reviewerId: string,
+    reviewNotes?: string
+  ): Promise<string> {
+    const { data, error } = await this.supabase.rpc('approve_department_nomination', {
+      p_nomination_id: nominationId,
+      p_reviewer_id: reviewerId,
+      p_review_notes: reviewNotes || null,
+    });
+
+    if (error) throw error;
+    return data; // Returns the new solution department ID
+  }
+
+  /**
+   * Reject a pending nomination
+   */
+  static async rejectNomination(
+    nominationId: string,
+    reviewerId: string,
+    reviewNotes: string
+  ): Promise<void> {
+    const { error } = await this.supabase
+      .from('sh_department_nominations')
+      .update({
+        status: 'rejected',
+        reviewed_by: reviewerId,
+        reviewed_at: new Date().toISOString(),
+        review_notes: reviewNotes,
+      })
+      .eq('id', nominationId)
+      .eq('status', 'pending');
+
+    if (error) throw error;
+  }
+
+  // ----------------------------------------
+  // CAPABILITIES MANAGEMENT
+  // ----------------------------------------
+
+  /**
+   * Update capabilities for a solution department
+   */
+  static async updateCapabilities(
+    solutionDepartmentId: string,
+    capabilities: string[]
+  ): Promise<void> {
+    const { error } = await this.supabase
+      .from('sh_solution_departments')
+      .update({ capabilities })
+      .eq('id', solutionDepartmentId);
+
+    if (error) throw error;
+  }
+
+  // ----------------------------------------
+  // DEPARTMENT REMOVAL (soft deactivate)
+  // ----------------------------------------
+
+  /**
+   * Remove a solution department (sets status to dormant with reason)
+   */
+  static async removeDepartment(
+    solutionDepartmentId: string,
+    reason: string,
+    removedBy?: string
+  ): Promise<void> {
+    await this.updateStatus(solutionDepartmentId, 'dormant', reason, removedBy);
+  }
+
+  // ----------------------------------------
+  // ELIGIBILITY / CRITERIA ENGINE
+  // ----------------------------------------
+
+  /**
+   * Get all departments not yet in Solutions Hub with eligibility status
+   */
+  static async getEligibleDepartments(): Promise<EligibleDepartment[]> {
+    const { data, error } = await this.supabase.rpc('get_eligible_departments');
+    if (error) throw error;
+    return data || [];
+  }
+
+  /**
+   * Get all eligibility criteria rules
+   */
+  static async getEligibilityCriteria(activeOnly = true): Promise<EligibilityCriteria[]> {
+    let query = this.supabase
+      .from('sh_department_eligibility_criteria')
+      .select('*')
+      .order('criteria_type', { ascending: true })
+      .order('priority', { ascending: true });
+
+    if (activeOnly) query = query.eq('is_active', true);
+
+    const { data, error } = await query;
+    if (error) throw error;
+    return data || [];
+  }
 }
