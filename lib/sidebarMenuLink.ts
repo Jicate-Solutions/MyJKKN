@@ -102,6 +102,9 @@ import {
   Share2,
   Activity,
   Eye,
+  // Campus Living Icons
+  Hotel,
+  UtensilsCrossed,
 } from 'lucide-react';
 import { CustomRole } from '@/types/auth';
 import { FEATURE_FLAGS } from '@/lib/config/feature-flags';
