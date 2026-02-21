@@ -44,6 +44,7 @@ import {
   X,
   Download,
 } from 'lucide-react';
+import { downloadCsv, formatDateForCsv, formatArrayForCsv, type CsvColumn } from '@/lib/utils/csv-export';
 import { useBuilders, useBuilderStats } from '@/hooks/solutions/use-builders';
 import { useDebounceValue } from '@/hooks/use-debounce-value';
 import type { BuilderWithDetails } from '@/lib/services/solutions/builders-service';
