@@ -807,7 +807,13 @@ export interface CreateClientInput {
   contact_phone?: string;
   address?: string;
   city?: string;
+  state?: string;
+  pincode?: string;
   company_size?: string;
+  gst_number?: string;
+  pan_number?: string;
+  website?: string;
+  notes?: string;
   source_type?: SourceType;
   source_department_id?: string;
   partner_status?: PartnerStatus;

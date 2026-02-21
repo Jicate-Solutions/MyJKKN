@@ -31,7 +31,13 @@ export interface UpdateClientInput {
   contact_phone?: string;
   address?: string;
   city?: string;
+  state?: string;
+  pincode?: string;
   company_size?: string;
+  gst_number?: string;
+  pan_number?: string;
+  website?: string;
+  notes?: string;
   source_type?: SourceType;
   source_department_id?: string;
   partner_status?: PartnerStatus;
@@ -169,7 +175,13 @@ export class ClientsService extends BaseService {
         contact_phone: input.contact_phone,
         address: input.address,
         city: input.city,
+        state: input.state,
+        pincode: input.pincode,
         company_size: input.company_size,
+        gst_number: input.gst_number,
+        pan_number: input.pan_number,
+        website: input.website,
+        notes: input.notes,
         source_type: input.source_type || 'direct',
         source_department_id: input.source_department_id,
         partner_status: input.partner_status || 'standard',
@@ -196,7 +208,13 @@ export class ClientsService extends BaseService {
     if (input.contact_phone !== undefined) updateData.contact_phone = input.contact_phone;
     if (input.address !== undefined) updateData.address = input.address;
     if (input.city !== undefined) updateData.city = input.city;
+    if (input.state !== undefined) updateData.state = input.state;
+    if (input.pincode !== undefined) updateData.pincode = input.pincode;
     if (input.company_size !== undefined) updateData.company_size = input.company_size;
+    if (input.gst_number !== undefined) updateData.gst_number = input.gst_number;
+    if (input.pan_number !== undefined) updateData.pan_number = input.pan_number;
+    if (input.website !== undefined) updateData.website = input.website;
+    if (input.notes !== undefined) updateData.notes = input.notes;
     if (input.source_type !== undefined) updateData.source_type = input.source_type;
     if (input.source_department_id !== undefined) updateData.source_department_id = input.source_department_id;
     if (input.partner_status !== undefined) updateData.partner_status = input.partner_status;

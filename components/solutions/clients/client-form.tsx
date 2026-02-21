@@ -6,6 +6,7 @@ import { z } from 'zod'
 import { Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
 import {
   Select,
   SelectContent,
@@ -39,6 +40,7 @@ interface ClientData {
   gst_number?: string | null
   pan_number?: string | null
   website?: string | null
+  notes?: string | null
   source_type?: SourceType | null
   source_department_id?: string | null
   partner_status?: PartnerStatus
@@ -59,6 +61,7 @@ const clientFormSchema = z.object({
   gst_number: z.string().optional(),
   pan_number: z.string().optional(),
   website: z.string().url('Must be a valid URL').optional().or(z.literal('')),
+  notes: z.string().optional(),
   source_type: z.enum(['placement', 'alumni', 'clinical', 'referral', 'direct', 'yi', 'intent']).nullable().optional(),
   source_department_id: z.string().optional(),
   partner_status: z.enum(['standard', 'yi', 'alumni', 'mou', 'referral']),
@@ -144,6 +147,7 @@ export function ClientForm({ client, onSubmit, isLoading }: ClientFormProps) {
       gst_number: client?.gst_number || '',
       pan_number: client?.pan_number || '',
       website: client?.website || '',
+      notes: client?.notes || '',
       source_type: client?.source_type || null,
       source_department_id: client?.source_department_id || '',
       partner_status: client?.partner_status || 'standard',
@@ -163,6 +167,7 @@ export function ClientForm({ client, onSubmit, isLoading }: ClientFormProps) {
       gst_number: data.gst_number || undefined,
       pan_number: data.pan_number || undefined,
       website: data.website || undefined,
+      notes: data.notes || undefined,
       source_department_id: data.source_department_id || undefined,
     }
     await onSubmit(cleanedData as ClientFormValues)
@@ -479,6 +484,29 @@ export function ClientForm({ client, onSubmit, isLoading }: ClientFormProps) {
                 <FormDescription>
                   Partners automatically receive 50% discount on all solutions
                 </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        </div>
+
+        {/* Notes */}
+        <div className="space-y-4">
+          <h3 className="text-lg font-medium">Notes</h3>
+
+          <FormField
+            control={form.control}
+            name="notes"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Additional Notes</FormLabel>
+                <FormControl>
+                  <Textarea
+                    placeholder="Any additional information about this client..."
+                    className="min-h-[100px]"
+                    {...field}
+                  />
+                </FormControl>
                 <FormMessage />
               </FormItem>
             )}
