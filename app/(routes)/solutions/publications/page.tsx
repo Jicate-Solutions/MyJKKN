@@ -39,6 +39,24 @@ export default function PublicationsPage() {
   const scopusCount = stats?.byJournalType?.scopus || 0;
   const wosCount = stats?.byJournalType?.wos || 0;
 
+  const csvColumns: CsvColumn<PublicationWithSolution>[] = [
+    { header: 'Title', accessor: (r) => r.title },
+    { header: 'Paper Type', accessor: (r) => r.paper_type ? (PAPER_TYPE_CONFIG[r.paper_type as PaperType]?.label ?? r.paper_type) : '' },
+    { header: 'Status', accessor: (r) => r.status ? (PUBLICATION_STATUS_CONFIG[r.status as PublicationStatus]?.label ?? r.status) : '' },
+    { header: 'Authors', accessor: (r) => r.authors && Array.isArray(r.authors) ? formatArrayForCsv(r.authors.map((a) => (typeof a === 'string' ? a : a.name))) : '' },
+    { header: 'Journal Name', accessor: (r) => r.journal_name ?? '' },
+    { header: 'Journal Type', accessor: (r) => r.journal_type ? (JOURNAL_TYPE_LABELS[r.journal_type as JournalType] ?? r.journal_type) : '' },
+    { header: 'Publication Date', accessor: (r) => formatDateForCsv(r.publication_date) },
+    { header: 'DOI', accessor: (r) => r.doi ?? '' },
+    { header: 'Solution', accessor: (r) => r.solution ? `${r.solution.solution_code} - ${r.solution.title}` : '' },
+    { header: 'NIRF Category', accessor: (r) => r.nirf_category ?? '' },
+    { header: 'NAAC Criterion', accessor: (r) => r.naac_criterion ?? '' },
+  ];
+
+  const handleExport = () => {
+    downloadCsv(publications, csvColumns, 'publications');
+  };
+
   return (
     <ContentLayout title="Publications">
       <PageBreadcrumb
