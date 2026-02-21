@@ -14,7 +14,9 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { TrendingUp, Users, Building2, GraduationCap, Wallet, Calendar, AlertCircle } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { TrendingUp, Users, Building2, GraduationCap, Wallet, Calendar, AlertCircle, Download } from 'lucide-react';
+import { downloadCsv, formatDateForCsv, formatCurrencyForCsv, type CsvColumn } from '@/lib/utils/csv-export';
 import { format } from 'date-fns';
 import {
   useEarnings,
