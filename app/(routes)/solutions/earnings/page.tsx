@@ -101,6 +101,20 @@ export default function EarningsPage() {
   const buildersEarned = stats?.by_recipient_type?.builder?.paid || 0;
   const cohortEarned = stats?.by_recipient_type?.cohort_member?.paid || 0;
 
+  const csvColumns: CsvColumn<EarningsWithPayment>[] = [
+    { header: 'Solution', accessor: (row) => getEarningSolutionTitle(row) },
+    { header: 'Solution Code', accessor: (row) => getEarningSolutionCode(row) },
+    { header: 'Recipient Type', accessor: (row) => getRecipientTypeDisplayName(row.recipient_type as RecipientType) },
+    { header: 'Amount', accessor: (row) => formatCurrencyForCsv(row.amount) },
+    { header: 'Percentage', accessor: (row) => row.percentage },
+    { header: 'Status', accessor: (row) => row.status },
+    { header: 'Paid Date', accessor: (row) => formatDateForCsv(row.paid_at) },
+  ];
+
+  const handleExport = () => {
+    downloadCsv(earnings, csvColumns, 'earnings');
+  };
+
   return (
     <ContentLayout title="Earnings Ledger">
       <PageBreadcrumb
