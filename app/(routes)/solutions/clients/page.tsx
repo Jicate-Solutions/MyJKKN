@@ -25,7 +25,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { Plus, Search, Building2, Mail, Phone, ArrowRight, AlertCircle } from 'lucide-react';
+import { Plus, Search, Building2, Mail, Phone, ArrowRight, AlertCircle, Download } from 'lucide-react';
 import { useClients, type PartnerStatus, type SourceType } from '@/hooks/solutions/use-clients';
 import { useDebounceValue } from '@/hooks/use-debounce-value';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
