@@ -53,14 +53,17 @@ export function EmailLoginForm({ returnTo }: EmailLoginFormProps) {
           if (profileData?.role === 'guest') {
             destination = '/guest';
           } else if (profileData?.role === 'student') {
-            // Students are not allowed - sign out and stay on login page
-            await supabase.auth.signOut();
-            // Add reason to URL without redirecting
-            const newUrl = new URL(window.location.href);
-            newUrl.searchParams.set('reason', 'student_redirect');
-            window.history.replaceState({}, '', newUrl.toString());
-            window.location.reload();
-            return;
+            if (process.env.NEXT_PUBLIC_ENABLE_STUDENT_PORTAL === 'true') {
+              destination = '/learners/my-gate-passes';
+            } else {
+              // Students are not allowed - sign out and stay on login page
+              await supabase.auth.signOut();
+              const newUrl = new URL(window.location.href);
+              newUrl.searchParams.set('reason', 'student_redirect');
+              window.history.replaceState({}, '', newUrl.toString());
+              window.location.reload();
+              return;
+            }
           } else if (profileData?.role === 'driver') {
             destination = '/driver/dashboard';
           }
