@@ -74,12 +74,18 @@ export default function PublicationsPage() {
               Research publications for NIRF/NAAC accreditation
             </p>
           </div>
-          <Button asChild>
-            <Link href="/solutions/publications/new">
-              <Plus className="mr-2 h-4 w-4" />
-              Add Publication
-            </Link>
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={handleExport} disabled={publications.length === 0}>
+              <Download className="mr-2 h-4 w-4" />
+              Export
+            </Button>
+            <Button asChild>
+              <Link href="/solutions/publications/new">
+                <Plus className="mr-2 h-4 w-4" />
+                Add Publication
+              </Link>
+            </Button>
+          </div>
         </div>
 
         {/* Stats */}
