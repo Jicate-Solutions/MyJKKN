@@ -1,6 +1,7 @@
 // lib/services/notification/notification-service.ts
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { EmailService } from '@/lib/services/email/email-service';
 
 const supabase = createClientSupabaseClient();
 import type {
@@ -410,17 +411,29 @@ export async function sendNotification(
 // ==================== HELPER FUNCTIONS ====================
 
 async function sendToChannels(notification: Notification): Promise<void> {
-  // TODO: Implement actual channel sending
   for (const channel of notification.channels) {
     switch (channel) {
       case NotificationChannel.EMAIL:
-        // await sendEmail(notification);
+        if (EmailService.isConfigured() && notification.user?.email) {
+          await EmailService.sendEmail({
+            to: notification.user.email,
+            subject: notification.title,
+            html: `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+              <h2 style="color: #0b6d41;">${notification.title}</h2>
+              <p>${notification.message}</p>
+              ${notification.action_url ? `<p><a href="${notification.action_url}" style="display: inline-block; padding: 10px 20px; background-color: #0b6d41; color: white; text-decoration: none; border-radius: 4px;">${notification.action_label || 'View Details'}</a></p>` : ''}
+            </div>`,
+            metadata: {
+              institution_id: notification.metadata?.custom_data?.institution_id as string | undefined,
+            },
+          });
+        }
         break;
       case NotificationChannel.SMS:
-        // await sendSMS(notification);
+        // TODO: Wire to SMS service when ready
         break;
       case NotificationChannel.PUSH:
-        // await sendPush(notification);
+        // TODO: Wire to push notification service when ready
         break;
       case NotificationChannel.IN_APP:
         // Already stored in database

@@ -2,6 +2,7 @@
 // Admission CRM Workflows Service - Supabase interactions
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { EmailService } from '@/lib/services/email/email-service';
 
 // Types
 export type WorkflowTriggerType = 'stage_change' | 'time_delay' | 'no_response' | 'manual' | 'lead_created' | 'score_change';
@@ -356,6 +357,70 @@ export class WorkflowsService {
     }
 
     return data;
+  }
+
+  /**
+   * Execute a single workflow action for a lead.
+   * Dispatches send_email actions to EmailService.
+   */
+  static async executeAction(
+    action: WorkflowAction,
+    leadId: string,
+    institutionId: string
+  ): Promise<{ success: boolean; error?: string }> {
+    switch (action.type) {
+      case 'send_email': {
+        if (!EmailService.isConfigured()) {
+          return { success: false, error: 'Email service not configured' };
+        }
+
+        const templateId = action.config?.template_id;
+        if (!templateId) {
+          return { success: false, error: 'No template_id in action config' };
+        }
+
+        // Fetch lead email
+        const { data: lead, error: leadError } = await this.supabase
+          .from('admission_leads')
+          .select('email, full_name, phone')
+          .eq('id', leadId)
+          .single();
+
+        if (leadError || !lead?.email) {
+          return { success: false, error: 'Lead not found or has no email' };
+        }
+
+        const variables: Record<string, string> = {
+          full_name: lead.full_name || '',
+          first_name: (lead.full_name || '').split(' ')[0] || '',
+          email: lead.email || '',
+          phone: lead.phone || '',
+        };
+
+        const result = await EmailService.sendTemplateEmail({
+          to: lead.email,
+          template_id: templateId,
+          variables,
+          institution_id: institutionId,
+          lead_id: leadId,
+        });
+
+        return { success: result.success, error: result.error };
+      }
+
+      case 'send_sms':
+      case 'send_whatsapp':
+      case 'assign_task':
+      case 'update_stage':
+      case 'notify_counselor':
+      case 'add_tag':
+      case 'assign_counselor':
+        // Other action types handled by existing dispatchers
+        return { success: true };
+
+      default:
+        return { success: false, error: `Unknown action type: ${action.type}` };
+    }
   }
 
   // ============================================================================

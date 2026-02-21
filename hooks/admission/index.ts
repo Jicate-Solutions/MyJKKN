@@ -285,6 +285,92 @@ export type {
   QueryHistoryEntry,
 } from './use-agentic-query';
 
+// Re-export activity alerts hooks (Phase 4.1)
+export {
+  useAlertRules,
+  useAlertHistory,
+  useEventTypes,
+  useAlertMutations,
+  activityAlertKeys,
+} from './use-activity-alerts';
+
+// Re-export campaign ROI hooks (Phase 4.2)
+export {
+  useCampaignROI,
+  useROISummary,
+  useChannelComparison,
+  useConversionFunnel,
+  campaignROIKeys,
+} from './use-campaign-roi';
+
+// Re-export voice agent hooks (Phase 4.6)
+export {
+  useVoiceAgentConfigs,
+  useVoiceAgentCalls,
+  useVoiceAgentCall,
+  useVoiceAgentAnalytics,
+  useVoiceAgentMutations,
+  useAgentTypeInfo,
+  voiceAgentKeys,
+} from './use-voice-agents';
+
+// Re-export voice broadcast hooks (Phase 4.7)
+export {
+  useVoiceBroadcastCampaigns,
+  useVoiceBroadcastCampaign,
+  useVoiceBroadcastLogs,
+  useVoiceBroadcastStats,
+  useVoiceBroadcastMutations,
+  voiceBroadcastKeys,
+} from './use-voice-broadcast';
+
+// Re-export remarketing hooks (Phase 4.8)
+export {
+  useRemarketingRules,
+  useAdAccountStatus,
+  useSyncHistory,
+  useRemarketingMutations,
+  remarketingKeys,
+} from './use-remarketing';
+
+// Re-export communication cost hooks (Phase 4.9)
+export {
+  useCostDashboard,
+  useCostEntries,
+  useMonthlyCosts,
+  useChannelCosts,
+  useCostMutations,
+  useCostHelpers,
+  communicationCostKeys,
+} from './use-communication-costs';
+
+// Re-export telephony / call log hooks
+export {
+  useCallLogs,
+  useLeadCallLogs,
+  useCallStatusDisplay,
+  useCallDispositionDisplay,
+  callLogsKeys,
+} from './use-call-logs';
+export type {
+  CallLog,
+  CallLogFilters,
+  PaginatedCallLogs,
+  CallStatus,
+  CallDisposition,
+  CallDirection,
+} from './use-call-logs';
+
+export {
+  useCallMutations,
+} from './use-call-mutations';
+
+export {
+  useCallStats,
+  formatDuration,
+  callStatsKeys,
+} from './use-call-stats';
+
 // ============================================
 // LEADS HOOKS
 // ============================================

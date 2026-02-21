@@ -2,6 +2,7 @@
 // Drip Sequence Executor Service - Manages automated multi-step campaign sequences
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { EmailService } from '@/lib/services/email/email-service';
 import type { WorkflowAction } from './workflows-service';
 
 // ============================================================================
@@ -719,6 +720,73 @@ export class DripExecutorService {
     }
 
     return true;
+  }
+
+  // ============================================================================
+  // STEP EXECUTION
+  // ============================================================================
+
+  /**
+   * Execute a pending drip step by action type.
+   * Dispatches send_email steps to EmailService.
+   * Returns execution result for logging.
+   */
+  static async executeStep(step: PendingDripStep): Promise<{ success: boolean; error?: string; data?: unknown }> {
+    switch (step.action_type) {
+      case 'send_email': {
+        if (!EmailService.isConfigured()) {
+          return { success: false, error: 'Email service not configured (missing RESEND_API_KEY)' };
+        }
+
+        const config = step.action_config;
+        const templateId = config.template_id as string | undefined;
+        const leadId = step.lead_id;
+
+        if (!templateId) {
+          return { success: false, error: 'No template_id in action config' };
+        }
+
+        // Get lead email from context
+        const leadSnapshot = step.context_data?.lead_snapshot as { email?: string; full_name?: string } | undefined;
+        const leadEmail = leadSnapshot?.email;
+
+        if (!leadEmail) {
+          return { success: false, error: 'Lead has no email address' };
+        }
+
+        const variables: Record<string, string> = {
+          full_name: leadSnapshot?.full_name || '',
+          first_name: (leadSnapshot?.full_name || '').split(' ')[0] || '',
+          ...(config.variables as Record<string, string> || {}),
+        };
+
+        const result = await EmailService.sendTemplateEmail({
+          to: leadEmail,
+          template_id: templateId,
+          variables,
+          institution_id: step.institution_id,
+          lead_id: leadId,
+          campaign_id: step.sequence_id,
+        });
+
+        return {
+          success: result.success,
+          error: result.error,
+          data: { message_id: result.message_id },
+        };
+      }
+
+      case 'send_sms':
+        // SMS is handled by existing SMS campaign service
+        return { success: false, error: 'SMS dispatch not yet wired in drip executor' };
+
+      case 'send_whatsapp':
+        // WhatsApp will be handled by WhatsApp service
+        return { success: false, error: 'WhatsApp dispatch not yet wired in drip executor' };
+
+      default:
+        return { success: false, error: `Unknown action type: ${step.action_type}` };
+    }
   }
 
   // ============================================================================

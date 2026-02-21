@@ -1,136 +1,488 @@
 // WhatsApp Template Service
-// Stub implementation for build compatibility
+// Sync and manage Meta-approved WhatsApp message templates
+// Uses Meta WhatsApp Business Management API
 
-import type {
-  WhatsAppTemplate,
-  WhatsAppTemplateFilters,
-  WhatsAppTemplateListResponse,
-  CreateWhatsAppTemplateDto,
-  UpdateWhatsAppTemplateDto
-} from '@/types/whatsapp';
+import axios from 'axios';
+import { createClient } from '@supabase/supabase-js';
+
+// =============================================================================
+// Types
+// =============================================================================
+
+export interface MetaTemplate {
+  name: string;
+  status: 'APPROVED' | 'PENDING' | 'REJECTED';
+  category: 'MARKETING' | 'UTILITY' | 'AUTHENTICATION';
+  language: string;
+  id: string;
+  components: MetaTemplateComponent[];
+  quality_score?: { score: string; date: number };
+}
+
+export interface MetaTemplateComponent {
+  type: 'HEADER' | 'BODY' | 'FOOTER' | 'BUTTONS';
+  format?: 'TEXT' | 'IMAGE' | 'VIDEO' | 'DOCUMENT';
+  text?: string;
+  example?: { body_text?: string[][] };
+  buttons?: {
+    type: 'QUICK_REPLY' | 'URL' | 'PHONE_NUMBER';
+    text: string;
+    url?: string;
+    phone_number?: string;
+  }[];
+}
+
+export interface CreateMetaTemplateParams {
+  name: string;
+  category: 'MARKETING' | 'UTILITY' | 'AUTHENTICATION';
+  language: string;
+  components: MetaTemplateComponent[];
+}
+
+export interface WhatsAppTemplate {
+  id: string;
+  institution_id: string;
+  name: string;
+  content: string;
+  category: string | null;
+  variables: string[];
+  attachment_type: 'image' | 'document' | 'audio' | 'video' | null;
+  attachment_url: string | null;
+  use_count: number;
+  last_used_at: string | null;
+  created_by: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+  // Meta-specific fields
+  meta_template_id?: string;
+  meta_status?: string;
+  meta_language?: string;
+  meta_category?: string;
+  quality_rating?: string;
+}
+
+export interface WhatsAppTemplateFilters {
+  institution_id?: string;
+  category?: string;
+  is_active?: boolean;
+  search?: string;
+  page?: number;
+  limit?: number;
+}
+
+export interface WhatsAppTemplateListResponse {
+  data: WhatsAppTemplate[];
+  metadata: {
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+  };
+}
+
+// =============================================================================
+// Service
+// =============================================================================
+
+function getServiceClient() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) throw new Error('Missing Supabase service role credentials');
+  return createClient(url, key, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+}
+
+function getMetaApiConfig() {
+  const accessToken = process.env.WHATSAPP_ACCESS_TOKEN;
+  const businessAccountId = process.env.WHATSAPP_BUSINESS_ACCOUNT_ID;
+  if (!accessToken || !businessAccountId) {
+    throw new Error(
+      'Missing Meta API credentials. Set WHATSAPP_ACCESS_TOKEN and WHATSAPP_BUSINESS_ACCOUNT_ID.'
+    );
+  }
+  return { accessToken, businessAccountId };
+}
 
 export class WhatsAppTemplateService {
-  static async getTemplates(filters: WhatsAppTemplateFilters): Promise<WhatsAppTemplateListResponse> {
-    // TODO: Implement actual database query
-    return {
-      data: [],
-      metadata: {
-        total: 0,
-        page: filters.page || 1,
-        limit: filters.limit || 20,
-        totalPages: 0
+  /**
+   * Sync templates from Meta Business API into local DB
+   */
+  static async syncTemplatesFromMeta(institutionId: string): Promise<{
+    synced: number;
+    created: number;
+    updated: number;
+  }> {
+    const { accessToken, businessAccountId } = getMetaApiConfig();
+    const supabase = getServiceClient();
+
+    // Fetch all templates from Meta
+    const { data: metaResponse } = await axios.get<{ data: MetaTemplate[] }>(
+      `https://graph.facebook.com/v21.0/${businessAccountId}/message_templates`,
+      {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        params: { limit: 250 },
       }
+    );
+
+    const metaTemplates = metaResponse.data || [];
+    let created = 0;
+    let updated = 0;
+
+    for (const mt of metaTemplates) {
+      // Extract body text from components
+      const bodyComponent = mt.components.find((c) => c.type === 'BODY');
+      const headerComponent = mt.components.find((c) => c.type === 'HEADER');
+      const bodyText = bodyComponent?.text || '';
+
+      // Extract variables like {{1}}, {{2}} etc.
+      const variables: string[] = [];
+      const varRegex = /\{\{(\d+)\}\}/g;
+      let match;
+      while ((match = varRegex.exec(bodyText)) !== null) {
+        variables.push(match[1]);
+      }
+
+      // Determine attachment type from header
+      let attachmentType: 'image' | 'document' | 'video' | null = null;
+      if (headerComponent?.format === 'IMAGE') attachmentType = 'image';
+      else if (headerComponent?.format === 'DOCUMENT') attachmentType = 'document';
+      else if (headerComponent?.format === 'VIDEO') attachmentType = 'video';
+
+      // Check if template exists locally
+      const { data: existing } = await supabase
+        .from('admission_communication_templates')
+        .select('id')
+        .eq('institution_id', institutionId)
+        .eq('name', mt.name)
+        .eq('channel', 'whatsapp')
+        .single();
+
+      const templateData = {
+        institution_id: institutionId,
+        name: mt.name,
+        channel: 'whatsapp',
+        content: bodyText,
+        category: mt.category.toLowerCase(),
+        variables,
+        attachment_type: attachmentType,
+        is_active: mt.status === 'APPROVED',
+        metadata: {
+          meta_template_id: mt.id,
+          meta_status: mt.status,
+          meta_language: mt.language,
+          meta_category: mt.category,
+          quality_rating: mt.quality_score?.score || 'UNKNOWN',
+          components: mt.components,
+        },
+      };
+
+      if (existing) {
+        await supabase
+          .from('admission_communication_templates')
+          .update({ ...templateData, updated_at: new Date().toISOString() })
+          .eq('id', existing.id);
+        updated++;
+      } else {
+        await supabase.from('admission_communication_templates').insert(templateData);
+        created++;
+      }
+    }
+
+    return { synced: metaTemplates.length, created, updated };
+  }
+
+  /**
+   * Get template status from Meta API
+   */
+  static async getTemplateStatus(
+    templateName: string
+  ): Promise<'APPROVED' | 'PENDING' | 'REJECTED' | 'NOT_FOUND'> {
+    const { accessToken, businessAccountId } = getMetaApiConfig();
+
+    try {
+      const { data } = await axios.get<{ data: MetaTemplate[] }>(
+        `https://graph.facebook.com/v21.0/${businessAccountId}/message_templates`,
+        {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          params: { name: templateName },
+        }
+      );
+
+      if (data.data && data.data.length > 0) {
+        return data.data[0].status;
+      }
+      return 'NOT_FOUND';
+    } catch {
+      return 'NOT_FOUND';
+    }
+  }
+
+  /**
+   * Submit a new template to Meta for approval
+   */
+  static async submitTemplate(params: CreateMetaTemplateParams): Promise<{
+    success: boolean;
+    template_id?: string;
+    error?: string;
+  }> {
+    const { accessToken, businessAccountId } = getMetaApiConfig();
+
+    try {
+      const { data } = await axios.post(
+        `https://graph.facebook.com/v21.0/${businessAccountId}/message_templates`,
+        params,
+        { headers: { Authorization: `Bearer ${accessToken}` } }
+      );
+
+      return { success: true, template_id: data.id };
+    } catch (error) {
+      const errMsg =
+        axios.isAxiosError(error) && error.response?.data?.error?.message
+          ? error.response.data.error.message
+          : 'Failed to submit template';
+      return { success: false, error: errMsg };
+    }
+  }
+
+  /**
+   * Get template quality rating from Meta
+   */
+  static async getTemplateQualityRating(
+    templateName: string
+  ): Promise<'HIGH' | 'MEDIUM' | 'LOW' | 'UNKNOWN'> {
+    const { accessToken, businessAccountId } = getMetaApiConfig();
+
+    try {
+      const { data } = await axios.get<{ data: MetaTemplate[] }>(
+        `https://graph.facebook.com/v21.0/${businessAccountId}/message_templates`,
+        {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          params: { name: templateName, fields: 'quality_score' },
+        }
+      );
+
+      if (data.data?.[0]?.quality_score?.score) {
+        return data.data[0].quality_score.score as 'HIGH' | 'MEDIUM' | 'LOW';
+      }
+      return 'UNKNOWN';
+    } catch {
+      return 'UNKNOWN';
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Local DB Operations (backward-compatible with existing code)
+  // ---------------------------------------------------------------------------
+
+  static async getTemplates(filters: WhatsAppTemplateFilters): Promise<WhatsAppTemplateListResponse> {
+    const supabase = getServiceClient();
+    const page = filters.page || 1;
+    const limit = filters.limit || 20;
+    const offset = (page - 1) * limit;
+
+    let query = supabase
+      .from('admission_communication_templates')
+      .select('*', { count: 'exact' })
+      .eq('channel', 'whatsapp')
+      .order('created_at', { ascending: false })
+      .range(offset, offset + limit - 1);
+
+    if (filters.institution_id) {
+      query = query.eq('institution_id', filters.institution_id);
+    }
+    if (filters.category) {
+      query = query.eq('category', filters.category);
+    }
+    if (filters.is_active !== undefined) {
+      query = query.eq('is_active', filters.is_active);
+    }
+    if (filters.search) {
+      query = query.or(
+        `name.ilike.%${filters.search}%,content.ilike.%${filters.search}%`
+      );
+    }
+
+    const { data, error, count } = await query;
+    if (error) throw new Error(`Failed to fetch templates: ${error.message}`);
+
+    const total = count || 0;
+    return {
+      data: (data as WhatsAppTemplate[]) || [],
+      metadata: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
     };
   }
 
   static async getTemplateById(id: string): Promise<WhatsAppTemplate | null> {
-    // TODO: Implement actual database lookup
-    return null;
+    const supabase = getServiceClient();
+    const { data, error } = await supabase
+      .from('admission_communication_templates')
+      .select('*')
+      .eq('id', id)
+      .eq('channel', 'whatsapp')
+      .single();
+
+    if (error) {
+      if (error.code === 'PGRST116') return null;
+      throw new Error(`Failed to fetch template: ${error.message}`);
+    }
+    return data as WhatsAppTemplate;
   }
 
-  static async createTemplate(data: CreateWhatsAppTemplateDto, userId: string): Promise<WhatsAppTemplate> {
-    // TODO: Implement actual database insert
-    const now = new Date().toISOString();
-    const id = 'tpl_' + Math.random().toString(36).substr(2, 9);
-    return {
-      id,
-      institution_id: data.institution_id,
-      name: data.name,
-      content: data.content,
-      category: data.category || null,
-      variables: data.variables || [],
-      attachment_type: data.attachment_type || null,
-      attachment_url: data.attachment_url || null,
-      use_count: 0,
-      last_used_at: null,
-      created_by: userId,
-      is_active: data.is_active ?? true,
-      created_at: now,
-      updated_at: now
-    };
+  static async createTemplate(
+    data: {
+      institution_id: string;
+      name: string;
+      content: string;
+      category?: string | null;
+      variables?: string[];
+      attachment_type?: string | null;
+      attachment_url?: string | null;
+      is_active?: boolean;
+    },
+    userId: string
+  ): Promise<WhatsAppTemplate> {
+    const supabase = getServiceClient();
+
+    const { data: template, error } = await supabase
+      .from('admission_communication_templates')
+      .insert({
+        institution_id: data.institution_id,
+        name: data.name,
+        channel: 'whatsapp',
+        content: data.content,
+        category: data.category || null,
+        variables: data.variables || [],
+        attachment_type: data.attachment_type || null,
+        attachment_url: data.attachment_url || null,
+        is_active: data.is_active ?? true,
+        created_by: userId,
+      })
+      .select('*')
+      .single();
+
+    if (error) throw new Error(`Failed to create template: ${error.message}`);
+    return template as WhatsAppTemplate;
   }
 
-  static async updateTemplate(id: string, data: UpdateWhatsAppTemplateDto): Promise<WhatsAppTemplate> {
-    // TODO: Implement actual database update
-    const now = new Date().toISOString();
-    return {
-      id,
-      institution_id: '',
-      name: data.name || '',
-      content: data.content || '',
-      category: data.category || null,
-      variables: data.variables || [],
-      attachment_type: data.attachment_type || null,
-      attachment_url: data.attachment_url || null,
-      use_count: 0,
-      last_used_at: null,
-      created_by: null,
-      is_active: data.is_active ?? true,
-      created_at: now,
-      updated_at: now
-    };
+  static async updateTemplate(
+    id: string,
+    data: {
+      name?: string;
+      content?: string;
+      category?: string | null;
+      variables?: string[];
+      attachment_type?: string | null;
+      attachment_url?: string | null;
+      is_active?: boolean;
+    }
+  ): Promise<WhatsAppTemplate> {
+    const supabase = getServiceClient();
+
+    const { data: template, error } = await supabase
+      .from('admission_communication_templates')
+      .update({ ...data, updated_at: new Date().toISOString() })
+      .eq('id', id)
+      .select('*')
+      .single();
+
+    if (error) throw new Error(`Failed to update template: ${error.message}`);
+    return template as WhatsAppTemplate;
   }
 
   static async deleteTemplate(id: string): Promise<void> {
-    // TODO: Implement actual database delete
+    const supabase = getServiceClient();
+    const { error } = await supabase
+      .from('admission_communication_templates')
+      .delete()
+      .eq('id', id);
+    if (error) throw new Error(`Failed to delete template: ${error.message}`);
   }
 
   static extractVariables(content: string): string[] {
-    // Extract variables in {{variable}} format
     const regex = /\{\{(\w+)\}\}/g;
     const variables: string[] = [];
     let match;
-
     while ((match = regex.exec(content)) !== null) {
       if (!variables.includes(match[1])) {
         variables.push(match[1]);
       }
     }
-
     return variables;
   }
 
   static renderTemplate(content: string, variables: Record<string, string>): string {
     let rendered = content;
-
     for (const [key, value] of Object.entries(variables)) {
       const regex = new RegExp(`\\{\\{${key}\\}\\}`, 'g');
       rendered = rendered.replace(regex, value);
     }
-
     return rendered;
   }
 
   static async incrementUseCount(id: string): Promise<void> {
-    // TODO: Implement actual increment
+    const supabase = getServiceClient();
+    const { data } = await supabase
+      .from('admission_communication_templates')
+      .select('use_count')
+      .eq('id', id)
+      .single();
+
+    if (data) {
+      await supabase
+        .from('admission_communication_templates')
+        .update({
+          use_count: ((data as { use_count: number }).use_count || 0) + 1,
+          last_used_at: new Date().toISOString(),
+        })
+        .eq('id', id);
+    }
   }
 
   static async getTemplatesByCategory(
     institutionId: string,
     category: string
   ): Promise<WhatsAppTemplate[]> {
-    // TODO: Implement actual query
-    return [];
+    const supabase = getServiceClient();
+    const { data, error } = await supabase
+      .from('admission_communication_templates')
+      .select('*')
+      .eq('institution_id', institutionId)
+      .eq('channel', 'whatsapp')
+      .eq('category', category)
+      .eq('is_active', true)
+      .order('use_count', { ascending: false });
+
+    if (error) throw new Error(`Failed to fetch templates: ${error.message}`);
+    return (data as WhatsAppTemplate[]) || [];
   }
 }
 
 // Export standalone functions for compatibility
-export async function getTemplates(filters: WhatsAppTemplateFilters): Promise<WhatsAppTemplateListResponse> {
+export async function getTemplates(filters: WhatsAppTemplateFilters) {
   return WhatsAppTemplateService.getTemplates(filters);
 }
-
-export async function getTemplateById(id: string): Promise<WhatsAppTemplate | null> {
+export async function getTemplateById(id: string) {
   return WhatsAppTemplateService.getTemplateById(id);
 }
-
-export async function createTemplate(data: CreateWhatsAppTemplateDto, userId: string): Promise<WhatsAppTemplate> {
+export async function createTemplate(
+  data: Parameters<typeof WhatsAppTemplateService.createTemplate>[0],
+  userId: string
+) {
   return WhatsAppTemplateService.createTemplate(data, userId);
 }
-
-export async function updateTemplate(id: string, data: UpdateWhatsAppTemplateDto): Promise<WhatsAppTemplate> {
+export async function updateTemplate(
+  id: string,
+  data: Parameters<typeof WhatsAppTemplateService.updateTemplate>[1]
+) {
   return WhatsAppTemplateService.updateTemplate(id, data);
 }
-
-export async function deleteTemplate(id: string): Promise<void> {
+export async function deleteTemplate(id: string) {
   return WhatsAppTemplateService.deleteTemplate(id);
 }

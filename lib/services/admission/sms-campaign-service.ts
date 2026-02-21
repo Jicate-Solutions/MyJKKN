@@ -47,6 +47,8 @@ export interface SMSLog {
   template_name?: string;
 }
 
+export type SMSLanguage = 'en' | 'hi' | 'ta' | 'te' | 'kn' | 'ml' | 'mr' | 'gu' | 'bn' | 'pa';
+
 export interface SendSMSInput {
   institutionId: string;
   leadId: string;
@@ -56,6 +58,7 @@ export interface SendSMSInput {
   variables?: Record<string, string>;
   dltTemplateId?: string;
   scheduledAt?: string;
+  language?: SMSLanguage;
 }
 
 export interface BulkSMSInput {
@@ -814,6 +817,147 @@ export class SMSCampaignService {
     if (error) {
       logger.error('admission/sms-campaign', 'Failed to update SMS log', error);
     }
+  }
+
+  // ============================================================================
+  // MULTILINGUAL SMS (4.4)
+  // ============================================================================
+
+  /**
+   * Supported languages for multilingual SMS
+   */
+  static getSupportedLanguages(): Array<{ code: SMSLanguage; label: string; nativeLabel: string }> {
+    return [
+      { code: 'en', label: 'English', nativeLabel: 'English' },
+      { code: 'hi', label: 'Hindi', nativeLabel: '\u0939\u093f\u0902\u0926\u0940' },
+      { code: 'ta', label: 'Tamil', nativeLabel: '\u0ba4\u0bae\u0bbf\u0bb4\u0bcd' },
+      { code: 'te', label: 'Telugu', nativeLabel: '\u0c24\u0c46\u0c32\u0c41\u0c17\u0c41' },
+      { code: 'kn', label: 'Kannada', nativeLabel: '\u0c95\u0ca8\u0ccd\u0ca8\u0ca1' },
+      { code: 'ml', label: 'Malayalam', nativeLabel: '\u0d2e\u0d32\u0d2f\u0d3e\u0d33\u0d02' },
+      { code: 'mr', label: 'Marathi', nativeLabel: '\u092e\u0930\u093e\u0920\u0940' },
+      { code: 'gu', label: 'Gujarati', nativeLabel: '\u0a97\u0ac1\u0a9c\u0ab0\u0abe\u0aa4\u0ac0' },
+      { code: 'bn', label: 'Bengali', nativeLabel: '\u09ac\u09be\u0982\u09b2\u09be' },
+      { code: 'pa', label: 'Punjabi', nativeLabel: '\u0a2a\u0a70\u0a1c\u0a3e\u0a2c\u0a40' },
+    ];
+  }
+
+  /**
+   * Send SMS in lead's preferred language.
+   * If a language-specific template variant exists (e.g., template_name_ta),
+   * it will be used. Otherwise falls back to the base template in the requested language.
+   */
+  static async sendMultilingualSMS(input: SendSMSInput): Promise<SMSSendResult> {
+    const language = input.language || 'en';
+
+    // If a template is specified, look for a language-specific variant
+    if (input.templateId && language !== 'en') {
+      const supabase = createClientSupabaseClient();
+
+      // Try to find a language variant of the template
+      const { data: baseTemplate } = await (supabase as any)
+        .from('admission_communication_templates')
+        .select('name, institution_id')
+        .eq('id', input.templateId)
+        .single();
+
+      if (baseTemplate) {
+        const variantName = `${baseTemplate.name}_${language}`;
+        const { data: variant } = await (supabase as any)
+          .from('admission_communication_templates')
+          .select('id')
+          .eq('name', variantName)
+          .eq('institution_id', baseTemplate.institution_id)
+          .eq('channel', 'sms')
+          .eq('is_active', true)
+          .single();
+
+        if (variant) {
+          // Use the language-specific template variant
+          return this.sendCampaignSMS({ ...input, templateId: variant.id });
+        }
+      }
+    }
+
+    // Fall back to sending the base template with language metadata
+    return this.sendCampaignSMS(input);
+  }
+
+  /**
+   * Detect lead's preferred language from their metadata or communication history.
+   * Returns 'en' if no preference is found.
+   */
+  static async detectLeadLanguage(leadId: string): Promise<SMSLanguage> {
+    const supabase = createClientSupabaseClient();
+
+    const { data: lead } = await (supabase as any)
+      .from('admission_leads')
+      .select('metadata')
+      .eq('id', leadId)
+      .single();
+
+    if (lead?.metadata?.preferred_language) {
+      return lead.metadata.preferred_language as SMSLanguage;
+    }
+
+    // Default to English
+    return 'en';
+  }
+
+  /**
+   * Send bulk SMS with automatic language detection per lead.
+   * Each lead receives the message in their preferred language if a template variant exists.
+   */
+  static async sendMultilingualBulkSMS(input: BulkSMSInput): Promise<SMSBulkResult> {
+    const results: SMSBulkResult['results'] = [];
+    let totalSent = 0;
+    let totalFailed = 0;
+
+    const batchSize = 10;
+    for (let i = 0; i < input.leads.length; i += batchSize) {
+      const batch = input.leads.slice(i, i + batchSize);
+
+      const batchPromises = batch.map(async (lead) => {
+        const language = await this.detectLeadLanguage(lead.leadId);
+
+        const result = await this.sendMultilingualSMS({
+          institutionId: input.institutionId,
+          leadId: lead.leadId,
+          phoneNumber: lead.phoneNumber,
+          templateId: input.templateId,
+          variables: lead.variables,
+          dltTemplateId: input.dltTemplateId,
+          language,
+        });
+
+        if (result.success) {
+          totalSent++;
+        } else {
+          totalFailed++;
+        }
+
+        return {
+          leadId: lead.leadId,
+          success: result.success,
+          logId: result.logId,
+          error: result.error,
+        };
+      });
+
+      const batchResults = await Promise.all(batchPromises);
+      results.push(...batchResults);
+
+      if (i + batchSize < input.leads.length) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+    }
+
+    logger.info('admission/sms-campaign', 'Multilingual bulk SMS completed', {
+      totalSent,
+      totalFailed,
+      totalLeads: input.leads.length,
+    });
+
+    return { totalSent, totalFailed, results };
   }
 
   /**
