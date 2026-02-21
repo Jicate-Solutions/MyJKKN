@@ -25,7 +25,9 @@ import {
   CalendarDays,
   Edit,
   Building2,
+  Loader2,
 } from 'lucide-react';
+import { useMessCaterer } from '@/hooks/campus-living/use-mess-caterers';
 
 interface CatererDetailPageProps {
   params: Promise<{ id: string }>;
@@ -33,11 +35,19 @@ interface CatererDetailPageProps {
 
 export default function CatererDetailPage({ params }: CatererDetailPageProps) {
   const { id } = use(params);
+  const { data: catererData, isLoading } = useMessCaterer(id);
 
-  // TODO: Replace with actual hook
-  // const { data: caterer, isLoading } = useMessCaterer(id);
+  if (isLoading) {
+    return (
+      <ContentLayout title="Caterer Details">
+        <div className="flex justify-center items-center p-12">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </div>
+      </ContentLayout>
+    );
+  }
 
-  const caterer = {
+  const caterer = catererData || {
     id,
     name: 'Annapurna Catering Services',
     contact_person: 'Rajesh Kumar',
