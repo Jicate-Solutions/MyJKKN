@@ -584,7 +584,31 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/alumni/outcomes': 'alumni.outcomes.view',
   '/alumni/outcomes/new': 'alumni.outcomes.create',
   '/alumni/outcomes/[id]': 'alumni.outcomes.view',
-  '/alumni/effectiveness': 'alumni.effectiveness.view'
+  '/alumni/effectiveness': 'alumni.effectiveness.view',
+
+  // Campus Living Module
+  '/campus-living': 'campus_living.dashboard.view',
+  '/campus-living/blocks': 'campus_living.blocks.view',
+  '/campus-living/allocations': 'campus_living.allocations.view',
+  '/campus-living/allocations/roommate-matching': 'campus_living.allocations.view',
+  '/campus-living/attendance': 'campus_living.attendance.view',
+  '/campus-living/leave': 'campus_living.leave.view',
+  '/campus-living/gate-passes': 'campus_living.gate_passes.view',
+  '/campus-living/mess': 'campus_living.mess.view',
+  '/campus-living/mess/menu': 'campus_living.mess.menu.view',
+  '/campus-living/mess/meals': 'campus_living.mess.meals.view',
+  '/campus-living/mess/billing': 'campus_living.mess.billing.view',
+  '/campus-living/mess/feedback': 'campus_living.mess.feedback.view',
+  '/campus-living/mess/waste': 'campus_living.mess.waste.view',
+  '/campus-living/visitors': 'campus_living.visitors.view',
+  '/campus-living/maintenance': 'campus_living.maintenance.view',
+  '/campus-living/safety': 'campus_living.safety.view',
+  '/campus-living/safety/incidents': 'campus_living.safety.incidents.view',
+  '/campus-living/safety/anti-ragging': 'campus_living.safety.anti_ragging.view',
+  '/campus-living/safety/inspections': 'campus_living.safety.inspections.view',
+  '/campus-living/analytics': 'campus_living.analytics.view',
+  '/campus-living/reports': 'campus_living.reports.view',
+  '/campus-living/settings': 'campus_living.settings.view'
 };
 
 export function GetPages(pathname: string): MenuGroup[] {
