@@ -58,7 +58,7 @@ export class CampusLivingSettings {
       const supabase = createClientSupabaseClient();
       const { data, error } = await supabase
         .from('hostel_leave_type_config')
-        .insert(payload)
+        .insert(payload as any)
         .select()
         .single();
 
@@ -78,7 +78,7 @@ export class CampusLivingSettings {
       const supabase = createClientSupabaseClient();
       const { data, error } = await supabase
         .from('hostel_leave_type_config')
-        .update(payload)
+        .update(payload as any)
         .eq('id', id)
         .select()
         .single();
