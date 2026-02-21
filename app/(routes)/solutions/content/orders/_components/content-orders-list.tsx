@@ -184,5 +184,6 @@ export function ContentOrdersList() {
         );
       })}
     </div>
+    </div>
   );
 }
