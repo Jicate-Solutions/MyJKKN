@@ -96,12 +96,16 @@ export class UnifiedEarningsService extends BaseService {
   ): Promise<BaseListResponse<UnifiedEarningsEntry>> {
     const { page, limit } = this.validate(filters?.page, filters?.limit);
 
-    // Get all talent profiles for this user
-    const [builderProfile, cohortProfile, productionProfile] = await Promise.all([
+    // Get all talent profiles for this user — use allSettled so one failure doesn't block others
+    const profileResults = await Promise.allSettled([
       this.getBuilderByUserId(userId),
       this.getCohortMemberByUserId(userId),
       this.getProductionLearnerByUserId(userId),
     ]);
+
+    const builderProfile = profileResults[0].status === 'fulfilled' ? profileResults[0].value : null;
+    const cohortProfile = profileResults[1].status === 'fulfilled' ? profileResults[1].value : null;
+    const productionProfile = profileResults[2].status === 'fulfilled' ? profileResults[2].value : null;
 
     const earningsPromises: Promise<UnifiedEarningsEntry[]>[] = [];
 
