@@ -84,6 +84,16 @@ const typeLabels: Record<string, string> = {
   amc: 'AMC',
 };
 
+const paymentCsvColumns: CsvColumn<PaymentWithDetails>[] = [
+  { header: 'Solution', accessor: (row) => getSolutionTitle(row) },
+  { header: 'Solution Code', accessor: (row) => getSolutionCode(row) },
+  { header: 'Type', accessor: (row) => typeLabels[row.payment_type] || row.payment_type },
+  { header: 'Amount', accessor: (row) => formatCurrencyForCsv(row.amount) },
+  { header: 'Status', accessor: (row) => statusConfig[row.status as PaymentStatus]?.label || row.status },
+  { header: 'Due Date', accessor: (row) => formatDateForCsv(row.due_date) },
+  { header: 'Reference', accessor: (row) => row.reference_number || '' },
+];
+
 export default function PaymentsPage() {
   // Fetch real data from hooks
   const { data: paymentsData, isLoading, error } = usePayments({ limit: 50 });
