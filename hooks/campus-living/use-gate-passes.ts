@@ -95,3 +95,74 @@ export function useDeleteGatePass() {
     },
   });
 }
+
+// --- Request workflow hooks ---
+
+export function useMyGatePasses(learnerId: string) {
+  return useQuery({
+    queryKey: gatePassKeys.myPasses(learnerId),
+    queryFn: () => GatePassService.getMyGatePasses(learnerId),
+    enabled: !!learnerId,
+  });
+}
+
+export function usePendingGatePassRequests(institutionId: string) {
+  return useQuery({
+    queryKey: gatePassKeys.pending(institutionId),
+    queryFn: () => GatePassService.getPendingRequests(institutionId),
+    enabled: !!institutionId,
+  });
+}
+
+export function useRequestGatePass() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: {
+      institution_id: string;
+      learner_id: string;
+      pass_type: string;
+      expected_return: string;
+      destination: string;
+      reason: string;
+    }) => GatePassService.requestGatePass(payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: gatePassKeys.all });
+      toast.success('Gate pass request submitted');
+    },
+    onError: (error: Error) => {
+      toast.error(`Failed to submit request: ${error.message}`);
+    },
+  });
+}
+
+export function useApproveGatePass() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, approverId }: { id: string; approverId: string }) =>
+      GatePassService.approveGatePass(id, approverId),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: gatePassKeys.all });
+      queryClient.invalidateQueries({ queryKey: gatePassKeys.detail(variables.id) });
+      toast.success('Gate pass approved and issued');
+    },
+    onError: (error: Error) => {
+      toast.error(`Failed to approve: ${error.message}`);
+    },
+  });
+}
+
+export function useRejectGatePass() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, rejectedBy, reason }: { id: string; rejectedBy: string; reason: string }) =>
+      GatePassService.rejectGatePass(id, rejectedBy, reason),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: gatePassKeys.all });
+      queryClient.invalidateQueries({ queryKey: gatePassKeys.detail(variables.id) });
+      toast.success('Gate pass request rejected');
+    },
+    onError: (error: Error) => {
+      toast.error(`Failed to reject: ${error.message}`);
+    },
+  });
+}
