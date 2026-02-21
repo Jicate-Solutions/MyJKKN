@@ -67,6 +67,17 @@ export const LEARNER_ROUTES: Record<string, LearnerRoute> = {
   // CATEGORY: DOMAIN (Domain-specific actions in their modules)
   // ========================================
 
+  'learners-my-gate-passes': {
+    path: '/learners/my-gate-passes',
+    category: 'domain',
+    module: 'campus-living',
+    feature: 'My Gate Passes',
+    permission: 'campus_living.gate_passes.view',
+    description: 'Request and track hostel gate passes with approval workflow',
+    allowedStatuses: ['active'],
+    isNew: true,
+  },
+
   'resources-my-reservations': {
     path: '/resource-management/reservations/my-reservations',
     category: 'domain',
