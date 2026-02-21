@@ -27,7 +27,7 @@ export const campusLivingSettingsKeys = {
 
 export function useHostelFeeConfigs(institutionId: string, academicYearId?: string) {
   return useQuery({
-    queryKey: campusLivingSettingsKeys.feeConfig(institutionId),
+    queryKey: campusLivingSettingsKeys.feeConfig(institutionId, academicYearId),
     queryFn: () => CampusLivingSettings.getFeeConfigs(institutionId, academicYearId),
     enabled: !!institutionId,
   });
