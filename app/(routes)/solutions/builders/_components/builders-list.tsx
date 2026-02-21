@@ -42,6 +42,7 @@ import {
   Code2,
   AlertCircle,
   X,
+  Download,
 } from 'lucide-react';
 import { useBuilders, useBuilderStats } from '@/hooks/solutions/use-builders';
 import { useDebounceValue } from '@/hooks/use-debounce-value';
