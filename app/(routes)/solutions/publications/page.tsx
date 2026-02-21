@@ -25,6 +25,7 @@ import {
   JOURNAL_TYPE_LABELS,
   PUBLICATION_STATUS_CONFIG,
 } from '@/hooks/solutions/use-publications';
+import { downloadCsv, formatDateForCsv, formatArrayForCsv, type CsvColumn } from '@/lib/utils/csv-export';
 import type { PublicationWithSolution } from '@/lib/services/solutions/publications-service';
 import type { PaperType, JournalType, PublicationStatus } from '@/lib/services/solutions/types';
 
