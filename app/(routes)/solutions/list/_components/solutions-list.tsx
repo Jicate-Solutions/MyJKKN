@@ -43,7 +43,9 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { useSolutions, type SolutionFilters } from '@/hooks/solutions/use-solutions';
 import { useDebounceValue } from '@/hooks/use-debounce-value';
+import { downloadCsv, formatDateForCsv, formatArrayForCsv, type CsvColumn } from '@/lib/utils/csv-export';
 import type { SolutionType, SolutionStatus } from '@/lib/services/solutions/types';
+import type { SolutionWithClient } from '@/lib/services/solutions/solutions-service';
 
 interface SolutionsListProps {
   searchParams: { [key: string]: string | string[] | undefined };
