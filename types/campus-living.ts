@@ -901,7 +901,7 @@ export type CreateHostelAttendanceDTO = Omit<HostelAttendance, 'id' | 'created_a
 
 export type CreateHostelLeaveRequestDTO = Omit<HostelLeaveRequest, 'id' | 'parent_consent_at' | 'parent_consent_otp' | 'parent_consent_otp_expires_at' | 'warden_approved_at' | 'warden_remarks' | 'chief_warden_id' | 'actual_return_time' | 'is_overdue' | 'overdue_notified' | 'created_at' | 'updated_at'>;
 
-export type CreateHostelGatePassDTO = Omit<HostelGatePass, 'id' | 'actual_return' | 'gate_security_out' | 'gate_security_in' | 'created_at' | 'updated_at'>;
+export type CreateHostelGatePassDTO = Omit<HostelGatePass, 'id' | 'actual_return' | 'gate_security_out' | 'gate_security_in' | 'rejected_by' | 'rejection_reason' | 'created_at' | 'updated_at'>;
 
 export type CreateMessCatererDTO = Omit<MessCaterer, 'id' | 'performance_score' | 'created_at' | 'updated_at'>;
 export type UpdateMessCatererDTO = Partial<CreateMessCatererDTO>;
