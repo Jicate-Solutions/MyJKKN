@@ -81,8 +81,9 @@ const STAGE_FILTER_OPTIONS = [
 function CounselorViewPageContent() {
   const { institutions, selectedInstitutionId } = useUserInstitutionAccess();
   const [chosenInstitutionId, setChosenInstitutionId] = useState<string>('');
-  // Use explicitly chosen institution, or fall back to the user's primary institution
-  const institutionId = chosenInstitutionId || selectedInstitutionId;
+  // Multi-institution users: default to "all" (undefined) — prompt them to pick.
+  // Single-institution users: always use their one institution.
+  const institutionId = chosenInstitutionId || (institutions.length <= 1 ? selectedInstitutionId : undefined);
 
   const [selectedCounselorUserId, setSelectedCounselorUserId] = useState<string>('');
   const [stageFilter, setStageFilter] = useState('all');
@@ -286,15 +287,14 @@ function CounselorViewPageContent() {
           <Filter className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
           <span className="text-xs text-muted-foreground font-medium whitespace-nowrap">Institution:</span>
           <Select
-            value={chosenInstitutionId || selectedInstitutionId || ''}
+            value={chosenInstitutionId}
             onValueChange={(val) => {
-              setChosenInstitutionId(val);
-              // Reset counselor selection when switching institution
+              setChosenInstitutionId(val === '__all__' ? '' : val);
               setSelectedCounselorUserId('');
             }}
           >
             <SelectTrigger className="h-8 w-[280px] text-xs">
-              <SelectValue placeholder="Select institution" />
+              <SelectValue placeholder="Select an institution" />
             </SelectTrigger>
             <SelectContent>
               {institutions.map((inst) => (
@@ -304,6 +304,14 @@ function CounselorViewPageContent() {
               ))}
             </SelectContent>
           </Select>
+          {chosenInstitutionId && (
+            <button
+              onClick={() => { setChosenInstitutionId(''); setSelectedCounselorUserId(''); }}
+              className="text-xs text-muted-foreground hover:text-foreground"
+            >
+              ← Clear
+            </button>
+          )}
         </div>
       )}
 
@@ -340,99 +348,112 @@ function CounselorViewPageContent() {
         </div>
       )}
 
-      {/* KPI Strip */}
-      <CounselorKPIStrip kpis={kpis || {
-        my_leads_today: 0,
-        followups_due: 0,
-        overdue_followups: 0,
-        hot_leads: 0,
-        total_active: 0,
-        enrolled_this_month: 0,
-        total_this_month: 0,
-        conversion_rate: 0,
-      }} isLoading={isLoading} />
-
-      {/* Manager: Unassigned leads panel */}
-      {isManager && unassignedCount > 0 && (
-        <UnassignedLeadsPanel
-          leads={unassignedLeads}
-          counselors={counselors}
-          onAssign={(leadIds, counselorId) =>
-            actions.assignLeads.mutate({ leadIds, counselorId })
-          }
-          isAssigning={actions.isAssigning}
-          isLoading={isLoadingUnassigned}
-        />
+      {/* Prompt shown to multi-institution users before they select an institution */}
+      {institutions.length > 1 && !institutionId && !isLoading && (
+        <div className="flex flex-col items-center justify-center py-16 text-muted-foreground gap-2">
+          <p className="text-sm font-medium">Select an institution above to view counselor data.</p>
+          <p className="text-xs">The Counselor View shows per-institution data — choose one from the dropdown.</p>
+        </div>
       )}
 
-      {/* Two-column layout for larger screens */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* Main column: Follow-ups */}
-        <div className="lg:col-span-2 space-y-4">
-          {/* Today's follow-ups (priority section) */}
-          {todayFollowups.length > 0 && (
-            <div>
-              <div className="flex items-center gap-2 mb-2">
-                <div className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />
-                <h3 className="text-sm font-semibold text-red-700">
-                  Today&apos;s Priority ({todayFollowups.length})
-                </h3>
-              </div>
-              <FollowupList
-                leads={todayFollowups}
-                onCall={(leadId) => actions.logCall.mutate({ leadId })}
-                onAdvanceStage={(leadId, newStage) =>
-                  actions.advanceStage.mutate({ leadId, newStage })
-                }
-                onReschedule={(leadId, newDate) =>
-                  actions.rescheduleFollowup.mutate({ leadId, newDate })
-                }
-                onAddNote={(leadId, note) =>
-                  actions.addQuickNote.mutate({ leadId, note })
-                }
-                isActioning={isAnyMutating}
-              />
-            </div>
+      {/* All per-institution content — only rendered once an institution is selected */}
+      {institutionId && (
+        <>
+          {/* KPI Strip */}
+          <CounselorKPIStrip kpis={kpis || {
+            my_leads_today: 0,
+            followups_due: 0,
+            overdue_followups: 0,
+            hot_leads: 0,
+            total_active: 0,
+            enrolled_this_month: 0,
+            total_this_month: 0,
+            conversion_rate: 0,
+          }} isLoading={isLoading} />
+
+          {/* Manager: Unassigned leads panel */}
+          {isManager && unassignedCount > 0 && (
+            <UnassignedLeadsPanel
+              leads={unassignedLeads}
+              counselors={counselors}
+              onAssign={(leadIds, counselorId) =>
+                actions.assignLeads.mutate({ leadIds, counselorId })
+              }
+              isAssigning={actions.isAssigning}
+              isLoading={isLoadingUnassigned}
+            />
           )}
 
-          {/* Upcoming follow-ups */}
-          {otherFollowups.length > 0 && (
-            <div>
-              <h3 className="text-sm font-semibold text-muted-foreground mb-2">
-                Upcoming ({otherFollowups.length})
-              </h3>
-              <FollowupList
-                leads={otherFollowups}
-                onCall={(leadId) => actions.logCall.mutate({ leadId })}
-                onAdvanceStage={(leadId, newStage) =>
-                  actions.advanceStage.mutate({ leadId, newStage })
-                }
-                onReschedule={(leadId, newDate) =>
-                  actions.rescheduleFollowup.mutate({ leadId, newDate })
-                }
-                onAddNote={(leadId, note) =>
-                  actions.addQuickNote.mutate({ leadId, note })
-                }
-                isActioning={isAnyMutating}
-              />
-            </div>
-          )}
+          {/* Two-column layout for larger screens */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            {/* Main column: Follow-ups */}
+            <div className="lg:col-span-2 space-y-4">
+              {/* Today's follow-ups (priority section) */}
+              {todayFollowups.length > 0 && (
+                <div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />
+                    <h3 className="text-sm font-semibold text-red-700">
+                      Today&apos;s Priority ({todayFollowups.length})
+                    </h3>
+                  </div>
+                  <FollowupList
+                    leads={todayFollowups}
+                    onCall={(leadId) => actions.logCall.mutate({ leadId })}
+                    onAdvanceStage={(leadId, newStage) =>
+                      actions.advanceStage.mutate({ leadId, newStage })
+                    }
+                    onReschedule={(leadId, newDate) =>
+                      actions.rescheduleFollowup.mutate({ leadId, newDate })
+                    }
+                    onAddNote={(leadId, note) =>
+                      actions.addQuickNote.mutate({ leadId, note })
+                    }
+                    isActioning={isAnyMutating}
+                  />
+                </div>
+              )}
 
-          {/* Empty state when no followups */}
-          {todayFollowups.length === 0 && otherFollowups.length === 0 && !isLoading && (
-            <div className="text-center py-12 text-muted-foreground">
-              <p className="text-sm">No follow-ups scheduled.</p>
-              <p className="text-xs mt-1">Great job staying on top of things!</p>
-            </div>
-          )}
-        </div>
+              {/* Upcoming follow-ups */}
+              {otherFollowups.length > 0 && (
+                <div>
+                  <h3 className="text-sm font-semibold text-muted-foreground mb-2">
+                    Upcoming ({otherFollowups.length})
+                  </h3>
+                  <FollowupList
+                    leads={otherFollowups}
+                    onCall={(leadId) => actions.logCall.mutate({ leadId })}
+                    onAdvanceStage={(leadId, newStage) =>
+                      actions.advanceStage.mutate({ leadId, newStage })
+                    }
+                    onReschedule={(leadId, newDate) =>
+                      actions.rescheduleFollowup.mutate({ leadId, newDate })
+                    }
+                    onAddNote={(leadId, note) =>
+                      actions.addQuickNote.mutate({ leadId, note })
+                    }
+                    isActioning={isAnyMutating}
+                  />
+                </div>
+              )}
 
-        {/* Side column: Pipeline + Activity */}
-        <div className="space-y-4">
-          <MiniPipeline pipeline={pipeline} isLoading={isLoading} />
-          <TodayActivityLog activities={todayActivities} isLoading={isLoading} />
-        </div>
-      </div>
+              {/* Empty state when no followups */}
+              {todayFollowups.length === 0 && otherFollowups.length === 0 && !isLoading && (
+                <div className="text-center py-12 text-muted-foreground">
+                  <p className="text-sm">No follow-ups scheduled.</p>
+                  <p className="text-xs mt-1">Great job staying on top of things!</p>
+                </div>
+              )}
+            </div>
+
+            {/* Side column: Pipeline + Activity */}
+            <div className="space-y-4">
+              <MiniPipeline pipeline={pipeline} isLoading={isLoading} />
+              <TodayActivityLog activities={todayActivities} isLoading={isLoading} />
+            </div>
+          </div>
+        </>
+      )}
       </div>
     </ContentLayout>
   );

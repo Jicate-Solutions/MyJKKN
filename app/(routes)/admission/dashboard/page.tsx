@@ -253,8 +253,9 @@ function AdmissionDashboardPageContent() {
   const { profile } = useAuth();
   const { institutions, selectedInstitutionId, loading: accessLoading } = useUserInstitutionAccess();
   const [chosenInstitutionId, setChosenInstitutionId] = useState<string>('');
-  // Use explicitly chosen institution, or fall back to the user's primary institution
-  const institutionId = chosenInstitutionId || selectedInstitutionId;
+  // Multi-institution users (super_admin etc): default to "all" (undefined = no filter).
+  // Single-institution users: always use their one institution.
+  const institutionId = chosenInstitutionId || (institutions.length <= 1 ? selectedInstitutionId : undefined);
   const [isRefetching, setIsRefetching] = useState(false);
   const [showBriefingPopup, setShowBriefingPopup] = useState(false);
 
@@ -330,13 +331,14 @@ function AdmissionDashboardPageContent() {
               <Building2 className="h-4 w-4 text-muted-foreground shrink-0" />
               <span className="text-xs text-muted-foreground font-medium whitespace-nowrap">Institution:</span>
               <Select
-                value={chosenInstitutionId || selectedInstitutionId || ''}
-                onValueChange={(val) => setChosenInstitutionId(val)}
+                value={chosenInstitutionId}
+                onValueChange={(val) => setChosenInstitutionId(val === '__all__' ? '' : val)}
               >
                 <SelectTrigger className="h-8 w-[280px] text-xs">
-                  <SelectValue placeholder="Select institution" />
+                  <SelectValue placeholder="All Institutions" />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="__all__" className="text-xs font-medium">All Institutions</SelectItem>
                   {institutions.map((inst) => (
                     <SelectItem key={inst.institution_id} value={inst.institution_id} className="text-xs">
                       {inst.institution_name}
@@ -344,6 +346,14 @@ function AdmissionDashboardPageContent() {
                   ))}
                 </SelectContent>
               </Select>
+              {chosenInstitutionId && (
+                <button
+                  onClick={() => setChosenInstitutionId('')}
+                  className="text-xs text-muted-foreground hover:text-foreground"
+                >
+                  ← All
+                </button>
+              )}
             </div>
           )}
 
@@ -427,7 +437,13 @@ function AdmissionDashboardPageContent() {
                 </div>
               </CardHeader>
               <CardContent>
-                {institutionId && <HotLeadsList institutionId={institutionId} />}
+                {institutionId ? (
+                  <HotLeadsList institutionId={institutionId} />
+                ) : (
+                  <div className="text-center py-8 text-muted-foreground text-xs">
+                    Select a specific institution to see hot leads
+                  </div>
+                )}
               </CardContent>
             </Card>
           </div>

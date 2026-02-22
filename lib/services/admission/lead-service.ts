@@ -707,12 +707,17 @@ export class LeadService {
   // ============================================================================
 
   /**
-   * Get funnel summary for dashboard
+   * Get funnel summary for dashboard.
+   * When institutionId is omitted, returns aggregate across all institutions
+   * the authenticated user can access (controlled by RLS).
    */
-  static async getFunnelSummary(institutionId: string): Promise<any> {
-    const { data, error } = await (this.supabase as any).from('admission_leads')
-      .select('stage, funnel_stage, is_hot_lead, is_priority')
-      .eq('institution_id', institutionId);
+  static async getFunnelSummary(institutionId?: string): Promise<any> {
+    let query = (this.supabase as any).from('admission_leads')
+      .select('stage, funnel_stage, is_hot_lead, is_priority');
+    if (institutionId) {
+      query = query.eq('institution_id', institutionId);
+    }
+    const { data, error } = await query;
 
     if (error) {
       console.error('[LeadService] Error fetching funnel summary:', error);
@@ -784,16 +789,21 @@ export class LeadService {
   }
 
   /**
-   * Get dashboard summary stats
+   * Get dashboard summary stats.
+   * When institutionId is omitted, returns aggregate across all institutions
+   * the authenticated user can access (controlled by RLS).
    */
-  static async getDashboardSummary(institutionId: string): Promise<any> {
+  static async getDashboardSummary(institutionId?: string): Promise<any> {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
     // Get all leads - select both stage (enum) and funnel_stage (legacy)
-    const { data: leads, error } = await (this.supabase as any).from('admission_leads')
-      .select('stage, funnel_stage, created_at, is_hot_lead, is_priority, last_contact_at, next_followup_at')
-      .eq('institution_id', institutionId);
+    let leadsQuery = (this.supabase as any).from('admission_leads')
+      .select('stage, funnel_stage, created_at, is_hot_lead, is_priority, last_contact_at, next_followup_at');
+    if (institutionId) {
+      leadsQuery = leadsQuery.eq('institution_id', institutionId);
+    }
+    const { data: leads, error } = await leadsQuery;
 
     if (error) {
       console.error('[LeadService] Error fetching dashboard summary:', error);
