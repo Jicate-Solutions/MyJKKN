@@ -100,7 +100,7 @@ export class InstagramService {
   async initGraphApi(institutionId: string): Promise<boolean> {
     try {
       // Find a connected Instagram account for this institution
-      const { data: connectedAccount } = await this.supabase
+      const { data: connectedAccount, error: accountError } = await this.supabase
         .from('sm_accounts')
         .select('id')
         .eq('institution_id', institutionId)
@@ -109,10 +109,13 @@ export class InstagramService {
         .limit(1)
         .single();
 
-      if (!connectedAccount) return false;
+      if (accountError || !connectedAccount) {
+        // No connected Instagram account found for this institution
+        return false;
+      }
 
       // Get its Graph API credential
-      const { data: cred } = await this.supabase
+      const { data: cred, error: credError } = await this.supabase
         .from('sm_account_credentials')
         .select('access_token, platform_user_id, metadata')
         .eq('account_id', connectedAccount.id)
@@ -120,6 +123,11 @@ export class InstagramService {
         .eq('is_active', true)
         .limit(1)
         .single();
+
+      if (credError || !cred) {
+        // No active Graph API credential found for connected account
+        return false;
+      }
 
       if (!cred?.access_token || !cred?.platform_user_id) return false;
 
