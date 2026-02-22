@@ -801,7 +801,7 @@ export class AttendanceConsolidationService {
       }
 
       return {
-        data: data.map(this.mapDatabaseToReport),
+        data: (data || []).map(this.mapDatabaseToReport),
         metadata: {
           total: count || 0,
           page,
