@@ -272,6 +272,45 @@ export class WhatsAppTemplateService {
     }
   }
 
+  /**
+   * Refresh quality ratings for all WhatsApp templates from Meta API.
+   * Fetches the latest quality_score for each template and updates metadata.
+   */
+  static async refreshAllQualityRatings(institutionId: string): Promise<number> {
+    const supabase = getServiceClient();
+
+    // Fetch all WhatsApp templates for this institution
+    const { data: templates, error } = await supabase
+      .from('admission_communication_templates')
+      .select('id, name, metadata')
+      .eq('institution_id', institutionId)
+      .eq('channel', 'whatsapp');
+
+    if (error) throw new Error(`Failed to fetch templates: ${error.message}`);
+    if (!templates || templates.length === 0) return 0;
+
+    let updated = 0;
+
+    for (const template of templates) {
+      if (!template.name) continue;
+
+      const rating = await this.getTemplateQualityRating(template.name);
+      if (rating !== 'UNKNOWN') {
+        const existingMetadata = (template.metadata as Record<string, unknown>) || {};
+        await supabase
+          .from('admission_communication_templates')
+          .update({
+            metadata: { ...existingMetadata, quality_rating: rating },
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', template.id);
+        updated++;
+      }
+    }
+
+    return updated;
+  }
+
   // ---------------------------------------------------------------------------
   // Local DB Operations (backward-compatible with existing code)
   // ---------------------------------------------------------------------------

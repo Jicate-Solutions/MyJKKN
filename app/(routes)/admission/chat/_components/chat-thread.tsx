@@ -28,13 +28,81 @@ import {
   Image as ImageIcon,
   FileText,
   MessageSquare,
+  ShieldCheck,
+  AlertTriangle,
+  HelpCircle,
+  RefreshCw,
+  LayoutTemplate,
 } from 'lucide-react';
 import { useConversation, useConversationMessages } from '@/hooks/admission/use-conversation';
 import { useChatMutations } from '@/hooks/admission/use-chat-mutations';
 import { useQuickReplies } from '@/hooks/admission/use-quick-replies';
+import { useActiveTemplates } from '@/hooks/admission/use-communication-templates';
+import { useTemplateMutations } from '@/hooks/admission/use-communication-templates';
 import { useChatRealtimeMessages } from '@/hooks/admission/use-chat-realtime';
 import type { ChatMessage } from '@/lib/services/whatsapp/whatsapp-chat-service';
 import { cn } from '@/lib/utils';
+
+// ---------------------------------------------------------------------------
+// 24hr Window Status (client-side computation)
+// ---------------------------------------------------------------------------
+
+type WindowStatus = 'open' | 'closing' | 'expired' | 'never';
+
+interface WindowInfo {
+  withinWindow: boolean;
+  expiresAt: string | null;
+  remainingMinutes: number | null;
+  status: WindowStatus;
+}
+
+function computeWindowStatus(lastInboundAt: string | null): WindowInfo {
+  if (!lastInboundAt) {
+    return { withinWindow: false, expiresAt: null, remainingMinutes: null, status: 'never' };
+  }
+  const lastInbound = new Date(lastInboundAt);
+  const windowEnd = new Date(lastInbound.getTime() + 24 * 60 * 60 * 1000);
+  const now = new Date();
+  const withinWindow = now < windowEnd;
+  const remainingMs = windowEnd.getTime() - now.getTime();
+  const remainingMinutes = withinWindow ? Math.round(remainingMs / 60000) : null;
+
+  let status: WindowStatus = 'expired';
+  if (withinWindow) {
+    status = remainingMinutes! < 60 ? 'closing' : 'open';
+  }
+  return { withinWindow, expiresAt: windowEnd.toISOString(), remainingMinutes, status };
+}
+
+function formatWindowRemaining(minutes: number): string {
+  if (minutes >= 60) {
+    const h = Math.floor(minutes / 60);
+    const m = minutes % 60;
+    return m > 0 ? `${h}h ${m}m` : `${h}h`;
+  }
+  return `${minutes}m`;
+}
+
+// ---------------------------------------------------------------------------
+// Template Quality Helpers
+// ---------------------------------------------------------------------------
+
+function getQualityRatingFromMetadata(metadata: unknown): string {
+  if (!metadata || typeof metadata !== 'object') return 'UNKNOWN';
+  const m = metadata as Record<string, unknown>;
+  return (m.quality_rating as string) || 'UNKNOWN';
+}
+
+const qualityOrder: Record<string, number> = {
+  HIGH: 0,
+  MEDIUM: 1,
+  LOW: 2,
+  UNKNOWN: 3,
+};
+
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
 
 interface ChatThreadProps {
   conversationId: string | null;

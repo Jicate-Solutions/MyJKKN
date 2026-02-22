@@ -185,17 +185,41 @@ export function useTemplateMutations() {
     },
   });
 
+  const refreshQuality = useMutation({
+    mutationFn: (institutionId: string) =>
+      fetch('/api/admission/chat/templates/refresh-quality', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ institution_id: institutionId }),
+      }).then(async (r) => {
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({}));
+          throw new Error(err.error || 'Failed to refresh quality ratings');
+        }
+        return r.json();
+      }),
+    onSuccess: (data) => {
+      toast.success(`Quality ratings refreshed for ${data.updated} templates`);
+      queryClient.invalidateQueries({ queryKey: communicationTemplatesKeys.all });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to refresh quality ratings');
+    },
+  });
+
   return {
     createTemplate,
     updateTemplate,
     deleteTemplate,
     toggleStatus,
     duplicateTemplate,
+    refreshQuality,
     isCreating: createTemplate.isPending,
     isUpdating: updateTemplate.isPending,
     isDeleting: deleteTemplate.isPending,
     isToggling: toggleStatus.isPending,
     isDuplicating: duplicateTemplate.isPending,
+    isRefreshingQuality: refreshQuality.isPending,
   };
 }
 

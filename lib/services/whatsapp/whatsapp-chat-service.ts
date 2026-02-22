@@ -131,6 +131,39 @@ function getServiceClient() {
 
 export class WhatsAppChatService {
   // ---------------------------------------------------------------------------
+  // 24hr Messaging Window
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Compute the 24-hour messaging window status from the last inbound timestamp.
+   * WhatsApp only allows free-text messages within 24h of the last inbound message.
+   */
+  static getWindowStatus(lastInboundAt: string | null): {
+    withinWindow: boolean;
+    expiresAt: string | null;
+    remainingMinutes: number | null;
+    status: 'open' | 'closing' | 'expired' | 'never';
+  } {
+    if (!lastInboundAt) {
+      return { withinWindow: false, expiresAt: null, remainingMinutes: null, status: 'never' };
+    }
+
+    const lastInbound = new Date(lastInboundAt);
+    const windowEnd = new Date(lastInbound.getTime() + 24 * 60 * 60 * 1000);
+    const now = new Date();
+    const withinWindow = now < windowEnd;
+    const remainingMs = windowEnd.getTime() - now.getTime();
+    const remainingMinutes = withinWindow ? Math.round(remainingMs / 60000) : null;
+
+    let status: 'open' | 'closing' | 'expired' | 'never' = 'expired';
+    if (withinWindow) {
+      status = remainingMinutes! < 60 ? 'closing' : 'open';
+    }
+
+    return { withinWindow, expiresAt: windowEnd.toISOString(), remainingMinutes, status };
+  }
+
+  // ---------------------------------------------------------------------------
   // Conversations
   // ---------------------------------------------------------------------------
 
@@ -283,6 +316,15 @@ export class WhatsAppChatService {
     // Get conversation
     const conversation = await this.getConversation(conversationId);
     if (!conversation) throw new Error('Conversation not found');
+
+    // Enforce 24hr messaging window — free-text/media only allowed within window
+    const windowStatus = WhatsAppChatService.getWindowStatus(conversation.last_inbound_at);
+    if (!windowStatus.withinWindow) {
+      throw new Error(
+        'Outside 24hr messaging window. Use template messages instead. ' +
+        'The prospect must send a message first to reopen the window.'
+      );
+    }
 
     let waResponse;
     let messageType = 'text';

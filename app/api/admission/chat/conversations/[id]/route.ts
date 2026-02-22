@@ -36,7 +36,10 @@ export async function GET(
     // Mark as read when viewing
     await WhatsAppChatService.markConversationRead(id);
 
-    return NextResponse.json({ data: conversation });
+    // Include 24hr messaging window status
+    const windowStatus = WhatsAppChatService.getWindowStatus(conversation.last_inbound_at);
+
+    return NextResponse.json({ data: { ...conversation, window_status: windowStatus } });
   } catch (error) {
     console.error('[chat/conversation] Error:', error);
     return NextResponse.json(
