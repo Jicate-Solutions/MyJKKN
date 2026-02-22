@@ -2850,9 +2850,14 @@ export function GetPages(pathname: string): MenuGroup[] {
 }
 
 // New function to filter menus based on user role permissions
+export interface RoleBasedPagesOptions {
+  isHostelResident?: boolean;
+}
+
 export function GetRoleBasedPages(
   pathname: string,
-  userRole?: CustomRole | null
+  userRole?: CustomRole | null,
+  options?: RoleBasedPagesOptions
 ): MenuGroup[] {
   const allMenus = GetPages(pathname);
 
