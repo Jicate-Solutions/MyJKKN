@@ -75,11 +75,17 @@ export function EmailLoginForm({ returnTo }: EmailLoginFormProps) {
     } catch (err: any) {
       console.error('Login error:', err);
       if (err.message?.includes('Invalid login credentials')) {
-        setError('Invalid email or password. Please try again.');
+        const msg = 'Invalid email or password. Please try again.';
+        setError(msg);
+        toast.error(msg);
       } else if (err.message?.includes('Email not confirmed')) {
-        setError('Please confirm your email address before logging in.');
+        const msg = 'Please confirm your email address before logging in.';
+        setError(msg);
+        toast.error(msg);
       } else {
-        setError(err.message || 'An error occurred during login.');
+        const msg = err.message || 'An error occurred during login.';
+        setError(msg);
+        toast.error(msg);
       }
     } finally {
       setLoading(false);
