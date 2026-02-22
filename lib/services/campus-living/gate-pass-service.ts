@@ -420,6 +420,123 @@ export class GatePassService {
     }
   }
 
+  // ══════════════════════════════════════════════════════════════════
+  // PARENT WORKFLOW — View child passes, cancel, confirm checkpoints
+  // ══════════════════════════════════════════════════════════════════
+
+  // ── Parent views child's gate passes ─────────────────────────────
+  static async getChildGatePasses(parentUserId: string) {
+    try {
+      const supabase = createClientSupabaseClient();
+
+      // First get linked learner IDs from parent_learner_links
+      const { data: links, error: linkError } = await supabase
+        .from('parent_learner_links')
+        .select('learner_id')
+        .eq('parent_id', parentUserId);
+
+      if (linkError) {
+        logger.error('campus-living/gate-pass', 'Failed to fetch parent-learner links', linkError);
+        throw linkError;
+      }
+
+      if (!links || links.length === 0) return [];
+
+      const learnerIds = links.map((l) => l.learner_id);
+
+      const { data, error } = await supabase
+        .from('hostel_gate_passes')
+        .select('*, learner:profiles!hostel_gate_passes_learner_id_fkey(id, full_name, email)')
+        .in('learner_id', learnerIds)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        logger.error('campus-living/gate-pass', 'Failed to fetch child gate passes', error);
+        throw error;
+      }
+      return data as (HostelGatePass & { learner: { id: string; full_name: string; email: string } | null })[];
+    } catch (error) {
+      logger.error('campus-living/gate-pass', 'Unexpected error in getChildGatePasses', error);
+      throw error;
+    }
+  }
+
+  // ── Cancel a gate pass (by parent or student) ────────────────────
+  static async cancelGatePass(id: string, cancelledBy: string, reason: string) {
+    try {
+      const supabase = createClientSupabaseClient();
+      const { data, error } = await supabase
+        .from('hostel_gate_passes')
+        .update({
+          status: 'cancelled',
+          cancelled_by: cancelledBy,
+          cancellation_reason: reason,
+        } as any)
+        .eq('id', id)
+        .select()
+        .single();
+
+      if (error) {
+        logger.error('campus-living/gate-pass', 'Failed to cancel gate pass', error);
+        throw error;
+      }
+      return data as HostelGatePass;
+    } catch (error) {
+      logger.error('campus-living/gate-pass', 'Unexpected error in cancelGatePass', error);
+      throw error;
+    }
+  }
+
+  // ── Parent confirms child reached home (home_visit checkpoint) ──
+  static async confirmReachedHome(id: string, parentUserId: string) {
+    try {
+      const supabase = createClientSupabaseClient();
+      const { data, error } = await supabase
+        .from('hostel_gate_passes')
+        .update({
+          reached_home_at: new Date().toISOString(),
+          reached_home_confirmed_by: parentUserId,
+        } as any)
+        .eq('id', id)
+        .select()
+        .single();
+
+      if (error) {
+        logger.error('campus-living/gate-pass', 'Failed to confirm reached home', error);
+        throw error;
+      }
+      return data as HostelGatePass;
+    } catch (error) {
+      logger.error('campus-living/gate-pass', 'Unexpected error in confirmReachedHome', error);
+      throw error;
+    }
+  }
+
+  // ── Parent confirms child left home (heading back to campus) ────
+  static async confirmLeftHome(id: string, parentUserId: string) {
+    try {
+      const supabase = createClientSupabaseClient();
+      const { data, error } = await supabase
+        .from('hostel_gate_passes')
+        .update({
+          left_home_at: new Date().toISOString(),
+          left_home_confirmed_by: parentUserId,
+        } as any)
+        .eq('id', id)
+        .select()
+        .single();
+
+      if (error) {
+        logger.error('campus-living/gate-pass', 'Failed to confirm left home', error);
+        throw error;
+      }
+      return data as HostelGatePass;
+    } catch (error) {
+      logger.error('campus-living/gate-pass', 'Unexpected error in confirmLeftHome', error);
+      throw error;
+    }
+  }
+
   // ── Staff views pending requests ────────────────────────────────
   static async getPendingRequests(institutionId: string) {
     try {

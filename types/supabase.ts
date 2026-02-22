@@ -9178,6 +9178,8 @@ export type Database = {
         Row: {
           actual_return: string | null
           approved_by: string | null
+          cancellation_reason: string | null
+          cancelled_by: string | null
           created_at: string | null
           destination: string
           expected_return: string
@@ -9187,11 +9189,17 @@ export type Database = {
           institution_id: string
           learner_id: string
           leave_request_id: string | null
+          left_campus_at: string | null
+          left_home_at: string | null
+          left_home_confirmed_by: string | null
           out_time: string | null
           parent_notified: boolean | null
           pass_number: string | null
           pass_type: Database["public"]["Enums"]["gate_pass_type_enum"]
           qr_code: string | null
+          reached_campus_at: string | null
+          reached_home_at: string | null
+          reached_home_confirmed_by: string | null
           reason: string | null
           rejected_by: string | null
           rejection_reason: string | null
@@ -9201,6 +9209,8 @@ export type Database = {
         Insert: {
           actual_return?: string | null
           approved_by?: string | null
+          cancellation_reason?: string | null
+          cancelled_by?: string | null
           created_at?: string | null
           destination: string
           expected_return: string
@@ -9210,11 +9220,17 @@ export type Database = {
           institution_id: string
           learner_id: string
           leave_request_id?: string | null
+          left_campus_at?: string | null
+          left_home_at?: string | null
+          left_home_confirmed_by?: string | null
           out_time?: string | null
           parent_notified?: boolean | null
           pass_number?: string | null
           pass_type: Database["public"]["Enums"]["gate_pass_type_enum"]
           qr_code?: string | null
+          reached_campus_at?: string | null
+          reached_home_at?: string | null
+          reached_home_confirmed_by?: string | null
           reason?: string | null
           rejected_by?: string | null
           rejection_reason?: string | null
@@ -9224,6 +9240,8 @@ export type Database = {
         Update: {
           actual_return?: string | null
           approved_by?: string | null
+          cancellation_reason?: string | null
+          cancelled_by?: string | null
           created_at?: string | null
           destination?: string
           expected_return?: string
@@ -9233,11 +9251,17 @@ export type Database = {
           institution_id?: string
           learner_id?: string
           leave_request_id?: string | null
+          left_campus_at?: string | null
+          left_home_at?: string | null
+          left_home_confirmed_by?: string | null
           out_time?: string | null
           parent_notified?: boolean | null
           pass_number?: string | null
           pass_type?: Database["public"]["Enums"]["gate_pass_type_enum"]
           qr_code?: string | null
+          reached_campus_at?: string | null
+          reached_home_at?: string | null
+          reached_home_confirmed_by?: string | null
           reason?: string | null
           rejected_by?: string | null
           rejection_reason?: string | null
@@ -9255,6 +9279,20 @@ export type Database = {
           {
             foreignKeyName: "hostel_gate_passes_approved_by_fkey"
             columns: ["approved_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_gate_passes_cancelled_by_fkey"
+            columns: ["cancelled_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "hostel_gate_passes_cancelled_by_fkey"
+            columns: ["cancelled_by"]
             isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
@@ -9320,6 +9358,34 @@ export type Database = {
             columns: ["leave_request_id"]
             isOneToOne: false
             referencedRelation: "hostel_leave_requests"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_gate_passes_left_home_confirmed_by_fkey"
+            columns: ["left_home_confirmed_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "hostel_gate_passes_left_home_confirmed_by_fkey"
+            columns: ["left_home_confirmed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hostel_gate_passes_reached_home_confirmed_by_fkey"
+            columns: ["reached_home_confirmed_by"]
+            isOneToOne: false
+            referencedRelation: "bug_reporters_leaderboard"
+            referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "hostel_gate_passes_reached_home_confirmed_by_fkey"
+            columns: ["reached_home_confirmed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
           {
@@ -34190,6 +34256,7 @@ export type Database = {
         | "overnight"
         | "emergency"
         | "visitor_accompanied"
+        | "home_visit"
       hostel_attendance_status_enum:
         | "present"
         | "absent"
@@ -35201,6 +35268,7 @@ export const Constants = {
         "overnight",
         "emergency",
         "visitor_accompanied",
+        "home_visit",
       ],
       hostel_attendance_status_enum: [
         "present",
