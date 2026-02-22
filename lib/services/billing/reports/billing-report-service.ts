@@ -935,7 +935,11 @@ export class BillingReportService {
       .order('created_at', { ascending: false })
       .limit(limit);
 
-    const { data } = await query;
+    const { data, error } = await query;
+    if (error) {
+      console.error('[billing/reports] Error in getRecentRefunds:', error.message);
+      throw error;
+    }
     return data || [];
   }
 
