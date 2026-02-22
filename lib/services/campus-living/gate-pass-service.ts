@@ -121,7 +121,7 @@ export class GatePassService {
 
       const { data, error } = await supabase
         .from('hostel_gate_passes')
-        .insert(passPayload)
+        .insert(passPayload as any)
         .select()
         .single();
 
