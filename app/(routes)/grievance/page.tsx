@@ -67,10 +67,21 @@ export default async function GrievancePage({ searchParams }: GrievancePageProps
   };
 
   // Fetch data server-side
-  const [ticketsData, stats] = await Promise.all([
-    getTickets(filters),
-    isStaff ? getDashboardStats(profile.institution_id) : null
-  ]);
+  let ticketsData: { data: any[]; metadata: { total: number; page: number; limit: number; totalPages: number } };
+  let stats: any = null;
+  try {
+    [ticketsData, stats] = await Promise.all([
+      getTickets(filters),
+      isStaff ? getDashboardStats(profile.institution_id) : null
+    ]);
+  } catch (error) {
+    console.error('[grievance] Error loading page:', error);
+    ticketsData = {
+      data: [],
+      metadata: { total: 0, page: 1, limit: 10, totalPages: 0 },
+    };
+    stats = null;
+  }
 
   return (
     <ContentLayout title="Grievance Tickets">
