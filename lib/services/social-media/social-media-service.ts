@@ -24,7 +24,6 @@ import type {
   CreateManualEntryDto,
   SmHealthStatus,
 } from '@/types/social-media';
-import { computeHealthScore } from '@/types/social-media';
 
 export class SocialMediaService {
   private static supabase = createClientSupabaseClient() as any;
