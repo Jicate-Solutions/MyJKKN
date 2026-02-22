@@ -224,18 +224,18 @@ export class OKRAutoTrackService {
         // Billing module
         'billing.collection_rate': async () => {
           const { data } = await (this.supabase as any)
-            .from('bills')
-            .select('bill_amount, bill_balance')
+            .from('billing_student_bills')
+            .select('total_amount, balance_amount')
             .gte('created_at', this.getDateRangeStart(config));
 
           if (!data || data.length === 0) return 0;
           const totalBilled = data.reduce(
-            (sum: number, b: any) => sum + (b.bill_amount || 0),
+            (sum: number, b: any) => sum + (b.total_amount || 0),
             0
           );
           const totalCollected = data.reduce(
             (sum: number, b: any) =>
-              sum + ((b.bill_amount || 0) - (b.bill_balance || 0)),
+              sum + ((b.total_amount || 0) - (b.balance_amount || 0)),
             0
           );
           return totalBilled > 0
@@ -245,11 +245,11 @@ export class OKRAutoTrackService {
 
         'billing.revenue_total': async () => {
           const { data } = await (this.supabase as any)
-            .from('receipts')
-            .select('amount')
+            .from('billing_receipts')
+            .select('payment_amount')
             .gte('created_at', this.getDateRangeStart(config));
 
-          return data?.reduce((sum: number, r: any) => sum + (r.amount || 0), 0) || 0;
+          return data?.reduce((sum: number, r: any) => sum + (r.payment_amount || 0), 0) || 0;
         },
 
         // Staff module
