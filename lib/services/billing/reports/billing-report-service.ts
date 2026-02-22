@@ -800,7 +800,11 @@ export class BillingReportService {
       query = query.lte('effective_date', dateTo);
     }
 
-    const { data } = await query;
+    const { data, error } = await query;
+    if (error) {
+      console.error('[billing/reports] Error in getTotalDiscounts:', error.message);
+      throw error;
+    }
     return (
       data?.reduce(
         (sum, discount: any) => sum + (discount.discount_amount || 0),
