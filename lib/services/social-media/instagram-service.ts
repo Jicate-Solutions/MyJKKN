@@ -129,7 +129,7 @@ export class InstagramService {
         return false;
       }
 
-      if (!cred?.access_token || !cred?.platform_user_id) return false;
+      if (!cred.access_token || !cred.platform_user_id) return false;
 
       this.graphCredential = {
         accessToken: cred.access_token,
