@@ -14,6 +14,7 @@ export const gatePassKeys = {
   detail: (id: string) => ['gate-passes', 'detail', id] as const,
   myPasses: (learnerId: string) => ['gate-passes', 'my-passes', learnerId] as const,
   pending: (institutionId: string) => ['gate-passes', 'pending', institutionId] as const,
+  childPasses: (parentUserId: string) => ['gate-passes', 'child-passes', parentUserId] as const,
 };
 
 // --- Query hooks ---
