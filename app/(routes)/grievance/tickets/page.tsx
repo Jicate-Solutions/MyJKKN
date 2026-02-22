@@ -30,13 +30,22 @@ export default async function GrievanceTicketsPage() {
   }
 
   // Fetch tickets using the shared data function
-  const ticketsResult = await getTickets({
-    institution_id: profile.institution_id,
-    page: 1,
-    limit: 50,
-    sortBy: 'created_at',
-    sortDirection: 'desc',
-  });
+  let ticketsResult: { data: any[]; metadata: { total: number; page: number; limit: number; totalPages: number } };
+  try {
+    ticketsResult = await getTickets({
+      institution_id: profile.institution_id,
+      page: 1,
+      limit: 50,
+      sortBy: 'created_at',
+      sortDirection: 'desc',
+    });
+  } catch (error) {
+    console.error('[grievance] Error loading tickets:', error);
+    ticketsResult = {
+      data: [],
+      metadata: { total: 0, page: 1, limit: 50, totalPages: 0 },
+    };
+  }
 
   const tickets = ticketsResult.data || [];
 
