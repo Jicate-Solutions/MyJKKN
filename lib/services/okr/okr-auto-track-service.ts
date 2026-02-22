@@ -190,13 +190,13 @@ export class OKRAutoTrackService {
 
         'academic.avg_grade': async () => {
           const { data } = await (this.supabase as any)
-            .from('student_grades')
-            .select('grade_points')
+            .from('lti_grades')
+            .select('score_percentage')
             .gte('created_at', this.getDateRangeStart(config));
 
           if (!data || data.length === 0) return 0;
           const avg =
-            data.reduce((sum: number, g: any) => sum + (g.grade_points || 0), 0) /
+            data.reduce((sum: number, g: any) => sum + (g.score_percentage || 0), 0) /
             data.length;
           return Math.round(avg * 100) / 100;
         },
