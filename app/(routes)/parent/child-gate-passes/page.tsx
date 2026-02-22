@@ -153,7 +153,7 @@ function HomeVisitTracker({
               confirmReachedHome.mutateAsync({
                 id: pass.id,
                 parentUserId,
-              })
+              }).catch(() => { /* Error toast shown by mutation onError */ })
           : null,
       actionLabel: 'Confirm Reached Home',
       actionColor: 'bg-green-600 hover:bg-green-700 text-white',
