@@ -202,6 +202,23 @@ export default function MyGatePassesPage() {
                         {pass.status === 'rejected' && pass.rejection_reason && (
                           <p className="text-xs text-red-600 mt-1">{pass.rejection_reason}</p>
                         )}
+                        {pass.status === 'cancelled' && pass.cancellation_reason && (
+                          <p className="text-xs text-muted-foreground mt-1">{pass.cancellation_reason}</p>
+                        )}
+                        {pass.pass_type === 'home_visit' && pass.status === 'active' && (
+                          <div className="flex items-center gap-1 mt-1.5">
+                            <div className={`h-2 w-2 rounded-full ${pass.left_campus_at ? 'bg-green-500' : 'bg-gray-300'}`} title="Left campus" />
+                            <ArrowRight className="h-2.5 w-2.5 text-muted-foreground" />
+                            <div className={`h-2 w-2 rounded-full ${pass.reached_home_at ? 'bg-green-500' : 'bg-gray-300'}`} title="Reached home" />
+                            <ArrowRight className="h-2.5 w-2.5 text-muted-foreground" />
+                            <div className={`h-2 w-2 rounded-full ${pass.left_home_at ? 'bg-green-500' : 'bg-gray-300'}`} title="Left home" />
+                            <ArrowRight className="h-2.5 w-2.5 text-muted-foreground" />
+                            <div className={`h-2 w-2 rounded-full ${pass.reached_campus_at ? 'bg-green-500' : 'bg-gray-300'}`} title="Reached campus" />
+                            <span className="text-[10px] text-muted-foreground ml-1">
+                              {pass.reached_campus_at ? 'Complete' : pass.left_home_at ? 'Returning' : pass.reached_home_at ? 'At home' : pass.left_campus_at ? 'In transit' : 'Pending'}
+                            </span>
+                          </div>
+                        )}
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">
                         {formatDateTime(pass.created_at)}
