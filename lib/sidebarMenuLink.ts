@@ -2174,8 +2174,9 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'My Gate Passes',
           active: pathname.startsWith('/learners/my-gate-passes'),
           icon: Key,
-          submenus: []
-        },
+          submenus: [],
+          requiresHostel: true
+        } as any,
 
         // Admin Features
         {
