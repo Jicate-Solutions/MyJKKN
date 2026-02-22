@@ -264,13 +264,17 @@ function CancelPassDialog({
   const cancelGatePass = useCancelGatePass();
 
   const handleCancel = async () => {
-    await cancelGatePass.mutateAsync({
-      id: passId,
-      cancelledBy: parentUserId,
-      reason,
-    });
-    setReason('');
-    setOpen(false);
+    try {
+      await cancelGatePass.mutateAsync({
+        id: passId,
+        cancelledBy: parentUserId,
+        reason,
+      });
+      setReason('');
+      setOpen(false);
+    } catch {
+      // Error toast shown by mutation onError — dialog stays open for retry
+    }
   };
 
   return (
