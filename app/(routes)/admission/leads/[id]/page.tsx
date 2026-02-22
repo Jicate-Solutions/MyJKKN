@@ -358,7 +358,10 @@ function LeadDetailPageContent() {
       const digits = lead.phone.replace(/\D/g, '');
       const intlPhone = digits.startsWith('91') && digits.length === 12 ? digits : `91${digits}`;
       const waUrl = `https://wa.me/${intlPhone}?text=${encodeURIComponent(sendMessage.trim())}`;
-      window.open(waUrl, '_blank', 'noopener,noreferrer');
+      const popW = 1100, popH = 700;
+      const popLeft = window.screenX + (window.outerWidth - popW) / 2;
+      const popTop = window.screenY + (window.outerHeight - popH) / 2;
+      window.open(waUrl, 'WhatsApp', `width=${popW},height=${popH},left=${popLeft},top=${popTop}`);
 
       // Log as activity (best-effort — don't block or show error to user)
       try {
