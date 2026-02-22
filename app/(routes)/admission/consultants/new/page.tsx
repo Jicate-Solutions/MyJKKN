@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
@@ -23,8 +23,8 @@ import {
   SelectValue
 } from '@/components/ui/select';
 import { PermissionGuard } from '@/components/auth/permission-guard';
-import { useAuth } from '@/hooks/use-auth';
-import { Loader2, Save, ArrowLeft, Handshake, Building, User, Wallet, Globe, Calendar } from 'lucide-react';
+import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
+import { Loader2, Save, ArrowLeft, Handshake, Building, Building2, User, Wallet, Globe, Calendar } from 'lucide-react';
 import Link from 'next/link';
 import { toast } from 'sonner';
 import { ConsultantService } from '@/lib/services/admission/consultant-service';
@@ -55,8 +55,12 @@ const CONSULTANT_TYPES: { value: ConsultantType; label: string }[] = [
 function NewConsultantForm() {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const { profile } = useAuth();
-  const institutionId = profile?.institution_id;
+  const { institutions, selectedInstitutionId } = useUserInstitutionAccess();
+  const [chosenInstitutionId, setChosenInstitutionId] = useState<string>('');
+
+  // Single-institution users → auto-use their institution
+  // Multi-institution / null-institution users (e.g. super_admin) → must select one
+  const institutionId = chosenInstitutionId || (institutions.length <= 1 ? selectedInstitutionId : undefined);
 
   const form = useForm<CreateConsultantInput>({
     resolver: zodResolver(createConsultantSchema),
@@ -114,7 +118,7 @@ function NewConsultantForm() {
   const onSubmit = (data: CreateConsultantInput) => {
     const resolvedInstitutionId = institutionId ?? data.institution_id;
     if (!resolvedInstitutionId) {
-      toast.error('Institution not loaded. Please refresh the page and try again.');
+      toast.error('Please select an institution before creating a consultant.');
       return;
     }
 
@@ -145,6 +149,26 @@ function NewConsultantForm() {
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+        {/* Institution selector — only shown when user has access to multiple institutions */}
+        {institutions.length > 1 && (
+          <div className="flex items-center gap-2 p-3 bg-muted/30 rounded-lg border">
+            <Building2 className="h-4 w-4 text-muted-foreground shrink-0" />
+            <span className="text-xs text-muted-foreground font-medium whitespace-nowrap">Institution:</span>
+            <Select value={chosenInstitutionId} onValueChange={setChosenInstitutionId}>
+              <SelectTrigger className="h-8 w-[280px] text-xs">
+                <SelectValue placeholder="Select institution for this consultant" />
+              </SelectTrigger>
+              <SelectContent>
+                {institutions.map((inst) => (
+                  <SelectItem key={inst.institution_id} value={inst.institution_id} className="text-xs">
+                    {inst.institution_name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+
         <Tabs defaultValue="basic" className="w-full">
           <TabsList className="grid w-full grid-cols-4">
             <TabsTrigger value="basic" className="flex items-center gap-2">
