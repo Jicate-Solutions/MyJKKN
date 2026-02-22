@@ -1403,7 +1403,7 @@ Please select a different date period that doesn't overlap.`
           logger.error('academic/timetables', 'Error in getTimetableSlots (all)', error);
           throw error;
         }
-        return data.map((item: any) => item.slot);
+        return (data || []).map((item: any) => item.slot);
       }
     } catch (error) {
       logger.error('academic/timetables', 'Error fetching timetable slots', error);
