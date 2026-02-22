@@ -157,7 +157,7 @@ export default async function GrievanceDashboardPage() {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {Object.entries(categoryStats).map(([category, data]) => {
+              {Object.entries(categoryStats).map(([category, data]: [string, { total: number; breached: number }]) => {
                 const breachRate = data.total > 0
                   ? (data.breached / data.total * 100).toFixed(0)
                   : '0';
