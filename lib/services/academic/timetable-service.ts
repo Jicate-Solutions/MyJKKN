@@ -1389,7 +1389,7 @@ Please select a different date period that doesn't overlap.`
           throw error;
         }
 
-        return data.map((item: any) => item.slot);
+        return (data || []).map((item: any) => item.slot);
       } else {
         // New logic to fetch all slots if no day or date is provided
         const { data, error } = await (this.supabase as any).rpc(
