@@ -734,7 +734,11 @@ export class LearnerProfileService {
       alumni: 0,
     };
 
-    const { data } = await query;
+    const { data, error } = await query;
+    if (error) {
+      console.error('[learners] Error fetching lifecycle counts:', error.message);
+      throw error;
+    }
     if (data) {
       (data as { lifecycle_status: LifecycleStatus }[]).forEach((row) => {
         const status = row.lifecycle_status;
