@@ -23,6 +23,7 @@ import {
 const passTypeOptions = [
   { value: 'regular_out', label: 'Regular Outing', description: 'Day outing for personal errands, shopping, etc.', maxHours: '12 hours' },
   { value: 'overnight', label: 'Overnight', description: 'Stay out overnight (requires parent notification)', maxHours: '24 hours' },
+  { value: 'home_visit', label: 'Home Visit', description: 'Going home — parent confirms arrival and departure via their portal', maxHours: 'As per leave' },
   { value: 'emergency', label: 'Emergency', description: 'Urgent medical or family emergency', maxHours: 'Flexible' },
   { value: 'visitor_accompanied', label: 'Visitor Accompanied', description: 'Going out with a visiting parent/guardian', maxHours: '8 hours' },
 ];
