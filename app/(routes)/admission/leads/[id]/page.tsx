@@ -253,34 +253,50 @@ function CommunicationItem({
     status: string | null;
     sentAt?: string | null;
     sent_at?: string | null;
+    createdAt?: string | null;
     channel?: string | { channel_name: string; channel_type: string } | null;
+    phone?: string | null;
   };
 }) {
-  // Support both camelCase (from hook) and snake_case (legacy) field names
-  const sentDate = message.sentAt || message.sent_at;
   const channelLabel = typeof message.channel === 'string'
     ? (message.channel === 'whatsapp' ? 'WhatsApp' : message.channel.toUpperCase())
     : message.channel?.channel_name || 'Message';
+  const isWhatsApp = typeof message.channel === 'string'
+    ? message.channel === 'whatsapp'
+    : false;
+
+  const statusColor: Record<string, string> = {
+    delivered: 'bg-green-50 text-green-700 border-green-200',
+    sent: 'bg-blue-50 text-blue-700 border-blue-200',
+    read: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+    failed: 'bg-red-50 text-red-700 border-red-200',
+    pending: 'bg-yellow-50 text-yellow-700 border-yellow-200',
+  };
 
   return (
     <div className="flex gap-3 pb-4 border-b last:border-0 last:pb-0">
       <div className="flex-shrink-0">
-        <div className="h-8 w-8 rounded-full bg-blue-100 flex items-center justify-center">
-          <MessageSquare className="h-4 w-4 text-blue-600" />
+        <div className={`h-8 w-8 rounded-full flex items-center justify-center ${isWhatsApp ? 'bg-green-100' : 'bg-blue-100'}`}>
+          <MessageSquare className={`h-4 w-4 ${isWhatsApp ? 'text-green-600' : 'text-blue-600'}`} />
         </div>
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
-          <p className="text-sm font-medium">
-            {channelLabel}
-          </p>
-          <Badge variant="outline" className="text-xs">
+          <p className="text-sm font-medium">{channelLabel}</p>
+          {message.phone && (
+            <span className="text-xs text-muted-foreground">{message.phone}</span>
+          )}
+          <Badge variant="outline" className={`text-xs ${statusColor[message.status || 'sent'] || ''}`}>
             {message.status || 'sent'}
           </Badge>
         </div>
         <p className="text-sm text-muted-foreground mt-1 line-clamp-2">{message.content}</p>
         <p className="text-xs text-muted-foreground mt-1">
-          {sentDate ? new Date(sentDate).toLocaleString() : '-'}
+          {(message.sentAt || message.sent_at)
+            ? new Date((message.sentAt || message.sent_at)!).toLocaleString()
+            : message.createdAt
+              ? new Date(message.createdAt).toLocaleString()
+              : '-'}
         </p>
       </div>
     </div>
@@ -346,7 +362,8 @@ function LeadDetailPageContent() {
     source: '',
   });
 
-  // Fetch programs for details display & Create Application dialog
+  // Fetch institution name and programs for details display & Create Application dialog
+  const [institutionName, setInstitutionName] = useState<string>('');
   const [programs, setPrograms] = useState<{ id: string; program_name: string }[]>([]);
   const [programsLoading, setProgramsLoading] = useState(false);
   useEffect(() => {
@@ -354,6 +371,20 @@ function LeadDetailPageContent() {
     if (lead?.institution_id) {
       setProgramsLoading(true);
       const supabase = createClientSupabaseClient();
+
+      // Fetch institution name
+      (supabase as any)
+        .from('institutions')
+        .select('name')
+        .eq('id', lead.institution_id)
+        .single()
+        .then(({ data, error }: { data: any; error: any }) => {
+          if (!error && data) {
+            setInstitutionName(data.name);
+          }
+        });
+
+      // Fetch programs
       supabase
         .from('programs')
         .select('id, program_name')
@@ -554,7 +585,6 @@ function LeadDetailPageContent() {
         title: activitySubject.trim(),
         description: activityDescription.trim() || undefined,
         outcome: activityOutcome.trim() || undefined,
-        completed_at: new Date().toISOString(),
       },
       {
         onSuccess: () => {
@@ -574,12 +604,13 @@ function LeadDetailPageContent() {
       return;
     }
     scheduleFollowup.mutate(
-      { leadId, followupDate, notes: followupNotes || undefined },
+      { leadId, followupDate, notes: followupNotes.trim() || undefined },
       {
         onSuccess: () => {
           setFollowupDate('');
           setFollowupNotes('');
           setShowFollowupDialog(false);
+          refetch();
         },
       }
     );
@@ -870,8 +901,12 @@ function LeadDetailPageContent() {
                 <TabsContent value="communication" className="mt-4">
                   <Card>
                     <CardHeader>
-                      <CardTitle className="text-base">Communication History</CardTitle>
-                      <CardDescription>Messages sent to this lead</CardDescription>
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <CardTitle className="text-base">Communication History</CardTitle>
+                          <CardDescription>SMS &amp; WhatsApp messages sent to this lead</CardDescription>
+                        </div>
+                      </div>
                     </CardHeader>
                     <CardContent>
                       {commLoading ? (
@@ -883,7 +918,10 @@ function LeadDetailPageContent() {
                       ) : communicationHistory.length === 0 ? (
                         <div className="text-center py-8 text-muted-foreground">
                           <MessageSquare className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                          <p>No messages sent yet</p>
+                          <p className="font-medium">No messages sent yet</p>
+                          <p className="text-sm mt-1">
+                            SMS and WhatsApp messages sent to this lead via campaigns or direct messaging will appear here.
+                          </p>
                         </div>
                       ) : (
                         <div className="space-y-4">
@@ -949,6 +987,10 @@ function LeadDetailPageContent() {
                     </CardHeader>
                     <CardContent>
                       <dl className="grid grid-cols-2 gap-4">
+                        <div>
+                          <dt className="text-sm text-muted-foreground">Institution</dt>
+                          <dd className="font-medium">{institutionName || '-'}</dd>
+                        </div>
                         <div>
                           <dt className="text-sm text-muted-foreground">Entry Date</dt>
                           <dd className="font-medium">
@@ -1385,6 +1427,68 @@ function LeadDetailPageContent() {
                 </CardContent>
               </Card>
 
+              {/* Next Follow-up */}
+              {(lead as any).next_followup_at && (
+                <Card className="border-primary/30 bg-primary/5">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <Calendar className="h-4 w-4 text-primary" />
+                      Next Follow-up
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-lg font-semibold">
+                      {new Date((lead as any).next_followup_at).toLocaleDateString(undefined, {
+                        weekday: 'short',
+                        year: 'numeric',
+                        month: 'short',
+                        day: 'numeric',
+                      })}
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      {new Date((lead as any).next_followup_at).toLocaleTimeString(undefined, {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}
+                    </p>
+                    {(() => {
+                      const followupTime = new Date((lead as any).next_followup_at).getTime();
+                      const now = Date.now();
+                      const diffMs = followupTime - now;
+                      const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+                      if (diffDays < 0) {
+                        return (
+                          <Badge variant="destructive" className="mt-2">
+                            Overdue by {Math.abs(diffDays)} day{Math.abs(diffDays) !== 1 ? 's' : ''}
+                          </Badge>
+                        );
+                      } else if (diffDays === 0) {
+                        return <Badge className="mt-2 bg-orange-500">Due Today</Badge>;
+                      } else if (diffDays <= 3) {
+                        return (
+                          <Badge variant="outline" className="mt-2 border-orange-300 text-orange-700 bg-orange-50">
+                            In {diffDays} day{diffDays !== 1 ? 's' : ''}
+                          </Badge>
+                        );
+                      }
+                      return (
+                        <Badge variant="outline" className="mt-2">
+                          In {diffDays} days
+                        </Badge>
+                      );
+                    })()}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-full mt-3"
+                      onClick={() => setShowFollowupDialog(true)}
+                    >
+                      Reschedule
+                    </Button>
+                  </CardContent>
+                </Card>
+              )}
+
               {/* Quick Info */}
               <Card>
                 <CardHeader>
@@ -1402,6 +1506,15 @@ function LeadDetailPageContent() {
                       </p>
                     </div>
                   </div>
+                  {!(lead as any).next_followup_at && (
+                    <div className="flex items-center gap-3">
+                      <Calendar className="h-4 w-4 text-muted-foreground opacity-50" />
+                      <div>
+                        <p className="text-xs text-muted-foreground">Next Follow-up</p>
+                        <p className="text-sm text-muted-foreground italic">Not scheduled</p>
+                      </div>
+                    </div>
+                  )}
                   <div className="flex items-center gap-3">
                     <Clock className="h-4 w-4 text-muted-foreground" />
                     <div>

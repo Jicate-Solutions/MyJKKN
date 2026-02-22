@@ -547,7 +547,7 @@ export class DailyBriefingService {
       .lte('created_at', endOfYesterday);
 
     if (role === 'counselor') {
-      activityQuery = activityQuery.eq('created_by', userId);
+      activityQuery = activityQuery.eq('performed_by', userId);
     }
 
     const { data: activities, error: activitiesError } = await activityQuery;

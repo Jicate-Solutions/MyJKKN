@@ -600,6 +600,23 @@ export function useLeadMutations() {
 // APPLICATIONS HOOKS
 // ============================================
 
+export function useAdmissionApplication(applicationId: string) {
+  const query = useQuery({
+    queryKey: ['admission-application', applicationId],
+    queryFn: async () => {
+      return ApplicationService.getApplication(applicationId);
+    },
+    enabled: !!applicationId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(applicationId)
+  });
+
+  return {
+    application: query.data || null,
+    isLoading: query.isLoading,
+    refetch: query.refetch,
+    ...query
+  };
+}
+
 export function useAdmissionApplications(filters?: any) {
   const query = useQuery({
     queryKey: ['admission-applications', filters],
@@ -654,6 +671,7 @@ export function useApplicationMutations() {
     onSuccess: () => {
       toast.success('Application updated successfully');
       queryClient.invalidateQueries({ queryKey: ['admission-applications'] });
+      queryClient.invalidateQueries({ queryKey: ['admission-application'] });
     },
     onError: (error: Error) => {
       toast.error(error.message || 'Failed to update application');
@@ -669,6 +687,7 @@ export function useApplicationMutations() {
       queryClient.invalidateQueries({ queryKey: ['admission-applications'] });
       queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
       queryClient.invalidateQueries({ queryKey: ['admission-lead'] });
+      queryClient.invalidateQueries({ queryKey: ['admission-application'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
       queryClient.invalidateQueries({ queryKey: ['admission-dashboard'] });
       queryClient.invalidateQueries({ queryKey: ['funnel-summary'] });

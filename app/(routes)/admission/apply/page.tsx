@@ -33,8 +33,10 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
+  Download,
   FileText,
   GraduationCap,
+  Home,
   User,
   Upload,
   ClipboardCheck,
@@ -44,7 +46,8 @@ import {
   Calendar,
   Phone,
   Mail,
-  MapPin
+  MapPin,
+  Plus
 } from 'lucide-react';
 import { AdmissionErrorBoundary } from '@/components/admission';
 
@@ -233,6 +236,8 @@ function ApplicationPortalPageContent() {
   const [isSaving, setIsSaving] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [showSavedMessage, setShowSavedMessage] = useState(false);
+  const [isSubmitted, setIsSubmitted] = useState(false);
+  const [submittedAppId, setSubmittedAppId] = useState('');
 
   // Load saved application on mount
   useEffect(() => {
@@ -254,8 +259,9 @@ function ApplicationPortalPageContent() {
     }
   }, [searchParams]);
 
-  // Auto-save on form change
+  // Auto-save on form change (skip if already submitted)
   useEffect(() => {
+    if (isSubmitted) return;
     const saveTimer = setTimeout(() => {
       if (formData.firstName || formData.email) {
         saveToLocalStorage();
@@ -263,7 +269,7 @@ function ApplicationPortalPageContent() {
     }, 2000);
 
     return () => clearTimeout(saveTimer);
-  }, [formData]);
+  }, [formData, isSubmitted]);
 
   const saveToLocalStorage = () => {
     const dataToSave = {
@@ -361,18 +367,45 @@ function ApplicationPortalPageContent() {
     // Simulate submission
     await new Promise(resolve => setTimeout(resolve, 1500));
 
+    const appId = `APP-${Date.now().toString(36).toUpperCase()}`;
     const finalData = {
       ...formData,
       status: 'submitted' as const,
-      applicationId: `APP-${Date.now().toString(36).toUpperCase()}`
+      applicationId: appId
     };
 
     setFormData(finalData);
     localStorage.removeItem('jkkn_application_draft');
     setIsSaving(false);
+    setSubmittedAppId(appId);
+    setIsSubmitted(true);
+    window.scrollTo(0, 0);
 
-    // Show success and redirect
-    toast.success(`Application submitted! ID: ${finalData.applicationId}`);
+    toast.success(`Application submitted successfully!`);
+  };
+
+  const handleBackToHome = () => {
+    setFormData({ ...initialData });
+    setCurrentStep(1);
+    setErrors({});
+    setIsSubmitted(false);
+    setSubmittedAppId('');
+    localStorage.removeItem('jkkn_application_draft');
+    router.push('/admission/dashboard');
+  };
+
+  const handleStartNewApplication = () => {
+    setFormData({ ...initialData });
+    setCurrentStep(1);
+    setErrors({});
+    setIsSubmitted(false);
+    setSubmittedAppId('');
+    localStorage.removeItem('jkkn_application_draft');
+    window.scrollTo(0, 0);
+  };
+
+  const handleDownloadPDF = () => {
+    window.print();
   };
 
   const handleDocumentUpload = (docType: keyof ApplicationData['documents']) => {
@@ -389,6 +422,80 @@ function ApplicationPortalPageContent() {
   };
 
   const progress = (currentStep / STEPS.length) * 100;
+
+  const renderSuccessView = () => (
+    <div className="max-w-2xl mx-auto">
+      <Card className="border-green-200 dark:border-green-900">
+        <CardContent className="pt-8 pb-8 text-center space-y-6">
+          {/* Success icon */}
+          <div className="flex justify-center">
+            <div className="w-20 h-20 bg-green-100 dark:bg-green-950/40 rounded-full flex items-center justify-center">
+              <Check className="h-10 w-10 text-green-600 dark:text-green-400" />
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <h2 className="text-2xl font-bold text-green-800 dark:text-green-200">
+              Application Submitted Successfully!
+            </h2>
+            <p className="text-muted-foreground">
+              Your application has been received and is under review.
+            </p>
+          </div>
+
+          {/* Application details */}
+          <div className="bg-muted/50 rounded-lg p-4 space-y-2 text-sm">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Application ID</span>
+              <span className="font-semibold">{submittedAppId}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Applicant</span>
+              <span className="font-medium">{formData.firstName} {formData.lastName}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Program</span>
+              <span className="font-medium">{formData.programName}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Institution</span>
+              <span className="font-medium">{formData.institutionName}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Status</span>
+              <Badge className="bg-green-100 text-green-800 dark:bg-green-950/40 dark:text-green-300">
+                Submitted
+              </Badge>
+            </div>
+          </div>
+
+          <p className="text-sm text-muted-foreground">
+            A confirmation email has been sent to <span className="font-medium">{formData.email}</span>.
+            You can track your application status using the Application ID above.
+          </p>
+
+          {/* Action buttons */}
+          <div className="flex flex-col sm:flex-row gap-3 justify-center pt-2">
+            <Button variant="outline" onClick={handleDownloadPDF} className="gap-2">
+              <Download className="h-4 w-4" />
+              Download as PDF
+            </Button>
+            <Button onClick={handleBackToHome} className="gap-2 bg-green-600 hover:bg-green-700">
+              <Home className="h-4 w-4" />
+              Back to Home
+            </Button>
+          </div>
+
+          <Separator />
+
+          <Button variant="ghost" onClick={handleStartNewApplication} className="gap-2 text-muted-foreground">
+            <Plus className="h-4 w-4" />
+            Start New Application
+          </Button>
+        </CardContent>
+      </Card>
+    </div>
+  );
 
   const renderStepIndicator = () => (
     <div className="mb-8">
@@ -1236,73 +1343,80 @@ function ApplicationPortalPageContent() {
           <p className="text-muted-foreground mt-2">Online Application Portal - Academic Year 2026-27</p>
         </div>
 
-        {/* Progress bar */}
-        <div className="mb-2">
-          <Progress value={progress} className="h-2" />
-        </div>
-        <p className="text-xs text-muted-foreground text-right mb-4">
-          Step {currentStep} of {STEPS.length} ({Math.round(progress)}% complete)
-        </p>
-
-        {/* Step indicator */}
-        {renderStepIndicator()}
-
-        {/* Main content */}
-        <Card>
-          <CardHeader>
-            <div className="flex justify-between items-start">
-              <div>
-                <CardTitle>{STEPS[currentStep - 1].title}</CardTitle>
-                <CardDescription>{STEPS[currentStep - 1].description}</CardDescription>
-              </div>
-              {showSavedMessage && (
-                <Badge variant="outline" className="bg-green-50 text-green-700 dark:bg-green-950/50 dark:text-green-300">
-                  <Check className="h-3 w-3 mr-1" /> Saved
-                </Badge>
-              )}
+        {isSubmitted ? (
+          /* Success view after submission */
+          renderSuccessView()
+        ) : (
+          <>
+            {/* Progress bar */}
+            <div className="mb-2">
+              <Progress value={progress} className="h-2" />
             </div>
-          </CardHeader>
-          <CardContent>
-            {currentStep === 1 && renderStep1()}
-            {currentStep === 2 && renderStep2()}
-            {currentStep === 3 && renderStep3()}
-            {currentStep === 4 && renderStep4()}
-            {currentStep === 5 && renderStep5()}
-          </CardContent>
-          <CardFooter className="flex justify-between border-t pt-6">
-            <div className="flex gap-2">
-              {currentStep > 1 && (
-                <Button variant="outline" onClick={handlePrevious}>
-                  <ChevronLeft className="h-4 w-4 mr-1" />
-                  Previous
-                </Button>
-              )}
-            </div>
-            <div className="flex gap-2">
-              <Button variant="outline" onClick={handleSaveDraft} disabled={isSaving}>
-                {isSaving ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Save className="h-4 w-4 mr-1" />}
-                Save Draft
-              </Button>
-              {currentStep < STEPS.length ? (
-                <Button onClick={handleNext}>
-                  Next
-                  <ChevronRight className="h-4 w-4 ml-1" />
-                </Button>
-              ) : (
-                <Button onClick={handleSubmit} disabled={isSaving} className="bg-green-600 hover:bg-green-700">
-                  {isSaving ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Check className="h-4 w-4 mr-1" />}
-                  Submit Application
-                </Button>
-              )}
-            </div>
-          </CardFooter>
-        </Card>
+            <p className="text-xs text-muted-foreground text-right mb-4">
+              Step {currentStep} of {STEPS.length} ({Math.round(progress)}% complete)
+            </p>
 
-        {/* Last saved info */}
-        {formData.lastSaved && (
-          <p className="text-xs text-muted-foreground text-center mt-4">
-            Last saved: {format(new Date(formData.lastSaved), 'dd MMM yyyy, hh:mm a')}
-          </p>
+            {/* Step indicator */}
+            {renderStepIndicator()}
+
+            {/* Main content */}
+            <Card>
+              <CardHeader>
+                <div className="flex justify-between items-start">
+                  <div>
+                    <CardTitle>{STEPS[currentStep - 1].title}</CardTitle>
+                    <CardDescription>{STEPS[currentStep - 1].description}</CardDescription>
+                  </div>
+                  {showSavedMessage && (
+                    <Badge variant="outline" className="bg-green-50 text-green-700 dark:bg-green-950/50 dark:text-green-300">
+                      <Check className="h-3 w-3 mr-1" /> Saved
+                    </Badge>
+                  )}
+                </div>
+              </CardHeader>
+              <CardContent>
+                {currentStep === 1 && renderStep1()}
+                {currentStep === 2 && renderStep2()}
+                {currentStep === 3 && renderStep3()}
+                {currentStep === 4 && renderStep4()}
+                {currentStep === 5 && renderStep5()}
+              </CardContent>
+              <CardFooter className="flex justify-between border-t pt-6">
+                <div className="flex gap-2">
+                  {currentStep > 1 && (
+                    <Button variant="outline" onClick={handlePrevious}>
+                      <ChevronLeft className="h-4 w-4 mr-1" />
+                      Previous
+                    </Button>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <Button variant="outline" onClick={handleSaveDraft} disabled={isSaving}>
+                    {isSaving ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Save className="h-4 w-4 mr-1" />}
+                    Save Draft
+                  </Button>
+                  {currentStep < STEPS.length ? (
+                    <Button onClick={handleNext}>
+                      Next
+                      <ChevronRight className="h-4 w-4 ml-1" />
+                    </Button>
+                  ) : (
+                    <Button onClick={handleSubmit} disabled={isSaving} className="bg-green-600 hover:bg-green-700">
+                      {isSaving ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Check className="h-4 w-4 mr-1" />}
+                      Submit Application
+                    </Button>
+                  )}
+                </div>
+              </CardFooter>
+            </Card>
+
+            {/* Last saved info */}
+            {formData.lastSaved && (
+              <p className="text-xs text-muted-foreground text-center mt-4">
+                Last saved: {format(new Date(formData.lastSaved), 'dd MMM yyyy, hh:mm a')}
+              </p>
+            )}
+          </>
         )}
 
         {/* Help section */}

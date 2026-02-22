@@ -78,6 +78,9 @@ interface FormData {
   alternate_phone: string;
   date_of_birth: string;
   gender: string;
+  parent_name: string;
+  parent_phone: string;
+  parent_email: string;
   address_line1: string;
   city: string;
   state: string;
@@ -122,7 +125,7 @@ function NewLeadPageContent() {
     }
   }, [profile?.institution_id, isSuperAdmin, institutions]);
 
-  const institutionId = selectedInstitutionId || profile?.institution_id;
+  const institutionId = selectedInstitutionId;
 
   // Programs loaded based on selected institution
   const [programs, setPrograms] = useState<ProgramOption[]>([]);
@@ -213,6 +216,9 @@ function NewLeadPageContent() {
     alternate_phone: '',
     date_of_birth: '',
     gender: '',
+    parent_name: '',
+    parent_phone: '',
+    parent_email: '',
     address_line1: '',
     city: '',
     state: 'tamil_nadu',
@@ -608,6 +614,48 @@ function NewLeadPageContent() {
                           )}
                         </>
                       )}
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Parent / Guardian */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Parent / Guardian</CardTitle>
+                    <CardDescription>Parent or guardian contact information</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="parent_name">Parent / Guardian Name</Label>
+                        <Input
+                          id="parent_name"
+                          value={formData.parent_name}
+                          onChange={(e) => handleChange('parent_name', e.target.value)}
+                          placeholder="Enter parent or guardian name"
+                        />
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="parent_phone">Parent / Guardian Phone</Label>
+                        <Input
+                          id="parent_phone"
+                          value={formData.parent_phone}
+                          onChange={(e) => handleChange('parent_phone', e.target.value)}
+                          placeholder="Enter phone number"
+                        />
+                      </div>
+
+                      <div className="space-y-2 md:col-span-2">
+                        <Label htmlFor="parent_email">Parent / Guardian Email</Label>
+                        <Input
+                          id="parent_email"
+                          type="email"
+                          value={formData.parent_email}
+                          onChange={(e) => handleChange('parent_email', e.target.value)}
+                          placeholder="Enter email address"
+                        />
+                      </div>
                     </div>
                   </CardContent>
                 </Card>

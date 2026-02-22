@@ -16,6 +16,10 @@ export interface ApplicationFilters {
   search?: string;
   page?: number;
   limit?: number;
+  sort_by?: string;
+  sort_order?: 'asc' | 'desc';
+  date_from?: string;
+  date_to?: string;
 }
 
 export interface ApplicationListResponse {
@@ -84,9 +88,20 @@ export class ApplicationService {
     }
     if (filters.search) {
       const s = filters.search.replace(/[%_\\]/g, '\\$&');
-      // Only application_number is a flat column; personal details are in form_data JSONB
-      query = query.ilike('application_number', `%${s}%`);
+      query = query.or(`application_number.ilike.%${s}%,full_name.ilike.%${s}%,email.ilike.%${s}%,phone.ilike.%${s}%`);
     }
+
+    // Date range filters
+    if (filters.date_from) {
+      query = query.gte('created_at', filters.date_from);
+    }
+    if (filters.date_to) {
+      query = query.lte('created_at', filters.date_to);
+    }
+
+    // Sorting
+    const sortBy = filters.sort_by || 'created_at';
+    const ascending = (filters.sort_order || 'desc') === 'asc';
 
     // Pagination
     const page = filters.page || 1;
@@ -95,7 +110,7 @@ export class ApplicationService {
     const to = from + limit - 1;
 
     query = query
-      .order('created_at', { ascending: false })
+      .order(sortBy, { ascending })
       .range(from, to);
 
     const { data, count, error } = await query;
@@ -208,14 +223,22 @@ export class ApplicationService {
         });
 
       // Log activity on the lead
+      const { data: leadForActivity } = await this.supabase
+        .from('admission_leads')
+        .select('institution_id')
+        .eq('id', input.lead_id)
+        .single();
+
       await this.supabase
         .from('admission_lead_activities')
         .insert({
           lead_id: input.lead_id,
+          institution_id: leadForActivity?.institution_id || input.institution_id,
           activity_type: 'note',
-          subject: 'Application Created',
+          title: 'Application Created',
           description: `Application ${applicationNumber} was created from this lead`,
-          created_by: user?.id || null,
+          metadata: {},
+          performed_by: user?.id || null,
         });
     }
 

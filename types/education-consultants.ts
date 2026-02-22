@@ -27,7 +27,7 @@ export type QueryPriority = 'low' | 'medium' | 'high' | 'urgent';
 
 export type DocumentType = 'contract' | 'agreement' | 'pan_card' | 'gst_certificate' | 'bank_proof' | 'identity' | 'other';
 
-export type RewardType = 'discount' | 'cashback' | 'credit' | 'voucher' | 'merchandise';
+export type RewardType = 'discount' | 'fee_discount' | 'cashback' | 'cash' | 'credit' | 'credits' | 'voucher' | 'merchandise';
 
 export type RewardStatus = 'pending' | 'earned' | 'approved' | 'redeemed' | 'expired' | 'cancelled';
 
@@ -638,17 +638,25 @@ export interface ReferralRewardConfig {
   reward_value_type: 'percentage' | 'flat';
 
   // Eligibility
-  referrer_types: ConsultantType[];
-  min_referrals: number;
+  referrer_type: string;
+  min_referrals_required: number;
 
   // Triggers
   trigger_stage: string;
   trigger_conditions: Record<string, unknown> | null;
 
   // Limits
-  max_rewards_per_referrer: number | null;
-  max_rewards_per_period: number | null;
-  period_type: 'monthly' | 'yearly' | 'all_time' | null;
+  max_referrals_per_year: number | null;
+  max_reward_amount: number | null;
+  min_reward_amount: number | null;
+
+  // Programs
+  applicable_programs: string[] | null;
+  applicable_degrees: string[] | null;
+
+  // Stacking
+  stackable: boolean;
+  max_stacking_count: number | null;
 
   // Validity
   valid_from: string;
@@ -659,6 +667,9 @@ export interface ReferralRewardConfig {
   created_at: string;
   updated_at: string;
   created_by: string | null;
+  updated_by: string | null;
+
+  [key: string]: any;
 }
 
 export interface CreateRewardConfigInput {
@@ -668,14 +679,14 @@ export interface CreateRewardConfigInput {
   reward_type: RewardType;
   reward_value: number;
   reward_value_type: 'percentage' | 'flat';
-  referrer_types: ConsultantType[];
-  min_referrals?: number;
+  referrer_type: string;
+  min_referrals_required?: number;
   trigger_stage: string;
   trigger_conditions?: Record<string, unknown> | null;
-  max_rewards_per_referrer?: number | null;
-  max_rewards_per_period?: number | null;
-  period_type?: 'monthly' | 'yearly' | 'all_time' | null;
-  valid_from: string;
+  max_referrals_per_year?: number | null;
+  max_reward_amount?: number | null;
+  min_reward_amount?: number | null;
+  valid_from?: string;
   valid_to?: string | null;
   is_active?: boolean;
 }

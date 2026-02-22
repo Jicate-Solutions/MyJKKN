@@ -1,5 +1,9 @@
 // lib/services/admission/activity-service.ts
 // Admission Lead Activities Service - Enhanced timeline functionality
+// v2 - Fixed column mapping: title (not subject), performed_by (not created_by)
+//
+// DB table: admission_lead_activities
+// Actual columns: id, lead_id, institution_id, activity_type, title, description, metadata, performed_by, created_at
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 
@@ -53,7 +57,6 @@ export interface CreateActivityInput {
   description?: string;
   outcome?: string;
   scheduled_at?: string;
-  completed_at?: string;
 }
 
 export interface ActivityStats {
@@ -68,6 +71,25 @@ export interface ActivityStats {
 export class ActivityService {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private static supabase: any = createClientSupabaseClient();
+
+  /**
+   * Normalize a DB row to the LeadActivity interface used by the rest of the code.
+   * DB columns: title, performed_by, metadata → Code fields: subject, created_by, outcome, scheduled_at
+   */
+  private static normalizeActivity(row: any): LeadActivity {
+    const meta = row.metadata || {};
+    return {
+      id: row.id,
+      lead_id: row.lead_id,
+      activity_type: row.activity_type,
+      subject: row.title || null,
+      description: row.description || null,
+      outcome: meta.outcome || null,
+      scheduled_at: meta.scheduled_at || null,
+      created_by: row.performed_by || null,
+      created_at: row.created_at,
+    };
+  }
 
   // ============================================================================
   // ACTIVITY CRUD
@@ -88,21 +110,20 @@ export class ActivityService {
       throw new Error('Failed to fetch activities');
     }
 
-    return data || [];
+    return (data || []).map((row: any) => this.normalizeActivity(row));
   }
 
   /**
    * Create a new activity and update last_activity_at on the lead
    */
   static async createActivity(input: CreateActivityInput): Promise<LeadActivity> {
-    // Get current user for created_by
+    // Get current user
     const { data: { user } } = await this.supabase.auth.getUser();
 
     // Build metadata from optional fields that don't have dedicated DB columns
     const metadata: Record<string, unknown> = {};
     if (input.outcome) metadata.outcome = input.outcome;
     if (input.scheduled_at) metadata.scheduled_at = input.scheduled_at;
-    if (input.completed_at) metadata.completed_at = input.completed_at;
 
     const { data, error } = await this.supabase
       .from('admission_lead_activities')
@@ -141,23 +162,38 @@ export class ActivityService {
 
     if (leadError) {
       console.warn('[admission/activities] Could not update last_activity_at on lead:', leadError.message);
-      // Don't throw - the activity was created successfully
     }
 
-    return data;
+    return this.normalizeActivity(data);
   }
 
   /**
    * Update an activity
    */
   static async updateActivity(id: string, updates: Partial<CreateActivityInput>): Promise<LeadActivity> {
-    // Exclude non-DB fields from updates to prevent PostgREST errors
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { lead_id: _leadId, institution_id: _instId, outcome: _outcome, scheduled_at: _schedAt, completed_at: _compAt, ...safeUpdates } = updates;
+    // Map code fields to DB columns
+    const dbUpdates: Record<string, unknown> = {};
+    if (updates.activity_type !== undefined) dbUpdates.activity_type = updates.activity_type;
+    if (updates.title !== undefined) dbUpdates.title = updates.title;
+    if (updates.description !== undefined) dbUpdates.description = updates.description;
+
+    // For metadata fields (outcome, scheduled_at), merge into existing metadata
+    if (updates.outcome !== undefined || updates.scheduled_at !== undefined) {
+      const { data: current } = await this.supabase
+        .from('admission_lead_activities')
+        .select('metadata')
+        .eq('id', id)
+        .single();
+
+      const meta = { ...(current?.metadata || {}) };
+      if (updates.outcome !== undefined) meta.outcome = updates.outcome;
+      if (updates.scheduled_at !== undefined) meta.scheduled_at = updates.scheduled_at;
+      dbUpdates.metadata = meta;
+    }
 
     const { data, error } = await this.supabase
       .from('admission_lead_activities')
-      .update(safeUpdates)
+      .update(dbUpdates)
       .eq('id', id)
       .select()
       .single();
@@ -167,7 +203,7 @@ export class ActivityService {
       throw new Error('Failed to update activity');
     }
 
-    return data;
+    return this.normalizeActivity(data);
   }
 
   /**
@@ -245,7 +281,6 @@ export class ActivityService {
         activity_type: activity.activity_type,
         outcome: activity.outcome,
         scheduled_at: activity.scheduled_at,
-        completed_at: activity.completed_at,
       },
       icon: this.getActivityIcon(activity.activity_type),
       color: this.getActivityColor(activity.activity_type),

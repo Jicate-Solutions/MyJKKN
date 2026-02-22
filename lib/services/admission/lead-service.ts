@@ -609,11 +609,19 @@ export class LeadService {
   static async scheduleFollowup(leadId: string, followupDate: string, notes?: string): Promise<AdmissionLead> {
     const { data: { user } } = await (this.supabase as any).auth.getUser();
 
-    // 1. Create a follow-up activity record (use actual DB columns: title, performed_by)
+    // 1. Fetch institution_id from the lead (required NOT NULL column in activities table)
+    const { data: leadRow } = await (this.supabase as any)
+      .from('admission_leads')
+      .select('institution_id')
+      .eq('id', leadId)
+      .single();
+
+    // 2. Create a follow-up activity record (use actual DB columns: title, performed_by)
     const { error: activityError } = await (this.supabase as any)
       .from('admission_lead_activities')
       .insert({
         lead_id: leadId,
+        institution_id: leadRow?.institution_id,
         activity_type: 'task',
         title: 'Follow-up Scheduled',
         description: notes || `Follow-up scheduled for ${new Date(followupDate).toLocaleDateString()}`,

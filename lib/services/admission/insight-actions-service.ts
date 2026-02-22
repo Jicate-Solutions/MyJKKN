@@ -606,11 +606,12 @@ export class InsightActionsService {
       .from('admission_lead_activities')
       .insert({
         lead_id: leadId,
+        institution_id: context.institution_id,
         activity_type: params.followup_type || 'call',
-        subject: 'Scheduled Follow-up',
+        title: 'Scheduled Follow-up',
         description: params.task_description || 'Follow-up from AI insight action',
-        scheduled_at: params.followup_date,
-        created_by: context.user_id,
+        metadata: { scheduled_at: params.followup_date },
+        performed_by: context.user_id,
       });
 
     // FIX: next_followup_date does not exist in DB → update last_contact_at instead
@@ -643,11 +644,12 @@ export class InsightActionsService {
       .from('admission_lead_activities')
       .insert({
         lead_id: leadId,
+        institution_id: context.institution_id,
         activity_type: 'task',
-        subject: 'Counselor Assignment',
+        title: 'Counselor Assignment',
         description: `Lead assigned via AI insight action`,
-        completed_at: new Date().toISOString(),
-        created_by: context.user_id,
+        metadata: {},
+        performed_by: context.user_id,
       });
   }
 
