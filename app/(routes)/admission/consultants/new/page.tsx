@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
@@ -60,7 +61,7 @@ function NewConsultantForm() {
   const form = useForm<CreateConsultantInput>({
     resolver: zodResolver(createConsultantSchema),
     defaultValues: {
-      institution_id: institutionId || '',
+      institution_id: institutionId ?? '',
       name: '',
       email: '',
       phone: '',
@@ -89,6 +90,13 @@ function NewConsultantForm() {
     }
   });
 
+  // Sync institution_id into the form once the auth profile loads
+  useEffect(() => {
+    if (institutionId) {
+      form.setValue('institution_id', institutionId);
+    }
+  }, [institutionId, form]);
+
   const createMutation = useMutation({
     mutationFn: (data: CreateConsultantInput) =>
       ConsultantService.createConsultant(data),
@@ -104,11 +112,17 @@ function NewConsultantForm() {
   });
 
   const onSubmit = (data: CreateConsultantInput) => {
+    const resolvedInstitutionId = institutionId ?? data.institution_id;
+    if (!resolvedInstitutionId) {
+      toast.error('Institution not loaded. Please refresh the page and try again.');
+      return;
+    }
+
     // Transform form field names to match DB column names
     const { address, notes, website, bank_account_holder, geographic_coverage, specializations, programs_handled, ...rest } = data as any;
     const dbData: Record<string, any> = {
       ...rest,
-      institution_id: institutionId!,
+      institution_id: resolvedInstitutionId,
       // address → address_line1
       ...(address ? { address_line1: address } : {}),
       // notes → internal_notes
