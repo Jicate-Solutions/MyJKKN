@@ -837,7 +837,11 @@ export class BillingReportService {
       query = query.lte('receipt.receipt_date', dateTo);
     }
 
-    const { data } = await query;
+    const { data, error } = await query;
+    if (error) {
+      console.error('[billing/reports] Error in getTotalRefunds:', error.message);
+      throw error;
+    }
     return (
       data?.reduce((sum, refund: any) => sum + (refund.refund_amount || 0), 0) || 0
     );
