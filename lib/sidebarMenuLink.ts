@@ -2951,7 +2951,10 @@ export function GetRoleBasedPages(
 
           // Special case: Student portal pages (my-*) are ONLY for students
           if (menu.href.includes('/learners/my-')) {
-            return userRole.role_key === 'student';
+            if (userRole.role_key !== 'student') return false;
+            // Hostel-only menus (e.g. gate passes) require active hostel allocation
+            if ((menu as any).requiresHostel && !options?.isHostelResident) return false;
+            return true;
           }
 
           // Check if user has permission for this menu
