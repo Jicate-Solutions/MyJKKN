@@ -63,7 +63,8 @@ export default function LoginPage() {
     { label: 'HOD', email: 'test.hod@jkkn.local', password: 'Test@123', icon: Briefcase, color: 'bg-blue-600 hover:bg-blue-700 text-white' },
     { label: 'Faculty', email: 'test.faculty@jkkn.local', password: 'Test@123', icon: BookOpenCheck, color: 'bg-teal-600 hover:bg-teal-700 text-white' },
     { label: 'Staff', email: 'test.staff@jkkn.local', password: 'Test@123', icon: User, color: 'bg-indigo-600 hover:bg-indigo-700 text-white' },
-    { label: 'Student', email: 'test.student@jkkn.local', password: 'Test@123', icon: GraduationCap, color: 'bg-green-600 hover:bg-green-700 text-white' },
+    { label: 'Hostel Student', email: 'test.student@jkkn.local', password: 'Test@123', icon: Building2, color: 'bg-green-600 hover:bg-green-700 text-white' },
+    { label: 'Day Scholar', email: 'test.dayscholars@jkkn.local', password: 'Test@123', icon: Sun, color: 'bg-emerald-600 hover:bg-emerald-700 text-white' },
     { label: 'Parent', email: 'test.parent@jkkn.local', password: 'Test@123', icon: Heart, color: 'bg-pink-600 hover:bg-pink-700 text-white' },
   ];
 
