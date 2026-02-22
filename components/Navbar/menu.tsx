@@ -18,6 +18,7 @@ import { AuthService } from '@/lib/auth/auth-service';
 import { useState, useEffect } from 'react';
 import { CustomRole } from '@/types/auth';
 import { RoleService } from '@/lib/services/roles/role-service';
+import { useIsHostelResident } from '@/hooks/campus-living/use-is-hostel-resident';
 
 interface MenuProps {
   isOpen: boolean | undefined;
