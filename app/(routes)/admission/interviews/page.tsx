@@ -1,6 +1,15 @@
 'use client';
 
 import React, { useState, useMemo } from 'react';
+import { ContentLayout } from '@/components/layout/content-layout';
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator
+} from '@/components/ui/breadcrumb';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -134,7 +143,24 @@ function InterviewSchedulingPageContent() {
   }
 
   return (
-    <div className="container mx-auto py-6 space-y-6">
+    <ContentLayout title="Interviews">
+      <div className="space-y-6">
+        <Breadcrumb>
+          <BreadcrumbList>
+            <BreadcrumbItem>
+              <BreadcrumbLink href="/">Dashboard</BreadcrumbLink>
+            </BreadcrumbItem>
+            <BreadcrumbSeparator />
+            <BreadcrumbItem>
+              <BreadcrumbLink href="/admission/dashboard">Admission</BreadcrumbLink>
+            </BreadcrumbItem>
+            <BreadcrumbSeparator />
+            <BreadcrumbItem>
+              <BreadcrumbPage>Interviews</BreadcrumbPage>
+            </BreadcrumbItem>
+          </BreadcrumbList>
+        </Breadcrumb>
+      <div className="container mx-auto py-6 space-y-6">
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
@@ -860,7 +886,9 @@ function InterviewSchedulingPageContent() {
           </div>
         </CardContent>
       </Card>
-    </div>
+      </div>
+      </div>
+    </ContentLayout>
   );
 }
 

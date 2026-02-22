@@ -4,6 +4,15 @@ import { useState, useEffect } from 'react';
 import { toast } from 'sonner';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { format } from 'date-fns';
+import { ContentLayout } from '@/components/layout/content-layout';
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator
+} from '@/components/ui/breadcrumb';
 import {
   Card,
   CardContent,
@@ -1328,7 +1337,24 @@ function ApplicationPortalPageContent() {
   );
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-green-50 to-white dark:from-green-950/20 dark:to-background">
+    <ContentLayout title="Apply">
+      <div className="space-y-6">
+        <Breadcrumb>
+          <BreadcrumbList>
+            <BreadcrumbItem>
+              <BreadcrumbLink href="/">Dashboard</BreadcrumbLink>
+            </BreadcrumbItem>
+            <BreadcrumbSeparator />
+            <BreadcrumbItem>
+              <BreadcrumbLink href="/admission/dashboard">Admission</BreadcrumbLink>
+            </BreadcrumbItem>
+            <BreadcrumbSeparator />
+            <BreadcrumbItem>
+              <BreadcrumbPage>Apply</BreadcrumbPage>
+            </BreadcrumbItem>
+          </BreadcrumbList>
+        </Breadcrumb>
+      <div className="min-h-screen bg-gradient-to-b from-green-50 to-white dark:from-green-950/20 dark:to-background">
       <div className="max-w-4xl mx-auto px-4 py-8">
         {/* Header */}
         <div className="text-center mb-8">
@@ -1434,7 +1460,9 @@ function ApplicationPortalPageContent() {
           </div>
         </div>
       </div>
-    </div>
+      </div>
+      </div>
+    </ContentLayout>
   );
 }
 

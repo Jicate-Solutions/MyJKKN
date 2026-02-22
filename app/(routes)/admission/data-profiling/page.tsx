@@ -1,6 +1,15 @@
 "use client";
 
 import { useState } from "react";
+import { ContentLayout } from '@/components/layout/content-layout';
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator
+} from '@/components/ui/breadcrumb';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -99,7 +108,24 @@ function DataProfilingPageContent() {
   const cleanRecords = m.totalLeads - totalIssueCount;
 
   return (
-    <div className="container mx-auto py-6 space-y-6">
+    <ContentLayout title="Data Profiling">
+      <div className="space-y-6">
+        <Breadcrumb>
+          <BreadcrumbList>
+            <BreadcrumbItem>
+              <BreadcrumbLink href="/">Dashboard</BreadcrumbLink>
+            </BreadcrumbItem>
+            <BreadcrumbSeparator />
+            <BreadcrumbItem>
+              <BreadcrumbLink href="/admission/dashboard">Admission</BreadcrumbLink>
+            </BreadcrumbItem>
+            <BreadcrumbSeparator />
+            <BreadcrumbItem>
+              <BreadcrumbPage>Data Profiling</BreadcrumbPage>
+            </BreadcrumbItem>
+          </BreadcrumbList>
+        </Breadcrumb>
+      <div className="container mx-auto py-6 space-y-6">
       {/* Header */}
       <div className="flex justify-between items-start">
         <div>
@@ -376,7 +402,9 @@ function DataProfilingPageContent() {
           </CardContent>
         </Card>
       </div>
-    </div>
+      </div>
+      </div>
+    </ContentLayout>
   );
 }
 

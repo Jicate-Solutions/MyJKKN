@@ -1,6 +1,15 @@
 'use client';
 
 import { useState } from 'react';
+import { ContentLayout } from '@/components/layout/content-layout';
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator
+} from '@/components/ui/breadcrumb';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -92,7 +101,24 @@ function HostelsPageContent() {
   };
 
   return (
-    <div className="container mx-auto p-6 space-y-6">
+    <ContentLayout title="Hostels">
+      <div className="space-y-6">
+        <Breadcrumb>
+          <BreadcrumbList>
+            <BreadcrumbItem>
+              <BreadcrumbLink href="/">Dashboard</BreadcrumbLink>
+            </BreadcrumbItem>
+            <BreadcrumbSeparator />
+            <BreadcrumbItem>
+              <BreadcrumbLink href="/admission/dashboard">Admission</BreadcrumbLink>
+            </BreadcrumbItem>
+            <BreadcrumbSeparator />
+            <BreadcrumbItem>
+              <BreadcrumbPage>Hostels</BreadcrumbPage>
+            </BreadcrumbItem>
+          </BreadcrumbList>
+        </Breadcrumb>
+      <div className="container mx-auto p-6 space-y-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
@@ -571,7 +597,9 @@ function HostelsPageContent() {
           </Card>
         </TabsContent>
       </Tabs>
-    </div>
+      </div>
+      </div>
+    </ContentLayout>
   );
 }
 

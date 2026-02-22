@@ -11,6 +11,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from '@/components/ui/breadcrumb';
+import { ContentLayout } from '@/components/layout/content-layout';
 import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { AdmissionErrorBoundary } from '@/components/admission';
@@ -165,7 +174,25 @@ function CounselorViewPageContent() {
     actions.isAssigning;
 
   return (
-    <div className="p-4 sm:p-6 space-y-4 max-w-5xl mx-auto">
+    <ContentLayout title="Counselor View">
+      <div className="p-4 sm:p-6 space-y-4 max-w-5xl mx-auto">
+      {/* Breadcrumb */}
+      <Breadcrumb>
+        <BreadcrumbList>
+          <BreadcrumbItem>
+            <BreadcrumbLink href="/">Dashboard</BreadcrumbLink>
+          </BreadcrumbItem>
+          <BreadcrumbSeparator />
+          <BreadcrumbItem>
+            <BreadcrumbLink href="/admission/dashboard">Admission</BreadcrumbLink>
+          </BreadcrumbItem>
+          <BreadcrumbSeparator />
+          <BreadcrumbItem>
+            <BreadcrumbPage>Counselor View</BreadcrumbPage>
+          </BreadcrumbItem>
+        </BreadcrumbList>
+      </Breadcrumb>
+
       {/* Page header */}
       <div className="flex items-center justify-between">
         <div>
@@ -339,7 +366,8 @@ function CounselorViewPageContent() {
           <TodayActivityLog activities={todayActivities} isLoading={isLoading} />
         </div>
       </div>
-    </div>
+      </div>
+    </ContentLayout>
   );
 }
 

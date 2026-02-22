@@ -1,6 +1,15 @@
 "use client";
 
 import { useState } from "react";
+import { ContentLayout } from '@/components/layout/content-layout';
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator
+} from '@/components/ui/breadcrumb';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -164,7 +173,24 @@ function DeduplicationPageContent() {
   const isLoading = statsLoading || groupsLoading;
 
   return (
-    <div className="container mx-auto py-6 space-y-6">
+    <ContentLayout title="Deduplication">
+      <div className="space-y-6">
+        <Breadcrumb>
+          <BreadcrumbList>
+            <BreadcrumbItem>
+              <BreadcrumbLink href="/">Dashboard</BreadcrumbLink>
+            </BreadcrumbItem>
+            <BreadcrumbSeparator />
+            <BreadcrumbItem>
+              <BreadcrumbLink href="/admission/dashboard">Admission</BreadcrumbLink>
+            </BreadcrumbItem>
+            <BreadcrumbSeparator />
+            <BreadcrumbItem>
+              <BreadcrumbPage>Deduplication</BreadcrumbPage>
+            </BreadcrumbItem>
+          </BreadcrumbList>
+        </Breadcrumb>
+      <div className="container mx-auto py-6 space-y-6">
       {/* Header */}
       <div className="flex justify-between items-start">
         <div>
@@ -598,7 +624,9 @@ function DeduplicationPageContent() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+      </div>
+      </div>
+    </ContentLayout>
   );
 }
 
