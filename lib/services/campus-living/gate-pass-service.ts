@@ -545,7 +545,7 @@ export class GatePassService {
         .from('hostel_gate_passes')
         .select('*, learner:profiles!hostel_gate_passes_learner_id_fkey(id, full_name, email)')
         .eq('institution_id', institutionId)
-        .eq('status', 'requested')
+        .eq('status', 'requested' as any)
         .order('created_at', { ascending: true });
 
       if (error) {
