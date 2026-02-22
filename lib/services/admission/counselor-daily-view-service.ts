@@ -572,7 +572,7 @@ export class CounselorDailyViewService {
    * given profiles.id. Returns the admission_counselors.id for use as counselor_id on leads.
    * Creates the record automatically from profile data if it doesn't exist yet.
    */
-  static async resolveOrCreateCounselor(profileId: string): Promise<string> {
+  static async resolveOrCreateCounselor(profileId: string, institutionId?: string): Promise<string> {
     const supabase = createClientSupabaseClient();
 
     // Check if already bridged
@@ -603,7 +603,7 @@ export class CounselorDailyViewService {
         email: profile.email || null,
         phone: profile.phone_number || null,
         designation: profile.designation || null,
-        institution_id: profile.institution_id || null,
+        institution_id: institutionId || profile.institution_id || null,
         is_active: true,
       })
       .select('id')

@@ -667,7 +667,10 @@ function LeadDetailPageContent() {
     }
     let counselorId: string;
     try {
-      counselorId = await CounselorDailyViewService.resolveOrCreateCounselor(selectedCounselorId);
+      counselorId = await CounselorDailyViewService.resolveOrCreateCounselor(
+        selectedCounselorId,
+        lead?.institution_id ?? undefined
+      );
     } catch {
       toast.error('Failed to resolve counselor. Please try again.');
       return;

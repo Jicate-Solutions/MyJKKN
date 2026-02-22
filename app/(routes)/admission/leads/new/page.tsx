@@ -370,7 +370,8 @@ function NewLeadPageContent() {
       if (selectedCounselorProfileId) {
         try {
           const counselorId = await CounselorDailyViewService.resolveOrCreateCounselor(
-            selectedCounselorProfileId
+            selectedCounselorProfileId,
+            institutionId || undefined
           );
           await LeadService.assignCounselor(lead.id, counselorId);
         } catch (e) {
