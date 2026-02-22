@@ -55,7 +55,9 @@ export function LeadsDataTable() {
 
   const canCreate = isSuperAdmin || canAccess('admission', 'create');
 
-  const institutionId = profile?.institution_id;
+  // Super admins can see leads across all institutions (RLS bypass in DB).
+  // Regular users are scoped to their own institution_id.
+  const institutionId = isSuperAdmin ? undefined : profile?.institution_id;
 
   const fetchData = async (params: {
     page: number;
