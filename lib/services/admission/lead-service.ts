@@ -575,12 +575,15 @@ export class LeadService {
    * Assign counselor to lead
    */
   static async assignCounselor(leadId: string, counselorId: string, profileId?: string): Promise<AdmissionLead> {
+    const { data: { user } } = await (this.supabase as any).auth.getUser();
+
     const { data, error } = await (this.supabase as any).from('admission_leads')
       .update({
         counselor_id: counselorId,
         // assigned_counselor_id references profiles(id) — use profileId when provided
         ...(profileId ? { assigned_counselor_id: profileId } : {}),
         assigned_at: new Date().toISOString(),
+        last_activity_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       })
       .eq('id', leadId)
@@ -593,6 +596,24 @@ export class LeadService {
     if (error) {
       console.error('[LeadService] Error assigning counselor:', error);
       throw new Error(`Failed to assign counselor: ${error.message}`);
+    }
+
+    // Log activity — best-effort, does not block the assignment
+    const counselorName = (data as any).counselor?.name || 'Unknown';
+    const { error: activityError } = await (this.supabase as any)
+      .from('admission_lead_activities')
+      .insert({
+        lead_id: leadId,
+        institution_id: (data as any).institution_id || null,
+        activity_type: 'note',
+        title: 'Counselor Assigned',
+        description: `Counselor "${counselorName}" assigned to this lead`,
+        metadata: { counselor_id: counselorId, ...(profileId ? { profile_id: profileId } : {}) },
+        performed_by: user?.id || null,
+      });
+
+    if (activityError) {
+      console.warn('[LeadService] Could not log counselor assignment activity:', activityError);
     }
 
     return this.normalizeLead(data);
