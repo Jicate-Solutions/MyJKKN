@@ -71,6 +71,7 @@ export default function MyGatePassesPage() {
     if (filter === 'pending') return p.status === 'requested';
     if (filter === 'active') return p.status === 'issued' || p.status === 'active';
     if (filter === 'completed') return p.status === 'returned';
+    if (filter === 'home_visit') return p.pass_type === 'home_visit';
     return true;
   });
 
