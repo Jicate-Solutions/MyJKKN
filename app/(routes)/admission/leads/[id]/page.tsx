@@ -665,24 +665,23 @@ function LeadDetailPageContent() {
       toast.error('Please select a counselor');
       return;
     }
+    let counselorId: string;
     try {
-      // Resolve (or auto-create) the admission_counselors bridge record
-      const counselorId = await CounselorDailyViewService.resolveOrCreateCounselor(
-        selectedCounselorId // this is now a profiles.id
-      );
-      assignCounselor.mutate(
-        { leadId, counselorId },
-        {
-          onSuccess: () => {
-            setSelectedCounselorId('');
-            setShowAssignCounselorDialog(false);
-            refetch();
-          },
-        }
-      );
+      counselorId = await CounselorDailyViewService.resolveOrCreateCounselor(selectedCounselorId);
     } catch {
       toast.error('Failed to resolve counselor. Please try again.');
+      return;
     }
+    assignCounselor.mutate(
+      { leadId, counselorId },
+      {
+        onSuccess: () => {
+          setSelectedCounselorId('');
+          setShowAssignCounselorDialog(false);
+          refetch();
+        },
+      }
+    );
   };
 
   const handleCreateApplication = () => {
