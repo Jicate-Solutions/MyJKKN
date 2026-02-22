@@ -151,6 +151,7 @@ export default function MyGatePassesPage() {
             { key: 'all', label: 'All' },
             { key: 'pending', label: `Pending (${pendingCount})` },
             { key: 'active', label: `Active (${activeCount})` },
+            { key: 'home_visit', label: 'Home Visits' },
             { key: 'completed', label: 'Returned' },
           ].map((f) => (
             <Button
