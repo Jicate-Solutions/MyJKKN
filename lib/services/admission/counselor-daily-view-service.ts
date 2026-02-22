@@ -170,14 +170,14 @@ export class CounselorDailyViewService {
    * Get the complete daily view data using the optimized DB function.
    * Single query returns KPIs, followups, pipeline, activities, and unassigned count.
    */
-  static async getDailyView(institutionId: string): Promise<CounselorDailyViewData> {
+  static async getDailyView(institutionId: string, viewAsUserId?: string): Promise<CounselorDailyViewData> {
     const supabase = createClientSupabaseClient();
     const { data: { user } } = await (supabase as any).auth.getUser();
     if (!user) throw new Error('Not authenticated');
 
     const { data, error } = await (supabase as any)
       .rpc('get_counselor_daily_view', {
-        p_user_id: user.id,
+        p_user_id: viewAsUserId || user.id,
         p_institution_id: institutionId,
       });
 
@@ -515,11 +515,11 @@ export class CounselorDailyViewService {
   /**
    * Get list of counselors for the institution (for assignment dropdown)
    */
-  static async getCounselors(institutionId: string): Promise<Array<{ id: string; name: string; email: string | null }>> {
+  static async getCounselors(institutionId: string): Promise<Array<{ id: string; user_id: string | null; name: string; email: string | null }>> {
     const supabase = createClientSupabaseClient();
     const { data, error } = await (supabase as any)
       .from('admission_counselors')
-      .select('id, name, email')
+      .select('id, user_id, name, email')
       .eq('institution_id', institutionId)
       .eq('is_active', true) // Note: NULL is_active is treated as inactive (excluded) per PostgreSQL 3-valued logic
       .order('name');

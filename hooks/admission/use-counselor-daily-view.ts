@@ -29,10 +29,10 @@ export const counselorDailyViewKeys = {
  * Fetches all data in a single DB function call.
  * Auto-refreshes every 60 seconds.
  */
-export function useCounselorDailyView(institutionId?: string) {
+export function useCounselorDailyView(institutionId?: string, viewAsUserId?: string) {
   const query = useQuery<CounselorDailyViewData>({
-    queryKey: counselorDailyViewKeys.view(institutionId || ''),
-    queryFn: () => CounselorDailyViewService.getDailyView(institutionId!),
+    queryKey: [...counselorDailyViewKeys.view(institutionId || ''), viewAsUserId || 'self'],
+    queryFn: () => CounselorDailyViewService.getDailyView(institutionId!, viewAsUserId),
     enabled: !!institutionId,
     refetchInterval: 60000, // Auto-refresh every 60 seconds
     staleTime: 30000,

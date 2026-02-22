@@ -82,6 +82,7 @@ function CounselorViewPageContent() {
   const { selectedInstitutionId } = useUserInstitutionAccess();
   const institutionId = selectedInstitutionId;
 
+  const [selectedCounselorUserId, setSelectedCounselorUserId] = useState<string>('');
   const [stageFilter, setStageFilter] = useState('all');
   const [academicYearFilter, setAcademicYearFilter] = useState('all');
   const [showFilters, setShowFilters] = useState(false);
@@ -98,14 +99,14 @@ function CounselorViewPageContent() {
     pipeline,
     todayActivities,
     unassignedCount,
-  } = useCounselorDailyView(institutionId);
+  } = useCounselorDailyView(institutionId, selectedCounselorUserId || undefined);
 
   const { leads: unassignedLeads, isLoading: isLoadingUnassigned } = useUnassignedLeads(
     institutionId,
     isManager && unassignedCount > 0
   );
 
-  const { counselors } = useCounselorsList(isManager ? institutionId : undefined);
+  const { counselors } = useCounselorsList(institutionId || undefined);
 
   const actions = useCounselorActions(institutionId);
 
@@ -196,7 +197,11 @@ function CounselorViewPageContent() {
       {/* Page header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold">My Day</h1>
+          <h1 className="text-xl font-bold">
+            {selectedCounselorUserId
+              ? `${counselors.find(c => c.user_id === selectedCounselorUserId)?.name ?? 'Counselor'}'s Day`
+              : isManager ? 'All Counselors' : 'My Day'}
+          </h1>
           <p className="text-xs text-muted-foreground">
             {new Date().toLocaleDateString('en-IN', {
               weekday: 'long',
@@ -268,6 +273,39 @@ function CounselorViewPageContent() {
               }}
             >
               Clear
+            </Button>
+          )}
+        </div>
+      )}
+
+      {/* Counselor picker — manager/super_admin only */}
+      {isManager && counselors.length > 0 && (
+        <div className="flex items-center gap-2 p-3 bg-muted/30 rounded-lg border">
+          <span className="text-xs text-muted-foreground font-medium whitespace-nowrap">View as:</span>
+          <Select
+            value={selectedCounselorUserId}
+            onValueChange={(val) => setSelectedCounselorUserId(val === '_all' ? '' : val)}
+          >
+            <SelectTrigger className="h-8 w-[220px] text-xs">
+              <SelectValue placeholder="All counselors (overview)" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="_all" className="text-xs">All counselors (overview)</SelectItem>
+              {counselors.map((c) => (
+                <SelectItem key={c.id} value={c.user_id ?? c.id} className="text-xs">
+                  {c.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {selectedCounselorUserId && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-8 text-xs"
+              onClick={() => setSelectedCounselorUserId('')}
+            >
+              ← Back to overview
             </Button>
           )}
         </div>
