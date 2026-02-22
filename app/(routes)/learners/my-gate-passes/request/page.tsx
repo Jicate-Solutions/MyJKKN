@@ -235,6 +235,23 @@ export default function RequestGatePassPage() {
                 </CardContent>
               </Card>
 
+              {formData.pass_type === 'home_visit' && (
+                <Card className="border-blue-200 bg-blue-50/50 dark:bg-blue-950/20">
+                  <CardContent className="p-4">
+                    <div className="flex items-start gap-2">
+                      <Info className="h-5 w-5 text-blue-600 shrink-0 mt-0.5" />
+                      <div>
+                        <p className="font-medium text-blue-800 dark:text-blue-200 text-sm">Home Visit Pass</p>
+                        <p className="text-xs text-blue-600 dark:text-blue-300 mt-1">
+                          Your parent will be asked to confirm when you reach home and when you leave home.
+                          The hostel will track your safe return to campus.
+                        </p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
               {formData.pass_type === 'emergency' && (
                 <Card className="border-red-200 bg-red-50/50 dark:bg-red-950/20">
                   <CardContent className="p-4">
