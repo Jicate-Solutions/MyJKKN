@@ -131,9 +131,9 @@ export class ActivityService {
         lead_id: input.lead_id,
         institution_id: input.institution_id || null,
         activity_type: input.activity_type,
-        title: input.title || null,
+        title: input.title || input.activity_type.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase()),
         description: input.description || null,
-        metadata: Object.keys(metadata).length > 0 ? metadata : null,
+        metadata: Object.keys(metadata).length > 0 ? metadata : {},
         performed_by: user?.id || null,
       })
       .select()

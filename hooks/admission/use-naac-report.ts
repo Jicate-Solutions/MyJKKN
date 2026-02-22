@@ -5,17 +5,14 @@ import { NAACReportService } from '@/lib/services/admission/naac-report-service'
 
 export const naacKeys = {
   all: ['naac-report'] as const,
-  enrollment: (institutionId?: string, years?: string[]) =>
-    [...naacKeys.all, 'enrollment', institutionId || 'all', ...(years || [])] as const,
+  enrollment: (institutionId?: string) =>
+    [...naacKeys.all, 'enrollment', institutionId || 'all'] as const,
 };
 
-export function useNAACEnrollmentReport(
-  institutionId?: string,
-  years?: string[]
-) {
+export function useNAACEnrollmentReport(institutionId?: string) {
   return useQuery({
-    queryKey: naacKeys.enrollment(institutionId, years),
-    queryFn: () => NAACReportService.generateEnrollmentReport(institutionId, years),
+    queryKey: naacKeys.enrollment(institutionId),
+    queryFn: () => NAACReportService.generateEnrollmentReport(institutionId),
     staleTime: 10 * 60 * 1000,
   });
 }

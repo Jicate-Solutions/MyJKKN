@@ -109,7 +109,7 @@ export default function WorkflowConfigPage() {
           </BreadcrumbList>
         </Breadcrumb>
 
-        <div className="p-4 sm:p-6 max-w-4xl mx-auto space-y-4">
+        <div className="p-4 sm:p-6 mx-auto space-y-4">
           <div className="flex items-center gap-2">
             <Settings2 className="h-5 w-5" />
             <div>

@@ -24,11 +24,10 @@ export class NAACReportService {
 
   /**
    * Generate NAAC Criteria 2.1.1 report
-   * Average Enrollment Percentage over specified years
+   * Average Enrollment Percentage — years sourced from academic_years table
    */
   static async generateEnrollmentReport(
     institutionId?: string,
-    years: string[] = ['2021-22', '2022-23', '2023-24', '2024-25', '2025-26']
   ): Promise<NAACReport> {
     // Get institutions
     let instQuery = this.supabase.from('institutions').select('id, name');
@@ -44,7 +43,32 @@ export class NAACReportService {
 
     const institutionIds = institutions.map((i) => i.id);
 
-    // Get seat configs for all years
+    // Fetch academic years from the academic_years table (dynamic, not hardcoded)
+    const { data: academicYearsData, error: yearsError } = await (this.supabase as any)
+      .from('academic_years')
+      .select('academic_year_name')
+      .in('institution_id', institutionIds)
+      .order('start_date', { ascending: true });
+
+    if (yearsError) {
+      console.error('[admission/naac] Failed to fetch academic years:', yearsError);
+      return { rows: [], averages: [] };
+    }
+
+    // Deduplicate year names (multiple institutions may share the same year label)
+    const years: string[] = [
+      ...new Set(
+        (academicYearsData || []).map(
+          (y: { academic_year_name: string }) => y.academic_year_name
+        )
+      ),
+    ];
+
+    if (years.length === 0) {
+      return { rows: [], averages: [] };
+    }
+
+    // Get seat configs for discovered years
     const { data: seatData } = await (this.supabase as any)
       .from('institution_seat_config')
       .select('institution_id, academic_year, total_seats')

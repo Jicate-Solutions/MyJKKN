@@ -48,8 +48,6 @@ tmpclaude-b3ce-cwd
 tmpclaude-*
 .env*.local
 
-# Claude Code instructions (contains local paths and credentials references)
-CLAUDE.md
 
 .mcp.json
 

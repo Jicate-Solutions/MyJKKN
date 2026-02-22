@@ -1,6 +1,7 @@
 'use client';
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import toast from 'react-hot-toast';
 import { WorkflowConfigService } from '@/lib/services/admission/workflow-config-service';
 import type { AdmissionWorkflowConfig } from '@/types/admission-workflow-config';
 
@@ -44,12 +45,16 @@ export function useUpsertWorkflowConfig() {
       }
     ) => WorkflowConfigService.upsertConfig(config),
     onSuccess: (_data, variables) => {
+      toast.success('Workflow configuration saved');
       queryClient.invalidateQueries({
         queryKey: workflowConfigKeys.list(variables.institution_id),
       });
       queryClient.invalidateQueries({
         queryKey: workflowConfigKeys.active(variables.institution_id),
       });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to save workflow configuration');
     },
   });
 }
@@ -59,12 +64,16 @@ export function useDeleteWorkflowConfig(institutionId: string) {
   return useMutation({
     mutationFn: (configId: string) => WorkflowConfigService.deleteConfig(configId),
     onSuccess: () => {
+      toast.success('Workflow configuration deleted');
       queryClient.invalidateQueries({
         queryKey: workflowConfigKeys.list(institutionId),
       });
       queryClient.invalidateQueries({
         queryKey: workflowConfigKeys.active(institutionId),
       });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to delete workflow configuration');
     },
   });
 }

@@ -121,23 +121,70 @@ export interface BriefingNotificationFilters {
 }
 
 // ============================================
+// ROW MAPPER HELPERS
+// Maps admission_daily_briefings rows → service types
+// ============================================
+
+// The DB table admission_daily_briefings has: id, institution_id, user_id,
+// briefing_date, user_tier, content (jsonb), is_read, read_at, role, created_at, updated_at
+// There is no separate admission_briefings / admission_briefing_notifications table.
+
+function mapRowToBriefing(row: any): Briefing {
+  return {
+    id: row.id,
+    institution_id: row.institution_id,
+    briefing_date: row.briefing_date,
+    title: 'Daily Briefing',
+    summary: (row.content as BriefingContent)?.executive_summary ?? '',
+    content: row.content as BriefingContent,
+    status: 'published',
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+    created_by: null,
+  };
+}
+
+function mapRowToNotification(row: any): BriefingNotification {
+  const content = row.content as BriefingContent | null;
+  return {
+    id: row.id,
+    user_id: row.user_id,
+    briefing_id: row.id, // same record — no separate briefings table
+    title: 'Daily Briefing',
+    summary: content?.executive_summary ?? '',
+    priority: 'normal',
+    is_read: row.is_read,
+    read_at: row.read_at ?? null,
+    dismissed_at: null,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+    metadata: content
+      ? {
+          institution_id: row.institution_id,
+          key_metrics: content.key_metrics,
+          highlights: content.highlights?.map((h) => h.title) ?? [],
+          action_items: content.action_items ?? [],
+          insights_summary: content.executive_summary,
+        }
+      : null,
+  };
+}
+
+// ============================================
 // BRIEFING CRUD OPERATIONS
 // ============================================
 
 /**
- * Create a new briefing
+ * Create a new briefing (writes to admission_daily_briefings)
  */
 export async function createBriefing(input: CreateBriefingInput): Promise<Briefing> {
   const { data, error } = await (supabase as any)
-    .from('admission_briefings')
+    .from('admission_daily_briefings')
     .insert({
       institution_id: input.institution_id,
       briefing_date: input.briefing_date,
-      title: input.title,
-      summary: input.summary,
       content: input.content,
-      status: 'published',
-      created_by: input.created_by
+      is_read: false,
     })
     .select()
     .single();
@@ -147,15 +194,15 @@ export async function createBriefing(input: CreateBriefingInput): Promise<Briefi
     throw new Error(`Failed to create briefing: ${error.message}`);
   }
 
-  return data as Briefing;
+  return mapRowToBriefing(data);
 }
 
 /**
- * Get a briefing by ID
+ * Get a briefing by ID (reads from admission_daily_briefings)
  */
 export async function getBriefing(briefingId: string): Promise<Briefing | null> {
   const { data, error } = await (supabase as any)
-    .from('admission_briefings')
+    .from('admission_daily_briefings')
     .select('*')
     .eq('id', briefingId)
     .single();
@@ -165,10 +212,10 @@ export async function getBriefing(briefingId: string): Promise<Briefing | null> 
       return null;
     }
     console.error('[admission/briefing-delivery] Error fetching briefing:', error);
-    throw new Error(`Failed to fetch briefing: ${error.message}`);
+    return null;
   }
 
-  return data as Briefing;
+  return mapRowToBriefing(data);
 }
 
 /**
@@ -176,10 +223,9 @@ export async function getBriefing(briefingId: string): Promise<Briefing | null> 
  */
 export async function getLatestBriefing(institutionId: string): Promise<Briefing | null> {
   const { data, error } = await (supabase as any)
-    .from('admission_briefings')
+    .from('admission_daily_briefings')
     .select('*')
     .eq('institution_id', institutionId)
-    .eq('status', 'published')
     .order('briefing_date', { ascending: false })
     .limit(1)
     .single();
@@ -189,10 +235,10 @@ export async function getLatestBriefing(institutionId: string): Promise<Briefing
       return null;
     }
     console.error('[admission/briefing-delivery] Error fetching latest briefing:', error);
-    throw new Error(`Failed to fetch latest briefing: ${error.message}`);
+    return null;
   }
 
-  return data as Briefing;
+  return mapRowToBriefing(data);
 }
 
 /**
@@ -202,11 +248,10 @@ export async function getTodaysBriefing(institutionId: string): Promise<Briefing
   const today = new Date().toISOString().split('T')[0];
 
   const { data, error } = await (supabase as any)
-    .from('admission_briefings')
+    .from('admission_daily_briefings')
     .select('*')
     .eq('institution_id', institutionId)
     .eq('briefing_date', today)
-    .eq('status', 'published')
     .order('created_at', { ascending: false })
     .limit(1);
 
@@ -215,7 +260,7 @@ export async function getTodaysBriefing(institutionId: string): Promise<Briefing
     return null;
   }
 
-  return (data?.[0] as Briefing) || null;
+  return data?.[0] ? mapRowToBriefing(data[0]) : null;
 }
 
 // ============================================
@@ -223,91 +268,25 @@ export async function getTodaysBriefing(institutionId: string): Promise<Briefing
 // ============================================
 
 /**
- * Deliver a briefing to specified users
+ * Deliver a briefing to specified users.
+ * With admission_daily_briefings, records are created server-side per user.
+ * This function is a no-op on the client — delivery happens via backend/cron.
  */
-export async function deliverBriefing(input: DeliverBriefingInput): Promise<BriefingNotification[]> {
-  const briefing = await getBriefing(input.briefing_id);
-
-  if (!briefing) {
-    throw new Error('Briefing not found');
-  }
-
-  const notifications: BriefingNotification[] = [];
-
-  for (const userId of input.user_ids) {
-    // Check if notification already exists for this user and briefing
-    const { data: existingRows } = await (supabase as any)
-      .from('admission_briefing_notifications')
-      .select('id')
-      .eq('user_id', userId)
-      .eq('briefing_id', input.briefing_id)
-      .limit(1);
-
-    const existing = existingRows?.[0];
-
-    if (existing) {
-      // Skip if already delivered
-      continue;
-    }
-
-    const { data, error } = await (supabase as any)
-      .from('admission_briefing_notifications')
-      .insert({
-        user_id: userId,
-        briefing_id: input.briefing_id,
-        title: briefing.title,
-        summary: briefing.summary,
-        priority: input.priority || 'normal',
-        is_read: false,
-        metadata: {
-          institution_id: briefing.institution_id,
-          generated_at: briefing.created_at,
-          key_metrics: briefing.content.key_metrics,
-          highlights: briefing.content.highlights.map(h => h.title),
-          action_items: briefing.content.action_items,
-          insights_summary: briefing.content.executive_summary
-        }
-      })
-      .select()
-      .single();
-
-    if (error) {
-      console.error(`[admission/briefing-delivery] Error delivering to user ${userId}:`, error);
-      continue;
-    }
-
-    notifications.push(data as BriefingNotification);
-  }
-
-  return notifications;
+export async function deliverBriefing(_input: DeliverBriefingInput): Promise<BriefingNotification[]> {
+  // Delivery is handled server-side by inserting into admission_daily_briefings.
+  // The client does not insert into this table directly.
+  return [];
 }
 
 /**
- * Deliver briefing to all admission team members for an institution
+ * Deliver briefing to all admission team members for an institution.
+ * Handled server-side — no-op on the client.
  */
 export async function deliverBriefingToTeam(
-  briefingId: string,
-  institutionId: string
+  _briefingId: string,
+  _institutionId: string
 ): Promise<BriefingNotification[]> {
-  // Get all users with admission module access for this institution
-  const { data: teamMembers, error } = await supabase
-    .from('profiles')
-    .select('id')
-    .eq('institution_id', institutionId)
-    .in('role', ['super_admin', 'institution_admin', 'admin', 'counselor', 'staff']);
-
-  if (error) {
-    console.error('[admission/briefing-delivery] Error fetching team members:', error);
-    throw new Error(`Failed to fetch team members: ${error.message}`);
-  }
-
-  const userIds = teamMembers?.map(m => m.id) || [];
-
-  return deliverBriefing({
-    briefing_id: briefingId,
-    user_ids: userIds,
-    priority: 'normal'
-  });
+  return [];
 }
 
 // ============================================
@@ -315,29 +294,28 @@ export async function deliverBriefingToTeam(
 // ============================================
 
 /**
- * Get briefing notifications for a user
+ * Get briefing notifications for a user (reads from admission_daily_briefings)
  */
 export async function getBriefingNotifications(
   userId: string,
   filters: Omit<BriefingNotificationFilters, 'user_id'> = {}
 ): Promise<BriefingNotification[]> {
   let query = (supabase as any)
-    .from('admission_briefing_notifications')
+    .from('admission_daily_briefings')
     .select('*')
     .eq('user_id', userId)
-    .is('dismissed_at', null)
-    .order('created_at', { ascending: false });
+    .order('briefing_date', { ascending: false });
 
   if (filters.is_read !== undefined) {
     query = query.eq('is_read', filters.is_read);
   }
 
   if (filters.from_date) {
-    query = query.gte('created_at', filters.from_date);
+    query = query.gte('briefing_date', filters.from_date);
   }
 
   if (filters.to_date) {
-    query = query.lte('created_at', filters.to_date);
+    query = query.lte('briefing_date', filters.to_date);
   }
 
   if (filters.limit) {
@@ -352,22 +330,21 @@ export async function getBriefingNotifications(
 
   if (error) {
     console.error('[admission/briefing-delivery] Error fetching notifications:', error);
-    throw new Error(`Failed to fetch notifications: ${error.message}`);
+    return [];
   }
 
-  return (data as BriefingNotification[]) || [];
+  return (data ?? []).map(mapRowToNotification);
 }
 
 /**
- * Get unread briefing count for a user
+ * Get unread briefing count for a user (reads from admission_daily_briefings)
  */
 export async function getUnreadBriefingCount(userId: string): Promise<number> {
   const { count, error } = await (supabase as any)
-    .from('admission_briefing_notifications')
+    .from('admission_daily_briefings')
     .select('*', { count: 'exact', head: true })
     .eq('user_id', userId)
-    .eq('is_read', false)
-    .is('dismissed_at', null);
+    .eq('is_read', false);
 
   if (error) {
     console.error('[admission/briefing-delivery] Error counting unread:', error);
@@ -378,16 +355,15 @@ export async function getUnreadBriefingCount(userId: string): Promise<number> {
 }
 
 /**
- * Get the latest unread briefing notification for a user
+ * Get the latest unread briefing notification for a user (reads from admission_daily_briefings)
  */
 export async function getLatestUnreadBriefing(userId: string): Promise<BriefingNotification | null> {
   const { data, error } = await (supabase as any)
-    .from('admission_briefing_notifications')
+    .from('admission_daily_briefings')
     .select('*')
     .eq('user_id', userId)
     .eq('is_read', false)
-    .is('dismissed_at', null)
-    .order('created_at', { ascending: false })
+    .order('briefing_date', { ascending: false })
     .limit(1)
     .single();
 
@@ -399,7 +375,7 @@ export async function getLatestUnreadBriefing(userId: string): Promise<BriefingN
     return null;
   }
 
-  return data as BriefingNotification;
+  return mapRowToNotification(data);
 }
 
 // ============================================
@@ -407,11 +383,11 @@ export async function getLatestUnreadBriefing(userId: string): Promise<BriefingN
 // ============================================
 
 /**
- * Mark a notification as read
+ * Mark a notification as read (updates admission_daily_briefings)
  */
 export async function markNotificationRead(notificationId: string): Promise<BriefingNotification> {
   const { data, error } = await (supabase as any)
-    .from('admission_briefing_notifications')
+    .from('admission_daily_briefings')
     .update({
       is_read: true,
       read_at: new Date().toISOString()
@@ -425,15 +401,15 @@ export async function markNotificationRead(notificationId: string): Promise<Brie
     throw new Error(`Failed to mark notification as read: ${error.message}`);
   }
 
-  return data as BriefingNotification;
+  return mapRowToNotification(data);
 }
 
 /**
- * Mark all notifications as read for a user
+ * Mark all notifications as read for a user (updates admission_daily_briefings)
  */
 export async function markAllNotificationsRead(userId: string): Promise<void> {
   const { error } = await (supabase as any)
-    .from('admission_briefing_notifications')
+    .from('admission_daily_briefings')
     .update({
       is_read: true,
       read_at: new Date().toISOString()
@@ -448,24 +424,11 @@ export async function markAllNotificationsRead(userId: string): Promise<void> {
 }
 
 /**
- * Dismiss a notification (hide from banner/popup)
+ * Dismiss a notification.
+ * admission_daily_briefings has no dismissed_at column — mark as read instead.
  */
 export async function dismissNotification(notificationId: string): Promise<BriefingNotification> {
-  const { data, error } = await (supabase as any)
-    .from('admission_briefing_notifications')
-    .update({
-      dismissed_at: new Date().toISOString()
-    })
-    .eq('id', notificationId)
-    .select()
-    .single();
-
-  if (error) {
-    console.error('[admission/briefing-delivery] Error dismissing notification:', error);
-    throw new Error(`Failed to dismiss notification: ${error.message}`);
-  }
-
-  return data as BriefingNotification;
+  return markNotificationRead(notificationId);
 }
 
 // ============================================

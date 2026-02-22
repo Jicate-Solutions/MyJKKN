@@ -88,10 +88,6 @@ interface FormData {
   pincode: string;
   first_touch_source: string;
   notes: string;
-  // Parent/Guardian
-  parent_name: string;
-  parent_phone: string;
-  parent_email: string;
   // JKKN Tier-1 fields
   student_interest_level: string;
   parent_decision_status: string;
@@ -132,6 +128,10 @@ function NewLeadPageContent() {
   const [programsLoading, setProgramsLoading] = useState(false);
   const [selectedProgramIds, setSelectedProgramIds] = useState<string[]>([]);
   const [programsPopoverOpen, setProgramsPopoverOpen] = useState(false);
+
+  // Academic years loaded based on selected institution
+  const [academicYears, setAcademicYears] = useState<{ id: string; academic_year_name: string; is_active: boolean }[]>([]);
+  const [academicYearsLoading, setAcademicYearsLoading] = useState(false);
 
   // Entry date — auto-populated to today (local timezone, not UTC)
   const [entryDate] = useState<string>(() => {
@@ -185,6 +185,36 @@ function NewLeadPageContent() {
       });
   }, [institutionId]);
 
+  // Fetch academic years when institution changes; auto-select the active one
+  useEffect(() => {
+    if (!institutionId) {
+      setAcademicYears([]);
+      return;
+    }
+    setAcademicYearsLoading(true);
+    const supabase = createClientSupabaseClient();
+    (supabase as any)
+      .from('academic_years')
+      .select('id, academic_year_name, is_active')
+      .eq('institution_id', institutionId)
+      .order('start_date', { ascending: false })
+      .then(({ data, error }: { data: any; error: any }) => {
+        if (error) {
+          console.error('[admission/leads] Failed to fetch academic years:', error.message);
+          setAcademicYears([]);
+        } else {
+          const years = (data || []) as { id: string; academic_year_name: string; is_active: boolean }[];
+          setAcademicYears(years);
+          // Auto-select the active academic year
+          const active = years.find((y) => y.is_active);
+          if (active) {
+            setFormData((prev) => ({ ...prev, academic_year: active.academic_year_name.trim() }));
+          }
+        }
+        setAcademicYearsLoading(false);
+      });
+  }, [institutionId]);
+
   // Group programs by degree for organized display
   const programsByDegree = useMemo(() => {
     const grouped: Record<string, ProgramOption[]> = {};
@@ -226,9 +256,6 @@ function NewLeadPageContent() {
     pincode: '',
     first_touch_source: '',
     notes: '',
-    parent_name: '',
-    parent_phone: '',
-    parent_email: '',
     student_interest_level: '',
     parent_decision_status: '',
     academic_year: '',
@@ -615,6 +642,36 @@ function NewLeadPageContent() {
                         </>
                       )}
                     </div>
+
+                    {/* Academic Year */}
+                    <div className="space-y-2">
+                      <Label htmlFor="academic_year">Academic Year</Label>
+                      <Select
+                        value={formData.academic_year}
+                        onValueChange={(value) => handleChange('academic_year', value)}
+                        disabled={academicYearsLoading || !institutionId}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder={
+                            !institutionId
+                              ? 'Select institution first'
+                              : academicYearsLoading
+                              ? 'Loading...'
+                              : 'Select academic year'
+                          } />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {academicYears.map((year) => (
+                            <SelectItem key={year.id} value={year.academic_year_name.trim()}>
+                              {year.academic_year_name.trim()}
+                              {year.is_active && (
+                                <span className="ml-2 text-xs text-muted-foreground">(Active)</span>
+                              )}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
                   </CardContent>
                 </Card>
 
@@ -740,46 +797,6 @@ function NewLeadPageContent() {
                   </CardContent>
                 </Card>
 
-                {/* Parent / Guardian */}
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Parent / Guardian</CardTitle>
-                    <CardDescription>Parent or guardian contact details</CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <Label htmlFor="parent_name">Parent Name</Label>
-                        <Input
-                          id="parent_name"
-                          value={formData.parent_name}
-                          onChange={(e) => handleChange('parent_name', e.target.value)}
-                          placeholder="Enter parent name"
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="parent_phone">Parent Phone</Label>
-                        <Input
-                          id="parent_phone"
-                          value={formData.parent_phone}
-                          onChange={(e) => handleChange('parent_phone', e.target.value)}
-                          placeholder="Enter parent phone"
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="parent_email">Parent Email</Label>
-                        <Input
-                          id="parent_email"
-                          type="email"
-                          value={formData.parent_email}
-                          onChange={(e) => handleChange('parent_email', e.target.value)}
-                          placeholder="Enter parent email"
-                        />
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-
                 {/* Notes */}
                 <Card>
                   <CardHeader>
@@ -874,15 +891,6 @@ function NewLeadPageContent() {
                           <SelectItem value="unknown">Unknown</SelectItem>
                         </SelectContent>
                       </Select>
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="academic_year">Academic Year</Label>
-                      <Input
-                        id="academic_year"
-                        value={formData.academic_year}
-                        onChange={(e) => handleChange('academic_year', e.target.value)}
-                        placeholder="e.g., 2025-2026"
-                      />
                     </div>
                   </CardContent>
                 </Card>

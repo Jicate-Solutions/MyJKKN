@@ -315,19 +315,25 @@ function AdmissionSettingsPageContent() {
     setIsSaving(true);
     try {
       const supabase = createClientSupabaseClient();
+      // academic_year is NOT NULL with no DB default — must always be provided
+      const now = new Date();
+      const startYear = now.getMonth() >= 5 ? now.getFullYear() : now.getFullYear() - 1;
+      const academicYear = `${startYear}-${(startYear + 1).toString().slice(-2)}`;
+
       const { error } = await (supabase as any)
         .from('admission_workflow_configs')
         .upsert({
           institution_id: selectedInstitutionId,
           config_name: 'frequency_settings',
+          academic_year: academicYear,
           sla_config: settings,
           updated_at: new Date().toISOString(),
         }, { onConflict: 'institution_id,config_name' });
       if (error) throw error;
       toast.success('Settings saved successfully');
       setHasChanges(false);
-    } catch {
-      toast.error('Failed to save settings');
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to save settings');
     } finally {
       setIsSaving(false);
     }

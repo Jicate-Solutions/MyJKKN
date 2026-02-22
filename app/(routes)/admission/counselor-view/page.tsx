@@ -175,7 +175,7 @@ function CounselorViewPageContent() {
 
   return (
     <ContentLayout title="Counselor View">
-      <div className="p-4 sm:p-6 space-y-4 max-w-5xl mx-auto">
+      <div className="p-4 sm:p-6 space-y-4 mx-auto">
       {/* Breadcrumb */}
       <Breadcrumb>
         <BreadcrumbList>

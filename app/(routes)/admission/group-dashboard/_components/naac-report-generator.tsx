@@ -16,10 +16,7 @@ import { useNAACEnrollmentReport } from '@/hooks/admission/use-naac-report';
 
 export function NAACReportGenerator() {
   const [showReport, setShowReport] = useState(false);
-  const { data: report, isLoading, isError } = useNAACEnrollmentReport(
-    undefined,
-    ['2021-22', '2022-23', '2023-24', '2024-25', '2025-26']
-  );
+  const { data: report, isLoading, isError } = useNAACEnrollmentReport();
 
   const exportCSV = () => {
     if (!report?.rows?.length) return;

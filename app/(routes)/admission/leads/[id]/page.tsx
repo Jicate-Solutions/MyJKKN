@@ -78,6 +78,9 @@ import { toast } from 'sonner';
 import { AdmissionErrorBoundary } from '@/components/admission';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { indianStates, getDistrictsByState } from '@/lib/data/locations';
+import { SMSCampaignService } from '@/lib/services/admission/sms-campaign-service';
+import { WhatsAppCampaignService } from '@/lib/services/admission/whatsapp-campaign-service';
+import { useQueryClient } from '@tanstack/react-query';
 import type { FunnelStage } from '@/types/admission';
 
 const FUNNEL_STAGES = [
@@ -337,6 +340,43 @@ function LeadDetailPageContent() {
   const { lead, isLoading: leadLoading, refetch } = useAdmissionLead(leadId);
   const { timeline, isLoading: timelineLoading } = useEnhancedTimeline(leadId);
   const { history: communicationHistory, isLoading: commLoading } = useLeadCommunicationHistory(leadId);
+  const queryClient = useQueryClient();
+
+  // Send message dialog state
+  const [showSendMsg, setShowSendMsg] = useState(false);
+  const [sendChannel, setSendChannel] = useState<'sms' | 'whatsapp'>('sms');
+  const [sendMessage, setSendMessage] = useState('');
+  const [isSending, setIsSending] = useState(false);
+
+  const handleSendMessage = async () => {
+    if (!lead || !sendMessage.trim()) return;
+    setIsSending(true);
+    try {
+      if (sendChannel === 'sms') {
+        await SMSCampaignService.sendCampaignSMS({
+          institutionId: lead.institution_id,
+          leadId: lead.id,
+          phoneNumber: lead.phone,
+          messageContent: sendMessage.trim(),
+        });
+      } else {
+        await WhatsAppCampaignService.sendCampaignMessage({
+          institution_id: lead.institution_id,
+          lead_id: lead.id,
+          recipient_phone: lead.phone,
+          message_content: sendMessage.trim(),
+        });
+      }
+      toast.success(`${sendChannel === 'sms' ? 'SMS' : 'WhatsApp'} sent successfully`);
+      setSendMessage('');
+      setShowSendMsg(false);
+      queryClient.invalidateQueries({ queryKey: ['lead-communication-history', leadId] });
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to send message');
+    } finally {
+      setIsSending(false);
+    }
+  };
 
   const { updateLead, updateStage, toggleHotLead, togglePriority, addTag, removeTag, scheduleFollowup, assignCounselor, deleteLead } = useLeadMutations();
   const { createActivity } = useActivityMutations(leadId);
@@ -906,6 +946,64 @@ function LeadDetailPageContent() {
                           <CardTitle className="text-base">Communication History</CardTitle>
                           <CardDescription>SMS &amp; WhatsApp messages sent to this lead</CardDescription>
                         </div>
+                        <Dialog open={showSendMsg} onOpenChange={setShowSendMsg}>
+                          <DialogTrigger asChild>
+                            <Button size="sm" variant="outline">
+                              <Send className="h-3.5 w-3.5 mr-1.5" />
+                              Send Message
+                            </Button>
+                          </DialogTrigger>
+                          <DialogContent className="sm:max-w-md">
+                            <DialogHeader>
+                              <DialogTitle>Send Message</DialogTitle>
+                              <DialogDescription>
+                                Send a direct SMS or WhatsApp message to {lead?.full_name}
+                              </DialogDescription>
+                            </DialogHeader>
+                            <div className="space-y-4 py-2">
+                              <div className="space-y-2">
+                                <Label>Channel</Label>
+                                <Select value={sendChannel} onValueChange={(v) => setSendChannel(v as 'sms' | 'whatsapp')}>
+                                  <SelectTrigger>
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="sms">SMS</SelectItem>
+                                    <SelectItem value="whatsapp">WhatsApp</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                              <div className="space-y-2">
+                                <Label>To</Label>
+                                <Input value={lead?.phone || ''} disabled className="bg-muted" />
+                              </div>
+                              <div className="space-y-2">
+                                <Label>Message</Label>
+                                <Textarea
+                                  value={sendMessage}
+                                  onChange={(e) => setSendMessage(e.target.value)}
+                                  placeholder="Type your message..."
+                                  rows={4}
+                                />
+                              </div>
+                            </div>
+                            <DialogFooter>
+                              <Button variant="outline" onClick={() => setShowSendMsg(false)}>
+                                Cancel
+                              </Button>
+                              <Button
+                                onClick={handleSendMessage}
+                                disabled={isSending || !sendMessage.trim()}
+                              >
+                                {isSending ? (
+                                  <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Sending...</>
+                                ) : (
+                                  <><Send className="h-4 w-4 mr-2" />Send</>
+                                )}
+                              </Button>
+                            </DialogFooter>
+                          </DialogContent>
+                        </Dialog>
                       </div>
                     </CardHeader>
                     <CardContent>
@@ -1005,10 +1103,7 @@ function LeadDetailPageContent() {
                           <dt className="text-sm text-muted-foreground">Academic Year</dt>
                           <dd className="font-medium">{lead.academic_year || '-'}</dd>
                         </div>
-                        <div>
-                          <dt className="text-sm text-muted-foreground">Preferred Campus</dt>
-                          <dd className="font-medium">{lead.preferred_campus || '-'}</dd>
-                        </div>
+                       
                         <div>
                           <dt className="text-sm text-muted-foreground">Student Interest Level</dt>
                           <dd className="font-medium capitalize">{(lead.student_interest_level || '-').replace(/_/g, ' ')}</dd>

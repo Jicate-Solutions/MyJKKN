@@ -599,7 +599,7 @@ export default function NewConsultantPage() {
             </BreadcrumbItem>
           </BreadcrumbList>
         </Breadcrumb>
-        <div className="mt-6 max-w-4xl">
+        <div className="mt-6">
           <div className="flex items-center gap-3 mb-6">
             <div className="p-2 bg-primary/10 rounded-lg">
               <Handshake className="h-6 w-6 text-primary" />

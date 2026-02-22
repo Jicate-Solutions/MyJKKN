@@ -4,7 +4,9 @@ import { AlertCircle, Building2, Loader2, RefreshCw } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { useGroupDashboard } from '@/hooks/admission/use-group-dashboard';
+import { useQueryClient } from '@tanstack/react-query';
+import { useGroupDashboard, groupDashboardKeys } from '@/hooks/admission/use-group-dashboard';
+import { naacKeys } from '@/hooks/admission/use-naac-report';
 import { InstitutionComparisonTable } from './_components/institution-comparison-table';
 import { CrossCampusDedup } from './_components/cross-campus-dedup';
 import { SeatFillTracker } from './_components/seat-fill-tracker';
@@ -20,12 +22,18 @@ import {
 } from '@/components/ui/breadcrumb';
 
 export default function GroupDashboardPage() {
-  const { data, isLoading, isError, error, refetch } = useGroupDashboard();
+  const queryClient = useQueryClient();
+  const { data, isLoading, isFetching, isError, error } = useGroupDashboard();
+
+  const handleRefresh = () => {
+    queryClient.invalidateQueries({ queryKey: groupDashboardKeys.all });
+    queryClient.invalidateQueries({ queryKey: naacKeys.all });
+  };
 
   if (isError) {
     return (
       <ContentLayout title="Group Dashboard">
-        <div className="p-6 max-w-lg mx-auto mt-12">
+        <div className="p-6 mx-auto mt-12">
           <Alert variant="destructive">
             <AlertCircle className="h-4 w-4" />
             <AlertTitle>Error</AlertTitle>
@@ -33,7 +41,7 @@ export default function GroupDashboardPage() {
               {(error as Error)?.message || 'Failed to load group dashboard.'}
             </AlertDescription>
           </Alert>
-          <Button className="mt-4" onClick={() => refetch()}>
+          <Button className="mt-4" onClick={handleRefresh}>
             Try Again
           </Button>
         </div>
@@ -43,7 +51,7 @@ export default function GroupDashboardPage() {
 
   return (
     <ContentLayout title="Group Dashboard">
-      <div className="p-4 sm:p-6 max-w-5xl mx-auto space-y-4">
+      <div className="p-4 sm:p-6 mx-auto space-y-4">
         <Breadcrumb>
           <BreadcrumbList>
             <BreadcrumbItem>
@@ -71,8 +79,8 @@ export default function GroupDashboardPage() {
               </p>
             </div>
           </div>
-          <Button size="sm" variant="ghost" onClick={() => refetch()} disabled={isLoading}>
-            <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+          <Button size="sm" variant="ghost" onClick={handleRefresh} disabled={isFetching}>
+            <RefreshCw className={`h-4 w-4 ${isFetching ? 'animate-spin' : ''}`} />
           </Button>
         </div>
 

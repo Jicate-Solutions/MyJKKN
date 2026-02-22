@@ -60,7 +60,9 @@ export class WorkflowConfigService {
   }
 
   /**
-   * Create or update a workflow config
+   * Create or update a workflow config.
+   * Uses upsert on (institution_id, config_name) unique constraint —
+   * prevents duplicate rows and works for both first-save and re-save flows.
    */
   static async upsertConfig(
     config: Partial<AdmissionWorkflowConfig> & {
@@ -74,28 +76,14 @@ export class WorkflowConfigService {
       updated_at: new Date().toISOString(),
     };
 
-    if (config.id) {
-      // Update existing
-      const { data, error } = await (this.supabase as any)
-        .from('admission_workflow_configs')
-        .update(payload)
-        .eq('id', config.id)
-        .select()
-        .single();
+    const { data, error } = await (this.supabase as any)
+      .from('admission_workflow_configs')
+      .upsert(payload, { onConflict: 'institution_id,config_name' })
+      .select()
+      .single();
 
-      if (error) throw error;
-      return data as AdmissionWorkflowConfig;
-    } else {
-      // Create new
-      const { data, error } = await (this.supabase as any)
-        .from('admission_workflow_configs')
-        .insert(payload)
-        .select()
-        .single();
-
-      if (error) throw error;
-      return data as AdmissionWorkflowConfig;
-    }
+    if (error) throw error;
+    return data as AdmissionWorkflowConfig;
   }
 
   /**
