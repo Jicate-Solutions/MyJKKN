@@ -531,4 +531,88 @@ export class CounselorDailyViewService {
 
     return data || [];
   }
+
+  /**
+   * Fetch active profiles with role='counselor' for an institution.
+   * This is the primary source of truth for counselor dropdowns.
+   */
+  static async getCounselorProfiles(institutionId: string): Promise<Array<{
+    profile_id: string;
+    name: string;
+    email: string | null;
+    phone: string | null;
+    designation: string | null;
+  }>> {
+    const supabase = createClientSupabaseClient();
+    const { data, error } = await (supabase as any)
+      .from('profiles')
+      .select('id, full_name, email, phone_number, designation')
+      .eq('role', 'counselor')
+      .eq('institution_id', institutionId)
+      .eq('is_active', true)
+      .order('full_name');
+
+    if (error) {
+      console.error('[counselor] Failed to fetch counselor profiles:', error);
+      throw new Error('Failed to fetch counselors');
+    }
+
+    return (data || []).map((p: any) => ({
+      profile_id: p.id,
+      name: p.full_name || '',
+      email: p.email || null,
+      phone: p.phone_number || null,
+      designation: p.designation || null,
+    }));
+  }
+
+  /**
+   * Bridge method (Option A): Ensure an admission_counselors record exists for a
+   * given profiles.id. Returns the admission_counselors.id for use as counselor_id on leads.
+   * Creates the record automatically from profile data if it doesn't exist yet.
+   */
+  static async resolveOrCreateCounselor(profileId: string): Promise<string> {
+    const supabase = createClientSupabaseClient();
+
+    // Check if already bridged
+    const { data: existing } = await (supabase as any)
+      .from('admission_counselors')
+      .select('id')
+      .eq('user_id', profileId)
+      .maybeSingle();
+
+    if (existing?.id) return existing.id;
+
+    // Fetch profile to seed the counselor record
+    const { data: profile, error: profileError } = await (supabase as any)
+      .from('profiles')
+      .select('full_name, email, phone_number, designation, institution_id')
+      .eq('id', profileId)
+      .single();
+
+    if (profileError || !profile) {
+      throw new Error('Profile not found');
+    }
+
+    const { data: newCounselor, error } = await (supabase as any)
+      .from('admission_counselors')
+      .insert({
+        user_id: profileId,
+        name: profile.full_name || '',
+        email: profile.email || null,
+        phone: profile.phone_number || null,
+        designation: profile.designation || null,
+        institution_id: profile.institution_id || null,
+        is_active: true,
+      })
+      .select('id')
+      .single();
+
+    if (error) {
+      console.error('[counselor] Failed to create bridge counselor record:', error);
+      throw new Error('Failed to create counselor');
+    }
+
+    return newCounselor.id;
+  }
 }
