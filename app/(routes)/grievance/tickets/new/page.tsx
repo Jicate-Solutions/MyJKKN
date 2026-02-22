@@ -37,7 +37,13 @@ export default async function NewTicketPage() {
   const raiserId = profileWithStudent.student_id || profile.id;
 
   // Fetch categories
-  const categories = await getCategories(profile.institution_id);
+  let categories: any[];
+  try {
+    categories = await getCategories(profile.institution_id);
+  } catch (error) {
+    console.error('[grievance] Error loading categories:', error);
+    categories = [];
+  }
 
   // Flatten categories for the form (include both parent and children)
   const flatCategories = categories.reduce((acc: any[], cat: any) => {
