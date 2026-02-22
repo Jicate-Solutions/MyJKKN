@@ -51,39 +51,53 @@ export default async function LCStructurePage() {
   const supabase = await createClient();
 
   // Fetch active term, positions, members, and chapters in parallel
-  const [
-    { data: activeTerm },
-    { data: positions },
-    { data: members },
-    { data: chapters }
-  ] = await Promise.all([
-    supabase
-      .from('lc_terms')
-      .select('*')
-      .eq('status', 'active')
-      .maybeSingle(),
-    supabase
-      .from('lc_positions')
-      .select('*')
-      .eq('is_active', true)
-      .order('sort_order', { ascending: true }),
-    supabase
-      .from('lc_members')
-      .select(`
-        *,
-        position:lc_positions(id, title, category, tier),
-        user:profiles(id, full_name, email, avatar_url)
-      `)
-      .eq('status', 'active'),
-    supabase
-      .from('yuva_chapters')
-      .select(`
-        *,
-        institution:institutions(id, name)
-      `)
-      .eq('is_active', true)
-      .order('name', { ascending: true })
-  ]);
+  let activeTerm: any = null;
+  let positions: any[] | null = null;
+  let members: any[] | null = null;
+  let chapters: any[] | null = null;
+
+  try {
+    const [
+      termResult,
+      positionsResult,
+      membersResult,
+      chaptersResult
+    ] = await Promise.all([
+      supabase
+        .from('lc_terms')
+        .select('*')
+        .eq('status', 'active')
+        .maybeSingle(),
+      supabase
+        .from('lc_positions')
+        .select('*')
+        .eq('is_active', true)
+        .order('sort_order', { ascending: true }),
+      supabase
+        .from('lc_members')
+        .select(`
+          *,
+          position:lc_positions(id, title, category, tier),
+          user:profiles(id, full_name, email, avatar_url)
+        `)
+        .eq('status', 'active'),
+      supabase
+        .from('yuva_chapters')
+        .select(`
+          *,
+          institution:institutions(id, name)
+        `)
+        .eq('is_active', true)
+        .order('name', { ascending: true })
+    ]);
+
+    activeTerm = termResult.data;
+    positions = positionsResult.data;
+    members = membersResult.data;
+    chapters = chaptersResult.data;
+  } catch (error) {
+    console.error('[learners-council/structure] Error fetching structure data:', error);
+  }
 
   // Build position-to-member lookup for active term
   const membersByPosition: Record<string, typeof members extends (infer T)[] | null ? T : never> = {};
