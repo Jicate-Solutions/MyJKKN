@@ -168,6 +168,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/learners/my-timetable': 'learners.my-timetable.view',
   '/learners/my-attendance': 'learners.my-attendance.view',
   '/learners/my-profile': 'learners.my-profile.view',
+  '/learners/my-gate-passes': 'campus_living.gate_passes.view',
 
   // Admin Routes
   '/learners/enquiries': 'learners.admissions.view',
