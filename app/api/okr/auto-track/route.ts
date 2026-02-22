@@ -44,14 +44,13 @@ const autoTrackHandlers: Record<string, (supabase: any, config: any) => Promise<
   // Billing module
   'billing.collection_rate': async (supabase, config) => {
     const { data: bills } = await supabase
-      .from('bills')
-      .select('total_amount, amount_paid')
-      .eq('institution_id', config.institution_id)
-      .eq('academic_year_id', config.academic_year_id);
+      .from('billing_student_bills')
+      .select('total_amount, balance_amount')
+      .eq('institution_id', config.institution_id);
 
     if (!bills || bills.length === 0) return 0;
     const totalDue = bills.reduce((sum: number, b: any) => sum + (b.total_amount || 0), 0);
-    const totalPaid = bills.reduce((sum: number, b: any) => sum + (b.amount_paid || 0), 0);
+    const totalPaid = bills.reduce((sum: number, b: any) => sum + ((b.total_amount || 0) - (b.balance_amount || 0)), 0);
     return totalDue > 0 ? Math.round((totalPaid / totalDue) * 100) : 0;
   },
 
