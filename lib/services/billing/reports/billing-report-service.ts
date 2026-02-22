@@ -747,7 +747,11 @@ export class BillingReportService {
       query = query.eq('institution_id', institutionId);
     }
 
-    const { data } = await query;
+    const { data, error } = await query;
+    if (error) {
+      console.error('[billing/reports] Error in getTotalPending:', error.message);
+      throw error;
+    }
     return (
       data?.reduce((sum, bill: any) => sum + (bill.balance_amount || 0), 0) || 0
     );
