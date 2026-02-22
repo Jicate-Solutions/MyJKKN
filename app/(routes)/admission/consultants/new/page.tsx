@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
@@ -28,7 +28,7 @@ import { Loader2, Save, ArrowLeft, Handshake, Building, Building2, User, Wallet,
 import Link from 'next/link';
 import { toast } from 'sonner';
 import { ConsultantService } from '@/lib/services/admission/consultant-service';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQueryClient } from '@tanstack/react-query';
 import type { CreateConsultantInput, ConsultantType } from '@/types/education-consultants';
 import { createConsultantSchema } from '@/lib/validations/education-consultants';
 import { useForm } from 'react-hook-form';
@@ -56,16 +56,27 @@ function NewConsultantForm() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const { institutions, selectedInstitutionId } = useUserInstitutionAccess();
-  const [chosenInstitutionId, setChosenInstitutionId] = useState<string>('');
+  // Multi-institution support: track which institutions this consultant is being registered for
+  const [chosenInstitutionIds, setChosenInstitutionIds] = useState<string[]>([]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Single-institution users → auto-use their institution
-  // Multi-institution / null-institution users (e.g. super_admin) → must select one
-  const institutionId = chosenInstitutionId || (institutions.length <= 1 ? selectedInstitutionId : undefined);
+  const toggleInstitution = (id: string) => {
+    setChosenInstitutionIds(prev =>
+      prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
+    );
+  };
+
+  // Resolve target institution IDs: single-institution users get theirs automatically,
+  // multi-institution users pick from the checkbox list
+  const targetInstitutionIds: string[] =
+    institutions.length <= 1
+      ? (selectedInstitutionId ? [selectedInstitutionId] : [])
+      : chosenInstitutionIds;
 
   const form = useForm<CreateConsultantInput>({
     resolver: zodResolver(createConsultantSchema),
     defaultValues: {
-      institution_id: institutionId ?? '',
+      institution_id: selectedInstitutionId ?? '',
       name: '',
       email: '',
       phone: '',
@@ -94,53 +105,46 @@ function NewConsultantForm() {
     }
   });
 
-  // Sync institution_id into the form once the auth profile loads
-  useEffect(() => {
-    if (institutionId) {
-      form.setValue('institution_id', institutionId);
-    }
-  }, [institutionId, form]);
-
-  const createMutation = useMutation({
-    mutationFn: (data: CreateConsultantInput) =>
-      ConsultantService.createConsultant(data),
-    onSuccess: (consultant) => {
-      toast.success('Consultant created successfully');
-      queryClient.invalidateQueries({ queryKey: ['consultants'] });
-      queryClient.invalidateQueries({ queryKey: ['consultants-summary'] });
-      router.push(`/admission/consultants/${consultant.id}`);
-    },
-    onError: (err: Error) => {
-      toast.error(err.message || 'Failed to create consultant');
-    }
-  });
-
-  const onSubmit = (data: CreateConsultantInput) => {
-    const resolvedInstitutionId = institutionId ?? data.institution_id;
-    if (!resolvedInstitutionId) {
-      toast.error('Please select an institution before creating a consultant.');
+  const onSubmit = async (data: CreateConsultantInput) => {
+    if (targetInstitutionIds.length === 0) {
+      toast.error('Please select at least one institution.');
       return;
     }
 
-    // Transform form field names to match DB column names
+    // Build base DB payload (transform form field names to DB column names)
     const { address, notes, website, bank_account_holder, geographic_coverage, specializations, programs_handled, ...rest } = data as any;
-    const dbData: Record<string, any> = {
+    const baseData: Record<string, any> = {
       ...rest,
-      institution_id: resolvedInstitutionId,
-      // address → address_line1
       ...(address ? { address_line1: address } : {}),
-      // notes → internal_notes
       ...(notes ? { internal_notes: notes } : {}),
-      // Map array fields to DB columns
       ...(geographic_coverage?.length ? { covered_states: geographic_coverage } : {}),
       ...(specializations?.length ? { specialized_degrees: specializations } : {}),
       ...(programs_handled?.length ? { specialized_programs: programs_handled } : {}),
     };
-    // Remove fields that don't exist in DB
-    delete dbData.website;
-    delete dbData.bank_account_holder;
+    delete baseData.website;
+    delete baseData.bank_account_holder;
+    delete baseData.institution_id; // set per-institution below
 
-    createMutation.mutate(dbData as CreateConsultantInput);
+    setIsSubmitting(true);
+    try {
+      const results = await Promise.all(
+        targetInstitutionIds.map(instId =>
+          ConsultantService.createConsultant({ ...baseData, institution_id: instId } as CreateConsultantInput)
+        )
+      );
+      toast.success(
+        results.length > 1
+          ? `Consultant registered across ${results.length} institutions`
+          : 'Consultant created successfully'
+      );
+      queryClient.invalidateQueries({ queryKey: ['consultants'] });
+      queryClient.invalidateQueries({ queryKey: ['consultants-summary'] });
+      router.push(`/admission/consultants/${results[0].id}`);
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to create consultant');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const consultantType = form.watch('consultant_type');
@@ -149,23 +153,41 @@ function NewConsultantForm() {
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-        {/* Institution selector — only shown when user has access to multiple institutions */}
+        {/* Institution multi-select — only shown when user has access to multiple institutions */}
         {institutions.length > 1 && (
-          <div className="flex items-center gap-2 p-3 bg-muted/30 rounded-lg border">
-            <Building2 className="h-4 w-4 text-muted-foreground shrink-0" />
-            <span className="text-xs text-muted-foreground font-medium whitespace-nowrap">Institution:</span>
-            <Select value={chosenInstitutionId} onValueChange={setChosenInstitutionId}>
-              <SelectTrigger className="h-8 w-[280px] text-xs">
-                <SelectValue placeholder="Select institution for this consultant" />
-              </SelectTrigger>
-              <SelectContent>
-                {institutions.map((inst) => (
-                  <SelectItem key={inst.institution_id} value={inst.institution_id} className="text-xs">
+          <div className="p-3 bg-muted/30 rounded-lg border space-y-2">
+            <div className="flex items-center gap-2">
+              <Building2 className="h-4 w-4 text-muted-foreground shrink-0" />
+              <span className="text-xs font-medium text-muted-foreground">
+                Register consultant for institution(s) *
+              </span>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {institutions.map((inst) => {
+                const checked = chosenInstitutionIds.includes(inst.institution_id);
+                return (
+                  <label
+                    key={inst.institution_id}
+                    className={`flex items-center gap-2 p-2 rounded border cursor-pointer text-xs transition-colors ${
+                      checked ? 'bg-primary/10 border-primary text-primary' : 'hover:bg-muted/50 text-foreground'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => toggleInstitution(inst.institution_id)}
+                      className="h-3.5 w-3.5 accent-primary"
+                    />
                     {inst.institution_name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+                  </label>
+                );
+              })}
+            </div>
+            {chosenInstitutionIds.length > 1 && (
+              <p className="text-xs text-muted-foreground">
+                A separate consultant record will be created for each selected institution.
+              </p>
+            )}
           </div>
         )}
 
@@ -600,13 +622,15 @@ function NewConsultantForm() {
               Cancel
             </Button>
           </Link>
-          <Button type="submit" disabled={createMutation.isPending}>
-            {createMutation.isPending ? (
+          <Button type="submit" disabled={isSubmitting}>
+            {isSubmitting ? (
               <Loader2 className="h-4 w-4 animate-spin mr-2" />
             ) : (
               <Save className="h-4 w-4 mr-2" />
             )}
-            Create Consultant
+            {chosenInstitutionIds.length > 1
+              ? `Create Consultant (${chosenInstitutionIds.length} institutions)`
+              : 'Create Consultant'}
           </Button>
         </div>
       </form>
