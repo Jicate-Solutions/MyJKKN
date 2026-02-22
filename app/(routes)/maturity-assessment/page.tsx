@@ -59,16 +59,33 @@ export default async function MaturityAssessmentPage({
 
   const activeTab = params.tab || 'dashboard';
 
-  // Fetch data
-  const [dashboardData, assessmentsData] = await Promise.all([
-    getDashboardData(institutionId),
-    getAssessments({
-      institution_id: institutionId,
-      status: params.status as any,
-      page: params.page ? parseInt(params.page) : 1,
-      limit: 10
-    })
-  ]);
+  // Fetch data with error handling
+  let dashboardData: Awaited<ReturnType<typeof getDashboardData>> = {
+    institution_overall: 1 as any,
+    by_department: {},
+    by_dimension: { Leadership: 0, Strategy: 0, People: 0, Processes: 0, Resources: 0, Results: 0 },
+    trend: [],
+    improvement_items: { total: 0, completed: 0, in_progress: 0, pending: 0, blocked: 0, overdue: 0 },
+    latest_assessments: []
+  };
+  let assessmentsData: Awaited<ReturnType<typeof getAssessments>> = {
+    data: [],
+    metadata: { total: 0, page: 1, limit: 10, totalPages: 0 }
+  };
+
+  try {
+    [dashboardData, assessmentsData] = await Promise.all([
+      getDashboardData(institutionId),
+      getAssessments({
+        institution_id: institutionId,
+        status: params.status as any,
+        page: params.page ? parseInt(params.page) : 1,
+        limit: 10
+      })
+    ]);
+  } catch (error) {
+    console.error('[maturity-assessment] Error fetching assessment data:', error);
+  }
 
   const isAdmin = profile?.role
     ? ['super_admin', 'admin', 'principal', 'hod'].includes(profile.role)
