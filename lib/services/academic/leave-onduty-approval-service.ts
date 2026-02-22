@@ -367,10 +367,15 @@ export class LeaveOndutyApprovalService {
   ): Promise<boolean> {
     const supabase = getSupabase();
 
-    const { data } = await supabase.rpc('is_valid_approver', {
+    const { data, error } = await supabase.rpc('is_valid_approver', {
       p_user_id: approverId,
       p_application_id: applicationId,
     });
+
+    if (error) {
+      console.error('[academic/leave] Error checking approver:', error.message);
+      return false;
+    }
 
     return !!data;
   }
