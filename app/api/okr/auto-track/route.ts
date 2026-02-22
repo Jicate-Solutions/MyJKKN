@@ -19,16 +19,30 @@ const autoTrackHandlers: Record<string, (supabase: any, config: any) => Promise<
   },
 
   'learners.attendance_rate': async (supabase, config) => {
-    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
     const { data } = await supabase
-      .from('daily_attendance')
-      .select('is_present')
-      .gte('date', thirtyDaysAgo.split('T')[0])
+      .from('student_attendance')
+      .select('attendance_data')
+      .gte('attendance_date', thirtyDaysAgo)
       .eq('institution_id', config.institution_id);
 
     if (!data || data.length === 0) return 0;
-    const present = data.filter((a: any) => a.is_present).length;
-    return data.length > 0 ? Math.round((present / data.length) * 100) : 0;
+    // attendance_data is a JSON object mapping student IDs to their status
+    let totalEntries = 0;
+    let presentEntries = 0;
+    for (const record of data) {
+      const entries = record.attendance_data;
+      if (entries && typeof entries === 'object') {
+        for (const studentId of Object.keys(entries as Record<string, any>)) {
+          const entry = (entries as Record<string, any>)[studentId];
+          totalEntries++;
+          if (entry === 'present' || entry?.status === 'present' || entry === true) {
+            presentEntries++;
+          }
+        }
+      }
+    }
+    return totalEntries > 0 ? Math.round((presentEntries / totalEntries) * 100) : 0;
   },
 
   // Academic module
