@@ -193,8 +193,36 @@ export default async function LearnersCouncilDashboard({
   const scopeParam = params.scope;
   const scopeAll = isMD ? (scopeParam !== 'institution') : (scopeParam === 'lc_wide');
 
-  const stats = await getDashboardStats(profile.id, profile.institution_id || null, scopeAll);
-  const liveData = await getLiveData(profile.id, profile.role || '');
+  let stats = {
+    lcMemberCount: 0,
+    announcementCount: 0,
+    upcomingEvents: 0,
+    pendingODCount: 0,
+    activePolls: 0,
+    unreadNotifications: 0,
+    activeTerm: null as any
+  };
+  let liveData = {
+    recentAnnouncements: [] as any[],
+    activePolls: [] as any[],
+    upcomingEvents: [] as any[],
+    myPendingOD: 0,
+    myAssignedIssues: 0,
+    awaitingApprovalOD: 0,
+    awaitingApprovalEvents: 0
+  };
+
+  try {
+    stats = await getDashboardStats(profile.id, profile.institution_id || null, scopeAll);
+  } catch (error) {
+    console.error('[learners-council] Error fetching dashboard stats:', error);
+  }
+
+  try {
+    liveData = await getLiveData(profile.id, profile.role || '');
+  } catch (error) {
+    console.error('[learners-council] Error fetching live data:', error);
+  }
 
   const dashboardCards = [
     {
