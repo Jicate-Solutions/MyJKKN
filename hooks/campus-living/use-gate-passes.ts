@@ -167,3 +167,58 @@ export function useRejectGatePass() {
     },
   });
 }
+
+// --- Parent workflow hooks ---
+
+export function useChildGatePasses(parentUserId: string) {
+  return useQuery({
+    queryKey: gatePassKeys.childPasses(parentUserId),
+    queryFn: () => GatePassService.getChildGatePasses(parentUserId),
+    enabled: !!parentUserId,
+  });
+}
+
+export function useCancelGatePass() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, cancelledBy, reason }: { id: string; cancelledBy: string; reason: string }) =>
+      GatePassService.cancelGatePass(id, cancelledBy, reason),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: gatePassKeys.all });
+      toast.success('Gate pass cancelled');
+    },
+    onError: (error: Error) => {
+      toast.error(`Failed to cancel: ${error.message}`);
+    },
+  });
+}
+
+export function useConfirmReachedHome() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, parentUserId }: { id: string; parentUserId: string }) =>
+      GatePassService.confirmReachedHome(id, parentUserId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: gatePassKeys.all });
+      toast.success('Confirmed: Child reached home safely');
+    },
+    onError: (error: Error) => {
+      toast.error(`Failed to confirm: ${error.message}`);
+    },
+  });
+}
+
+export function useConfirmLeftHome() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, parentUserId }: { id: string; parentUserId: string }) =>
+      GatePassService.confirmLeftHome(id, parentUserId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: gatePassKeys.all });
+      toast.success('Confirmed: Child left home heading to campus');
+    },
+    onError: (error: Error) => {
+      toast.error(`Failed to confirm: ${error.message}`);
+    },
+  });
+}
