@@ -35,27 +35,34 @@ export default async function GrievanceEscalationsPage() {
   }
 
   // Fetch SLA-breached tickets (these are the real "escalations")
-  const breachedResult = await getTickets({
-    institution_id: profile.institution_id,
-    sla_status: 'breached',
-    page: 1,
-    limit: 50,
-    sortBy: 'created_at',
-    sortDirection: 'desc',
-  });
+  let breachedTickets: any[] = [];
+  let atRiskTickets: any[] = [];
+  try {
+    const breachedResult = await getTickets({
+      institution_id: profile.institution_id,
+      sla_status: 'breached',
+      page: 1,
+      limit: 50,
+      sortBy: 'created_at',
+      sortDirection: 'desc',
+    });
+    breachedTickets = breachedResult.data || [];
 
-  // Also fetch urgent/high priority open tickets that are at risk
-  const atRiskResult = await getTickets({
-    institution_id: profile.institution_id,
-    sla_status: 'at_risk',
-    page: 1,
-    limit: 50,
-    sortBy: 'created_at',
-    sortDirection: 'desc',
-  });
-
-  const breachedTickets = breachedResult.data || [];
-  const atRiskTickets = atRiskResult.data || [];
+    // Also fetch urgent/high priority open tickets that are at risk
+    const atRiskResult = await getTickets({
+      institution_id: profile.institution_id,
+      sla_status: 'at_risk',
+      page: 1,
+      limit: 50,
+      sortBy: 'created_at',
+      sortDirection: 'desc',
+    });
+    atRiskTickets = atRiskResult.data || [];
+  } catch (error) {
+    console.error('[grievance] Error loading escalations:', error);
+    breachedTickets = [];
+    atRiskTickets = [];
+  }
 
   // Combine: breached first, then at-risk urgent/high only
   const escalations = [
