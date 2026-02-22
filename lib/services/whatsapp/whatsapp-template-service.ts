@@ -558,7 +558,7 @@ export class WhatsAppTemplateService {
   static async installStarterTemplates(institutionId: string, userId: string): Promise<{ installed: number; skipped: number }> {
     const starters = this.getStarterTemplates();
     const existing = await this.getTemplates({ institution_id: institutionId });
-    const existingNames = new Set(existing.data.map(t => t.name));
+    const existingNames = new Set((existing.data || []).map(t => t.name));
 
     let installed = 0;
     let skipped = 0;
