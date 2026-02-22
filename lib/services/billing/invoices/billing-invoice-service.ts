@@ -166,7 +166,7 @@ export class BillingInvoiceService {
             roll_number,
             student_email
           ),
-          institution:institutions(
+          institution:institutions!fk_billing_invoices_institution(
             id,
             name,
             counselling_code
@@ -271,7 +271,7 @@ export class BillingInvoiceService {
             roll_number,
             student_email
           ),
-          institution:institutions(
+          institution:institutions!fk_billing_invoices_institution(
             id,
             name,
             counselling_code
@@ -867,7 +867,7 @@ export class BillingInvoiceService {
             roll_number,
             student_email
           ),
-          institution:institutions(
+          institution:institutions!fk_billing_invoices_institution(
             id,
             name,
             counselling_code
@@ -916,7 +916,7 @@ export class BillingInvoiceService {
             roll_number,
             student_email
           ),
-          institution:institutions(
+          institution:institutions!fk_billing_invoices_institution(
             id,
             name,
             counselling_code
@@ -976,7 +976,7 @@ export class BillingInvoiceService {
             roll_number,
             student_email
           ),
-          institution:institutions(
+          institution:institutions!fk_billing_invoices_institution(
             id,
             name,
             counselling_code
