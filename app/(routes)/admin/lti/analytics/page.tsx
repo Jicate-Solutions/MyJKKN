@@ -260,19 +260,37 @@ export default async function LtiAnalyticsPage({ searchParams }: PageProps) {
     ? new Date(params.startDate)
     : startOfDay(subDays(endDate, 30)); // Default: last 30 days
 
-  // Fetch analytics data
-  const [launchStats, toolStats, institutionStats, filterOptions] =
-    await Promise.all([
-      getLaunchStats(
-        startDate,
-        endDate,
-        params.institutionId,
-        params.toolId
-      ),
-      getToolStats(startDate, endDate, params.institutionId),
-      getInstitutionStats(startDate, endDate),
-      getFilterOptions()
-    ]);
+  // Fetch analytics data with error handling
+  let launchStats: Awaited<ReturnType<typeof getLaunchStats>> = {
+    totalLaunches: 0,
+    uniqueUsers: 0,
+    studentLaunches: 0,
+    facultyLaunches: 0,
+    launches: []
+  };
+  let toolStats: Awaited<ReturnType<typeof getToolStats>> = [];
+  let institutionStats: Awaited<ReturnType<typeof getInstitutionStats>> = [];
+  let filterOptions: Awaited<ReturnType<typeof getFilterOptions>> = {
+    institutions: [],
+    tools: []
+  };
+
+  try {
+    [launchStats, toolStats, institutionStats, filterOptions] =
+      await Promise.all([
+        getLaunchStats(
+          startDate,
+          endDate,
+          params.institutionId,
+          params.toolId
+        ),
+        getToolStats(startDate, endDate, params.institutionId),
+        getInstitutionStats(startDate, endDate),
+        getFilterOptions()
+      ]);
+  } catch (error) {
+    console.error('[admin/lti/analytics] Error fetching analytics data:', error);
+  }
 
   return (
     <ContentLayout title="LTI Analytics">
