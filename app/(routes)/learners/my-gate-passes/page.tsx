@@ -43,6 +43,7 @@ const passTypeLabels: Record<string, string> = {
   overnight: 'Overnight',
   emergency: 'Emergency',
   visitor_accompanied: 'With Visitor',
+  home_visit: 'Home Visit',
 };
 
 function formatDateTime(dateStr: string | null) {
