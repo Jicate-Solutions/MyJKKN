@@ -2961,6 +2961,11 @@ export function GetRoleBasedPages(
             });
           }
 
+          // Special case: Parent portal pages are ONLY for parents
+          if ((menu as any).requiresParent) {
+            return userRole.role_key === 'parent';
+          }
+
           // Special case: Student portal pages (my-*) are ONLY for students
           if (menu.href.includes('/learners/my-')) {
             if (userRole.role_key !== 'student') return false;
