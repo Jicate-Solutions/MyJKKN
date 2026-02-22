@@ -27,7 +27,9 @@ interface MenuProps {
 export function Menu({ isOpen }: MenuProps) {
   const pathname = usePathname();
   const [userRole, setUserRole] = useState<CustomRole | null>(null);
+  const [profileId, setProfileId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const isHostelResident = useIsHostelResident(profileId);
 
   // Fetch the user's role
   useEffect(() => {
@@ -37,6 +39,7 @@ export function Menu({ isOpen }: MenuProps) {
         const profile = await AuthService.getUserProfile();
 
         if (profile && profile.role) {
+          setProfileId(profile.id);
           const roleData = await RoleService.getRoleByKey(profile.role);
           setUserRole(roleData);
         }
@@ -51,7 +54,7 @@ export function Menu({ isOpen }: MenuProps) {
   }, []);
 
   // Use the role-based menu
-  const pages = GetRoleBasedPages(pathname, userRole);
+  const pages = GetRoleBasedPages(pathname, userRole, { isHostelResident });
 
   const handleLogout = async () => {
     try {
