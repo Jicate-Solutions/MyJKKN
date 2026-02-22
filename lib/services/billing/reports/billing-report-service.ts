@@ -881,7 +881,11 @@ export class BillingReportService {
       query = query.eq('institution_id', institutionId);
     }
 
-    const { data } = await query;
+    const { data, error } = await query;
+    if (error) {
+      console.error('[billing/reports] Error in getRecentReceipts:', error.message);
+      throw error;
+    }
     return data || [];
   }
 
