@@ -31,8 +31,10 @@ import {
   useLeadCommunicationHistory,
   useLeadMutations,
   useActivityMutations,
-  useApplicationMutations
+  useApplicationMutations,
+  useCounselorProfiles
 } from '@/hooks/admission';
+import { CounselorDailyViewService } from '@/lib/services/admission/counselor-daily-view-service';
 import type { TimelineEntry } from '@/lib/services/admission/activity-service';
 import {
   ArrowLeft,
@@ -467,32 +469,11 @@ function LeadDetailPageContent() {
     return () => { cancelled = true; };
   }, [lead?.institution_id]);
 
-  // Fetch counselors for assignment dialog
-  const [counselors, setCounselors] = useState<{ id: string; name: string; designation: string | null; phone: string | null }[]>([]);
-  const [counselorsLoading, setCounselorsLoading] = useState(false);
-  useEffect(() => {
-    let cancelled = false;
-    if (lead?.institution_id) {
-      setCounselorsLoading(true);
-      const supabase = createClientSupabaseClient();
-      (supabase as any)
-        .from('admission_counselors')
-        .select('id, name, designation, phone')
-        .eq('institution_id', lead.institution_id)
-        .eq('is_active', true)
-        .order('name')
-        .then(({ data, error }: { data: any; error: any }) => {
-          if (cancelled) return;
-          if (error) {
-            console.error('[admission/leads] Failed to fetch counselors:', error.message);
-          } else {
-            setCounselors(data || []);
-          }
-          setCounselorsLoading(false);
-        });
-    }
-    return () => { cancelled = true; };
-  }, [lead?.institution_id]);
+  // Counselors from profiles (role='counselor') — institution-scoped
+  const { data: counselorProfiles, isLoading: counselorsLoading } = useCounselorProfiles(
+    lead?.institution_id ?? undefined
+  );
+  const counselors = counselorProfiles || [];
 
   // Map interested program IDs to names
   const interestedProgramNames = useMemo(() => {
@@ -679,21 +660,29 @@ function LeadDetailPageContent() {
     );
   };
 
-  const handleAssignCounselor = () => {
+  const handleAssignCounselor = async () => {
     if (!selectedCounselorId) {
       toast.error('Please select a counselor');
       return;
     }
-    assignCounselor.mutate(
-      { leadId, counselorId: selectedCounselorId },
-      {
-        onSuccess: () => {
-          setSelectedCounselorId('');
-          setShowAssignCounselorDialog(false);
-          refetch();
-        },
-      }
-    );
+    try {
+      // Resolve (or auto-create) the admission_counselors bridge record
+      const counselorId = await CounselorDailyViewService.resolveOrCreateCounselor(
+        selectedCounselorId // this is now a profiles.id
+      );
+      assignCounselor.mutate(
+        { leadId, counselorId },
+        {
+          onSuccess: () => {
+            setSelectedCounselorId('');
+            setShowAssignCounselorDialog(false);
+            refetch();
+          },
+        }
+      );
+    } catch {
+      toast.error('Failed to resolve counselor. Please try again.');
+    }
   };
 
   const handleCreateApplication = () => {
@@ -1477,8 +1466,8 @@ function LeadDetailPageContent() {
                                 <SelectItem value="_none" disabled>No counselors found</SelectItem>
                               ) : (
                                 counselors.map((c) => (
-                                  <SelectItem key={c.id} value={c.id}>
-                                    {c.name}{c.designation ? ` (${c.designation})` : ''}{c.phone ? ` - ${c.phone}` : ''}
+                                  <SelectItem key={c.profile_id} value={c.profile_id}>
+                                    {c.name}{c.designation ? ` (${c.designation})` : ''}
                                   </SelectItem>
                                 ))
                               )}
