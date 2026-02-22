@@ -53,7 +53,8 @@ import {
   MoreHorizontal,
   Edit,
   Trash2,
-  Loader2
+  Loader2,
+  ExternalLink
 } from 'lucide-react';
 import Link from 'next/link';
 import {
@@ -350,29 +351,48 @@ function LeadDetailPageContent() {
 
   const handleSendMessage = async () => {
     if (!lead || !sendMessage.trim()) return;
+
+    if (sendChannel === 'whatsapp') {
+      // Open WhatsApp Web with the lead's phone and pre-filled message.
+      // Phone must be international format without '+': strip non-digits, prepend 91 for India.
+      const digits = lead.phone.replace(/\D/g, '');
+      const intlPhone = digits.startsWith('91') && digits.length === 12 ? digits : `91${digits}`;
+      const waUrl = `https://wa.me/${intlPhone}?text=${encodeURIComponent(sendMessage.trim())}`;
+      window.open(waUrl, '_blank', 'noopener,noreferrer');
+
+      // Log as activity (best-effort — don't block or show error to user)
+      try {
+        await createActivity({
+          lead_id: lead.id,
+          institution_id: lead.institution_id,
+          activity_type: 'whatsapp',
+          title: 'WhatsApp message',
+          description: sendMessage.trim(),
+        });
+        queryClient.invalidateQueries({ queryKey: ['lead-communication-history', leadId] });
+      } catch (_) { /* best-effort */ }
+
+      toast.success('WhatsApp opened — send the message from your account');
+      setSendMessage('');
+      setShowSendMsg(false);
+      return;
+    }
+
+    // SMS — send via service
     setIsSending(true);
     try {
-      if (sendChannel === 'sms') {
-        await SMSCampaignService.sendCampaignSMS({
-          institutionId: lead.institution_id,
-          leadId: lead.id,
-          phoneNumber: lead.phone,
-          messageContent: sendMessage.trim(),
-        });
-      } else {
-        await WhatsAppCampaignService.sendCampaignMessage({
-          institution_id: lead.institution_id,
-          lead_id: lead.id,
-          recipient_phone: lead.phone,
-          message_content: sendMessage.trim(),
-        });
-      }
-      toast.success(`${sendChannel === 'sms' ? 'SMS' : 'WhatsApp'} sent successfully`);
+      await SMSCampaignService.sendCampaignSMS({
+        institutionId: lead.institution_id,
+        leadId: lead.id,
+        phoneNumber: lead.phone,
+        messageContent: sendMessage.trim(),
+      });
+      toast.success('SMS sent successfully');
       setSendMessage('');
       setShowSendMsg(false);
       queryClient.invalidateQueries({ queryKey: ['lead-communication-history', leadId] });
     } catch (err: any) {
-      toast.error(err?.message || 'Failed to send message');
+      toast.error(err?.message || 'Failed to send SMS');
     } finally {
       setIsSending(false);
     }
@@ -957,7 +977,9 @@ function LeadDetailPageContent() {
                             <DialogHeader>
                               <DialogTitle>Send Message</DialogTitle>
                               <DialogDescription>
-                                Send a direct SMS or WhatsApp message to {lead?.full_name}
+                                {sendChannel === 'whatsapp'
+                                  ? `Opens WhatsApp Web with a pre-filled message to ${lead?.full_name}. You send it from your own WhatsApp account.`
+                                  : `Send a direct SMS to ${lead?.full_name}`}
                               </DialogDescription>
                             </DialogHeader>
                             <div className="space-y-4 py-2">
@@ -995,10 +1017,12 @@ function LeadDetailPageContent() {
                                 onClick={handleSendMessage}
                                 disabled={isSending || !sendMessage.trim()}
                               >
-                                {isSending ? (
+                                {sendChannel === 'whatsapp' ? (
+                                  <><ExternalLink className="h-4 w-4 mr-2" />Open WhatsApp</>
+                                ) : isSending ? (
                                   <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Sending...</>
                                 ) : (
-                                  <><Send className="h-4 w-4 mr-2" />Send</>
+                                  <><Send className="h-4 w-4 mr-2" />Send SMS</>
                                 )}
                               </Button>
                             </DialogFooter>
