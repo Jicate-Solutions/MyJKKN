@@ -296,12 +296,14 @@ export class SocialMediaService {
     });
 
     // Top posts by engagement
-    const { data: topPosts } = await this.supabase
+    const { data: topPosts, error: postsError } = await this.supabase
       .from('sm_post_metrics')
       .select('*')
       .eq('institution_id', institutionId)
       .order('engagement_rate', { ascending: false })
       .limit(10);
+
+    if (postsError) throw new Error(`Failed to fetch top posts: ${postsError.message}`);
 
     return {
       totalAccounts: allAccounts.length,
