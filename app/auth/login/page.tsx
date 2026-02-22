@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { GoogleOneTap } from '@/components/auth/google-one-tap';
-import { GraduationCap, BookOpen, Brain, XCircle, Shield, UserCog, School, User, BookOpenCheck, Briefcase, Heart } from 'lucide-react';
+import { GraduationCap, BookOpen, Brain, XCircle, Shield, UserCog, School, User, BookOpenCheck, Briefcase, Heart, Building2, Sun } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { BeatLoader } from 'react-spinners';
 import toast from 'react-hot-toast';
