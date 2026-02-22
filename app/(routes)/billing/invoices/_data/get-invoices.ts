@@ -52,7 +52,7 @@ export async function getInvoices(
         roll_number,
         college_email
       ),
-      institution:institutions(
+      institution:institutions!fk_billing_invoices_institution(
         id,
         name,
         counselling_code
