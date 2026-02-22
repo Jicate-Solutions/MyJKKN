@@ -215,9 +215,9 @@ export default async function CourseGradesPage({ searchParams }: PageProps) {
 
   // Check user role (faculty, hod, principal, admin)
   const { data: userProfile } = await supabase
-    .from('user_profiles')
+    .from('profiles')
     .select('role')
-    .eq('user_id', user.id)
+    .eq('id', user.id)
     .single();
 
   const allowedRoles = ['faculty', 'hod', 'principal', 'administrator', 'super_admin'];

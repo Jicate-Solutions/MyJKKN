@@ -8,6 +8,7 @@ import type {
   CreateHostelAllocationDTO,
   UpdateHostelAllocationDTO,
   AllocationFilters,
+  VacateReason,
 } from '@/types/campus-living';
 
 // Query key factory
@@ -50,7 +51,7 @@ export function useCreateHostelAllocation() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (payload: CreateHostelAllocationDTO) =>
-      HostelAllocationService.createAllocation(payload),
+      HostelAllocationService.allocate(payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: hostelAllocationKeys.all });
       toast.success('Allocation created');
@@ -80,8 +81,8 @@ export function useUpdateHostelAllocation() {
 export function useTransferAllocation() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, payload }: { id: string; payload: { new_room_id: string; new_bed_id: string; reason?: string } }) =>
-      HostelAllocationService.transferAllocation(id, payload),
+    mutationFn: ({ id, payload }: { id: string; payload: { new_room_id: string; new_bed_id: string; new_block_id?: string } }) =>
+      HostelAllocationService.transfer(id, payload.new_room_id, payload.new_bed_id, payload.new_block_id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: hostelAllocationKeys.all });
       toast.success('Allocation transferred');
@@ -95,8 +96,8 @@ export function useTransferAllocation() {
 export function useVacateAllocation() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, payload }: { id: string; payload: { vacate_reason: string; actual_vacate_date: string } }) =>
-      HostelAllocationService.vacateAllocation(id, payload),
+    mutationFn: ({ id, payload }: { id: string; payload: { vacate_reason: VacateReason } }) =>
+      HostelAllocationService.vacate(id, payload.vacate_reason),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: hostelAllocationKeys.all });
       toast.success('Allocation vacated');

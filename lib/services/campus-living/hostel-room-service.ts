@@ -180,7 +180,7 @@ export class HostelRoomService {
       const supabase = createClientSupabaseClient();
       const { data, error } = await supabase
         .from('hostel_rooms')
-        .update({ status })
+        .update({ status } as any)
         .eq('id', id)
         .select()
         .single();

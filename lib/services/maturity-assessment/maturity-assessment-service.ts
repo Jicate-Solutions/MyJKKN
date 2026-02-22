@@ -714,7 +714,7 @@ export class MaturityAssessmentService {
       const deptId = a.department_id || 'institution';
       if (!seenDepts.has(deptId)) {
         seenDepts.add(deptId);
-        const deptName = (a.department as { name: string } | null)?.name || 'Institution-wide';
+        const deptName = (a.department as { department_name: string } | null)?.department_name || 'Institution-wide';
         // SAFETY: Ensure overall_stage is valid
         byDepartment[deptName] = ensureNumber(a.overall_stage, 1) as MaturityStage;
       }
@@ -758,7 +758,7 @@ export class MaturityAssessmentService {
     // Calculate overall - SAFETY: Ensure we have valid stages
     const overallScores = safeAssessments.map((a) => ensureNumber(a.overall_stage, 1));
     const institutionOverall = overallScores.length > 0
-      ? Math.max(1, Math.min(4, Math.round(
+      ? Math.max(1, Math.min(4, Math.floor(
           overallScores.reduce((a, b) => a + b, 0) / overallScores.length
         ))) as MaturityStage
       : 1;
@@ -769,7 +769,7 @@ export class MaturityAssessmentService {
       .map((a) => ({
         date: a.assessment_date,
         stage: ensureNumber(a.overall_stage, 1),
-        department: (a.department as { name: string } | null)?.name
+        department: (a.department as { department_name: string } | null)?.department_name
       }))
       .reverse();
 
@@ -887,7 +887,7 @@ export class MaturityAssessmentService {
       if (a.department_id && !latestByDept.has(a.department_id)) {
         latestByDept.set(a.department_id, {
           department_id: a.department_id,
-          department_name: (a.department as { name: string })?.name || 'Unknown',
+          department_name: (a.department as { department_name: string })?.department_name || 'Unknown',
           overall_stage: a.overall_stage as MaturityStage,
           dimension_scores: a.dimension_scores as Record<MaturityDimensionName, MaturityStage>,
           assessment_date: a.assessment_date

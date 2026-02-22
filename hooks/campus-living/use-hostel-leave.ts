@@ -55,7 +55,7 @@ export function useApproveLeave() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ id, payload }: { id: string; payload: { warden_id: string; warden_remarks?: string } }) =>
-      HostelLeaveService.approveLeave(id, payload),
+      HostelLeaveService.approveByWarden(id, payload.warden_id, payload.warden_remarks),
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: hostelLeaveKeys.all });
       queryClient.invalidateQueries({ queryKey: hostelLeaveKeys.detail(variables.id) });
@@ -71,7 +71,7 @@ export function useRejectLeave() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ id, payload }: { id: string; payload: { warden_id: string; warden_remarks: string } }) =>
-      HostelLeaveService.rejectLeave(id, payload),
+      HostelLeaveService.rejectByWarden(id, payload.warden_id, payload.warden_remarks),
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: hostelLeaveKeys.all });
       queryClient.invalidateQueries({ queryKey: hostelLeaveKeys.detail(variables.id) });

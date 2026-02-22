@@ -78,7 +78,7 @@ export class InspectionService {
         .insert({
           ...payload,
           follow_up_completed: false,
-        })
+        } as any)
         .select()
         .single();
 
@@ -99,7 +99,7 @@ export class InspectionService {
       const supabase = createClientSupabaseClient();
       const { data, error } = await supabase
         .from('hostel_inspections')
-        .update(payload)
+        .update(payload as any)
         .eq('id', id)
         .select()
         .single();

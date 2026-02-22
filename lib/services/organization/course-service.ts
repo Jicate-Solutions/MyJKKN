@@ -46,7 +46,7 @@ export class CourseService {
         if (error.code === 'PGRST116') return null;
         throw error;
       }
-      return data;
+      return data as unknown as Course;
     } catch (error) {
       console.error('Error fetching course by code:', error);
       throw error;
@@ -269,7 +269,7 @@ export class CourseService {
         throw error;
       }
 
-      return course;
+      return course as unknown as Course;
     } catch (error) {
       console.error('Error fetching course:', error);
       throw error;
@@ -293,7 +293,7 @@ export class CourseService {
         return null;
       }
 
-      return data;
+      return data as unknown as Course;
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : 'An unknown error occurred';

@@ -165,7 +165,7 @@ export class BillingReportService {
         .select(
           `
           student_id,
-          students(
+          student:learners_profiles(
             first_name,
             last_name,
             roll_number,
@@ -212,11 +212,11 @@ export class BillingReportService {
         if (!studentMap.has(studentId)) {
           studentMap.set(studentId, {
             student_id: studentId,
-            first_name: bill.students?.first_name || '',
-          last_name: bill.students?.last_name || '',
-            roll_number: bill.students?.roll_number,
-            institution_name: bill.students?.institution?.name || '',
-            department_name: bill.students?.department?.department_name,
+            first_name: bill.student?.first_name || '',
+            last_name: bill.student?.last_name || '',
+            roll_number: bill.student?.roll_number,
+            institution_name: bill.student?.institution?.name || '',
+            department_name: bill.student?.department?.department_name,
             total_outstanding: 0,
             overdue_amount: 0,
             bills: []

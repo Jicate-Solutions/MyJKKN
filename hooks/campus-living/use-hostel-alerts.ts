@@ -106,7 +106,7 @@ export function useAcknowledgeRiskAlert() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ id, payload }: { id: string; payload: { acknowledged_by: string } }) =>
-      HostelAlertService.acknowledgeRiskAlert(id, payload),
+      HostelAlertService.acknowledgeAlert(id, payload.acknowledged_by),
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: hostelAlertKeys.all });
       queryClient.invalidateQueries({ queryKey: hostelAlertKeys.riskAlertDetail(variables.id) });
@@ -122,7 +122,7 @@ export function useResolveRiskAlert() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ id, payload }: { id: string; payload: { resolved_by: string; resolution_notes: string } }) =>
-      HostelAlertService.resolveRiskAlert(id, payload),
+      HostelAlertService.resolveAlert(id, payload.resolved_by, payload.resolution_notes),
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: hostelAlertKeys.all });
       queryClient.invalidateQueries({ queryKey: hostelAlertKeys.riskAlertDetail(variables.id) });

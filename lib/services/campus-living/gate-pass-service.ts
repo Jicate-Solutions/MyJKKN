@@ -21,7 +21,7 @@ export class GatePassService {
         .select('*, learner:profiles!hostel_gate_passes_learner_id_fkey(id, full_name, email), block:hostel_blocks!block_id(id, name, code)', { count: 'exact' })
         .eq('institution_id', institutionId);
 
-      if (filters?.status) query = query.eq('status', filters.status);
+      if (filters?.status) query = query.eq('status', filters.status as any);
       if (filters?.learner_id) query = query.eq('learner_id', filters.learner_id);
       if (filters?.date) {
         query = query.gte('created_at', `${filters.date}T00:00:00`)
@@ -186,7 +186,7 @@ export class GatePassService {
         .update({
           out_time: new Date().toISOString(),
           gate_security_out: securityId,
-          status: 'active' as GatePassStatus,
+          status: 'active' as any,
         })
         .eq('id', id)
         .select()
@@ -212,7 +212,7 @@ export class GatePassService {
         .update({
           actual_return: new Date().toISOString(),
           gate_security_in: securityId,
-          status: 'returned' as GatePassStatus,
+          status: 'returned' as any,
         })
         .eq('id', id)
         .select()
@@ -261,7 +261,7 @@ export class GatePassService {
 
       const { data, error } = await supabase
         .from('hostel_gate_passes')
-        .update({ status: 'overdue' as GatePassStatus })
+        .update({ status: 'overdue' as any })
         .eq('institution_id', institutionId)
         .eq('status', 'active')
         .lt('expected_return', now)

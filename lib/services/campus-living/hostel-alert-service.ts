@@ -69,7 +69,7 @@ export class HostelAlertService {
       const supabase = createClientSupabaseClient();
       const { data, error } = await supabase
         .from('hostel_alert_rules')
-        .insert(payload)
+        .insert(payload as any)
         .select()
         .single();
 
@@ -90,7 +90,7 @@ export class HostelAlertService {
       const supabase = createClientSupabaseClient();
       const { data, error } = await supabase
         .from('hostel_alert_rules')
-        .update(payload)
+        .update(payload as any)
         .eq('id', id)
         .select()
         .single();
@@ -262,7 +262,7 @@ export class HostelAlertService {
         .insert({
           ...payload,
           status: 'active' as AlertStatus,
-        })
+        } as any)
         .select()
         .single();
 

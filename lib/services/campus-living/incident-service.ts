@@ -127,7 +127,7 @@ export class IncidentService {
           police_complaint_filed: false,
           parent_notified: false,
           status: 'reported',
-        })
+        } as any)
         .select()
         .single();
 

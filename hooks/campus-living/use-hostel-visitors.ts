@@ -39,7 +39,7 @@ export function useHostelVisitor(id: string) {
 export function useCheckInVisitor() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (payload: CreateHostelVisitorDTO) => VisitorService.checkInVisitor(payload),
+    mutationFn: (payload: CreateHostelVisitorDTO) => VisitorService.registerVisitor(payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: hostelVisitorKeys.all });
       toast.success('Visitor checked in');
@@ -53,8 +53,8 @@ export function useCheckInVisitor() {
 export function useCheckOutVisitor() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, payload }: { id: string; payload: { check_out_time: string } }) =>
-      VisitorService.checkOutVisitor(id, payload),
+    mutationFn: ({ id }: { id: string }) =>
+      VisitorService.checkOut(id),
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: hostelVisitorKeys.all });
       queryClient.invalidateQueries({ queryKey: hostelVisitorKeys.detail(variables.id) });

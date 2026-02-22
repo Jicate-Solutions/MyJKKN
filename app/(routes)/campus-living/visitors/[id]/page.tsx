@@ -70,7 +70,7 @@ export default function VisitorDetailPage({ params }: VisitorDetailPageProps) {
               <Button
                 variant="outline"
                 disabled={checkOutMutation.isPending}
-                onClick={() => checkOutMutation.mutate({ id: visitor.id, payload: { check_out_time: new Date().toISOString() } })}
+                onClick={() => checkOutMutation.mutate({ id: visitor.id })}
               >
                 <LogOut className="mr-2 h-4 w-4" />
                 {checkOutMutation.isPending ? 'Checking out...' : 'Check-out'}

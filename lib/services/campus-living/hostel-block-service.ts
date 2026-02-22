@@ -166,7 +166,7 @@ export class HostelBlockService {
         .from('hostel_blocks')
         .select('*')
         .eq('institution_id', institutionId)
-        .eq('hostel_type', hostelType)
+        .eq('hostel_type', hostelType as any)
         .eq('status', 'active')
         .order('name');
 

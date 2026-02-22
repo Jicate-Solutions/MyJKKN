@@ -61,9 +61,9 @@ export async function POST(request: NextRequest) {
 
     // Get user profile to determine role
     const { data: profile } = await supabase
-      .from('user_profiles')
+      .from('profiles')
       .select('role')
-      .eq('user_id', user.id)
+      .eq('id', user.id)
       .single();
 
     if (!profile) {

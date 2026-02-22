@@ -505,8 +505,8 @@ describe('Ticket Number Generation', () => {
 describe('Institution Access Control', () => {
   describe('Security Validation', () => {
     it('should require institution_id for all operations', () => {
-      const institutionId = '';
-      const isValid = institutionId && institutionId.trim() !== '';
+      const institutionId: string = '';
+      const isValid = institutionId && (institutionId as string).trim() !== '';
       expect(isValid).toBeFalsy();
     });
 
@@ -524,7 +524,7 @@ describe('Institution Access Control', () => {
       const userInstitutionId = mockInstitutionId;
       const requestedInstitutionId = '99999999-9999-9999-9999-999999999999';
 
-      const hasAccess = userInstitutionId === requestedInstitutionId;
+      const hasAccess = (userInstitutionId as string) === (requestedInstitutionId as string);
       expect(hasAccess).toBe(false);
     });
 
@@ -533,8 +533,8 @@ describe('Institution Access Control', () => {
       const categoryInstitutionId = mockInstitutionId;
       const differentInstitutionId = '99999999-9999-9999-9999-999999999999';
 
-      expect(ticketInstitutionId === categoryInstitutionId).toBe(true);
-      expect(ticketInstitutionId === differentInstitutionId).toBe(false);
+      expect((ticketInstitutionId as string) === (categoryInstitutionId as string)).toBe(true);
+      expect((ticketInstitutionId as string) === (differentInstitutionId as string)).toBe(false);
     });
   });
 
@@ -713,8 +713,8 @@ describe('Ticket Assignment', () => {
 describe('Ticket Resolution', () => {
   describe('Resolution Requirements', () => {
     it('should require resolution text', () => {
-      const resolution = '';
-      const isValid = resolution && resolution.length >= 10;
+      const resolution: string = '';
+      const isValid = resolution && (resolution as string).length >= 10;
       expect(isValid).toBeFalsy();
     });
 
@@ -803,8 +803,8 @@ describe('Ticket Reopening', () => {
     });
 
     it('should require reason for reopening', () => {
-      const reason = '';
-      const isValid = reason && reason.length >= 10;
+      const reason: string = '';
+      const isValid = reason && (reason as string).length >= 10;
       expect(isValid).toBeFalsy();
     });
 
@@ -1172,7 +1172,7 @@ describe('Edge Cases', () => {
       const newUpdatedAt = '2025-01-15T11:00:00Z';
 
       // Simulating concurrent update detection
-      const isStale = originalUpdatedAt !== newUpdatedAt;
+      const isStale = (originalUpdatedAt as string) !== (newUpdatedAt as string);
       expect(isStale).toBe(true);
     });
   });

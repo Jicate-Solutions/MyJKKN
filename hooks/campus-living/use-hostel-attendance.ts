@@ -35,13 +35,8 @@ export function useAttendanceByDate(institutionId: string, date: string) {
   });
 }
 
-export function useHostelAttendanceDetail(id: string) {
-  return useQuery({
-    queryKey: hostelAttendanceKeys.detail(id),
-    queryFn: () => HostelAttendanceService.getAttendanceRecord(id),
-    enabled: !!id,
-  });
-}
+// Note: No single-record-by-id getter exists on the service.
+// Use useAttendanceByDate or useHostelAttendance with filters instead.
 
 // --- Mutation hooks ---
 
@@ -49,7 +44,7 @@ export function useMarkAttendance() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (payload: CreateHostelAttendanceDTO[]) =>
-      HostelAttendanceService.markBulkAttendance(payload),
+      HostelAttendanceService.bulkMarkAttendance(payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: hostelAttendanceKeys.all });
       toast.success('Attendance marked');
@@ -64,7 +59,7 @@ export function useCreateHostelAttendance() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (payload: CreateHostelAttendanceDTO) =>
-      HostelAttendanceService.createAttendance(payload),
+      HostelAttendanceService.markAttendance(payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: hostelAttendanceKeys.all });
       toast.success('Attendance recorded');

@@ -28,7 +28,7 @@ export function useMessFeedback(institutionId: string, filters?: Record<string, 
 export function useMessFeedbackDetail(id: string) {
   return useQuery({
     queryKey: messFeedbackKeys.detail(id),
-    queryFn: () => MessFeedbackService.getFeedbackDetail(id),
+    queryFn: () => MessFeedbackService.getFeedbackById(id),
     enabled: !!id,
   });
 }
@@ -38,7 +38,7 @@ export function useMessFeedbackDetail(id: string) {
 export function useCreateMessFeedback() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (payload: CreateMessFeedbackDTO) => MessFeedbackService.createFeedback(payload),
+    mutationFn: (payload: CreateMessFeedbackDTO) => MessFeedbackService.submitFeedback(payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: messFeedbackKeys.all });
       toast.success('Feedback submitted');

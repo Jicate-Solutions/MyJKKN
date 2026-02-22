@@ -662,7 +662,7 @@ export class StudentBillService {
       const { data, error } = await query;
 
       if (error) throw error;
-      return (data || []) as StudentBill[];
+      return (data || []) as unknown as StudentBill[];
     } catch (error) {
       console.error('Error fetching student bills by student:', error);
       throw error;

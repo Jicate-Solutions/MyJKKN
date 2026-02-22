@@ -21,7 +21,7 @@ export const hostelMaintenanceKeys = {
 export function useHostelMaintenanceRequests(institutionId: string, filters?: MaintenanceFilters) {
   return useQuery({
     queryKey: hostelMaintenanceKeys.list({ institutionId, ...filters }),
-    queryFn: () => MaintenanceService.getMaintenanceRequests(institutionId, filters),
+    queryFn: () => MaintenanceService.getRequests(institutionId, filters),
     enabled: !!institutionId,
   });
 }
@@ -29,7 +29,7 @@ export function useHostelMaintenanceRequests(institutionId: string, filters?: Ma
 export function useHostelMaintenanceRequest(id: string) {
   return useQuery({
     queryKey: hostelMaintenanceKeys.detail(id),
-    queryFn: () => MaintenanceService.getMaintenanceRequest(id),
+    queryFn: () => MaintenanceService.getRequest(id),
     enabled: !!id,
   });
 }
@@ -40,7 +40,7 @@ export function useCreateHostelMaintenance() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (payload: CreateHostelMaintenanceRequestDTO) =>
-      MaintenanceService.createMaintenanceRequest(payload),
+      MaintenanceService.createRequest(payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: hostelMaintenanceKeys.all });
       toast.success('Maintenance request created');
@@ -55,7 +55,7 @@ export function useAssignMaintenance() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ id, payload }: { id: string; payload: { assigned_to_name: string; assigned_to_phone: string } }) =>
-      MaintenanceService.assignMaintenance(id, payload),
+      MaintenanceService.assign(id, payload.assigned_to_name, payload.assigned_to_phone),
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: hostelMaintenanceKeys.all });
       queryClient.invalidateQueries({ queryKey: hostelMaintenanceKeys.detail(variables.id) });
@@ -71,7 +71,7 @@ export function useResolveMaintenance() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ id, payload }: { id: string; payload: { resolution_notes: string; actual_cost?: number } }) =>
-      MaintenanceService.resolveMaintenance(id, payload),
+      MaintenanceService.resolve(id, payload.resolution_notes, payload.actual_cost),
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: hostelMaintenanceKeys.all });
       queryClient.invalidateQueries({ queryKey: hostelMaintenanceKeys.detail(variables.id) });
@@ -87,7 +87,7 @@ export function useUpdateHostelMaintenance() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ id, payload }: { id: string; payload: Partial<CreateHostelMaintenanceRequestDTO> }) =>
-      MaintenanceService.updateMaintenanceRequest(id, payload),
+      MaintenanceService.updateRequest(id, payload),
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: hostelMaintenanceKeys.all });
       queryClient.invalidateQueries({ queryKey: hostelMaintenanceKeys.detail(variables.id) });
@@ -102,7 +102,7 @@ export function useUpdateHostelMaintenance() {
 export function useDeleteHostelMaintenance() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => MaintenanceService.deleteMaintenanceRequest(id),
+    mutationFn: (id: string) => MaintenanceService.deleteRequest(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: hostelMaintenanceKeys.all });
       toast.success('Maintenance request deleted');

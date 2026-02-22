@@ -185,7 +185,7 @@ export default function VisitorsPage() {
                             variant="outline"
                             size="sm"
                             disabled={checkOutMutation.isPending}
-                            onClick={() => checkOutMutation.mutate({ id: visitor.id, payload: { check_out_time: new Date().toISOString() } })}
+                            onClick={() => checkOutMutation.mutate({ id: visitor.id })}
                           >
                             <LogOut className="mr-1 h-3 w-3" />
                             Check-out

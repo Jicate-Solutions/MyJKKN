@@ -41,7 +41,7 @@ export async function getDashboardData(
     if (!seenDepts.has(deptId)) {
       seenDepts.add(deptId);
       const deptName =
-        (a.department as { name: string } | null)?.name || 'Institution-wide';
+        (a.department as { department_name: string } | null)?.department_name || 'Institution-wide';
       byDepartment[deptName] = a.overall_stage as MaturityStage;
     }
   });
@@ -86,7 +86,7 @@ export async function getDashboardData(
       .map((a) => ({
         date: a.assessment_date,
         stage: a.overall_stage,
-        department: (a.department as { name: string } | null)?.name
+        department: (a.department as { department_name: string } | null)?.department_name
       }))
       .reverse() || [];
 

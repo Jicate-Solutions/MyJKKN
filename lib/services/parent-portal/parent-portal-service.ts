@@ -661,8 +661,8 @@ export class ParentPortalService {
     // First, find the learner by enrollment number
     const { data: learner, error: learnerError } = await supabase
       .from('learners_profiles')
-      .select('id, name, institution_id')
-      .eq('enrollment_number', input.learner_enrollment_number)
+      .select('id, first_name, last_name, institution_id')
+      .eq('roll_number', input.learner_enrollment_number)
       .eq('institution_id', input.institution_id)
       .single();
 
@@ -731,7 +731,7 @@ export class ParentPortalService {
     const { data: learner, error: learnerError } = await supabase
       .from('learners_profiles')
       .select('id')
-      .eq('enrollment_number', input.learner_enrollment_number)
+      .eq('roll_number', input.learner_enrollment_number)
       .eq('institution_id', input.institution_id)
       .single();
 

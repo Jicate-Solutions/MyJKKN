@@ -38,7 +38,7 @@ export function useCreateHostelAccessLog() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (payload: Omit<HostelAccessLog, 'id' | 'created_at'>) =>
-      CampusLivingAccessLog.createAccessLog(payload),
+      CampusLivingAccessLog.createEntry(payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: hostelAccessLogKeys.all });
       toast.success('Access log recorded');
@@ -53,7 +53,7 @@ export function useUpdateHostelAccessLog() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ id, payload }: { id: string; payload: Partial<HostelAccessLog> }) =>
-      CampusLivingAccessLog.updateAccessLog(id, payload),
+      CampusLivingAccessLog.updateEntry(id, payload),
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: hostelAccessLogKeys.all });
       queryClient.invalidateQueries({ queryKey: hostelAccessLogKeys.detail(variables.id) });
@@ -68,7 +68,7 @@ export function useUpdateHostelAccessLog() {
 export function useDeleteHostelAccessLog() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => CampusLivingAccessLog.deleteAccessLog(id),
+    mutationFn: (id: string) => CampusLivingAccessLog.deleteEntry(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: hostelAccessLogKeys.all });
       toast.success('Access log deleted');

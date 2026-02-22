@@ -17,19 +17,19 @@ export const roommateMatchingKeys = {
 
 // --- Query hooks ---
 
-export function useRoommatePreferences(institutionId: string, filters?: Record<string, unknown>) {
+export function useRoommatePreferences(institutionId: string, academicYearId?: string) {
   return useQuery({
-    queryKey: roommateMatchingKeys.list({ institutionId, ...filters }),
-    queryFn: () => RoommateMatchingService.getPreferences(institutionId, filters),
+    queryKey: roommateMatchingKeys.list({ institutionId, academicYearId }),
+    queryFn: () => RoommateMatchingService.getPreferences(institutionId, academicYearId),
     enabled: !!institutionId,
   });
 }
 
-export function useRoommatePreference(id: string) {
+export function useRoommatePreference(learnerId: string, academicYearId: string) {
   return useQuery({
-    queryKey: roommateMatchingKeys.detail(id),
-    queryFn: () => RoommateMatchingService.getPreference(id),
-    enabled: !!id,
+    queryKey: roommateMatchingKeys.detail(learnerId),
+    queryFn: () => RoommateMatchingService.getPreference(learnerId, academicYearId),
+    enabled: !!learnerId && !!academicYearId,
   });
 }
 
@@ -39,7 +39,7 @@ export function useCreateRoommatePreference() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (payload: CreateHostelRoommatePreferenceDTO) =>
-      RoommateMatchingService.createPreference(payload),
+      RoommateMatchingService.savePreference(payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: roommateMatchingKeys.all });
       toast.success('Roommate preferences saved');

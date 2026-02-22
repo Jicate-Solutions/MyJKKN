@@ -70,7 +70,7 @@ export class MessCatererService {
       const supabase = createClientSupabaseClient();
       const { data, error } = await supabase
         .from('mess_caterers')
-        .insert(payload)
+        .insert(payload as any)
         .select()
         .single();
 
@@ -91,7 +91,7 @@ export class MessCatererService {
       const supabase = createClientSupabaseClient();
       const { data, error } = await supabase
         .from('mess_caterers')
-        .update(payload)
+        .update(payload as any)
         .eq('id', id)
         .select()
         .single();

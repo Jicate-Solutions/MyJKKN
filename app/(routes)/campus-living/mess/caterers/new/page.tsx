@@ -44,7 +44,7 @@ export default function NewCatererPage() {
         contract_start_date: formData.get('contract_start') as string,
         contract_end_date: formData.get('contract_end') as string,
         contract_amount_monthly: parseFloat(formData.get('monthly_rate') as string) || null,
-        billing_model: 'monthly' as any,
+        billing_model: 'fixed_monthly' as any,
         status: 'active' as any,
         bank_details: null,
         metadata: {

@@ -10,9 +10,9 @@ import type {
   NPSResponse,
   NPSSurveyAnalytics,
   NPSDashboardData,
-  NPSNPSSurveyFilters,
-  NPSNPSResponseFilters,
-  NPSNPSAnalyticsFilters,
+  NPSSurveyFilters,
+  NPSResponseFilters,
+  NPSAnalyticsFilters,
   CreateNPSSurveyDto,
   UpdateNPSSurveyDto,
   SubmitNPSResponseDto
@@ -147,11 +147,11 @@ const createMockAnalytics = (overrides: Partial<NPSSurveyAnalytics> = {}): NPSSu
   detractor_percentage: 20,
   nps_score: 30,
   avg_score: 7.5,
-  responses_by_type: { learner: 100 },
+  responses_by_type: { learner: 100 } as Record<string, number> as NPSSurveyAnalytics['responses_by_type'],
   ...overrides
 });
 
-const createMockDashboard = (): NPSDashboardData => ({
+const createMockDashboard = () => ({
   overall_nps: 45,
   total_responses: 500,
   response_rate: 75.5,
@@ -173,9 +173,8 @@ const createMockDashboard = (): NPSDashboardData => ({
     {
       id: 'fb-1',
       score: 9,
-      category: 'promoter',
       feedback: 'Excellent teaching quality',
-      stakeholder_type: 'learner',
+      stakeholder_type: 'learner' as const,
       submitted_at: '2025-01-15T10:00:00Z'
     }
   ]
@@ -635,7 +634,7 @@ describe('NPSService', () => {
       await NPSService.createSurvey(validSurveyDto);
 
       const insertCall = mockFromChain.insert.mock.calls[0][0];
-      expect(insertCall.questions).toEqual(validSurveyDto.questions);
+      expect(insertCall.question).toEqual(validSurveyDto.question);
     });
   });
 
@@ -1007,11 +1006,11 @@ describe('NPSService', () => {
 
     it('should validate NPS score is between 0 and 10', async () => {
       await expect(
-        NPSService.submitResponse({ ...validResponseDto, score: -1 })
+        NPSService.submitResponse({ ...validResponseDto, score: -1 as any })
       ).rejects.toThrow('NPS score must be between 0 and 10');
 
       await expect(
-        NPSService.submitResponse({ ...validResponseDto, score: 11 })
+        NPSService.submitResponse({ ...validResponseDto, score: 11 as any })
       ).rejects.toThrow('NPS score must be between 0 and 10');
     });
 
@@ -1458,7 +1457,7 @@ describe('NPSService', () => {
     it('should apply department_id filter', async () => {
       mockFromChain.setMockData([]);
 
-      await NPSService.getAnalytics({ ...defaultFilters, department_id: 'dept-123' });
+      await NPSService.getAnalytics({ ...defaultFilters, department_id: 'dept-123' } as any);
 
       expect(mockFromChain.eq).toHaveBeenCalledWith('department_id', 'dept-123');
     });
@@ -1470,7 +1469,7 @@ describe('NPSService', () => {
         ...defaultFilters,
         period_start: '2025-01-01',
         period_end: '2025-03-31'
-      });
+      } as any);
 
       expect(mockFromChain.gte).toHaveBeenCalledWith('period_start', '2025-01-01');
       expect(mockFromChain.lte).toHaveBeenCalledWith('period_end', '2025-03-31');
@@ -1802,10 +1801,10 @@ describe('NPSService', () => {
       await expect(
         NPSService.submitResponse({
           survey_id: 'survey-123',
-          respondent_type: 'learner',
-          nps_score: 8,
-          question_responses: {}
-        })
+          stakeholder_type: 'learner',
+          stakeholder_id: 'respondent-123',
+          score: 8,
+        } as SubmitNPSResponseDto)
       ).resolves.not.toThrow();
     });
 

@@ -35,19 +35,19 @@ export function useMessBillingPeriod(id: string) {
   });
 }
 
-export function useMessStudentBilling(institutionId: string, filters?: Record<string, unknown>) {
+export function useMessStudentBilling(billingPeriodId: string, filters?: Record<string, unknown>) {
   return useQuery({
-    queryKey: messBillingKeys.studentBilling({ institutionId, ...filters }),
-    queryFn: () => MessBillingService.getStudentBilling(institutionId, filters),
-    enabled: !!institutionId,
+    queryKey: messBillingKeys.studentBilling({ billingPeriodId, ...filters }),
+    queryFn: () => MessBillingService.getStudentBillings(billingPeriodId, filters),
+    enabled: !!billingPeriodId,
   });
 }
 
-export function useMessStudentBillingDetail(id: string) {
+export function useMessLearnerBilling(learnerId: string, billingPeriodId?: string) {
   return useQuery({
-    queryKey: messBillingKeys.studentBillingDetail(id),
-    queryFn: () => MessBillingService.getStudentBillingDetail(id),
-    enabled: !!id,
+    queryKey: messBillingKeys.studentBillingDetail(learnerId),
+    queryFn: () => MessBillingService.getLearnerBilling(learnerId, billingPeriodId),
+    enabled: !!learnerId,
   });
 }
 
@@ -56,8 +56,8 @@ export function useMessStudentBillingDetail(id: string) {
 export function useGenerateBilling() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (payload: { institution_id: string; billing_period_id: string }) =>
-      MessBillingService.generateBilling(payload),
+    mutationFn: (payload: { billing_period_id: string; billings: Omit<MessStudentBilling, 'id' | 'created_at'>[] }) =>
+      MessBillingService.generateStudentBilling(payload.billing_period_id, payload.billings),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: messBillingKeys.all });
       toast.success('Billing generated');

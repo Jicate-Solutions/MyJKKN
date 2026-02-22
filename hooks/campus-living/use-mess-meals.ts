@@ -39,7 +39,7 @@ export function useMessMeal(id: string) {
 export function useScanMeal() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (payload: CreateMessMealRecordDTO) => MessMealService.scanMeal(payload),
+    mutationFn: (payload: CreateMessMealRecordDTO) => MessMealService.recordMeal(payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: messMealKeys.all });
       toast.success('Meal scanned');
@@ -53,7 +53,7 @@ export function useScanMeal() {
 export function useCreateMessMeal() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (payload: CreateMessMealRecordDTO) => MessMealService.createMealRecord(payload),
+    mutationFn: (payload: CreateMessMealRecordDTO) => MessMealService.recordMeal(payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: messMealKeys.all });
       toast.success('Meal record created');

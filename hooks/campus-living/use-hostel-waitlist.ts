@@ -37,8 +37,8 @@ export function useHostelWaitlistEntry(id: string) {
 export function useCreateHostelWaitlistEntry() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (payload: Omit<HostelWaitlist, 'id' | 'priority_score' | 'offered_at' | 'offer_expires_at' | 'allocated_allocation_id' | 'created_at' | 'updated_at'>) =>
-      HostelWaitlistService.createWaitlistEntry(payload),
+    mutationFn: (payload: Omit<HostelWaitlist, 'id' | 'offered_at' | 'offer_expires_at' | 'allocated_allocation_id' | 'created_at' | 'updated_at'>) =>
+      HostelWaitlistService.addToWaitlist(payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: hostelWaitlistKeys.all });
       toast.success('Added to waitlist');

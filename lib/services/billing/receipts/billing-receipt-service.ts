@@ -371,7 +371,7 @@ export class BillingReceiptService {
         .single();
 
       if (error) throw error;
-      return data as BillingReceipt;
+      return data as unknown as BillingReceipt;
     } catch (error) {
       console.error('Error fetching receipt:', error);
       throw new Error(
@@ -793,7 +793,7 @@ export class BillingReceiptService {
         .eq('receipt_items.bill_id', billId);
 
       if (error) throw error;
-      return (data || []) as BillingReceipt[];
+      return (data || []) as unknown as BillingReceipt[];
     } catch (error) {
       console.error('Error fetching receipts by bill ID:', error);
       throw new Error(
