@@ -351,8 +351,8 @@ export class NameToIdResolver {
           suggestionQuery = suggestionQuery.eq('department_id', departmentId);
         }
 
-        const { data: allPrograms } = await suggestionQuery.limit(50);
-        const programNames = allPrograms?.map(p => p.program_name) || [];
+        const { data: allPrograms, error: sugError } = await suggestionQuery.limit(50);
+        const programNames = (!sugError && allPrograms) ? allPrograms.map(p => p.program_name) : [];
         const suggestions = findTopSuggestions(programName, programNames);
 
         return {
@@ -378,8 +378,8 @@ export class NameToIdResolver {
           suggestionQuery = suggestionQuery.eq('department_id', departmentId);
         }
 
-        const { data: allPrograms } = await suggestionQuery.limit(50);
-        const programNames = allPrograms?.map(p => p.program_name) || [];
+        const { data: allPrograms, error: sugError2 } = await suggestionQuery.limit(50);
+        const programNames = (!sugError2 && allPrograms) ? allPrograms.map(p => p.program_name) : [];
         const suggestions = findTopSuggestions(programName, programNames);
 
         return {
