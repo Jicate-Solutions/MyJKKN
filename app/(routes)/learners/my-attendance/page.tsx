@@ -72,12 +72,29 @@ export default async function StudentAttendancePage({ searchParams }: PageProps)
     .order('semester_name');
 
   // Fetch attendance data in parallel
-  const [statistics, courseWise, trendData, attendanceRecords] = await Promise.all([
-    StudentAttendanceService.getAttendanceStatistics(profile.learner_id, selectedSemester),
-    StudentAttendanceService.getCourseWiseAttendance(profile.learner_id, selectedSemester),
-    StudentAttendanceService.getAttendanceTrend(profile.learner_id, selectedSemester),
-    StudentAttendanceService.getStudentAttendanceBySemester(profile.learner_id, selectedSemester)
-  ]);
+  let statistics: Awaited<ReturnType<typeof StudentAttendanceService.getAttendanceStatistics>> = {
+    totalClasses: 0,
+    attendedClasses: 0,
+    absentClasses: 0,
+    odClasses: 0,
+    overallPercentage: 0,
+    requiredPercentage: 75,
+    status: 'good' as const
+  };
+  let courseWise: Awaited<ReturnType<typeof StudentAttendanceService.getCourseWiseAttendance>> = [];
+  let trendData: Awaited<ReturnType<typeof StudentAttendanceService.getAttendanceTrend>> = [];
+  let attendanceRecords: Awaited<ReturnType<typeof StudentAttendanceService.getStudentAttendanceBySemester>> = [];
+
+  try {
+    [statistics, courseWise, trendData, attendanceRecords] = await Promise.all([
+      StudentAttendanceService.getAttendanceStatistics(profile.learner_id, selectedSemester),
+      StudentAttendanceService.getCourseWiseAttendance(profile.learner_id, selectedSemester),
+      StudentAttendanceService.getAttendanceTrend(profile.learner_id, selectedSemester),
+      StudentAttendanceService.getStudentAttendanceBySemester(profile.learner_id, selectedSemester)
+    ]);
+  } catch (error) {
+    console.error('[learners/my-attendance] Error fetching attendance data:', error);
+  }
 
   return (
     <ContentLayout title="My Attendance">
