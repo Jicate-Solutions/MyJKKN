@@ -36,20 +36,39 @@ export default async function GrievanceDashboardPage() {
   }
 
   // Fetch dashboard stats
-  const stats = await getDashboardStats(profile.institution_id);
+  let stats: any;
+  let categoryData: any[] | null = null;
+  try {
+    stats = await getDashboardStats(profile.institution_id);
 
-  // Fetch SLA report data
-  const supabase = await createClient();
+    // Fetch SLA report data
+    const supabase = await createClient();
 
-  // Get tickets by category
-  const { data: categoryData } = await supabase
-    .from('grievance_tickets')
-    .select(`
-      category:grievance_categories(name),
-      status,
-      sla_status
-    `)
-    .eq('institution_id', profile.institution_id);
+    // Get tickets by category
+    const { data } = await supabase
+      .from('grievance_tickets')
+      .select(`
+        category:grievance_categories(name),
+        status,
+        sla_status
+      `)
+      .eq('institution_id', profile.institution_id);
+    categoryData = data;
+  } catch (error) {
+    console.error('[grievance] Error loading dashboard:', error);
+    stats = {
+      total_open: 0,
+      total_in_progress: 0,
+      total_pending_info: 0,
+      total_resolved: 0,
+      total_closed: 0,
+      sla_breached: 0,
+      sla_at_risk: 0,
+      avg_resolution_time_hours: 0,
+      avg_satisfaction: 0,
+    };
+    categoryData = null;
+  }
 
   // Calculate category stats
   const categoryStats = (categoryData || []).reduce((acc: Record<string, { total: number; breached: number }>, ticket: any) => {
