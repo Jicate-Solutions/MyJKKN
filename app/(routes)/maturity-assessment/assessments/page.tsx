@@ -159,7 +159,7 @@ export default function MaturityAssessmentsPage() {
             <div className="space-y-4">
               {assessments.map((assessment) => {
                 const deptName =
-                  (assessment as any).department?.department_name ||
+                  assessment.department?.department_name ||
                   null;
                 const statusInfo = statusColors[assessment.status] || statusColors.draft;
 

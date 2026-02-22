@@ -42,7 +42,7 @@ export function AssessmentList({
   onSubmit,
   onApprove,
   onDelete,
-  isLoading
+  isLoading: _isLoading
 }: AssessmentListProps) {
   if (assessments.length === 0) {
     return (

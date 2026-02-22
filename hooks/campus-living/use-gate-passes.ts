@@ -5,7 +5,15 @@ import { toast } from 'sonner';
 import { GatePassService } from '@/lib/services/campus-living/gate-pass-service';
 import type {
   CreateHostelGatePassDTO,
+  GatePassStatus,
 } from '@/types/campus-living';
+
+// Filter type matching the service signature
+interface GatePassFilters {
+  status?: GatePassStatus;
+  learner_id?: string;
+  date?: string;
+}
 
 // Query key factory
 export const gatePassKeys = {
@@ -13,13 +21,15 @@ export const gatePassKeys = {
   list: (filters: Record<string, unknown>) => ['gate-passes', 'list', filters] as const,
   detail: (id: string) => ['gate-passes', 'detail', id] as const,
   myPasses: (learnerId: string) => ['gate-passes', 'my-passes', learnerId] as const,
+  activePasses: (learnerId: string) => ['gate-passes', 'active', learnerId] as const,
   pending: (institutionId: string) => ['gate-passes', 'pending', institutionId] as const,
+  overdue: (institutionId: string) => ['gate-passes', 'overdue', institutionId] as const,
   childPasses: (parentUserId: string) => ['gate-passes', 'child-passes', parentUserId] as const,
 };
 
 // --- Query hooks ---
 
-export function useGatePasses(institutionId: string, filters?: Record<string, unknown>) {
+export function useGatePasses(institutionId: string, filters?: GatePassFilters) {
   return useQuery({
     queryKey: gatePassKeys.list({ institutionId, ...filters }),
     queryFn: () => GatePassService.getGatePasses(institutionId, filters),
@@ -47,6 +57,22 @@ export function useIssueGatePass() {
     },
     onError: (error: Error) => {
       toast.error(`Failed to issue gate pass: ${error.message}`);
+    },
+  });
+}
+
+export function useRecordExit() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, securityId }: { id: string; securityId: string }) =>
+      GatePassService.recordExit(id, securityId),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: gatePassKeys.all });
+      queryClient.invalidateQueries({ queryKey: gatePassKeys.detail(variables.id) });
+      toast.success('Exit recorded');
+    },
+    onError: (error: Error) => {
+      toast.error(`Failed to record exit: ${error.message}`);
     },
   });
 }
@@ -94,6 +120,38 @@ export function useDeleteGatePass() {
     onError: (error: Error) => {
       toast.error(`Failed to delete gate pass: ${error.message}`);
     },
+  });
+}
+
+// --- Overdue & active hooks ---
+
+export function useOverduePasses(institutionId: string) {
+  return useQuery({
+    queryKey: gatePassKeys.overdue(institutionId),
+    queryFn: () => GatePassService.getOverduePasses(institutionId),
+    enabled: !!institutionId,
+  });
+}
+
+export function useMarkOverdue() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (institutionId: string) => GatePassService.markOverdue(institutionId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: gatePassKeys.all });
+      toast.success('Overdue passes updated');
+    },
+    onError: (error: Error) => {
+      toast.error(`Failed to mark overdue: ${error.message}`);
+    },
+  });
+}
+
+export function useActivePassesForLearner(learnerId: string) {
+  return useQuery({
+    queryKey: gatePassKeys.activePasses(learnerId),
+    queryFn: () => GatePassService.getActivePassesForLearner(learnerId),
+    enabled: !!learnerId,
   });
 }
 

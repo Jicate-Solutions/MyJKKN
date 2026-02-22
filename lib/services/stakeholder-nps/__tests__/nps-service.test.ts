@@ -9,7 +9,6 @@ import type {
   NPSSurvey,
   NPSResponse,
   NPSSurveyAnalytics,
-  NPSDashboardData,
   NPSSurveyFilters,
   NPSResponseFilters,
   NPSAnalyticsFilters,
@@ -330,7 +329,7 @@ describe('NPSService', () => {
       responseCountChain.setMockData([{ survey_id: 'survey-123' }]);
 
       let queryCount = 0;
-      mockSupabase.from.mockImplementation((table: string) => {
+      mockSupabase.from.mockImplementation((_table: string) => {
         queryCount++;
         if (queryCount === 1) return mockFromChain;
         return responseCountChain;
@@ -535,7 +534,7 @@ describe('NPSService', () => {
       mockFromChain.setMockData(createMockSurvey());
 
       const responseCountChain = createChainableMock();
-      let mockDataWithCount = { data: null, error: null, count: 10 };
+      const mockDataWithCount = { data: null, error: null, count: 10 };
       responseCountChain.single = vi.fn(() => Promise.resolve(mockDataWithCount));
 
       let queryCount = 0;

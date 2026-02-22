@@ -4,7 +4,6 @@ import { useState, useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import {
   ArrowLeft,
-  Eye,
   Check,
   X,
   FileText,
@@ -18,7 +17,7 @@ import { ContentLayout } from '@/components/layout/content-layout';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -39,7 +38,6 @@ import {
   useRejectDiscount
 } from '@/hooks/billing/use-billing-discounts';
 import { UserService } from '@/lib/services/users/user-service';
-import type { BillingDiscount } from '@/types/billing-schedule';
 import type { Profile } from '@/types/auth';
 
 export default function DiscountDetailsPage() {
@@ -168,7 +166,7 @@ export default function DiscountDetailsPage() {
       setShowApprovalDialog(false);
       setSelectedApprover('');
       toast.success('Discount approved successfully');
-    } catch (error) {
+    } catch (_error) {
       // Error is handled by the mutation
     }
   };
@@ -187,7 +185,7 @@ export default function DiscountDetailsPage() {
       setShowRejectionDialog(false);
       setRejectionReason('');
       toast.success('Discount rejected');
-    } catch (error) {
+    } catch (_error) {
       // Error is handled by the mutation
     }
   };

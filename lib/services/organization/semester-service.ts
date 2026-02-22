@@ -370,7 +370,7 @@ export class SemesterService {
   static async getSemestersByCourse(courseId: string) {
     try {
       // Use course mappings to find semesters related to this course
-      const { data, error } = await ((this.supabase as any) as any)  
+      const { data, error } = await (this.supabase as any)
         .from('course_mappings')
         .select(
           `
