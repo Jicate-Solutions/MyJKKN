@@ -44,6 +44,9 @@ import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { useLeadMutations } from '@/hooks/admission';
+import { useCounselorProfiles } from '@/hooks/admission/use-counselor-daily-view';
+import { CounselorDailyViewService } from '@/lib/services/admission/counselor-daily-view-service';
+import { LeadService } from '@/lib/services/admission/lead-service';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { ArrowLeft, Save, Loader2, ChevronsUpDown, X } from 'lucide-react';
 import Link from 'next/link';
@@ -112,6 +115,9 @@ function NewLeadPageContent() {
   // Institution selection — all users can see & select from their accessible institutions
   const [selectedInstitutionId, setSelectedInstitutionId] = useState<string>('');
 
+  // Counselor assignment (optional at creation time)
+  const [selectedCounselorProfileId, setSelectedCounselorProfileId] = useState<string>('');
+
   // Auto-set institution if user has only one
   useEffect(() => {
     if (!isSuperAdmin && profile?.institution_id) {
@@ -122,6 +128,7 @@ function NewLeadPageContent() {
   }, [profile?.institution_id, isSuperAdmin, institutions]);
 
   const institutionId = selectedInstitutionId;
+  const { data: counselorProfiles } = useCounselorProfiles(institutionId || undefined);
 
   // Programs loaded based on selected institution
   const [programs, setPrograms] = useState<ProgramOption[]>([]);
@@ -360,7 +367,18 @@ function NewLeadPageContent() {
     createLeadWithProfile.mutate(
       leadPayload,
       {
-        onSuccess: (lead) => {
+        onSuccess: async (lead) => {
+          // Best-effort counselor assignment — does not block navigation
+          if (selectedCounselorProfileId) {
+            try {
+              const counselorId = await CounselorDailyViewService.resolveOrCreateCounselor(
+                selectedCounselorProfileId
+              );
+              await LeadService.assignCounselor(lead.id, counselorId);
+            } catch (e) {
+              console.warn('[leads/new] Could not assign counselor (best-effort):', e);
+            }
+          }
           toast.success('Lead created successfully');
           router.push(`/admission/leads/${lead.id}`);
         },
@@ -892,6 +910,33 @@ function NewLeadPageContent() {
                         </SelectContent>
                       </Select>
                     </div>
+                  </CardContent>
+                </Card>
+
+                {/* Assign Counselor */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Assign Counselor</CardTitle>
+                    <CardDescription>Optional — assign on creation</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <Select
+                      value={selectedCounselorProfileId}
+                      onValueChange={setSelectedCounselorProfileId}
+                      disabled={!institutionId}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder={institutionId ? 'Select counselor' : 'Select institution first'} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="">No counselor</SelectItem>
+                        {(counselorProfiles || []).map((c) => (
+                          <SelectItem key={c.profile_id} value={c.profile_id}>
+                            {c.name}{c.designation ? ` (${c.designation})` : ''}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </CardContent>
                 </Card>
 
