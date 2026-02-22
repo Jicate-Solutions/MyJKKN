@@ -36,7 +36,7 @@ export class GatePassService {
         logger.error('campus-living/gate-pass', 'Failed to fetch gate passes', error);
         throw error;
       }
-      return { data: data as HostelGatePass[], count: count ?? 0 };
+      return { data: (data ?? []) as unknown as HostelGatePass[], count: count ?? 0 };
     } catch (error) {
       logger.error('campus-living/gate-pass', 'Unexpected error in getGatePasses', error);
       throw error;
