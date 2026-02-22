@@ -488,7 +488,7 @@ export class BillingReportService {
             last_name,
             roll_number
           ),
-          institution:institutions(name)
+          institution:institutions!fk_billing_invoices_institution(name)
         `
         )
         .order('invoice_date', { ascending: false });
