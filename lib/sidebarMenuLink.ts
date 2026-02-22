@@ -170,6 +170,9 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/learners/my-profile': 'learners.my-profile.view',
   '/learners/my-gate-passes': 'campus_living.gate_passes.view',
 
+  // Parent Portal Routes (Parent Self-Service)
+  '/parent/child-gate-passes': 'campus_living.gate_passes.view',
+
   // Admin Routes
   '/learners/enquiries': 'learners.admissions.view',
   '/learners/enquiries/new': 'learners.admissions.create',
