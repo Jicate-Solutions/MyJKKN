@@ -119,20 +119,27 @@ function verifyWebhookSignature(request: NextRequest, rawBody: string): boolean 
 // =============================================================================
 
 async function resolveInstitutionId(phoneNumberId: string): Promise<string | null> {
-  // For now, use the single configured phone number ID
-  // In multi-tenant mode, this would look up which institution owns this phone number
-  const configuredId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+  const supabase = getServiceClient();
 
-  if (phoneNumberId === configuredId) {
-    // Look up from wa_connections or settings, or use a default institution
-    const supabase = getServiceClient();
-    const { data } = await supabase
+  // 1. Check wa_phone_numbers table first (multi-WABA support, Gap 12)
+  const { data: waNumber } = await supabase
+    .from('wa_phone_numbers')
+    .select('institution_id')
+    .eq('phone_number_id', phoneNumberId)
+    .eq('is_active', true)
+    .single();
+
+  if (waNumber) return waNumber.institution_id;
+
+  // 2. Fallback to env var for backward compatibility
+  if (phoneNumberId === process.env.WHATSAPP_PHONE_NUMBER_ID) {
+    const { data: first } = await supabase
       .from('institutions')
       .select('id')
       .limit(1)
       .single();
 
-    return data?.id || null;
+    return first?.id || null;
   }
 
   return null;
@@ -324,6 +331,37 @@ export async function POST(request: NextRequest) {
               .from('admission_whatsapp_logs')
               .update(updateData)
               .eq('whatsapp_message_id', status.id);
+
+            // Gap 15: Extract pricing data and log cost
+            if (status.pricing) {
+              try {
+                const costMap: Record<string, number> = {
+                  business_initiated: 0.47,
+                  user_initiated: 0.28,
+                  referral_conversion: 0.00,
+                  utility: 0.20,
+                  authentication: 0.15,
+                  marketing: 0.75,
+                  service: 0.00,
+                };
+                const estimatedCost = costMap[status.pricing.category] || 0.50;
+
+                await supabase.from('communication_cost_log').insert({
+                  institution_id: institutionId,
+                  channel: 'whatsapp',
+                  event_type: status.pricing.category || 'unknown',
+                  unit_cost: estimatedCost,
+                  quantity: 1,
+                  reference_id: status.id,
+                  metadata: {
+                    pricing_model: status.pricing.pricing_model,
+                    billable: status.pricing.billable,
+                  },
+                });
+              } catch {
+                // Non-critical — don't fail the webhook
+              }
+            }
 
             console.info(
               `[wa-webhook] Status update: ${status.id} → ${status.status}`

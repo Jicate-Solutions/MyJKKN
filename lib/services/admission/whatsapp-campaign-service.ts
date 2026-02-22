@@ -4,6 +4,7 @@
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { CommunicationTemplatesService } from './communication-templates-service';
+import { WhatsAppConsentService } from '@/lib/services/whatsapp/whatsapp-consent-service';
 
 // ============================================================================
 // TYPES
@@ -101,6 +102,15 @@ export class WhatsAppCampaignService {
    */
   static async sendCampaignMessage(input: SendCampaignMessageInput): Promise<SendCampaignMessageResult> {
     try {
+      // Consent check — DPDPA 2023 / TCCCPR / Meta Policy compliance
+      const consent = await WhatsAppConsentService.checkConsent(input.lead_id);
+      if (!consent.hasConsent) {
+        return {
+          success: false,
+          error: 'Lead has not opted in to WhatsApp messages',
+        };
+      }
+
       // Format phone number (remove + and spaces)
       const formattedPhone = this.formatPhoneNumber(input.recipient_phone);
 
@@ -205,7 +215,22 @@ export class WhatsAppCampaignService {
     let succeeded = 0;
     let failed = 0;
 
+    // Pre-filter: only send to leads who have opted in
+    const filteredMessages: SendCampaignMessageInput[] = [];
     for (const message of messages) {
+      const consent = await WhatsAppConsentService.checkConsent(message.lead_id);
+      if (consent.hasConsent) {
+        filteredMessages.push(message);
+      } else {
+        results.push({
+          success: false,
+          error: 'Lead has not opted in to WhatsApp messages',
+        });
+        failed++;
+      }
+    }
+
+    for (const message of filteredMessages) {
       const result = await this.sendCampaignMessage(message);
       results.push(result);
       if (result.success) {

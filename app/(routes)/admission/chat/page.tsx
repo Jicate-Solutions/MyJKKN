@@ -14,20 +14,25 @@ import { PermissionGuard } from '@/components/auth/permission-guard';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Settings, BarChart3 } from 'lucide-react';
+import { Settings, BarChart3, IndianRupee } from 'lucide-react';
 import Link from 'next/link';
 import { ConversationList } from './_components/conversation-list';
 import { ChatThread } from './_components/chat-thread';
 import { LeadProfileSidebar } from './_components/lead-profile-sidebar';
 import { useChatRealtime } from '@/hooks/admission/use-chat-realtime';
 import { useChatStats } from '@/hooks/admission/use-chat-stats';
+import { useCostDashboard } from '@/hooks/admission/use-communication-costs';
+import { useAuth } from '@/hooks/use-auth';
 import type { Conversation } from '@/lib/services/whatsapp/whatsapp-chat-service';
 
 function ChatInboxContent() {
   const [activeConversation, setActiveConversation] = useState<Conversation | null>(null);
   const [showSidebar, setShowSidebar] = useState(true);
+  const { profile } = useAuth();
+  const institutionId = profile?.institution_id;
 
   const { stats } = useChatStats();
+  const { dashboard: costDashboard } = useCostDashboard(institutionId);
 
   // Real-time: pass institution_id from active conversation (or null)
   useChatRealtime(
@@ -77,6 +82,11 @@ function ChatInboxContent() {
                     {stats.total_unread} Unread
                   </Badge>
                 )}
+                {/* Gap 15: Cost Widget */}
+                <Badge variant="outline" className="text-xs gap-1">
+                  <IndianRupee className="h-3 w-3" />
+                  Today: {costDashboard.daily_average.toFixed(2)} | Month: {costDashboard.monthly_spend.toFixed(2)}
+                </Badge>
               </div>
 
               <Button variant="outline" size="sm" asChild>

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { toast } from 'sonner';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
@@ -89,6 +89,10 @@ import {
 import { cn } from '@/lib/utils';
 import { format, formatDistanceToNow, differenceInDays } from 'date-fns';
 import { AdmissionErrorBoundary } from '@/components/admission';
+import {
+  WhatsAppReengagementService,
+  type SequenceTemplate,
+} from '@/lib/services/whatsapp/whatsapp-reengagement-service';
 
 function getScoreColor(score: number) {
   if (score >= 70) return 'text-green-600 bg-green-100 dark:bg-green-900/30';
@@ -325,6 +329,276 @@ function CreateCampaignDialog() {
   );
 }
 
+// =============================================================================
+// WhatsApp Sequences Tab Component (Gap 11)
+// =============================================================================
+
+function WhatsAppSequencesTab({
+  institutionId,
+  coldLeadCount,
+  createdBy,
+}: {
+  institutionId: string;
+  coldLeadCount: number;
+  createdBy: string;
+}) {
+  const [launchingId, setLaunchingId] = useState<string | null>(null);
+  const [showLaunchDialog, setShowLaunchDialog] = useState(false);
+  const [selectedTemplate, setSelectedTemplate] = useState<SequenceTemplate | null>(null);
+  const [targetOption, setTargetOption] = useState<string>('all-cold');
+  const [isLaunching, setIsLaunching] = useState(false);
+  const [activeSequences, setActiveSequences] = useState<any[]>([]);
+  const [sequenceStats, setSequenceStats] = useState({
+    active_sequences: 0,
+    reengaged_count: 0,
+    conversion_rate: 0,
+  });
+
+  const predefinedSequences = WhatsAppReengagementService.getPredefinedSequences();
+
+  // Load active sequences stats on mount
+  useEffect(() => {
+    if (!institutionId) return;
+    // Fetch stats via API (or directly if server component)
+    fetch(`/api/admission/re-engagement/wa-stats?institution_id=${institutionId}`)
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => {
+        if (data?.data) {
+          setSequenceStats(data.data);
+        }
+      })
+      .catch(() => {});
+
+    // Fetch active sequences
+    fetch(`/api/admission/re-engagement/wa-sequences?institution_id=${institutionId}`)
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => {
+        if (data?.data) {
+          setActiveSequences(data.data);
+        }
+      })
+      .catch(() => {});
+  }, [institutionId]);
+
+  const handleLaunch = async () => {
+    if (!selectedTemplate || !institutionId) return;
+    setIsLaunching(true);
+    try {
+      const res = await fetch('/api/admission/re-engagement/wa-launch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          institution_id: institutionId,
+          sequence_template: selectedTemplate,
+          target_option: targetOption,
+          created_by: createdBy,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to launch');
+      toast.success(`Campaign launched! ${data.data?.sequencesCreated || 0} sequences created.`);
+      setShowLaunchDialog(false);
+      setSelectedTemplate(null);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Launch failed');
+    } finally {
+      setIsLaunching(false);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Stats Row */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-green-100 dark:bg-green-900/30">
+                <Play className="h-5 w-5 text-green-600" />
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Active Sequences</p>
+                <p className="text-2xl font-bold">{sequenceStats.active_sequences}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-blue-100 dark:bg-blue-900/30">
+                <TrendingUp className="h-5 w-5 text-blue-600" />
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Re-engaged</p>
+                <p className="text-2xl font-bold">{sequenceStats.reengaged_count}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-purple-100 dark:bg-purple-900/30">
+                <Target className="h-5 w-5 text-purple-600" />
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Conversion Rate</p>
+                <p className="text-2xl font-bold">{sequenceStats.conversion_rate}%</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Predefined Sequence Cards */}
+      <div>
+        <h3 className="text-lg font-semibold mb-3">Predefined Sequences</h3>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {predefinedSequences.map((seq) => (
+            <Card key={seq.id} className="hover:shadow-md transition-shadow">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">{seq.name}</CardTitle>
+                <CardDescription className="text-xs">{seq.description}</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="space-y-2">
+                  {seq.steps.map((step, idx) => (
+                    <div key={idx} className="flex items-center gap-2 text-xs">
+                      <div className="h-5 w-5 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center flex-shrink-0">
+                        <span className="text-[10px] font-medium text-green-700">{idx + 1}</span>
+                      </div>
+                      <span className="text-muted-foreground">Day {step.day}:</span>
+                      <span className="font-mono text-xs">{step.template_name}</span>
+                    </div>
+                  ))}
+                </div>
+                <Badge variant="outline" className="text-xs">
+                  {seq.steps.length} step{seq.steps.length !== 1 ? 's' : ''} &middot;{' '}
+                  {seq.steps[seq.steps.length - 1]?.day || 0} days
+                </Badge>
+                <Button
+                  size="sm"
+                  className="w-full"
+                  onClick={() => {
+                    setSelectedTemplate(seq);
+                    setShowLaunchDialog(true);
+                  }}
+                >
+                  <Send className="h-3 w-3 mr-2" />
+                  Launch
+                </Button>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </div>
+
+      {/* Active Sequences List */}
+      {activeSequences.length > 0 && (
+        <div>
+          <h3 className="text-lg font-semibold mb-3">Active Sequences</h3>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {activeSequences.map((seq: any) => {
+              const progress = seq.total_steps > 0
+                ? Math.round((seq.current_step_index / seq.total_steps) * 100)
+                : 0;
+              return (
+                <Card key={seq.id}>
+                  <CardHeader className="pb-3">
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="text-sm">
+                        {seq.lead?.full_name || seq.lead_id?.slice(0, 8)}
+                      </CardTitle>
+                      <Badge variant={seq.status === 'active' ? 'default' : 'secondary'}>
+                        {seq.status}
+                      </Badge>
+                    </div>
+                    <CardDescription className="text-xs">
+                      {seq.workflow?.name || 'Re-engagement'}
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-2">
+                      <div className="flex justify-between text-xs">
+                        <span className="text-muted-foreground">Progress</span>
+                        <span>Step {seq.current_step_index} / {seq.total_steps}</span>
+                      </div>
+                      <Progress value={progress} className="h-2" />
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Launch Dialog */}
+      <Dialog open={showLaunchDialog} onOpenChange={(open) => {
+        setShowLaunchDialog(open);
+        if (!open) setSelectedTemplate(null);
+      }}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>Launch Re-engagement Sequence</DialogTitle>
+            <DialogDescription>
+              {selectedTemplate?.name} — {selectedTemplate?.steps.length} step(s)
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>Target Audience</Label>
+              <Select value={targetOption} onValueChange={setTargetOption}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all-cold">All Cold Leads ({coldLeadCount})</SelectItem>
+                  <SelectItem value="30-days">30+ Days Inactive</SelectItem>
+                  <SelectItem value="60-days">60+ Days Inactive</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="p-3 rounded-lg bg-muted text-center">
+              <p className="text-lg font-bold">{coldLeadCount} leads</p>
+              <p className="text-xs text-muted-foreground">will receive this sequence</p>
+            </div>
+            {selectedTemplate && (
+              <div className="space-y-2">
+                <Label className="text-xs text-muted-foreground">Sequence Steps</Label>
+                {selectedTemplate.steps.map((step, idx) => (
+                  <div key={idx} className="flex items-center gap-2 text-sm p-2 rounded bg-muted/50">
+                    <Badge variant="outline" className="text-xs">{`Day ${step.day}`}</Badge>
+                    <ArrowRight className="h-3 w-3 text-muted-foreground" />
+                    <span className="font-mono text-xs">{step.template_name}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowLaunchDialog(false)}>Cancel</Button>
+            <Button onClick={handleLaunch} disabled={isLaunching}>
+              {isLaunching ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Launching...
+                </>
+              ) : (
+                <>
+                  <Send className="h-4 w-4 mr-2" />
+                  Launch Campaign
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
 function ColdLeadReengagementPageContent() {
   const { profile, isLoading: accessLoading } = useAuth();
   const institutionId = profile?.institution_id || '';
@@ -502,6 +776,7 @@ function ColdLeadReengagementPageContent() {
             <TabsList>
               <TabsTrigger value="leads">Cold Leads</TabsTrigger>
               <TabsTrigger value="campaigns">Campaigns</TabsTrigger>
+              <TabsTrigger value="wa-sequences">WhatsApp Sequences</TabsTrigger>
               <TabsTrigger value="analytics">Analytics</TabsTrigger>
             </TabsList>
 
@@ -704,6 +979,15 @@ function ColdLeadReengagementPageContent() {
                   )}
                 </div>
               )}
+            </TabsContent>
+
+            {/* WhatsApp Sequences Tab */}
+            <TabsContent value="wa-sequences" className="space-y-4">
+              <WhatsAppSequencesTab
+                institutionId={institutionId}
+                coldLeadCount={totalColdLeads}
+                createdBy={profile?.id || ''}
+              />
             </TabsContent>
 
             {/* Analytics Tab */}

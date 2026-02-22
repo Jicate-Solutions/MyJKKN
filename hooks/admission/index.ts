@@ -304,6 +304,22 @@ export {
   campaignROIKeys,
 } from './use-campaign-roi';
 
+// Re-export WhatsApp audience segments hooks (Gap 6)
+export {
+  useWASegments,
+  useWASegment,
+  useWASegmentPreview,
+  useWASegmentMutations,
+  waSegmentKeys,
+} from './use-wa-segments';
+
+// Re-export template analytics hooks (Gap 7)
+export {
+  useTemplateAnalytics,
+  useTemplateTimeline,
+  templateAnalyticsKeys,
+} from './use-template-analytics';
+
 // Re-export voice agent hooks (Phase 4.6)
 export {
   useVoiceAgentConfigs,

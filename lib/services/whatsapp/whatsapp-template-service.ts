@@ -484,6 +484,102 @@ export class WhatsAppTemplateService {
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // Pre-built Enrollment Template Library (Gap 8)
+  // ---------------------------------------------------------------------------
+
+  static getStarterTemplates(): Array<{
+    name: string;
+    category: 'MARKETING' | 'UTILITY';
+    language: string;
+    body: string;
+    variables: string[];
+    suggested_header?: string;
+    suggested_buttons?: Array<{ type: 'QUICK_REPLY' | 'URL'; text: string }>;
+    use_case: string;
+  }> {
+    return [
+      // Welcome & Introduction
+      { name: 'jkkn_welcome', category: 'MARKETING', language: 'en',
+        body: 'Hello {{1}}! Thank you for your interest in JKKN Institutions. We offer world-class programs in Engineering, Pharmacy, Nursing, and Management. Reply YES to learn more!',
+        variables: ['full_name'], use_case: 'First contact after inquiry',
+        suggested_buttons: [{ type: 'QUICK_REPLY', text: 'Yes, tell me more' }, { type: 'QUICK_REPLY', text: 'Call me' }] },
+
+      { name: 'jkkn_counselor_intro', category: 'MARKETING', language: 'en',
+        body: 'Hi {{1}}, I am {{2}}, your admission counselor at JKKN. I will be your guide throughout the admission process for {{3}}. Feel free to ask me anything!',
+        variables: ['full_name', 'counselor_name', 'program'], use_case: 'Counselor assignment notification' },
+
+      // Application Process
+      { name: 'jkkn_application_received', category: 'UTILITY', language: 'en',
+        body: 'Hi {{1}}, we have received your application for {{2}} at JKKN. Your application reference number is {{3}}. We will review it within 3 working days.',
+        variables: ['full_name', 'program', 'reference_number'], use_case: 'Application confirmation' },
+
+      { name: 'jkkn_application_status', category: 'UTILITY', language: 'en',
+        body: 'Hi {{1}}, update on your {{2}} application: {{3}}. Log in to MyJKKN to view details.',
+        variables: ['full_name', 'program', 'status_message'], use_case: 'Status change notification' },
+
+      { name: 'jkkn_document_request', category: 'UTILITY', language: 'en',
+        body: 'Hi {{1}}, to proceed with your admission to {{2}}, please submit the following documents: {{3}}. Upload them via the link below by {{4}}.',
+        variables: ['full_name', 'program', 'documents_list', 'deadline'], use_case: 'Document collection' },
+
+      // Financial
+      { name: 'jkkn_fee_reminder', category: 'UTILITY', language: 'en',
+        body: 'Hi {{1}}, your fee payment of INR {{2}} for {{3}} is due by {{4}}. Pay online to confirm your seat. Contact us if you need a payment plan.',
+        variables: ['full_name', 'amount', 'program', 'deadline'], use_case: 'Fee payment reminder' },
+
+      { name: 'jkkn_scholarship_info', category: 'MARKETING', language: 'en',
+        body: 'Hi {{1}}, based on your academic profile, you may be eligible for scholarships worth up to INR {{2}} for {{3}} at JKKN. Reply SCHOLARSHIP for details.',
+        variables: ['full_name', 'amount', 'program'], use_case: 'Scholarship notification' },
+
+      // Engagement
+      { name: 'jkkn_campus_visit', category: 'MARKETING', language: 'en',
+        body: 'Hi {{1}}, experience JKKN campus first-hand! We would love to show you our facilities, labs, and hostel. Reply VISIT to schedule a campus tour at your convenience.',
+        variables: ['full_name'], use_case: 'Campus visit invitation' },
+
+      { name: 'jkkn_event_invite', category: 'MARKETING', language: 'en',
+        body: 'Hi {{1}}, you are invited to {{2}} at JKKN on {{3}}. It is a great chance to meet faculty and current learners. Register now!',
+        variables: ['full_name', 'event_name', 'event_date'], use_case: 'Event/webinar invitation' },
+
+      { name: 'jkkn_offer_letter', category: 'UTILITY', language: 'en',
+        body: 'Congratulations {{1}}! Your offer letter for {{2}} at JKKN Institutions is ready. Download it and complete acceptance by {{3}} to secure your seat.',
+        variables: ['full_name', 'program', 'deadline'], use_case: 'Offer letter delivery' },
+
+      // Re-engagement
+      { name: 'jkkn_followup', category: 'MARKETING', language: 'en',
+        body: 'Hi {{1}}, we noticed you were exploring {{2}} at JKKN. Do you have any questions about the program, fees, or campus life? Reply HELP to connect with your counselor.',
+        variables: ['full_name', 'program'], use_case: 'Follow-up for inactive leads' },
+
+      { name: 'jkkn_deadline_alert', category: 'UTILITY', language: 'en',
+        body: 'Hi {{1}}, reminder: the admission deadline for {{2}} at JKKN is {{3}}. Only {{4}} seats remaining. Complete your application now to avoid missing out.',
+        variables: ['full_name', 'program', 'deadline', 'seats_remaining'], use_case: 'Urgency/deadline reminder' },
+    ];
+  }
+
+  static async installStarterTemplates(institutionId: string, userId: string): Promise<{ installed: number; skipped: number }> {
+    const starters = this.getStarterTemplates();
+    const existing = await this.getTemplates({ institution_id: institutionId });
+    const existingNames = new Set(existing.data.map(t => t.name));
+
+    let installed = 0;
+    let skipped = 0;
+
+    for (const starter of starters) {
+      if (existingNames.has(starter.name)) { skipped++; continue; }
+
+      await this.createTemplate({
+        institution_id: institutionId,
+        name: starter.name,
+        content: starter.body,
+        category: starter.category.toLowerCase(),
+        variables: starter.variables,
+        is_active: false, // Must be submitted to Meta before use
+      }, userId);
+      installed++;
+    }
+
+    return { installed, skipped };
+  }
+
   static async getTemplatesByCategory(
     institutionId: string,
     category: string

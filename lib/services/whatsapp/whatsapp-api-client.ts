@@ -73,26 +73,63 @@ class WhatsAppCloudAPIClient {
   private client: AxiosInstance;
   private phoneNumberId: string;
 
-  constructor() {
-    const accessToken = process.env.WHATSAPP_ACCESS_TOKEN;
-    const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+  constructor(phoneNumberId?: string, accessToken?: string) {
+    const token = accessToken || process.env.WHATSAPP_ACCESS_TOKEN;
+    const numId = phoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID;
 
-    if (!accessToken || !phoneNumberId) {
+    if (!token || !numId) {
       throw new Error(
         'Missing WhatsApp Cloud API credentials. Set WHATSAPP_ACCESS_TOKEN and WHATSAPP_PHONE_NUMBER_ID.'
       );
     }
 
-    this.phoneNumberId = phoneNumberId;
+    this.phoneNumberId = numId;
 
     this.client = axios.create({
       baseURL: `https://graph.facebook.com/v21.0`,
       headers: {
-        Authorization: `Bearer ${accessToken}`,
+        Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
       },
       timeout: 30000,
     });
+  }
+
+  /**
+   * Factory: Create a client for a specific institution using wa_phone_numbers table.
+   * Falls back to env var credentials if no DB entry found. (Gap 12)
+   */
+  static async forInstitution(institutionId: string): Promise<WhatsAppCloudAPIClient> {
+    try {
+      const { createClient } = await import('@supabase/supabase-js');
+      const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+      const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+      if (!url || !key) {
+        return new WhatsAppCloudAPIClient();
+      }
+      const supabase = createClient(url, key, {
+        auth: { autoRefreshToken: false, persistSession: false },
+      });
+
+      const { data } = await supabase
+        .from('wa_phone_numbers')
+        .select('phone_number_id, access_token_encrypted')
+        .eq('institution_id', institutionId)
+        .eq('is_primary', true)
+        .eq('is_active', true)
+        .single();
+
+      if (data) {
+        return new WhatsAppCloudAPIClient(
+          data.phone_number_id,
+          data.access_token_encrypted || undefined
+        );
+      }
+    } catch {
+      // Fall through to env var default
+    }
+
+    return new WhatsAppCloudAPIClient();
   }
 
   /**

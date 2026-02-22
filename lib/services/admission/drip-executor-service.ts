@@ -3,6 +3,15 @@
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { EmailService } from '@/lib/services/email/email-service';
+import {
+  sendTextMessage,
+  sendTemplateMessage,
+  isWhatsAppConfigured,
+  type WATemplateComponent,
+} from '@/lib/services/whatsapp/whatsapp-api-client';
+import { WhatsAppTemplateService } from '@/lib/services/whatsapp/whatsapp-template-service';
+import { CommunicationTemplatesService } from './communication-templates-service';
+import { WhatsAppConsentService } from '@/lib/services/whatsapp/whatsapp-consent-service';
 import type { WorkflowAction } from './workflows-service';
 
 // ============================================================================
@@ -780,9 +789,81 @@ export class DripExecutorService {
         // SMS is handled by existing SMS campaign service
         return { success: false, error: 'SMS dispatch not yet wired in drip executor' };
 
-      case 'send_whatsapp':
-        // WhatsApp will be handled by WhatsApp service
-        return { success: false, error: 'WhatsApp dispatch not yet wired in drip executor' };
+      case 'send_whatsapp': {
+        // Consent check — DPDPA 2023 / TCCCPR / Meta Policy compliance
+        const consent = await WhatsAppConsentService.checkConsent(step.lead_id);
+        if (!consent.hasConsent) {
+          return { success: false, error: 'Lead has not opted in to WhatsApp messages' };
+        }
+
+        if (!isWhatsAppConfigured()) {
+          return { success: false, error: 'WhatsApp Cloud API not configured (missing WHATSAPP_ACCESS_TOKEN)' };
+        }
+
+        const config = step.action_config;
+        const templateId = config.template_id as string | undefined;
+        const templateName = config.template_name as string | undefined;
+
+        // Get lead phone from context snapshot
+        const leadSnapshot = step.context_data?.lead_snapshot as {
+          phone?: string;
+          full_name?: string;
+          email?: string;
+          interested_programs?: string[];
+        } | undefined;
+
+        const leadPhone = leadSnapshot?.phone;
+        if (!leadPhone) {
+          return { success: false, error: 'Lead has no phone number' };
+        }
+
+        // Format phone for WhatsApp (E.164 for India)
+        let cleaned = leadPhone.replace(/\D/g, '');
+        if (cleaned.startsWith('0')) cleaned = '91' + cleaned.substring(1);
+        if (cleaned.length === 10) cleaned = '91' + cleaned;
+
+        // Build template variables from lead context
+        const waVariables: Record<string, string> = {
+          full_name: leadSnapshot?.full_name || '',
+          first_name: (leadSnapshot?.full_name || '').split(' ')[0] || '',
+          program: leadSnapshot?.interested_programs?.join(', ') || '',
+          ...(config.variables as Record<string, string> || {}),
+        };
+
+        if (templateName) {
+          // Send via Meta-approved template (works outside 24hr window)
+          const languageCode = (config.language_code as string) || 'en';
+          const components = config.components as WATemplateComponent[] | undefined;
+          const waResult = await sendTemplateMessage(cleaned, templateName, languageCode, components);
+          return {
+            success: true,
+            data: { wa_message_id: waResult.messages?.[0]?.id },
+          };
+        } else if (templateId) {
+          // Fetch local template, render variables, send as text (within 24hr window only)
+          const template = await CommunicationTemplatesService.getTemplate(templateId);
+          if (!template) return { success: false, error: 'Template not found' };
+          const rendered = WhatsAppTemplateService.renderTemplate(template.content, waVariables);
+          const waResult = await sendTextMessage(cleaned, rendered);
+          return {
+            success: true,
+            data: { wa_message_id: waResult.messages?.[0]?.id },
+          };
+        } else if (config.message_text) {
+          // Direct text message (within 24hr window only)
+          let text = config.message_text as string;
+          for (const [key, val] of Object.entries(waVariables)) {
+            text = text.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), val);
+          }
+          const waResult = await sendTextMessage(cleaned, text);
+          return {
+            success: true,
+            data: { wa_message_id: waResult.messages?.[0]?.id },
+          };
+        } else {
+          return { success: false, error: 'No template_id, template_name, or message_text in action config' };
+        }
+      }
 
       default:
         return { success: false, error: `Unknown action type: ${step.action_type}` };

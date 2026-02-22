@@ -18,6 +18,39 @@ import { useConversations } from '@/hooks/admission/use-conversations';
 import type { Conversation } from '@/lib/services/whatsapp/whatsapp-chat-service';
 import { cn } from '@/lib/utils';
 
+// =============================================================================
+// Funnel Stage Colors (Gap 14)
+// =============================================================================
+
+const FUNNEL_STAGE_COLORS: Record<string, string> = {
+  new: 'bg-blue-500',
+  contacted: 'bg-cyan-500',
+  qualified: 'bg-green-500',
+  applied: 'bg-purple-500',
+  offered: 'bg-orange-500',
+  enrolled: 'bg-emerald-500',
+  lost: 'bg-red-500',
+};
+
+const FUNNEL_STAGE_LABELS: Record<string, string> = {
+  new: 'New',
+  contacted: 'Contacted',
+  qualified: 'Qualified',
+  applied: 'Applied',
+  offered: 'Offered',
+  enrolled: 'Enrolled',
+  lost: 'Lost',
+};
+
+function getFunnelStageColor(stage: string | undefined | null): string {
+  if (!stage) return 'bg-gray-300';
+  return FUNNEL_STAGE_COLORS[stage.toLowerCase()] || 'bg-gray-300';
+}
+
+// =============================================================================
+// Component
+// =============================================================================
+
 interface ConversationListProps {
   activeId: string | null;
   onSelect: (conversation: Conversation) => void;
@@ -26,10 +59,12 @@ interface ConversationListProps {
 export function ConversationList({ activeId, onSelect }: ConversationListProps) {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [funnelStageFilter, setFunnelStageFilter] = useState<string>('all');
 
   const { conversations, isLoading } = useConversations({
     search: search || undefined,
     status: statusFilter === 'all' ? undefined : statusFilter,
+    funnel_stage: funnelStageFilter === 'all' ? undefined : funnelStageFilter,
     limit: 50,
   });
 
@@ -81,19 +116,40 @@ export function ConversationList({ activeId, onSelect }: ConversationListProps) 
           />
         </div>
 
-        {/* Status filter */}
-        <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="h-8 text-xs">
-            <Filter className="h-3 w-3 mr-1" />
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Conversations</SelectItem>
-            <SelectItem value="open">Open</SelectItem>
-            <SelectItem value="waiting">Waiting</SelectItem>
-            <SelectItem value="resolved">Resolved</SelectItem>
-          </SelectContent>
-        </Select>
+        {/* Filters row */}
+        <div className="flex gap-2">
+          {/* Status filter */}
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger className="h-8 text-xs flex-1">
+              <Filter className="h-3 w-3 mr-1" />
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Conversations</SelectItem>
+              <SelectItem value="open">Open</SelectItem>
+              <SelectItem value="waiting">Waiting</SelectItem>
+              <SelectItem value="resolved">Resolved</SelectItem>
+            </SelectContent>
+          </Select>
+
+          {/* Funnel Stage filter (Gap 14) */}
+          <Select value={funnelStageFilter} onValueChange={setFunnelStageFilter}>
+            <SelectTrigger className="h-8 text-xs flex-1">
+              <SelectValue placeholder="Stage" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Stages</SelectItem>
+              {Object.entries(FUNNEL_STAGE_LABELS).map(([value, label]) => (
+                <SelectItem key={value} value={value}>
+                  <div className="flex items-center gap-2">
+                    <span className={cn('h-2 w-2 rounded-full', FUNNEL_STAGE_COLORS[value])} />
+                    {label}
+                  </div>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       {/* Conversation List */}
@@ -117,64 +173,78 @@ export function ConversationList({ activeId, onSelect }: ConversationListProps) 
           </div>
         ) : (
           <div>
-            {conversations.map((conv) => (
-              <button
-                key={conv.id}
-                onClick={() => onSelect(conv)}
-                className={cn(
-                  'w-full px-4 py-3 flex items-start gap-3 hover:bg-muted/50 transition-colors text-left border-b',
-                  activeId === conv.id && 'bg-muted'
-                )}
-              >
-                {/* Avatar placeholder */}
-                <div className="relative flex-shrink-0">
-                  <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center text-sm font-medium text-primary">
-                    {(conv.contact_name || conv.contact_phone || '?').charAt(0).toUpperCase()}
-                  </div>
-                  <span
-                    className={cn(
-                      'absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-white',
-                      getStatusColor(conv.status)
-                    )}
-                  />
-                </div>
+            {conversations.map((conv) => {
+              const leadStage = conv.lead?.stage || null;
 
-                {/* Content */}
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between">
-                    <span className="font-medium text-sm truncate">
-                      {conv.contact_name || conv.contact_phone}
-                    </span>
-                    <span className="text-[11px] text-muted-foreground flex-shrink-0 ml-2">
-                      {formatTime(conv.last_message_at)}
-                    </span>
+              return (
+                <button
+                  key={conv.id}
+                  onClick={() => onSelect(conv)}
+                  className={cn(
+                    'w-full px-4 py-3 flex items-start gap-3 hover:bg-muted/50 transition-colors text-left border-b',
+                    activeId === conv.id && 'bg-muted'
+                  )}
+                >
+                  {/* Avatar placeholder */}
+                  <div className="relative flex-shrink-0">
+                    <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center text-sm font-medium text-primary">
+                      {(conv.contact_name || conv.contact_phone || '?').charAt(0).toUpperCase()}
+                    </div>
+                    <span
+                      className={cn(
+                        'absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-white',
+                        getStatusColor(conv.status)
+                      )}
+                    />
                   </div>
-                  <div className="flex items-center justify-between mt-0.5">
-                    <p className="text-xs text-muted-foreground truncate max-w-[180px]">
-                      {conv.last_message_preview || 'No messages'}
-                    </p>
-                    {conv.unread_count > 0 && (
-                      <Badge
-                        variant="default"
-                        className="h-5 min-w-[20px] flex items-center justify-center text-[10px] px-1.5 flex-shrink-0 ml-2"
-                      >
-                        {conv.unread_count}
-                      </Badge>
+
+                  {/* Content */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between">
+                      <span className="font-medium text-sm truncate flex items-center gap-1.5">
+                        {/* Gap 14: Funnel stage colored dot */}
+                        {leadStage && (
+                          <span
+                            className={cn(
+                              'inline-block h-2 w-2 rounded-full flex-shrink-0',
+                              getFunnelStageColor(leadStage)
+                            )}
+                            title={FUNNEL_STAGE_LABELS[leadStage.toLowerCase()] || leadStage}
+                          />
+                        )}
+                        {conv.contact_name || conv.contact_phone}
+                      </span>
+                      <span className="text-[11px] text-muted-foreground flex-shrink-0 ml-2">
+                        {formatTime(conv.last_message_at)}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between mt-0.5">
+                      <p className="text-xs text-muted-foreground truncate max-w-[180px]">
+                        {conv.last_message_preview || 'No messages'}
+                      </p>
+                      {conv.unread_count > 0 && (
+                        <Badge
+                          variant="default"
+                          className="h-5 min-w-[20px] flex items-center justify-center text-[10px] px-1.5 flex-shrink-0 ml-2"
+                        >
+                          {conv.unread_count}
+                        </Badge>
+                      )}
+                    </div>
+                    {/* Tags */}
+                    {conv.tags && conv.tags.length > 0 && (
+                      <div className="flex gap-1 mt-1">
+                        {conv.tags.slice(0, 2).map((tag) => (
+                          <Badge key={tag} variant="outline" className="text-[9px] h-4 px-1">
+                            {tag}
+                          </Badge>
+                        ))}
+                      </div>
                     )}
                   </div>
-                  {/* Tags */}
-                  {conv.tags && conv.tags.length > 0 && (
-                    <div className="flex gap-1 mt-1">
-                      {conv.tags.slice(0, 2).map((tag) => (
-                        <Badge key={tag} variant="outline" className="text-[9px] h-4 px-1">
-                          {tag}
-                        </Badge>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </button>
-            ))}
+                </button>
+              );
+            })}
           </div>
         )}
       </ScrollArea>

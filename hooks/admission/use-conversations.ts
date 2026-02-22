@@ -25,6 +25,7 @@ async function fetchConversations(
   if (filters.tags?.length) params.set('tags', filters.tags.join(','));
   if (filters.date_from) params.set('date_from', filters.date_from);
   if (filters.date_to) params.set('date_to', filters.date_to);
+  if (filters.funnel_stage) params.set('funnel_stage', filters.funnel_stage);
   if (filters.page) params.set('page', String(filters.page));
   if (filters.limit) params.set('limit', String(filters.limit));
 

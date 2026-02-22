@@ -429,23 +429,29 @@ export class GatePassService {
     try {
       const supabase = createClientSupabaseClient();
 
-      // First resolve parent_profiles.id from auth user_id
-      const { data: parentProfile, error: profileError } = await supabase
+      // First resolve parent_profiles IDs from auth user_id (may have multiple institutions)
+      const { data: parentProfiles, error: profileError } = await supabase
         .from('parent_profiles')
         .select('id')
-        .eq('user_id', parentUserId)
-        .single();
+        .eq('user_id', parentUserId);
 
-      if (profileError || !parentProfile) {
+      if (profileError) {
+        logger.error('campus-living/gate-pass', 'Failed to fetch parent profiles', profileError);
+        throw profileError;
+      }
+
+      if (!parentProfiles || parentProfiles.length === 0) {
         logger.warn('campus-living/gate-pass', 'No parent profile found for user', { parentUserId });
         return [];
       }
+
+      const parentProfileIds = parentProfiles.map((p) => p.id);
 
       // Then get linked learner IDs from parent_learner_links
       const { data: links, error: linkError } = await supabase
         .from('parent_learner_links')
         .select('learner_id')
-        .eq('parent_id', parentProfile.id);
+        .in('parent_id', parentProfileIds);
 
       if (linkError) {
         logger.error('campus-living/gate-pass', 'Failed to fetch parent-learner links', linkError);

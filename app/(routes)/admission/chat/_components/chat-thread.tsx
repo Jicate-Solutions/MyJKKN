@@ -111,17 +111,42 @@ interface ChatThreadProps {
 export function ChatThread({ conversationId }: ChatThreadProps) {
   const [messageText, setMessageText] = useState('');
   const [showQuickReplies, setShowQuickReplies] = useState(false);
+  const [showTemplateSelector, setShowTemplateSelector] = useState(false);
+  const [windowInfo, setWindowInfo] = useState<WindowInfo>({
+    withinWindow: false,
+    expiresAt: null,
+    remainingMinutes: null,
+    status: 'never',
+  });
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const { conversation } = useConversation(conversationId);
   const { messages, isLoading, hasNextPage, fetchNextPage, isFetchingNextPage } =
     useConversationMessages(conversationId);
-  const { sendMessage, isSending } = useChatMutations();
+  const { sendMessage, sendTemplate, isSending } = useChatMutations();
   const { quickReplies } = useQuickReplies();
+  const { templates: whatsappTemplates, isLoading: templatesLoading } = useActiveTemplates(
+    conversation?.institution_id,
+    'whatsapp'
+  );
+  const { refreshQuality, isRefreshingQuality } = useTemplateMutations();
 
   // Real-time updates
   useChatRealtimeMessages(conversationId);
+
+  // Compute and update 24hr window status every minute
+  useEffect(() => {
+    const update = () => {
+      const lastInbound = conversation?.last_inbound_at || null;
+      setWindowInfo(computeWindowStatus(lastInbound));
+    };
+    update();
+    const interval = setInterval(update, 60000); // every 1 minute
+    return () => clearInterval(interval);
+  }, [conversation?.last_inbound_at]);
+
+  const canSendFreeText = windowInfo.status === 'open' || windowInfo.status === 'closing';
 
   // Auto-scroll to bottom on new messages
   useEffect(() => {
@@ -157,6 +182,21 @@ export function ChatThread({ conversationId }: ChatThreadProps) {
     setShowQuickReplies(false);
     inputRef.current?.focus();
   };
+
+  const handleSendTemplate = (templateName: string) => {
+    if (!conversationId) return;
+    sendTemplate.mutate(
+      { conversationId, template_name: templateName, language_code: 'en' },
+      { onSuccess: () => setShowTemplateSelector(false) }
+    );
+  };
+
+  // Sort templates by quality rating (HIGH first, LOW last)
+  const sortedTemplates = [...(whatsappTemplates || [])].sort((a, b) => {
+    const rA = getQualityRatingFromMetadata((a as unknown as Record<string, unknown>).metadata);
+    const rB = getQualityRatingFromMetadata((b as unknown as Record<string, unknown>).metadata);
+    return (qualityOrder[rA] ?? 3) - (qualityOrder[rB] ?? 3);
+  });
 
   const getStatusIcon = (status: string) => {
     switch (status) {
@@ -384,11 +424,93 @@ export function ChatThread({ conversationId }: ChatThreadProps) {
         )}
       </ScrollArea>
 
+      {/* Window Status Banner */}
+      {windowInfo.status === 'open' && (
+        <div className="px-4 py-2 bg-green-50 border-t border-green-200 flex items-center gap-2 text-green-800 text-xs">
+          <ShieldCheck className="h-3.5 w-3.5 flex-shrink-0" />
+          <span>
+            Messaging window open &mdash; {formatWindowRemaining(windowInfo.remainingMinutes!)} remaining
+          </span>
+        </div>
+      )}
+      {windowInfo.status === 'closing' && (
+        <div className="px-4 py-2 bg-orange-50 border-t border-orange-200 flex items-center gap-2 text-orange-800 text-xs">
+          <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0" />
+          <span>
+            Window closing in {windowInfo.remainingMinutes}m &mdash; switch to templates soon
+          </span>
+        </div>
+      )}
+      {windowInfo.status === 'expired' && (
+        <div className="px-4 py-2 bg-red-50 border-t border-red-200 flex items-center gap-2 text-red-800 text-xs">
+          <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />
+          <span>Window expired. Only template messages can be sent.</span>
+        </div>
+      )}
+      {windowInfo.status === 'never' && (
+        <div className="px-4 py-2 bg-gray-50 border-t border-gray-200 flex items-center gap-2 text-gray-600 text-xs">
+          <Clock className="h-3.5 w-3.5 flex-shrink-0" />
+          <span>No messages from this contact. Send a template to start.</span>
+        </div>
+      )}
+
       {/* Message Input */}
       <div className="p-3 border-t bg-card">
         <div className="flex items-center gap-2">
-          {/* Quick Reply Popover */}
-          <Popover open={showQuickReplies} onOpenChange={setShowQuickReplies}>
+          {/* Quick Reply Popover — only when free text is allowed */}
+          {canSendFreeText && (
+            <Popover open={showQuickReplies} onOpenChange={setShowQuickReplies}>
+              <PopoverTrigger asChild>
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-9 w-9 flex-shrink-0"
+                      >
+                        <Zap className="h-4 w-4" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Quick Replies (type /)</TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </PopoverTrigger>
+              <PopoverContent className="w-80 p-0" align="start" side="top">
+                <div className="p-2 border-b">
+                  <p className="text-xs font-medium text-muted-foreground">Quick Replies</p>
+                </div>
+                <ScrollArea className="max-h-48">
+                  {quickReplies.length === 0 ? (
+                    <p className="p-3 text-xs text-muted-foreground">
+                      No quick replies configured
+                    </p>
+                  ) : (
+                    quickReplies.map((qr) => (
+                      <button
+                        key={qr.id}
+                        onClick={() => handleQuickReply(qr.content)}
+                        className="w-full text-left px-3 py-2 hover:bg-muted text-sm border-b last:border-0"
+                      >
+                        <span className="font-medium">{qr.title}</span>
+                        {qr.shortcut && (
+                          <span className="text-muted-foreground text-xs ml-2">
+                            /{qr.shortcut}
+                          </span>
+                        )}
+                        <p className="text-xs text-muted-foreground truncate mt-0.5">
+                          {qr.content}
+                        </p>
+                      </button>
+                    ))
+                  )}
+                </ScrollArea>
+              </PopoverContent>
+            </Popover>
+          )}
+
+          {/* Template Selector Popover */}
+          <Popover open={showTemplateSelector} onOpenChange={setShowTemplateSelector}>
             <PopoverTrigger asChild>
               <TooltipProvider>
                 <Tooltip>
@@ -398,72 +520,150 @@ export function ChatThread({ conversationId }: ChatThreadProps) {
                       size="icon"
                       className="h-9 w-9 flex-shrink-0"
                     >
-                      <Zap className="h-4 w-4" />
+                      <LayoutTemplate className="h-4 w-4" />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent>Quick Replies (type /)</TooltipContent>
+                  <TooltipContent>Send Template</TooltipContent>
                 </Tooltip>
               </TooltipProvider>
             </PopoverTrigger>
-            <PopoverContent className="w-80 p-0" align="start" side="top">
-              <div className="p-2 border-b">
-                <p className="text-xs font-medium text-muted-foreground">Quick Replies</p>
+            <PopoverContent className="w-96 p-0" align="start" side="top">
+              <div className="p-2 border-b flex items-center justify-between">
+                <p className="text-xs font-medium text-muted-foreground">WhatsApp Templates</p>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 text-xs gap-1"
+                  onClick={() => conversation?.institution_id && refreshQuality.mutate(conversation.institution_id)}
+                  disabled={isRefreshingQuality}
+                >
+                  <RefreshCw className={cn('h-3 w-3', isRefreshingQuality && 'animate-spin')} />
+                  Refresh Ratings
+                </Button>
               </div>
-              <ScrollArea className="max-h-48">
-                {quickReplies.length === 0 ? (
+              <ScrollArea className="max-h-64">
+                {templatesLoading ? (
+                  <div className="p-3 space-y-2">
+                    {Array.from({ length: 3 }).map((_, i) => (
+                      <Skeleton key={i} className="h-10 w-full" />
+                    ))}
+                  </div>
+                ) : sortedTemplates.length === 0 ? (
                   <p className="p-3 text-xs text-muted-foreground">
-                    No quick replies configured
+                    No WhatsApp templates available
                   </p>
                 ) : (
-                  quickReplies.map((qr) => (
-                    <button
-                      key={qr.id}
-                      onClick={() => handleQuickReply(qr.content)}
-                      className="w-full text-left px-3 py-2 hover:bg-muted text-sm border-b last:border-0"
-                    >
-                      <span className="font-medium">{qr.title}</span>
-                      {qr.shortcut && (
-                        <span className="text-muted-foreground text-xs ml-2">
-                          /{qr.shortcut}
-                        </span>
-                      )}
-                      <p className="text-xs text-muted-foreground truncate mt-0.5">
-                        {qr.content}
-                      </p>
-                    </button>
-                  ))
+                  sortedTemplates.map((tpl) => {
+                    const rating = getQualityRatingFromMetadata(
+                      (tpl as unknown as Record<string, unknown>).metadata
+                    );
+                    return (
+                      <button
+                        key={tpl.id}
+                        onClick={() => handleSendTemplate(tpl.name)}
+                        disabled={isSending}
+                        className="w-full text-left px-3 py-2 hover:bg-muted text-sm border-b last:border-0 flex items-start gap-2"
+                      >
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium truncate">{tpl.name}</span>
+                            <QualityBadge rating={rating} />
+                          </div>
+                          <p className="text-xs text-muted-foreground truncate mt-0.5">
+                            {tpl.content}
+                          </p>
+                        </div>
+                      </button>
+                    );
+                  })
                 )}
               </ScrollArea>
             </PopoverContent>
           </Popover>
 
-          {/* Text Input */}
-          <Input
-            ref={inputRef}
-            placeholder="Type a message..."
-            value={messageText}
-            onChange={(e) => {
-              setMessageText(e.target.value);
-              if (e.target.value === '/' || (e.target.value.startsWith('/') && e.target.value.length <= 1)) {
-                setShowQuickReplies(true);
-              }
-            }}
-            onKeyDown={handleKeyDown}
-            disabled={isSending}
-            className="flex-1 h-9"
-          />
+          {/* Text Input — hidden when window is expired or never */}
+          {canSendFreeText ? (
+            <>
+              <Input
+                ref={inputRef}
+                placeholder="Type a message..."
+                value={messageText}
+                onChange={(e) => {
+                  setMessageText(e.target.value);
+                  if (e.target.value === '/' || (e.target.value.startsWith('/') && e.target.value.length <= 1)) {
+                    setShowQuickReplies(true);
+                  }
+                }}
+                onKeyDown={handleKeyDown}
+                disabled={isSending}
+                className="flex-1 h-9"
+              />
 
-          {/* Send Button */}
-          <Button
-            size="icon"
-            className="h-9 w-9 flex-shrink-0"
-            onClick={handleSend}
-            disabled={!messageText.trim() || isSending}
-          >
-            <Send className="h-4 w-4" />
-          </Button>
+              {/* Send Button */}
+              <Button
+                size="icon"
+                className="h-9 w-9 flex-shrink-0"
+                onClick={handleSend}
+                disabled={!messageText.trim() || isSending}
+              >
+                <Send className="h-4 w-4" />
+              </Button>
+            </>
+          ) : (
+            <p className="flex-1 text-xs text-muted-foreground px-2">
+              {windowInfo.status === 'expired'
+                ? 'Use the template button to send a message.'
+                : 'Send a template to start the conversation.'}
+            </p>
+          )}
         </div>
       </div>
     </div>
   );
+}
+
+// ---------------------------------------------------------------------------
+// Quality Rating Badge sub-component
+// ---------------------------------------------------------------------------
+
+function QualityBadge({ rating }: { rating: string }) {
+  switch (rating) {
+    case 'HIGH':
+      return (
+        <Badge variant="outline" className="h-4 px-1.5 text-[9px] gap-0.5 border-green-300 text-green-700 bg-green-50">
+          <ShieldCheck className="h-2.5 w-2.5" />
+          HIGH
+        </Badge>
+      );
+    case 'MEDIUM':
+      return (
+        <Badge variant="outline" className="h-4 px-1.5 text-[9px] gap-0.5 border-yellow-300 text-yellow-700 bg-yellow-50">
+          <AlertTriangle className="h-2.5 w-2.5" />
+          MEDIUM
+        </Badge>
+      );
+    case 'LOW':
+      return (
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Badge variant="outline" className="h-4 px-1.5 text-[9px] gap-0.5 border-red-300 text-red-700 bg-red-50 cursor-help">
+                <AlertCircle className="h-2.5 w-2.5" />
+                LOW
+              </Badge>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p className="text-xs">This template may be throttled by Meta. Consider revising.</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      );
+    default:
+      return (
+        <Badge variant="outline" className="h-4 px-1.5 text-[9px] gap-0.5 border-gray-300 text-gray-500 bg-gray-50">
+          <HelpCircle className="h-2.5 w-2.5" />
+          N/A
+        </Badge>
+      );
+  }
 }

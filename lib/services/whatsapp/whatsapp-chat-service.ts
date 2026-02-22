@@ -11,6 +11,8 @@ import {
   getMediaUrl,
   type WATemplateComponent,
 } from './whatsapp-api-client';
+import { WhatsAppConsentService } from './whatsapp-consent-service';
+import { WhatsAppRoutingService } from './whatsapp-routing-service';
 
 // =============================================================================
 // Types
@@ -92,6 +94,7 @@ export interface ConversationFilters {
   tags?: string[];
   date_from?: string;
   date_to?: string;
+  funnel_stage?: string;
   page?: number;
   limit?: number;
 }
@@ -178,12 +181,17 @@ export class WhatsAppChatService {
     const limit = filters.limit || 25;
     const offset = (page - 1) * limit;
 
+    // Use !inner join when filtering by funnel_stage so only conversations with matching leads are returned
+    const leadJoin = filters.funnel_stage
+      ? 'lead:admission_leads!wa_conversations_lead_id_fkey!inner(id, full_name, email, phone, stage, funnel_stage, score, source, assigned_to)'
+      : 'lead:admission_leads!wa_conversations_lead_id_fkey(id, full_name, email, phone, stage, score, source, assigned_to)';
+
     let query = supabase
       .from('wa_conversations')
       .select(
         `
         *,
-        lead:admission_leads!wa_conversations_lead_id_fkey(id, full_name, email, phone, stage, score, source, assigned_to),
+        ${leadJoin},
         assigned_profile:profiles!wa_conversations_assigned_to_fkey(id, full_name, avatar_url)
       `,
         { count: 'exact' }
@@ -211,6 +219,9 @@ export class WhatsAppChatService {
     }
     if (filters.date_to) {
       query = query.lte('last_message_at', filters.date_to);
+    }
+    if (filters.funnel_stage) {
+      query = query.eq('lead.funnel_stage' as string, filters.funnel_stage);
     }
 
     const { data, error, count } = await query;
@@ -326,6 +337,14 @@ export class WhatsAppChatService {
       );
     }
 
+    // Consent check for free-text messages (template messages exempt per Meta policy)
+    if (conversation.lead_id) {
+      const consent = await WhatsAppConsentService.checkConsent(conversation.lead_id);
+      if (!consent.hasConsent) {
+        throw new Error('Lead has not opted in to WhatsApp messages. Only template messages are allowed.');
+      }
+    }
+
     let waResponse;
     let messageType = 'text';
 
@@ -385,6 +404,19 @@ export class WhatsAppChatService {
       })
       .eq('id', conversationId);
 
+    // Gap 15: Log cost for session messages (free within 24hr window)
+    try {
+      await supabase.from('communication_cost_log').insert({
+        institution_id: conversation.institution_id,
+        channel: 'whatsapp',
+        event_type: 'session_send',
+        unit_cost: 0.00,
+        quantity: 1,
+        reference_id: msg.id,
+        metadata: { conversation_id: conversationId, template_name: null },
+      });
+    } catch { /* Non-critical */ }
+
     return msg as ChatMessage;
   }
 
@@ -439,6 +471,19 @@ export class WhatsAppChatService {
         updated_at: new Date().toISOString(),
       })
       .eq('id', conversationId);
+
+    // Gap 15: Log cost for template messages (~INR 0.47 business-initiated)
+    try {
+      await supabase.from('communication_cost_log').insert({
+        institution_id: conversation.institution_id,
+        channel: 'whatsapp',
+        event_type: 'template_send',
+        unit_cost: 0.47,
+        quantity: 1,
+        reference_id: msg.id,
+        metadata: { conversation_id: conversationId, template_name: templateName },
+      });
+    } catch { /* Non-critical */ }
 
     return msg as ChatMessage;
   }
@@ -597,7 +642,7 @@ export class WhatsAppChatService {
     if (!conversation.assigned_to && conversation.lead_id) {
       const { data: lead } = await supabase
         .from('admission_leads')
-        .select('assigned_to')
+        .select('assigned_to, interested_programs, source, score')
         .eq('id', conversation.lead_id)
         .single();
 
@@ -606,6 +651,127 @@ export class WhatsAppChatService {
           .from('wa_conversations')
           .update({ assigned_to: lead.assigned_to })
           .eq('id', conversation.id);
+        // Update local reference so routing step knows it's assigned
+        conversation.assigned_to = lead.assigned_to;
+      }
+
+      // 7b. Auto-grant consent on inbound (implicit consent per Meta policy)
+      if (conversation.lead_id) {
+        try {
+          await WhatsAppConsentService.autoGrantOnInbound(conversation.lead_id, params.institution_id);
+        } catch {
+          // Non-critical — don't block message processing
+        }
+      }
+
+      // 7c. Check for STOP keywords
+      if (params.text && conversation.lead_id) {
+        if (WhatsAppConsentService.isStopKeyword(params.text)) {
+          try {
+            await WhatsAppConsentService.handleStopKeyword(conversation.lead_id, params.institution_id);
+          } catch {
+            // Non-critical
+          }
+        }
+      }
+
+      // 8. Smart routing: categorize message and set priority
+      const category = WhatsAppRoutingService.categorizeMessage(params.text || '');
+      await WhatsAppRoutingService.setConversationPriority(conversation.id, category);
+
+      if (!conversation.assigned_to) {
+        // Only route if not already assigned (from step 7)
+        const leadData = lead ? {
+          interested_programs: lead.interested_programs as string[] | undefined,
+          source: lead.source as string | undefined,
+          score: lead.score as number | undefined,
+        } : undefined;
+
+        const route = await WhatsAppRoutingService.routeConversation({
+          conversationId: conversation.id,
+          institutionId: params.institution_id,
+          messageCategory: category,
+          leadData,
+        });
+
+        if (route.assignedTo) {
+          await supabase.from('wa_conversations')
+            .update({
+              assigned_to: route.assignedTo,
+              metadata: {
+                ...(conversation.metadata || {}),
+                routing_reason: route.routingReason,
+              },
+            })
+            .eq('id', conversation.id);
+        }
+      }
+
+      // 9. Auto-tag conversation with category
+      if (category !== 'general') {
+        const currentTags = conversation.tags || [];
+        if (!currentTags.includes(category)) {
+          await supabase.from('wa_conversations')
+            .update({ tags: [...currentTags, category] })
+            .eq('id', conversation.id);
+        }
+      }
+    } else {
+      // No lead linked — still do consent auto-grant for new conversations with linked lead
+      // and still do routing + categorization
+
+      // 7b. Auto-grant consent on inbound (if lead linked)
+      if (conversation.lead_id) {
+        try {
+          await WhatsAppConsentService.autoGrantOnInbound(conversation.lead_id, params.institution_id);
+        } catch {
+          // Non-critical
+        }
+      }
+
+      // 7c. Check for STOP keywords
+      if (params.text && conversation.lead_id) {
+        if (WhatsAppConsentService.isStopKeyword(params.text)) {
+          try {
+            await WhatsAppConsentService.handleStopKeyword(conversation.lead_id, params.institution_id);
+          } catch {
+            // Non-critical
+          }
+        }
+      }
+
+      // 8. Smart routing: categorize + set priority
+      const category = WhatsAppRoutingService.categorizeMessage(params.text || '');
+      await WhatsAppRoutingService.setConversationPriority(conversation.id, category);
+
+      if (!conversation.assigned_to) {
+        const route = await WhatsAppRoutingService.routeConversation({
+          conversationId: conversation.id,
+          institutionId: params.institution_id,
+          messageCategory: category,
+        });
+
+        if (route.assignedTo) {
+          await supabase.from('wa_conversations')
+            .update({
+              assigned_to: route.assignedTo,
+              metadata: {
+                ...(conversation.metadata || {}),
+                routing_reason: route.routingReason,
+              },
+            })
+            .eq('id', conversation.id);
+        }
+      }
+
+      // 9. Auto-tag conversation with category
+      if (category !== 'general') {
+        const currentTags = conversation.tags || [];
+        if (!currentTags.includes(category)) {
+          await supabase.from('wa_conversations')
+            .update({ tags: [...currentTags, category] })
+            .eq('id', conversation.id);
+        }
       }
     }
   }
