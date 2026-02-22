@@ -66,7 +66,21 @@ export default async function BillingReceiptsPage({
   };
 
   // Fetch data server-side with caching
-  const { data: receipts, metadata } = await getReceipts(filters);
+  let receipts: Awaited<ReturnType<typeof getReceipts>>['data'] = [];
+  let metadata: Awaited<ReturnType<typeof getReceipts>>['metadata'] = {
+    page: 1,
+    totalPages: 0,
+    total: 0,
+    pageSize: 20
+  };
+
+  try {
+    const result = await getReceipts(filters);
+    receipts = result.data;
+    metadata = result.metadata;
+  } catch (error) {
+    console.error('[billing/receipts] Error fetching receipts:', error);
+  }
 
   return (
     <ContentLayout title='Receipt Management'>
