@@ -118,6 +118,7 @@ export {
   useUnassignedLeads,
   useCounselorsList,
   useCounselorActions,
+  useCounselorProfiles,
   counselorDailyViewKeys,
 } from './use-counselor-daily-view';
 

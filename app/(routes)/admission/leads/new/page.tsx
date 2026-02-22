@@ -43,8 +43,7 @@ import { PermissionGuard } from '@/components/auth/permission-guard';
 import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
-import { useLeadMutations } from '@/hooks/admission';
-import { useCounselorProfiles } from '@/hooks/admission/use-counselor-daily-view';
+import { useLeadMutations, useCounselorProfiles } from '@/hooks/admission';
 import { CounselorDailyViewService } from '@/lib/services/admission/counselor-daily-view-service';
 import { LeadService } from '@/lib/services/admission/lead-service';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
@@ -364,31 +363,28 @@ function NewLeadPageContent() {
       academic_year: formData.academic_year?.trim() || null,
     };
 
-    createLeadWithProfile.mutate(
-      leadPayload,
-      {
-        onSuccess: async (lead) => {
-          // Best-effort counselor assignment — does not block navigation
-          if (selectedCounselorProfileId) {
-            try {
-              const counselorId = await CounselorDailyViewService.resolveOrCreateCounselor(
-                selectedCounselorProfileId
-              );
-              await LeadService.assignCounselor(lead.id, counselorId);
-            } catch (e) {
-              console.warn('[leads/new] Could not assign counselor (best-effort):', e);
-            }
-          }
-          toast.success('Lead created successfully');
-          router.push(`/admission/leads/${lead.id}`);
-        },
-        onError: (error: Error) => {
-          const errorMessage = error.message || 'Failed to create lead';
-          toast.error(errorMessage);
-          console.error('[admission/leads] Failed to create lead:', error);
+    try {
+      const lead = await createLeadWithProfile.mutateAsync(leadPayload);
+
+      // Best-effort counselor assignment — does not block navigation
+      if (selectedCounselorProfileId) {
+        try {
+          const counselorId = await CounselorDailyViewService.resolveOrCreateCounselor(
+            selectedCounselorProfileId
+          );
+          await LeadService.assignCounselor(lead.id, counselorId);
+        } catch (e) {
+          console.warn('[leads/new] Could not assign counselor (best-effort):', e);
         }
       }
-    );
+
+      toast.success('Lead created successfully');
+      router.push(`/admission/leads/${lead.id}`);
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to create lead';
+      toast.error(errorMessage);
+      console.error('[admission/leads] Failed to create lead:', error);
+    }
   };
 
   // Determine if user can change institution (super admin or has access to multiple)
