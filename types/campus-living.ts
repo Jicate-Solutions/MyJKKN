@@ -33,7 +33,7 @@ export const PARENT_CONSENT_STATUS = { PENDING: 'pending', APPROVED: 'approved',
 export const PARENT_CONSENT_METHOD = { OTP: 'otp', APP_APPROVAL: 'app_approval', SMS_REPLY: 'sms_reply', IN_PERSON: 'in_person' } as const;
 export const LEAVE_STATUS = { DRAFT: 'draft', PENDING_PARENT: 'pending_parent', PENDING_WARDEN: 'pending_warden', PENDING_CHIEF: 'pending_chief', APPROVED: 'approved', REJECTED: 'rejected', CANCELLED: 'cancelled', EXPIRED: 'expired' } as const;
 export const GATE_PASS_STATUS = { REQUESTED: 'requested', ISSUED: 'issued', ACTIVE: 'active', RETURNED: 'returned', OVERDUE: 'overdue', CANCELLED: 'cancelled', REJECTED: 'rejected' } as const;
-export const GATE_PASS_TYPE = { REGULAR_OUT: 'regular_out', OVERNIGHT: 'overnight', EMERGENCY: 'emergency', VISITOR_ACCOMPANIED: 'visitor_accompanied' } as const;
+export const GATE_PASS_TYPE = { REGULAR_OUT: 'regular_out', OVERNIGHT: 'overnight', EMERGENCY: 'emergency', VISITOR_ACCOMPANIED: 'visitor_accompanied', HOME_VISIT: 'home_visit' } as const;
 
 // ===== FEE ENUMS =====
 export const FEE_STATUS = { PENDING: 'pending', PARTIAL: 'partial', PAID: 'paid', WAIVED: 'waived' } as const;
