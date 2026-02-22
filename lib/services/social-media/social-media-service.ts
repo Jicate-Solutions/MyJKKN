@@ -331,11 +331,13 @@ export class SocialMediaService {
     const accountIds = (accounts || []).map((a: SmAccount) => a.id);
     if (accountIds.length === 0) return [];
 
-    const { data: snapshots } = await this.supabase
+    const { data: snapshots, error: snapError } = await this.supabase
       .from('sm_snapshots')
       .select('*')
       .in('account_id', accountIds)
       .order('snapshot_date', { ascending: false });
+
+    if (snapError) throw new Error(`Failed to fetch snapshots: ${snapError.message}`);
 
     const latestByAccount = new Map<string, SmSnapshot>();
     (snapshots || []).forEach((s: SmSnapshot) => {
