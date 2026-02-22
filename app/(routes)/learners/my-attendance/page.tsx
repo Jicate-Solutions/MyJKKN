@@ -74,12 +74,11 @@ export default async function StudentAttendancePage({ searchParams }: PageProps)
   // Fetch attendance data in parallel
   let statistics: Awaited<ReturnType<typeof StudentAttendanceService.getAttendanceStatistics>> = {
     totalClasses: 0,
-    attendedClasses: 0,
-    absentClasses: 0,
-    odClasses: 0,
-    overallPercentage: 0,
-    requiredPercentage: 75,
-    status: 'good' as const
+    presentCount: 0,
+    absentCount: 0,
+    percentage: 0,
+    threshold: 75,
+    isAboveThreshold: false
   };
   let courseWise: Awaited<ReturnType<typeof StudentAttendanceService.getCourseWiseAttendance>> = [];
   let trendData: Awaited<ReturnType<typeof StudentAttendanceService.getAttendanceTrend>> = [];
