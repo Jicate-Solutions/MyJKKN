@@ -5,10 +5,6 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
   GDPIService,
-  type GDPISession,
-  type GDPICandidate,
-  type GDPIEvaluator,
-  type GDPIScore,
   type GDPIStats,
   type CreateSessionInput,
   type UpdateSessionInput,

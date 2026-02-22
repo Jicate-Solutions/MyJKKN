@@ -107,10 +107,10 @@ export interface MaturityAssessment {
   created_at: string;
   updated_at?: string;
 
-  // Joined relations
+  // Joined relations (matches Supabase select: departments(id, department_name))
   department?: {
     id: string;
-    name: string;
+    department_name: string;
   } | null;
   assessor?: {
     id: string;

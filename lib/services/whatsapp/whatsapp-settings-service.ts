@@ -38,6 +38,11 @@ function buildDefaults(institutionId: string): WhatsAppSettings {
     notify_on_disconnect: true,
     notify_email: null,
     message_log_retention_days: 30,
+    auto_assign_round_robin: false,
+    auto_assign_by_program: false,
+    auto_assign_by_source: false,
+    program_assignments: {},
+    source_assignments: {},
     created_at: now,
     updated_at: now,
   };

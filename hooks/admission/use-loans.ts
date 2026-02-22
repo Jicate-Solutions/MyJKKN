@@ -5,14 +5,11 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
   LoanService,
-  type LoanPartner,
-  type LoanApplication,
   type CreatePartnerInput,
   type UpdatePartnerInput,
   type CreateApplicationInput,
   type UpdateApplicationInput,
   type LoanApplicationFilters,
-  type LoanAnalyticsSummary,
 } from '@/lib/services/admission/loan-service';
 
 // Query keys for cache management

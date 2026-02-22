@@ -61,7 +61,6 @@ import {
   useLoanAnalytics,
   useLoanMutations,
   useEMICalculator,
-  useLoanStatusDisplay,
 } from '@/hooks/admission/use-loans';
 import { useAdmissionLeads } from '@/hooks/admission';
 import type { LoanPartner, LoanApplicationStatus } from '@/lib/services/admission/loan-service';
@@ -93,10 +92,8 @@ import {
   IndianRupee,
   Clock,
   CheckCircle2,
-  XCircle,
   TrendingUp,
   FileText,
-  Users,
   Banknote,
   BarChart3,
   Shield,
@@ -118,8 +115,6 @@ const STATUS_OPTIONS: { value: LoanApplicationStatus; label: string }[] = [
   { value: 'disbursed', label: 'Disbursed' },
   { value: 'rejected', label: 'Rejected' },
 ];
-
-const PIE_COLORS = ['#6b7280', '#3b82f6', '#eab308', '#f97316', '#22c55e', '#a855f7', '#ef4444'];
 
 function formatINR(amount: number): string {
   if (amount >= 10000000) return `${(amount / 10000000).toFixed(1)}Cr`;

@@ -75,7 +75,7 @@ export function AssessmentList({
                 {format(new Date(assessment.assessment_date), 'MMM d, yyyy')}
               </TableCell>
               <TableCell>
-                {(assessment.department as any)?.department_name || (
+                {assessment.department?.department_name || (
                   <span className="text-muted-foreground">Institution-wide</span>
                 )}
               </TableCell>

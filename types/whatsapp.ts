@@ -259,6 +259,14 @@ export interface WhatsAppSettings {
   notify_on_disconnect: boolean;
   notify_email: string | null;
   message_log_retention_days: number;
+
+  // Auto-assignment
+  auto_assign_round_robin: boolean;
+  auto_assign_by_program: boolean;
+  auto_assign_by_source: boolean;
+  program_assignments: Record<string, string>;
+  source_assignments: Record<string, string>;
+
   created_at: string;
   updated_at: string;
 

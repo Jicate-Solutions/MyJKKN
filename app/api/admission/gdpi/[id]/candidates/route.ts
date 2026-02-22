@@ -8,7 +8,7 @@ import { GDPIService } from '@/lib/services/admission/gdpi-service';
 import { logger } from '@/lib/utils/enhanced-logger';
 
 export async function GET(
-  request: NextRequest,
+  _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb,
@@ -72,16 +72,14 @@ import {
   type GDPIRecommendation,
   type GDPIEvaluatorRole,
   type GDPICandidate,
-  type GDPISession,
 } from '@/lib/services/admission/gdpi-service';
 import { AdmissionErrorBoundary } from '@/components/admission';
 import { toast } from 'sonner';
-import { format, formatDistanceToNow } from 'date-fns';
+import { format } from 'date-fns';
 import {
   Users,
   MessageSquare,
   ClipboardList,
-  Award,
   Plus,
   Trash2,
   RefreshCw,
@@ -90,7 +88,6 @@ import {
   Clock,
   MapPin,
   Search,
-  ChevronDown,
   ChevronUp,
   Eye,
   UserPlus,
@@ -827,7 +824,7 @@ interface SessionDetailPanelProps {
 }
 
 function SessionDetailPanel({ sessionId, institutionId, onClose }: SessionDetailPanelProps) {
-  const { session, isLoading, refetch } = useGDPISession(sessionId);
+  const { session, isLoading } = useGDPISession(sessionId);
   const { profile } = useAuth();
   const {
     removeCandidate,
@@ -1182,7 +1179,7 @@ function GDPIPageContent() {
     selectedInstitutionId,
     filters
   );
-  const { stats, isLoading: statsLoading } = useGDPIStats(selectedInstitutionId);
+  const { stats } = useGDPIStats(selectedInstitutionId);
 
   const [createOpen, setCreateOpen] = useState(false);
   const [expandedSessionId, setExpandedSessionId] = useState<string | null>(null);

@@ -530,7 +530,6 @@ export class LoanService {
     for (let i = 5; i >= 0; i--) {
       const d = new Date();
       d.setMonth(d.getMonth() - i);
-      const monthKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
       const monthLabel = d.toLocaleString('en-IN', { month: 'short', year: '2-digit' });
 
       const monthApps = apps.filter((a: any) => {

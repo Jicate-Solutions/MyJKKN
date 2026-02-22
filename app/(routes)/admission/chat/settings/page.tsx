@@ -17,7 +17,6 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
-import { Separator } from '@/components/ui/separator';
 import {
   Table,
   TableBody,
@@ -42,9 +41,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Plus, Edit2, Trash2, Zap, ArrowLeft } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Plus, Edit2, Trash2, Zap, ArrowLeft, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import { useQuickReplies, useQuickReplyMutations } from '@/hooks/admission/use-quick-replies';
+import { useWASettings, useUpdateWASettings } from '@/hooks/admission/use-wa-settings';
+import { useAuth } from '@/hooks/use-auth';
 
 function QuickReplyManager() {
   const { quickReplies, isLoading } = useQuickReplies();
@@ -286,6 +289,115 @@ function QuickReplyManager() {
   );
 }
 
+function AutoAssignmentSettings() {
+  const { profile } = useAuth();
+  const institutionId = profile?.institution_id;
+  const { settings, isLoading } = useWASettings(institutionId);
+  const updateSettings = useUpdateWASettings(institutionId);
+
+  const handleToggle = (field: 'auto_assign_round_robin' | 'auto_assign_by_program' | 'auto_assign_by_source', checked: boolean) => {
+    updateSettings.mutate({ [field]: checked });
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle>Auto-Assignment Rules</CardTitle>
+            <CardDescription>
+              Automatically assign incoming conversations to counselors.
+            </CardDescription>
+          </div>
+          {updateSettings.isPending && (
+            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+          )}
+        </div>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <div className="space-y-3">
+            {[1, 2, 3].map(i => <Skeleton key={i} className="h-16 w-full" />)}
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between p-3 border rounded-lg">
+              <div>
+                <p className="text-sm font-medium">Round Robin</p>
+                <p className="text-xs text-muted-foreground">
+                  Distribute conversations evenly among available counselors
+                </p>
+              </div>
+              <Switch
+                checked={settings?.auto_assign_round_robin ?? false}
+                onCheckedChange={(checked) => handleToggle('auto_assign_round_robin', checked)}
+                disabled={updateSettings.isPending}
+              />
+            </div>
+            {settings?.auto_assign_round_robin && (
+              <div className="ml-4 p-3 bg-muted/50 rounded-lg">
+                <p className="text-xs text-muted-foreground">
+                  New conversations will be assigned to the counselor with the fewest active conversations.
+                </p>
+              </div>
+            )}
+
+            <div className="flex items-center justify-between p-3 border rounded-lg">
+              <div>
+                <p className="text-sm font-medium">By Program</p>
+                <p className="text-xs text-muted-foreground">
+                  Route to counselors based on program interest
+                </p>
+              </div>
+              <Switch
+                checked={settings?.auto_assign_by_program ?? false}
+                onCheckedChange={(checked) => handleToggle('auto_assign_by_program', checked)}
+                disabled={updateSettings.isPending}
+              />
+            </div>
+            {settings?.auto_assign_by_program && (
+              <div className="ml-4 p-3 bg-muted/50 rounded-lg">
+                <p className="text-xs text-muted-foreground mb-2">
+                  Configure program-to-counselor mappings in the routing service.
+                  Conversations will be routed based on the lead&apos;s program interest field.
+                </p>
+                <Badge variant="secondary" className="text-xs">
+                  {Object.keys(settings.program_assignments || {}).length} programs mapped
+                </Badge>
+              </div>
+            )}
+
+            <div className="flex items-center justify-between p-3 border rounded-lg">
+              <div>
+                <p className="text-sm font-medium">By Source</p>
+                <p className="text-xs text-muted-foreground">
+                  Route based on lead source (website, referral, etc.)
+                </p>
+              </div>
+              <Switch
+                checked={settings?.auto_assign_by_source ?? false}
+                onCheckedChange={(checked) => handleToggle('auto_assign_by_source', checked)}
+                disabled={updateSettings.isPending}
+              />
+            </div>
+            {settings?.auto_assign_by_source && (
+              <div className="ml-4 p-3 bg-muted/50 rounded-lg">
+                <p className="text-xs text-muted-foreground mb-2">
+                  Configure source-to-counselor mappings in the routing service.
+                  Conversations will be routed based on how the lead found your institution.
+                </p>
+                <Badge variant="secondary" className="text-xs">
+                  {Object.keys(settings.source_assignments || {}).length} sources mapped
+                </Badge>
+              </div>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function ChatSettingsContent() {
   return (
     <PermissionGuard module="admission" action="manage">
@@ -360,46 +472,8 @@ function ChatSettingsContent() {
             </CardContent>
           </Card>
 
-          {/* Auto-Assignment (placeholder) */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Auto-Assignment Rules</CardTitle>
-              <CardDescription>
-                Automatically assign incoming conversations to counselors.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-3">
-                <div className="flex items-center justify-between p-3 border rounded-lg">
-                  <div>
-                    <p className="text-sm font-medium">Round Robin</p>
-                    <p className="text-xs text-muted-foreground">
-                      Distribute conversations evenly among available counselors
-                    </p>
-                  </div>
-                  <Badge variant="outline">Coming Soon</Badge>
-                </div>
-                <div className="flex items-center justify-between p-3 border rounded-lg">
-                  <div>
-                    <p className="text-sm font-medium">By Program</p>
-                    <p className="text-xs text-muted-foreground">
-                      Route to counselors based on program interest
-                    </p>
-                  </div>
-                  <Badge variant="outline">Coming Soon</Badge>
-                </div>
-                <div className="flex items-center justify-between p-3 border rounded-lg">
-                  <div>
-                    <p className="text-sm font-medium">By Source</p>
-                    <p className="text-xs text-muted-foreground">
-                      Route based on lead source (website, referral, etc.)
-                    </p>
-                  </div>
-                  <Badge variant="outline">Coming Soon</Badge>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+          {/* Auto-Assignment */}
+          <AutoAssignmentSettings />
         </div>
       </ContentLayout>
     </PermissionGuard>

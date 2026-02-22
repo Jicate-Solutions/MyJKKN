@@ -91,7 +91,7 @@ export default async function AssessmentDetailPage({
               </Button>
             </div>
             <h1 className="text-2xl font-bold py-1">
-              {(assessment.department as any)?.department_name || 'Institution-wide'} Assessment
+              {assessment.department?.department_name || 'Institution-wide'} Assessment
             </h1>
             <div className="flex items-center gap-3 mt-2">
               <Badge className={statusColors[assessment.status]}>
