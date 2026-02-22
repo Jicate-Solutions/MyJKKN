@@ -88,3 +88,77 @@ export function useSnoozeReminder() {
     },
   });
 }
+
+/**
+ * Reschedule a reminder -- updates next_followup_at to a new date.
+ */
+export function useRescheduleReminder() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ leadId, newDate }: { leadId: string; newDate: string }) =>
+      RemindersService.rescheduleReminder(leadId, newDate),
+    onSuccess: () => {
+      toast.success('Reminder rescheduled');
+      queryClient.invalidateQueries({ queryKey: remindersKeys.all });
+      queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
+      queryClient.invalidateQueries({ queryKey: ['counselor-daily-view'] });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to reschedule reminder');
+    },
+  });
+}
+
+/**
+ * Dismiss a reminder -- clears next_followup_at without updating last_contact_at.
+ */
+export function useDismissReminder() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (leadId: string) => RemindersService.dismissReminder(leadId),
+    onSuccess: () => {
+      toast.success('Reminder dismissed');
+      queryClient.invalidateQueries({ queryKey: remindersKeys.all });
+      queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
+      queryClient.invalidateQueries({ queryKey: ['counselor-daily-view'] });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to dismiss reminder');
+    },
+  });
+}
+
+/**
+ * Create a manual reminder -- sets next_followup_at on a lead.
+ */
+export function useCreateReminder() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ leadId, dueDate }: { leadId: string; dueDate: string }) =>
+      RemindersService.createReminder(leadId, dueDate),
+    onSuccess: () => {
+      toast.success('Reminder created');
+      queryClient.invalidateQueries({ queryKey: remindersKeys.all });
+      queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
+      queryClient.invalidateQueries({ queryKey: ['counselor-daily-view'] });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to create reminder');
+    },
+  });
+}
+
+/**
+ * Search leads for creating a reminder.
+ */
+export function useSearchLeadsForReminder(institutionId: string | null | undefined, search: string) {
+  return useQuery({
+    queryKey: ['reminder-lead-search', institutionId, search],
+    queryFn: () => RemindersService.searchLeadsForReminder(institutionId!, search),
+    enabled: !!institutionId && search.length >= 2,
+    staleTime: 30_000,
+  });
+}

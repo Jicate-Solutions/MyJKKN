@@ -16,6 +16,10 @@ export {
   useFollowUpReminders,
   useCompleteReminder,
   useSnoozeReminder,
+  useRescheduleReminder,
+  useDismissReminder,
+  useCreateReminder,
+  useSearchLeadsForReminder,
   remindersKeys,
 } from './use-reminders';
 
@@ -387,6 +391,31 @@ export {
   formatDuration,
   callStatsKeys,
 } from './use-call-stats';
+
+// Re-export GD-PI hooks
+export {
+  useGDPISessions,
+  useGDPISession,
+  useGDPISessionResults,
+  useGDPIStats,
+  useGDPILeadSearch,
+  useGDPIEvaluatorSearch,
+  useGDPIMutations,
+  gdpiKeys,
+} from './use-gdpi';
+
+// Re-export loan connect hooks
+export {
+  useLoanPartners,
+  useLoanPartner,
+  useLoanApplications,
+  useLoanApplication,
+  useLoanAnalytics,
+  useLoanMutations,
+  useEMICalculator,
+  useLoanStatusDisplay,
+  loanKeys,
+} from './use-loans';
 
 // ============================================
 // LEADS HOOKS

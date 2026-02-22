@@ -197,6 +197,25 @@ export type {
   QueryHistoryEntry,
 } from './agentic-query-service';
 
+export { GDPIService } from './gdpi-service';
+export type {
+  GDPISession,
+  GDPIEvaluator,
+  GDPICandidate,
+  GDPIScore,
+  GDPISessionType,
+  GDPISessionStatus,
+  GDPICandidateStatus,
+  GDPIRecommendation,
+  GDPIEvaluatorRole,
+  GDPISessionFilters,
+  GDPIStats,
+  CreateSessionInput,
+  UpdateSessionInput,
+  ScoreInput,
+} from './gdpi-service';
+export { GD_CRITERIA, PI_CRITERIA } from './gdpi-service';
+
 // Simple DateRange type for admission services
 export interface DateRange {
   from: string;

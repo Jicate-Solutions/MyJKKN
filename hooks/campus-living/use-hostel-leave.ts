@@ -7,6 +7,7 @@ import type {
   HostelLeaveRequest,
   CreateHostelLeaveRequestDTO,
   LeaveFilters,
+  LeaveStatus,
 } from '@/types/campus-living';
 
 // Query key factory
@@ -86,7 +87,7 @@ export function useRejectLeave() {
 export function useUpdateHostelLeave() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, payload }: { id: string; payload: Partial<CreateHostelLeaveRequestDTO> }) =>
+    mutationFn: ({ id, payload }: { id: string; payload: Partial<HostelLeaveRequest> }) =>
       HostelLeaveService.updateLeaveRequest(id, payload),
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: hostelLeaveKeys.all });

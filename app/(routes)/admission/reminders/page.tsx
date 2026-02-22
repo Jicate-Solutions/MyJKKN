@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb,
@@ -16,12 +16,44 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Switch } from '@/components/ui/switch';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
 import {
   useFollowUpReminders,
   useCompleteReminder,
   useSnoozeReminder,
+  useRescheduleReminder,
+  useDismissReminder,
+  useCreateReminder,
+  useSearchLeadsForReminder,
 } from '@/hooks/admission/use-reminders';
 import type { FollowUpReminder } from '@/lib/services/admission/reminders-service';
 import {
@@ -40,7 +72,11 @@ import {
   Zap,
   Timer,
   AlertTriangle,
-  Loader2
+  Loader2,
+  Search,
+  Plus,
+  Trash2,
+  Edit3,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -49,12 +85,12 @@ import {
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
-import { formatDistanceToNow, isPast, isToday, isTomorrow } from 'date-fns';
+import { formatDistanceToNow, isPast, isToday, isTomorrow, format } from 'date-fns';
 import { toast } from 'sonner';
 import { AdmissionErrorBoundary } from '@/components/admission';
 
 // ============================================================================
-// Auto-follow-up rules — local config state (not yet DB-backed)
+// Auto-follow-up rules -- local config state (not yet DB-backed)
 // ============================================================================
 
 interface AutoFollowUpRule {
@@ -155,14 +191,700 @@ function getDueDateStatus(dueDate: string) {
   return { label: formatDistanceToNow(date, { addSuffix: true }), color: 'text-gray-600', bg: 'bg-gray-100 dark:bg-gray-900/30' };
 }
 
+function getTriggerLabel(trigger: string, value: number) {
+  switch (trigger) {
+    case 'no_response':
+      return `After ${value} days without response`;
+    case 'stage_change':
+      return 'When lead stage changes';
+    case 'days_since_contact':
+      return `After ${value} days since last contact`;
+    case 'scheduled':
+      return `Every ${value} days`;
+    default:
+      return trigger;
+  }
+}
+
+// ============================================================================
+// RESCHEDULE DIALOG
+// ============================================================================
+
+function RescheduleDialog({
+  reminder,
+  open,
+  onOpenChange,
+}: {
+  reminder: FollowUpReminder | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const reschedule = useRescheduleReminder();
+  const [newDate, setNewDate] = useState('');
+  const [newTime, setNewTime] = useState('10:00');
+
+  const handleSubmit = async () => {
+    if (!reminder || !newDate) return;
+    const dateTime = new Date(`${newDate}T${newTime}:00`);
+    await reschedule.mutateAsync({
+      leadId: reminder.leadId,
+      newDate: dateTime.toISOString(),
+    });
+    onOpenChange(false);
+    setNewDate('');
+    setNewTime('10:00');
+  };
+
+  // Set default date to tomorrow when dialog opens
+  const handleOpenChange = (isOpen: boolean) => {
+    if (isOpen && reminder) {
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      setNewDate(format(tomorrow, 'yyyy-MM-dd'));
+      // Try to preserve original time
+      try {
+        const originalDate = new Date(reminder.dueDate);
+        setNewTime(format(originalDate, 'HH:mm'));
+      } catch {
+        setNewTime('10:00');
+      }
+    }
+    onOpenChange(isOpen);
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Reschedule Reminder</DialogTitle>
+          <DialogDescription>
+            {reminder ? `Reschedule follow-up for ${reminder.leadName}` : 'Select a new date and time'}
+          </DialogDescription>
+        </DialogHeader>
+
+        {reminder && (
+          <div className="space-y-4">
+            <div className="p-3 rounded-lg bg-muted/50 text-sm">
+              <p className="text-muted-foreground">Current due date:</p>
+              <p className="font-medium">
+                {format(new Date(reminder.dueDate), 'PPP p')}
+              </p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label htmlFor="reschedule-date">New Date</Label>
+                <Input
+                  id="reschedule-date"
+                  type="date"
+                  value={newDate}
+                  onChange={(e) => setNewDate(e.target.value)}
+                  min={format(new Date(), 'yyyy-MM-dd')}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="reschedule-time">Time</Label>
+                <Input
+                  id="reschedule-time"
+                  type="time"
+                  value={newTime}
+                  onChange={(e) => setNewTime(e.target.value)}
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button
+            onClick={handleSubmit}
+            disabled={!newDate || reschedule.isPending}
+          >
+            {reschedule.isPending ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <Calendar className="h-4 w-4 mr-2" />
+            )}
+            Reschedule
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ============================================================================
+// DISMISS CONFIRM DIALOG
+// ============================================================================
+
+function DismissDialog({
+  reminder,
+  open,
+  onOpenChange,
+}: {
+  reminder: FollowUpReminder | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const dismiss = useDismissReminder();
+  const [isDismissing, setIsDismissing] = useState(false);
+
+  const handleDismiss = async () => {
+    if (!reminder) return;
+    setIsDismissing(true);
+    try {
+      await dismiss.mutateAsync(reminder.leadId);
+      onOpenChange(false);
+    } finally {
+      setIsDismissing(false);
+    }
+  };
+
+  return (
+    <AlertDialog open={open} onOpenChange={onOpenChange}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Dismiss Reminder</AlertDialogTitle>
+          <AlertDialogDescription>
+            {reminder
+              ? `Are you sure you want to dismiss the follow-up reminder for ${reminder.leadName}? This will remove the scheduled follow-up date from this lead. This action cannot be undone.`
+              : 'Are you sure you want to dismiss this reminder?'}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={isDismissing}>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            onClick={handleDismiss}
+            disabled={isDismissing}
+            className="bg-red-600 hover:bg-red-700"
+          >
+            {isDismissing ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <Trash2 className="h-4 w-4 mr-2" />
+            )}
+            Dismiss
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
+// ============================================================================
+// CREATE REMINDER DIALOG
+// ============================================================================
+
+function CreateReminderDialog({
+  open,
+  onOpenChange,
+  institutionId,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  institutionId: string | null | undefined;
+}) {
+  const createReminder = useCreateReminder();
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedLeadId, setSelectedLeadId] = useState('');
+  const [selectedLeadName, setSelectedLeadName] = useState('');
+  const [dueDate, setDueDate] = useState('');
+  const [dueTime, setDueTime] = useState('10:00');
+  const [notes, setNotes] = useState('');
+
+  const { data: searchResults, isLoading: isSearching } = useSearchLeadsForReminder(
+    institutionId,
+    searchTerm
+  );
+
+  const resetForm = useCallback(() => {
+    setSearchTerm('');
+    setSelectedLeadId('');
+    setSelectedLeadName('');
+    setDueDate('');
+    setDueTime('10:00');
+    setNotes('');
+  }, []);
+
+  const handleOpenChange = (isOpen: boolean) => {
+    if (!isOpen) resetForm();
+    onOpenChange(isOpen);
+  };
+
+  const handleSelectLead = (lead: { id: string; fullName: string; phone: string; stage: string }) => {
+    setSelectedLeadId(lead.id);
+    setSelectedLeadName(`${lead.fullName}${lead.phone ? ` (${lead.phone})` : ''}`);
+    setSearchTerm('');
+  };
+
+  const handleSubmit = async () => {
+    if (!selectedLeadId || !dueDate) return;
+    const dateTime = new Date(`${dueDate}T${dueTime}:00`);
+    await createReminder.mutateAsync({
+      leadId: selectedLeadId,
+      dueDate: dateTime.toISOString(),
+    });
+    handleOpenChange(false);
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Create Reminder</DialogTitle>
+          <DialogDescription>
+            Schedule a follow-up reminder for a lead
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          {/* Lead Search */}
+          <div className="space-y-2">
+            <Label>Lead</Label>
+            {selectedLeadId ? (
+              <div className="flex items-center justify-between p-2 rounded-md border bg-muted/30">
+                <span className="text-sm font-medium">{selectedLeadName}</span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setSelectedLeadId('');
+                    setSelectedLeadName('');
+                  }}
+                >
+                  Change
+                </Button>
+              </div>
+            ) : (
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search leads by name or phone..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-9"
+                />
+                {/* Search results dropdown */}
+                {searchTerm.length >= 2 && (
+                  <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-popover border rounded-md shadow-md max-h-48 overflow-y-auto">
+                    {isSearching ? (
+                      <div className="p-3 text-sm text-muted-foreground text-center">
+                        <Loader2 className="h-4 w-4 animate-spin inline mr-2" />
+                        Searching...
+                      </div>
+                    ) : searchResults && searchResults.length > 0 ? (
+                      searchResults.map((lead) => (
+                        <button
+                          key={lead.id}
+                          type="button"
+                          className="w-full text-left px-3 py-2 text-sm hover:bg-accent transition-colors flex items-center justify-between"
+                          onClick={() => handleSelectLead(lead)}
+                        >
+                          <div>
+                            <span className="font-medium">{lead.fullName}</span>
+                            {lead.phone && (
+                              <span className="text-muted-foreground ml-2">{lead.phone}</span>
+                            )}
+                          </div>
+                          <Badge variant="outline" className="text-xs ml-2">
+                            {lead.stage}
+                          </Badge>
+                        </button>
+                      ))
+                    ) : (
+                      <div className="p-3 text-sm text-muted-foreground text-center">
+                        No leads found
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Date & Time */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-2">
+              <Label htmlFor="create-date">Due Date</Label>
+              <Input
+                id="create-date"
+                type="date"
+                value={dueDate}
+                onChange={(e) => setDueDate(e.target.value)}
+                min={format(new Date(), 'yyyy-MM-dd')}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="create-time">Time</Label>
+              <Input
+                id="create-time"
+                type="time"
+                value={dueTime}
+                onChange={(e) => setDueTime(e.target.value)}
+              />
+            </div>
+          </div>
+
+          {/* Notes */}
+          <div className="space-y-2">
+            <Label htmlFor="create-notes">Notes (optional)</Label>
+            <Textarea
+              id="create-notes"
+              placeholder="Add any notes about this follow-up..."
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              rows={3}
+            />
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => handleOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button
+            onClick={handleSubmit}
+            disabled={!selectedLeadId || !dueDate || createReminder.isPending}
+          >
+            {createReminder.isPending ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <Bell className="h-4 w-4 mr-2" />
+            )}
+            Create Reminder
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ============================================================================
+// RULE SETTINGS DIALOG
+// ============================================================================
+
+function RuleSettingsDialog({
+  rule,
+  open,
+  onOpenChange,
+  onSave,
+}: {
+  rule: AutoFollowUpRule | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSave: (updatedRule: AutoFollowUpRule) => void;
+}) {
+  const [name, setName] = useState('');
+  const [trigger, setTrigger] = useState<AutoFollowUpRule['trigger']>('no_response');
+  const [triggerValue, setTriggerValue] = useState(3);
+  const [action, setAction] = useState<AutoFollowUpRule['action']>('call');
+  const [message, setMessage] = useState('');
+  const [isActive, setIsActive] = useState(true);
+
+  const handleOpenChange = (isOpen: boolean) => {
+    if (isOpen && rule) {
+      setName(rule.name);
+      setTrigger(rule.trigger);
+      setTriggerValue(rule.triggerValue);
+      setAction(rule.action);
+      setMessage(rule.message);
+      setIsActive(rule.isActive);
+    }
+    onOpenChange(isOpen);
+  };
+
+  const handleSave = () => {
+    if (!rule || !name.trim()) return;
+    onSave({
+      ...rule,
+      name: name.trim(),
+      trigger,
+      triggerValue,
+      action,
+      message: message.trim(),
+      isActive,
+    });
+    onOpenChange(false);
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Rule Settings</DialogTitle>
+          <DialogDescription>
+            Configure automation rule parameters
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          {/* Rule Name */}
+          <div className="space-y-2">
+            <Label htmlFor="rule-name">Rule Name</Label>
+            <Input
+              id="rule-name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Enter rule name"
+            />
+          </div>
+
+          {/* Trigger */}
+          <div className="space-y-2">
+            <Label>Trigger Condition</Label>
+            <Select value={trigger} onValueChange={(v) => setTrigger(v as AutoFollowUpRule['trigger'])}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="no_response">No response from lead</SelectItem>
+                <SelectItem value="stage_change">Lead stage changes</SelectItem>
+                <SelectItem value="days_since_contact">Days since last contact</SelectItem>
+                <SelectItem value="scheduled">Recurring schedule</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Trigger Value */}
+          {trigger !== 'stage_change' && (
+            <div className="space-y-2">
+              <Label htmlFor="trigger-value">
+                {trigger === 'no_response' ? 'Days without response' :
+                 trigger === 'days_since_contact' ? 'Days since contact' :
+                 'Interval (days)'}
+              </Label>
+              <Input
+                id="trigger-value"
+                type="number"
+                min={1}
+                max={90}
+                value={triggerValue}
+                onChange={(e) => setTriggerValue(parseInt(e.target.value) || 1)}
+              />
+            </div>
+          )}
+
+          {/* Action */}
+          <div className="space-y-2">
+            <Label>Action Type</Label>
+            <Select value={action} onValueChange={(v) => setAction(v as AutoFollowUpRule['action'])}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="call">Phone Call</SelectItem>
+                <SelectItem value="whatsapp">WhatsApp Message</SelectItem>
+                <SelectItem value="email">Email</SelectItem>
+                <SelectItem value="task">Task</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Message */}
+          <div className="space-y-2">
+            <Label htmlFor="rule-message">Reminder Message</Label>
+            <Textarea
+              id="rule-message"
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              placeholder="Message template for this rule..."
+              rows={3}
+            />
+            <p className="text-xs text-muted-foreground">
+              Use {'{days}'} for days count, {'{lead_name}'} for lead name
+            </p>
+          </div>
+
+          {/* Active Toggle */}
+          <div className="flex items-center justify-between p-3 rounded-lg border">
+            <div>
+              <Label>Status</Label>
+              <p className="text-sm text-muted-foreground">
+                {isActive ? 'Rule is active and processing' : 'Rule is paused'}
+              </p>
+            </div>
+            <Switch checked={isActive} onCheckedChange={setIsActive} />
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button onClick={handleSave} disabled={!name.trim()}>
+            <CheckCircle className="h-4 w-4 mr-2" />
+            Save Changes
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ============================================================================
+// ADD RULE DIALOG
+// ============================================================================
+
+function AddRuleDialog({
+  open,
+  onOpenChange,
+  onAdd,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onAdd: (rule: AutoFollowUpRule) => void;
+}) {
+  const [name, setName] = useState('');
+  const [trigger, setTrigger] = useState<AutoFollowUpRule['trigger']>('no_response');
+  const [triggerValue, setTriggerValue] = useState(3);
+  const [action, setAction] = useState<AutoFollowUpRule['action']>('call');
+  const [message, setMessage] = useState('');
+
+  const resetForm = useCallback(() => {
+    setName('');
+    setTrigger('no_response');
+    setTriggerValue(3);
+    setAction('call');
+    setMessage('');
+  }, []);
+
+  const handleOpenChange = (isOpen: boolean) => {
+    if (!isOpen) resetForm();
+    onOpenChange(isOpen);
+  };
+
+  const handleAdd = () => {
+    if (!name.trim()) return;
+    const newRule: AutoFollowUpRule = {
+      id: Date.now().toString(),
+      name: name.trim(),
+      trigger,
+      triggerValue,
+      action,
+      message: message.trim() || `Auto-generated reminder: ${name.trim()}`,
+      isActive: true,
+      leadsAffected: 0,
+    };
+    onAdd(newRule);
+    handleOpenChange(false);
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Add Automation Rule</DialogTitle>
+          <DialogDescription>
+            Create a new rule to automatically generate follow-up reminders
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          {/* Rule Name */}
+          <div className="space-y-2">
+            <Label htmlFor="add-rule-name">Rule Name</Label>
+            <Input
+              id="add-rule-name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="e.g., Follow up after 5 days of silence"
+            />
+          </div>
+
+          {/* Trigger */}
+          <div className="space-y-2">
+            <Label>Trigger Condition</Label>
+            <Select value={trigger} onValueChange={(v) => setTrigger(v as AutoFollowUpRule['trigger'])}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="no_response">No response from lead</SelectItem>
+                <SelectItem value="stage_change">Lead stage changes</SelectItem>
+                <SelectItem value="days_since_contact">Days since last contact</SelectItem>
+                <SelectItem value="scheduled">Recurring schedule</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Trigger Value */}
+          {trigger !== 'stage_change' && (
+            <div className="space-y-2">
+              <Label htmlFor="add-trigger-value">
+                {trigger === 'no_response' ? 'Days without response' :
+                 trigger === 'days_since_contact' ? 'Days since contact' :
+                 'Interval (days)'}
+              </Label>
+              <Input
+                id="add-trigger-value"
+                type="number"
+                min={1}
+                max={90}
+                value={triggerValue}
+                onChange={(e) => setTriggerValue(parseInt(e.target.value) || 1)}
+              />
+            </div>
+          )}
+
+          {/* Action */}
+          <div className="space-y-2">
+            <Label>Action Type</Label>
+            <Select value={action} onValueChange={(v) => setAction(v as AutoFollowUpRule['action'])}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="call">Phone Call</SelectItem>
+                <SelectItem value="whatsapp">WhatsApp Message</SelectItem>
+                <SelectItem value="email">Email</SelectItem>
+                <SelectItem value="task">Task</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Message */}
+          <div className="space-y-2">
+            <Label htmlFor="add-rule-message">Reminder Message</Label>
+            <Textarea
+              id="add-rule-message"
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              placeholder="Message template for this rule..."
+              rows={3}
+            />
+            <p className="text-xs text-muted-foreground">
+              Use {'{days}'} for days count, {'{lead_name}'} for lead name
+            </p>
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => handleOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button onClick={handleAdd} disabled={!name.trim()}>
+            <Plus className="h-4 w-4 mr-2" />
+            Add Rule
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ============================================================================
 // REMINDER CARD
 // ============================================================================
 
-function ReminderCard({ reminder, onComplete, onSnooze, isCompleting, isSnoozing }: {
+function ReminderCard({ reminder, onComplete, onSnooze, onReschedule, onDismiss, isCompleting, isSnoozing }: {
   reminder: FollowUpReminder;
   onComplete: () => void;
   onSnooze: () => void;
+  onReschedule: () => void;
+  onDismiss: () => void;
   isCompleting?: boolean;
   isSnoozing?: boolean;
 }) {
@@ -258,11 +980,11 @@ function ReminderCard({ reminder, onComplete, onSnooze, isCompleting, isSnoozing
                     <ExternalLink className="h-4 w-4 mr-2" />
                     View Lead
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => toast.info('Reschedule coming soon')}>
+                  <DropdownMenuItem onClick={onReschedule}>
                     <Calendar className="h-4 w-4 mr-2" />
                     Reschedule
                   </DropdownMenuItem>
-                  <DropdownMenuItem className="text-red-600" onClick={() => toast.info('Dismiss coming soon')}>
+                  <DropdownMenuItem className="text-red-600" onClick={onDismiss}>
                     <AlertCircle className="h-4 w-4 mr-2" />
                     Dismiss
                   </DropdownMenuItem>
@@ -277,10 +999,14 @@ function ReminderCard({ reminder, onComplete, onSnooze, isCompleting, isSnoozing
 }
 
 // ============================================================================
-// RULE CARD (local config — not DB-backed yet)
+// RULE CARD (local config -- not DB-backed yet)
 // ============================================================================
 
-function RuleCard({ rule, onToggle }: { rule: AutoFollowUpRule; onToggle: () => void }) {
+function RuleCard({ rule, onToggle, onSettings }: {
+  rule: AutoFollowUpRule;
+  onToggle: () => void;
+  onSettings: () => void;
+}) {
   return (
     <Card>
       <CardContent className="p-4">
@@ -303,9 +1029,7 @@ function RuleCard({ rule, onToggle }: { rule: AutoFollowUpRule; onToggle: () => 
                 </Badge>
               </div>
               <p className="text-sm text-muted-foreground">
-                {rule.trigger === 'no_response' && `After ${rule.triggerValue} days without response`}
-                {rule.trigger === 'stage_change' && 'When lead stage changes'}
-                {rule.trigger === 'days_since_contact' && `After ${rule.triggerValue} days since last contact`}
+                {getTriggerLabel(rule.trigger, rule.triggerValue)}
               </p>
               {rule.isActive && rule.leadsAffected > 0 && (
                 <p className="text-xs text-muted-foreground mt-1">
@@ -320,7 +1044,7 @@ function RuleCard({ rule, onToggle }: { rule: AutoFollowUpRule; onToggle: () => 
               <span className="text-sm text-muted-foreground capitalize">{rule.action}</span>
             </div>
             <Switch checked={rule.isActive} onCheckedChange={onToggle} />
-            <Button variant="ghost" size="icon" onClick={() => toast.info('Rule settings coming soon')}>
+            <Button variant="ghost" size="icon" onClick={onSettings}>
               <Settings className="h-4 w-4" />
             </Button>
           </div>
@@ -372,11 +1096,20 @@ function AdmissionRemindersPageContent() {
   const [rules, setRules] = useState<AutoFollowUpRule[]>(DEFAULT_RULES);
   const [filter, setFilter] = useState<'all' | 'overdue' | 'today' | 'upcoming'>('all');
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [isAddingRule, setIsAddingRule] = useState(false);
 
   // Track which reminder IDs are in-flight for complete/snooze
   const [completingIds, setCompletingIds] = useState<Set<string>>(new Set());
   const [snoozingIds, setSnoozingIds] = useState<Set<string>>(new Set());
+
+  // Dialog states
+  const [rescheduleDialogOpen, setRescheduleDialogOpen] = useState(false);
+  const [rescheduleTarget, setRescheduleTarget] = useState<FollowUpReminder | null>(null);
+  const [dismissDialogOpen, setDismissDialogOpen] = useState(false);
+  const [dismissTarget, setDismissTarget] = useState<FollowUpReminder | null>(null);
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [ruleSettingsDialogOpen, setRuleSettingsDialogOpen] = useState(false);
+  const [ruleSettingsTarget, setRuleSettingsTarget] = useState<AutoFollowUpRule | null>(null);
+  const [addRuleDialogOpen, setAddRuleDialogOpen] = useState(false);
 
   // Classify reminders by due date
   const overdueCount = reminders.filter(r =>
@@ -442,6 +1175,33 @@ function AdmissionRemindersPageContent() {
     toast.success(rule?.isActive ? 'Rule paused' : 'Rule activated');
   };
 
+  const handleReschedule = (reminder: FollowUpReminder) => {
+    setRescheduleTarget(reminder);
+    setRescheduleDialogOpen(true);
+  };
+
+  const handleDismiss = (reminder: FollowUpReminder) => {
+    setDismissTarget(reminder);
+    setDismissDialogOpen(true);
+  };
+
+  const handleRuleSettings = (rule: AutoFollowUpRule) => {
+    setRuleSettingsTarget(rule);
+    setRuleSettingsDialogOpen(true);
+  };
+
+  const handleSaveRule = (updatedRule: AutoFollowUpRule) => {
+    setRules(prev =>
+      prev.map(r => r.id === updatedRule.id ? updatedRule : r)
+    );
+    toast.success('Rule updated');
+  };
+
+  const handleAddRule = (newRule: AutoFollowUpRule) => {
+    setRules(prev => [...prev, newRule]);
+    toast.success('Rule added');
+  };
+
   const dataLoading = accessLoading || isLoading;
 
   return (
@@ -475,9 +1235,7 @@ function AdmissionRemindersPageContent() {
                 )}
                 Refresh
               </Button>
-              <Button
-                onClick={() => toast.info('Create reminder coming soon')}
-              >
+              <Button onClick={() => setCreateDialogOpen(true)}>
                 <Bell className="h-4 w-4 mr-2" />
                 Create Reminder
               </Button>
@@ -621,6 +1379,8 @@ function AdmissionRemindersPageContent() {
                       reminder={reminder}
                       onComplete={() => handleComplete(reminder.id)}
                       onSnooze={() => handleSnooze(reminder.id)}
+                      onReschedule={() => handleReschedule(reminder)}
+                      onDismiss={() => handleDismiss(reminder)}
                       isCompleting={completingIds.has(reminder.id)}
                       isSnoozing={snoozingIds.has(reminder.id)}
                     />
@@ -638,23 +1398,8 @@ function AdmissionRemindersPageContent() {
                     Configure rules to automatically generate follow-up reminders
                   </p>
                 </div>
-                <Button
-                  onClick={async () => {
-                    setIsAddingRule(true);
-                    try {
-                      await new Promise(resolve => setTimeout(resolve, 1000));
-                      toast.info('Add rule coming soon');
-                    } finally {
-                      setIsAddingRule(false);
-                    }
-                  }}
-                  disabled={isAddingRule}
-                >
-                  {isAddingRule ? (
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  ) : (
-                    <Zap className="h-4 w-4 mr-2" />
-                  )}
+                <Button onClick={() => setAddRuleDialogOpen(true)}>
+                  <Zap className="h-4 w-4 mr-2" />
                   Add Rule
                 </Button>
               </div>
@@ -664,6 +1409,7 @@ function AdmissionRemindersPageContent() {
                     key={rule.id}
                     rule={rule}
                     onToggle={() => handleToggleRule(rule.id)}
+                    onSettings={() => handleRuleSettings(rule)}
                   />
                 ))}
               </div>
@@ -686,6 +1432,34 @@ function AdmissionRemindersPageContent() {
             </TabsContent>
           </Tabs>
         </div>
+
+        {/* Dialogs */}
+        <RescheduleDialog
+          reminder={rescheduleTarget}
+          open={rescheduleDialogOpen}
+          onOpenChange={setRescheduleDialogOpen}
+        />
+        <DismissDialog
+          reminder={dismissTarget}
+          open={dismissDialogOpen}
+          onOpenChange={setDismissDialogOpen}
+        />
+        <CreateReminderDialog
+          open={createDialogOpen}
+          onOpenChange={setCreateDialogOpen}
+          institutionId={selectedInstitutionId}
+        />
+        <RuleSettingsDialog
+          rule={ruleSettingsTarget}
+          open={ruleSettingsDialogOpen}
+          onOpenChange={setRuleSettingsDialogOpen}
+          onSave={handleSaveRule}
+        />
+        <AddRuleDialog
+          open={addRuleDialogOpen}
+          onOpenChange={setAddRuleDialogOpen}
+          onAdd={handleAddRule}
+        />
       </ContentLayout>
     </PermissionGuard>
   );

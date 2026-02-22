@@ -7,6 +7,7 @@ import type {
   HostelMaintenanceRequest,
   CreateHostelMaintenanceRequestDTO,
   MaintenanceFilters,
+  MaintenanceStatus,
 } from '@/types/campus-living';
 
 // Query key factory
@@ -86,7 +87,7 @@ export function useResolveMaintenance() {
 export function useUpdateHostelMaintenance() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, payload }: { id: string; payload: Partial<CreateHostelMaintenanceRequestDTO> }) =>
+    mutationFn: ({ id, payload }: { id: string; payload: Partial<HostelMaintenanceRequest> }) =>
       MaintenanceService.updateRequest(id, payload),
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: hostelMaintenanceKeys.all });

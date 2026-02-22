@@ -202,4 +202,97 @@ export class RemindersService {
       throw new Error('Failed to complete reminder');
     }
   }
+
+  /**
+   * Reschedule a reminder by updating next_followup_at to a new date.
+   */
+  static async rescheduleReminder(leadId: string, newDate: string): Promise<void> {
+    const supabase = createClientSupabaseClient();
+
+    const { error } = await (supabase as any)
+      .from('admission_leads')
+      .update({
+        next_followup_at: newDate,
+        last_activity_at: new Date().toISOString(),
+      })
+      .eq('id', leadId);
+
+    if (error) {
+      console.error('[admission/reminders] Error rescheduling reminder:', error);
+      throw new Error('Failed to reschedule reminder');
+    }
+  }
+
+  /**
+   * Dismiss a reminder by clearing next_followup_at
+   * without updating last_contact_at (unlike complete).
+   */
+  static async dismissReminder(leadId: string): Promise<void> {
+    const supabase = createClientSupabaseClient();
+
+    const { error } = await (supabase as any)
+      .from('admission_leads')
+      .update({
+        next_followup_at: null,
+        last_activity_at: new Date().toISOString(),
+      })
+      .eq('id', leadId);
+
+    if (error) {
+      console.error('[admission/reminders] Error dismissing reminder:', error);
+      throw new Error('Failed to dismiss reminder');
+    }
+  }
+
+  /**
+   * Create a manual reminder by setting next_followup_at on a lead.
+   */
+  static async createReminder(leadId: string, dueDate: string): Promise<void> {
+    const supabase = createClientSupabaseClient();
+
+    const { error } = await (supabase as any)
+      .from('admission_leads')
+      .update({
+        next_followup_at: dueDate,
+        last_activity_at: new Date().toISOString(),
+      })
+      .eq('id', leadId);
+
+    if (error) {
+      console.error('[admission/reminders] Error creating reminder:', error);
+      throw new Error('Failed to create reminder');
+    }
+  }
+
+  /**
+   * Search leads for creating reminders.
+   */
+  static async searchLeadsForReminder(
+    institutionId: string,
+    search: string
+  ): Promise<{ id: string; fullName: string; phone: string; stage: string }[]> {
+    const supabase = createClientSupabaseClient();
+    const sanitized = search.replace(/[%_]/g, '');
+
+    const { data, error } = await (supabase as any)
+      .from('admission_leads')
+      .select('id, full_name, phone, funnel_stage')
+      .eq('institution_id', institutionId)
+      .eq('is_active', true)
+      .or(`full_name.ilike.%${sanitized}%,phone.ilike.%${sanitized}%`)
+      .order('full_name', { ascending: true })
+      .limit(20);
+
+    if (error) {
+      console.error('[admission/reminders] Error searching leads:', error);
+      throw new Error('Failed to search leads');
+    }
+
+    return (data || []).map((lead: any) => ({
+      id: lead.id,
+      fullName: lead.full_name || 'Unknown',
+      phone: lead.phone || '',
+      stage: lead.funnel_stage || 'new',
+    }));
+  }
 }
