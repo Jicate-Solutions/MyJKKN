@@ -142,7 +142,7 @@ export class GatePassService {
       const supabase = createClientSupabaseClient();
       const { data, error } = await supabase
         .from('hostel_gate_passes')
-        .update(payload)
+        .update(payload as any)
         .eq('id', id)
         .select()
         .single();
