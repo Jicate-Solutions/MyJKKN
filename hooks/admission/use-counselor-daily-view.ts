@@ -189,3 +189,20 @@ export function useCounselorActions(institutionId?: string) {
     isAssigning: assignLeads.isPending,
   };
 }
+
+// ============================================================================
+// COUNSELOR PROFILES HOOK (sourced from user profiles, role='counselor')
+// ============================================================================
+
+/**
+ * Fetch counselors sourced from profiles (role='counselor') for a given institution.
+ * Use this for all counselor picker dropdowns — no admission_counselors management UI needed.
+ */
+export function useCounselorProfiles(institutionId: string | undefined) {
+  return useQuery({
+    queryKey: [...counselorDailyViewKeys.counselors(institutionId || ''), 'profiles'],
+    queryFn: () => CounselorDailyViewService.getCounselorProfiles(institutionId!),
+    enabled: !!institutionId,
+    staleTime: 5 * 60 * 1000, // 5-minute cache — counselor list changes infrequently
+  });
+}
