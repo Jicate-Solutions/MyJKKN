@@ -8,6 +8,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { Loader2, Mail, Lock, AlertCircle } from 'lucide-react';
 import { useRouter } from 'next/navigation';
+import toast from 'react-hot-toast';
 
 interface EmailLoginFormProps {
   returnTo?: string;
