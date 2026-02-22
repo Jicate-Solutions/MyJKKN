@@ -4,7 +4,7 @@
 // ============================================================================
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
-import type { OKRKeyResult, OKRAutoTrackSource, OKRAvailableKPI } from '@/types/okr';
+import type { OKRAutoTrackSource, OKRAvailableKPI } from '@/types/okr';
 
 export class OKRAutoTrackService {
   private static supabase = createClientSupabaseClient();
