@@ -42,11 +42,35 @@ export default async function SLAPage({ searchParams }: SLAPageProps) {
   }
 
   // Fetch SLA report
-  const slaReport = await GrievanceService.getSLAReport(
-    profile.institution_id,
-    params.dateFrom,
-    params.dateTo
-  );
+  let slaReport: any;
+  try {
+    slaReport = await GrievanceService.getSLAReport(
+      profile.institution_id,
+      params.dateFrom,
+      params.dateTo
+    );
+  } catch (error) {
+    console.error('[grievance] Error loading SLA report:', error);
+    slaReport = {
+      total_tickets: 0,
+      resolved_within_sla: 0,
+      breached: 0,
+      avg_resolution_hours: 0,
+      by_category: {},
+      by_priority: {
+        low: { total: 0, within_sla: 0, breached: 0 },
+        medium: { total: 0, within_sla: 0, breached: 0 },
+        high: { total: 0, within_sla: 0, breached: 0 },
+        urgent: { total: 0, within_sla: 0, breached: 0 },
+      },
+      by_status: {
+        open: 0, in_progress: 0, pending_info: 0,
+        resolved: 0, closed: 0, reopened: 0,
+      },
+      sla_compliance_rate: 100,
+      trend: [],
+    };
+  }
 
   return (
     <div className="space-y-6">
