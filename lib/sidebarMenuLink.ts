@@ -2180,6 +2180,15 @@ export function GetPages(pathname: string): MenuGroup[] {
           submenus: [],
           requiresHostel: true
         } as any,
+        // Parent self-service (only visible to parent role)
+        {
+          href: '/parent/child-gate-passes',
+          label: "Child's Gate Passes",
+          active: pathname.startsWith('/parent/child-gate-passes'),
+          icon: Key,
+          submenus: [],
+          requiresParent: true
+        } as any,
 
         // Admin Features
         {
