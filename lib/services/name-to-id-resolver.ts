@@ -557,8 +557,8 @@ export class NameToIdResolver {
           suggestionQuery = suggestionQuery.eq('semester_id', semesterId);
         }
 
-        const { data: allSections } = await suggestionQuery.limit(50);
-        const sectionNames = allSections?.map(s => s.section_name) || [];
+        const { data: allSections, error: sugError } = await suggestionQuery.limit(50);
+        const sectionNames = (!sugError && allSections) ? allSections.map(s => s.section_name) : [];
         const suggestions = findTopSuggestions(sectionName, sectionNames);
 
         return {
@@ -584,8 +584,8 @@ export class NameToIdResolver {
           suggestionQuery = suggestionQuery.eq('semester_id', semesterId);
         }
 
-        const { data: allSections } = await suggestionQuery.limit(50);
-        const sectionNames = allSections?.map(s => s.section_name) || [];
+        const { data: allSections, error: sugError2 } = await suggestionQuery.limit(50);
+        const sectionNames = (!sugError2 && allSections) ? allSections.map(s => s.section_name) : [];
         const suggestions = findTopSuggestions(sectionName, sectionNames);
 
         return {
