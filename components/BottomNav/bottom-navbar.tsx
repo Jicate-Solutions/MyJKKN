@@ -122,9 +122,11 @@ export function BottomNavbar() {
   const router = useRouter();
   const isMobile = useIsMobile();
   const [userRole, setUserRole] = useState<CustomRole | null>(null);
+  const [profileId, setProfileId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const hasInitialized = useRef(false);
   const hasHydrated = useBottomNavHydration();
+  const isHostelResident = useIsHostelResident(profileId);
 
   const {
     activeNavId,
@@ -147,6 +149,7 @@ export function BottomNavbar() {
         setIsLoading(true);
         const profile = await AuthService.getUserProfile();
         if (profile?.role) {
+          setProfileId(profile.id);
           const roleData = await RoleService.getRoleByKey(profile.role);
           setUserRole(roleData);
         }
@@ -161,8 +164,8 @@ export function BottomNavbar() {
 
   // Get filtered pages based on role
   const filteredPages = useMemo(() => {
-    return GetRoleBasedPages(pathname, userRole);
-  }, [pathname, userRole]);
+    return GetRoleBasedPages(pathname, userRole, { isHostelResident });
+  }, [pathname, userRole, isHostelResident]);
 
   // Transform filtered pages into bottom nav groups
   const allNavGroups = useMemo((): BottomNavGroup[] => {
