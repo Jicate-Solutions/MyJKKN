@@ -553,7 +553,8 @@ export class CounselorDailyViewService {
       .order('full_name');
 
     if (error) {
-      console.error('[counselor] Failed to fetch counselor profiles:', error);
+      // Intentionally throws (unlike getCounselors) so React Query surfaces an error state rather than silently showing an empty list.
+      console.error('[CounselorDailyViewService] Failed to fetch counselor profiles:', error);
       throw new Error('Failed to fetch counselors');
     }
 
@@ -609,7 +610,16 @@ export class CounselorDailyViewService {
       .single();
 
     if (error) {
-      console.error('[counselor] Failed to create bridge counselor record:', error);
+      // Postgres unique-violation (23505) means a concurrent call already created the record — fetch it.
+      if (error.code === '23505') {
+        const { data: raceWinner } = await (supabase as any)
+          .from('admission_counselors')
+          .select('id')
+          .eq('user_id', profileId)
+          .maybeSingle();
+        if (raceWinner?.id) return raceWinner.id;
+      }
+      console.error('[CounselorDailyViewService] Failed to create bridge counselor record:', error);
       throw new Error('Failed to create counselor');
     }
 
