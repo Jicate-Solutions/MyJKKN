@@ -380,6 +380,15 @@ export interface HostelGatePass {
   reason: string | null;
   rejected_by: string | null;
   rejection_reason: string | null;
+  cancelled_by: string | null;
+  cancellation_reason: string | null;
+  // Home visit checkpoint tracking
+  left_campus_at: string | null;
+  reached_home_at: string | null;
+  reached_home_confirmed_by: string | null;
+  left_home_at: string | null;
+  left_home_confirmed_by: string | null;
+  reached_campus_at: string | null;
   created_at: string;
   updated_at: string;
 }
