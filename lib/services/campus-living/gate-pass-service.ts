@@ -424,6 +424,46 @@ export class GatePassService {
   // PARENT WORKFLOW — View child passes, cancel, confirm checkpoints
   // ══════════════════════════════════════════════════════════════════
 
+  // ── Verify a gate pass belongs to this parent's child ───────────
+  private static async verifyParentOwnership(
+    supabase: ReturnType<typeof createClientSupabaseClient>,
+    gatePassId: string,
+    parentUserId: string
+  ) {
+    // Get the learner_id from the gate pass
+    const { data: pass, error: passError } = await supabase
+      .from('hostel_gate_passes')
+      .select('learner_id')
+      .eq('id', gatePassId)
+      .single();
+
+    if (passError || !pass) {
+      throw new Error('Gate pass not found');
+    }
+
+    // Get parent profile IDs
+    const { data: parentProfiles } = await supabase
+      .from('parent_profiles')
+      .select('id')
+      .eq('user_id', parentUserId);
+
+    if (!parentProfiles || parentProfiles.length === 0) {
+      throw new Error('Not authorized: no parent profile found');
+    }
+
+    // Check if any parent profile is linked to this learner
+    const { data: link } = await supabase
+      .from('parent_learner_links')
+      .select('id')
+      .in('parent_id', parentProfiles.map((p) => p.id))
+      .eq('learner_id', pass.learner_id)
+      .limit(1);
+
+    if (!link || link.length === 0) {
+      throw new Error('Not authorized: this gate pass does not belong to your child');
+    }
+  }
+
   // ── Parent views child's gate passes ─────────────────────────────
   static async getChildGatePasses(parentUserId: string) {
     try {
