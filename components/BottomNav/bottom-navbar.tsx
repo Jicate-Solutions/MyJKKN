@@ -25,6 +25,7 @@ import { GetRoleBasedPages } from '@/lib/sidebarMenuLink';
 import { AuthService } from '@/lib/auth/auth-service';
 import { RoleService } from '@/lib/services/roles/role-service';
 import { CustomRole } from '@/types/auth';
+import { useIsHostelResident } from '@/hooks/campus-living/use-is-hostel-resident';
 import { BottomNavItem } from './bottom-nav-item';
 import { BottomNavSubmenu } from './bottom-nav-submenu';
 import { BottomNavMoreMenu } from './bottom-nav-more-menu';
