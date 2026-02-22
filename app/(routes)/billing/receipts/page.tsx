@@ -71,7 +71,7 @@ export default async function BillingReceiptsPage({
     page: 1,
     totalPages: 0,
     total: 0,
-    pageSize: 20
+    limit: 20
   };
 
   try {
