@@ -509,6 +509,10 @@ export class GatePassService {
   static async confirmReachedHome(id: string, parentUserId: string) {
     try {
       const supabase = createClientSupabaseClient();
+
+      // Verify the pass belongs to a child of this parent
+      await this.verifyParentOwnership(supabase, id, parentUserId);
+
       const { data, error } = await supabase
         .from('hostel_gate_passes')
         .update({
