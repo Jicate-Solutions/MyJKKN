@@ -2169,6 +2169,13 @@ export function GetPages(pathname: string): MenuGroup[] {
             }
           ]
         },
+        {
+          href: '/learners/my-gate-passes',
+          label: 'My Gate Passes',
+          active: pathname.startsWith('/learners/my-gate-passes'),
+          icon: Key,
+          submenus: []
+        },
 
         // Admin Features
         {
