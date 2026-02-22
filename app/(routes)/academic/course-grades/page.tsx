@@ -236,11 +236,23 @@ export default async function CourseGradesPage({ searchParams }: PageProps) {
     redirect('/dashboard');
   }
 
-  // Fetch data
-  const [grades, filterOptions] = await Promise.all([
-    getGrades(institutionAccess.institution_id, resolvedSearchParams),
-    getFilterOptions(institutionAccess.institution_id)
-  ]);
+  // Fetch data with error handling
+  let grades: GradeData[] = [];
+  let filterOptions: Awaited<ReturnType<typeof getFilterOptions>> = {
+    programs: [],
+    semesters: [],
+    sections: [],
+    tools: []
+  };
+
+  try {
+    [grades, filterOptions] = await Promise.all([
+      getGrades(institutionAccess.institution_id, resolvedSearchParams),
+      getFilterOptions(institutionAccess.institution_id)
+    ]);
+  } catch (error) {
+    console.error('[academic/course-grades] Error fetching grades data:', error);
+  }
 
   return (
     <div className="container mx-auto py-6 space-y-6">
