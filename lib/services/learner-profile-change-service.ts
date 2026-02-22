@@ -114,7 +114,7 @@ export class LearnerProfileChangeService {
   ): Promise<ProfileChangeRequest | null> {
     const supabase = await createClient();
 
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('profile_change_requests')
       .select(`
         *,
@@ -124,6 +124,11 @@ export class LearnerProfileChangeService {
       .eq('learner_id', learnerId)
       .eq('request_status', 'pending')
       .maybeSingle();
+
+    if (error) {
+      console.error('[learners/change-requests] Error checking pending request:', error.message);
+      return null;
+    }
 
     return data;
   }
