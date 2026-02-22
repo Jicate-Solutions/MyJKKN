@@ -7,6 +7,7 @@ import type {
   HostelVisitor,
   CreateHostelVisitorDTO,
   VisitorFilters,
+  VisitorStatus,
 } from '@/types/campus-living';
 
 // Query key factory
@@ -69,7 +70,7 @@ export function useCheckOutVisitor() {
 export function useUpdateHostelVisitor() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, payload }: { id: string; payload: Partial<CreateHostelVisitorDTO> }) =>
+    mutationFn: ({ id, payload }: { id: string; payload: Partial<HostelVisitor> }) =>
       VisitorService.updateVisitor(id, payload),
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: hostelVisitorKeys.all });
