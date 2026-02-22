@@ -81,13 +81,15 @@ export class ActivityService {
     return {
       id: row.id,
       lead_id: row.lead_id,
+      institution_id: row.institution_id,
       activity_type: row.activity_type,
-      subject: row.title || null,
+      title: row.title || null,
       description: row.description || null,
+      metadata: row.metadata || null,
+      performed_by: row.performed_by || null,
+      created_at: row.created_at,
       outcome: meta.outcome || null,
       scheduled_at: meta.scheduled_at || null,
-      created_by: row.performed_by || null,
-      created_at: row.created_at,
     };
   }
 
@@ -270,13 +272,14 @@ export class ActivityService {
     const activities = activitiesResult.status === 'fulfilled' ? activitiesResult.value : [];
     const stageHistory = stageHistoryResult.status === 'fulfilled' ? stageHistoryResult.value : [];
 
-    // Transform activities to timeline entries
+    // Transform activities to timeline entries.
+    // Use stored title first (e.g. 'Follow-up Scheduled'), fall back to computed type label.
     const activityEntries: TimelineEntry[] = activities.map((activity) => ({
       id: activity.id,
       type: 'activity' as const,
       timestamp: activity.created_at,
-      title: this.getActivityTitle(activity.activity_type),
-      description: activity.title || activity.description,
+      title: activity.title || this.getActivityTitle(activity.activity_type),
+      description: activity.description,
       metadata: {
         activity_type: activity.activity_type,
         outcome: activity.outcome,
@@ -348,7 +351,7 @@ export class ActivityService {
       sms: 'SMS Sent',
       whatsapp: 'WhatsApp Message',
       stage_change: 'Stage Changed',
-      task: 'Task Completed',
+      task: 'Task',
     };
     return titles[type] || type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
   }
