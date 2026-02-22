@@ -79,8 +79,10 @@ const STAGE_FILTER_OPTIONS = [
 ];
 
 function CounselorViewPageContent() {
-  const { selectedInstitutionId } = useUserInstitutionAccess();
-  const institutionId = selectedInstitutionId;
+  const { institutions, selectedInstitutionId } = useUserInstitutionAccess();
+  const [chosenInstitutionId, setChosenInstitutionId] = useState<string>('');
+  // Use explicitly chosen institution, or fall back to the user's primary institution
+  const institutionId = chosenInstitutionId || selectedInstitutionId;
 
   const [selectedCounselorUserId, setSelectedCounselorUserId] = useState<string>('');
   const [stageFilter, setStageFilter] = useState('all');
@@ -275,6 +277,33 @@ function CounselorViewPageContent() {
               Clear
             </Button>
           )}
+        </div>
+      )}
+
+      {/* Institution picker — only shown when user has access to multiple institutions */}
+      {institutions.length > 1 && (
+        <div className="flex items-center gap-2 p-3 bg-muted/30 rounded-lg border">
+          <Filter className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+          <span className="text-xs text-muted-foreground font-medium whitespace-nowrap">Institution:</span>
+          <Select
+            value={chosenInstitutionId || selectedInstitutionId || ''}
+            onValueChange={(val) => {
+              setChosenInstitutionId(val);
+              // Reset counselor selection when switching institution
+              setSelectedCounselorUserId('');
+            }}
+          >
+            <SelectTrigger className="h-8 w-[280px] text-xs">
+              <SelectValue placeholder="Select institution" />
+            </SelectTrigger>
+            <SelectContent>
+              {institutions.map((inst) => (
+                <SelectItem key={inst.institution_id} value={inst.institution_id} className="text-xs">
+                  {inst.institution_name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       )}
 

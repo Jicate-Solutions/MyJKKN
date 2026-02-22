@@ -13,6 +13,13 @@ import {
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { useAuth } from '@/hooks/use-auth';
 import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
@@ -33,7 +40,8 @@ import {
   Star,
   ArrowRight,
   RefreshCw,
-  Loader2
+  Loader2,
+  Building2,
 } from 'lucide-react';
 import Link from 'next/link';
 import { toast } from 'sonner';
@@ -243,8 +251,10 @@ function HotLeadsList({
 
 function AdmissionDashboardPageContent() {
   const { profile } = useAuth();
-  const { selectedInstitutionId, loading: accessLoading } = useUserInstitutionAccess();
-  const institutionId = selectedInstitutionId;
+  const { institutions, selectedInstitutionId, loading: accessLoading } = useUserInstitutionAccess();
+  const [chosenInstitutionId, setChosenInstitutionId] = useState<string>('');
+  // Use explicitly chosen institution, or fall back to the user's primary institution
+  const institutionId = chosenInstitutionId || selectedInstitutionId;
   const [isRefetching, setIsRefetching] = useState(false);
   const [showBriefingPopup, setShowBriefingPopup] = useState(false);
 
@@ -313,6 +323,29 @@ function AdmissionDashboardPageContent() {
               </Button>
             </div>
           </div>
+
+          {/* Institution picker — only shown when user has access to multiple institutions */}
+          {institutions.length > 1 && (
+            <div className="flex items-center gap-2 p-3 bg-muted/30 rounded-lg border">
+              <Building2 className="h-4 w-4 text-muted-foreground shrink-0" />
+              <span className="text-xs text-muted-foreground font-medium whitespace-nowrap">Institution:</span>
+              <Select
+                value={chosenInstitutionId || selectedInstitutionId || ''}
+                onValueChange={(val) => setChosenInstitutionId(val)}
+              >
+                <SelectTrigger className="h-8 w-[280px] text-xs">
+                  <SelectValue placeholder="Select institution" />
+                </SelectTrigger>
+                <SelectContent>
+                  {institutions.map((inst) => (
+                    <SelectItem key={inst.institution_id} value={inst.institution_id} className="text-xs">
+                      {inst.institution_name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
 
           {/* Daily Briefing Banner */}
           <BriefingNotificationBanner
