@@ -46,6 +46,9 @@ export const createConsultantSchema = z.object({
   // Notes
   notes: optionalString,
 
+  // Profile photo (URL stored after upload to consultant-documents bucket)
+  profile_photo_url: optionalString,
+
   // Arrays
   geographic_coverage: z.array(z.string()).default([]),
   specializations: z.array(z.string()).default([]),
@@ -93,7 +96,10 @@ export const consultantSchema = z.object({
 
   // Notes
   notes: optionalString,
-  tags: z.array(z.string()).default([])
+  tags: z.array(z.string()).default([]),
+
+  // Profile photo
+  profile_photo_url: optionalString
 });
 
 export type ConsultantFormData = z.infer<typeof consultantSchema>;

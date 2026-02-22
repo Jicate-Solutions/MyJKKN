@@ -297,17 +297,14 @@ export class ConsultantService {
   }
 
   /**
-   * Delete consultant (soft delete by setting status to inactive)
+   * Hard delete consultant row
    */
   static async deleteConsultant(id: string): Promise<void> {
     const supabase = createClientSupabaseClient();
 
     const { error } = await (supabase as any)
       .from('education_consultants')
-      .update({
-        status: 'inactive',
-        updated_at: new Date().toISOString(),
-      } as any)
+      .delete()
       .eq('id', id);
 
     if (error) {
@@ -1877,15 +1874,16 @@ export class ConsultantService {
    * Get dashboard stats for admin
    */
   static async getDashboardStats(
-    institutionId: string
+    institutionId: string | undefined
   ): Promise<ConsultantDashboardStats> {
     const supabase = createClientSupabaseClient();
 
     // Get consultant counts by status and tier
-    const { data: consultants } = await (supabase as any)
+    let consultantsQuery = (supabase as any)
       .from('education_consultants')
-      .select('id, status, tier, consultant_type, total_leads_referred, total_conversions')
-      .eq('institution_id', institutionId);
+      .select('id, status, tier, consultant_type, total_leads_referred, total_conversions');
+    if (institutionId) consultantsQuery = consultantsQuery.eq('institution_id', institutionId);
+    const { data: consultants } = await consultantsQuery;
 
     const activeConsultants = consultants?.filter((c) => c.status === 'active') || [];
 
@@ -1901,10 +1899,11 @@ export class ConsultantService {
     });
 
     // Get commission totals
-    const { data: commissionData } = await (supabase as any)
+    let commissionQuery = (supabase as any)
       .from('consultant_commission_transactions')
-      .select('status, net_amount')
-      .eq('institution_id', institutionId) as { data: Array<{ status: string; net_amount: number }> | null };
+      .select('status, net_amount');
+    if (institutionId) commissionQuery = commissionQuery.eq('institution_id', institutionId);
+    const { data: commissionData } = await commissionQuery as { data: Array<{ status: string; net_amount: number }> | null };
 
     let totalPaid = 0;
     let pendingCommission = 0;
@@ -1926,12 +1925,13 @@ export class ConsultantService {
     startOfMonth.setDate(1);
     startOfMonth.setHours(0, 0, 0, 0);
 
-    const { data: thisMonthTransactions } = await (supabase as any)
+    let thisMonthQuery = (supabase as any)
       .from('consultant_commission_transactions')
       .select('net_amount')
-      .eq('institution_id', institutionId)
       .eq('status', 'paid')
       .gte('paid_at', startOfMonth.toISOString());
+    if (institutionId) thisMonthQuery = thisMonthQuery.eq('institution_id', institutionId);
+    const { data: thisMonthTransactions } = await thisMonthQuery;
 
     const commissionPaidThisMonth =
       thisMonthTransactions?.reduce((sum, t) => sum + (t.net_amount || 0), 0) || 0;

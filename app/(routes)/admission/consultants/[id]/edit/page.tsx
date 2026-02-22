@@ -1,7 +1,7 @@
 'use client';
 
 import { useParams, useRouter } from 'next/navigation';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb,
@@ -25,7 +25,9 @@ import {
 import { Skeleton } from '@/components/ui/skeleton';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { useAuth } from '@/hooks/use-auth';
-import { Loader2, Save, ArrowLeft, Handshake, Building, User, Wallet, XCircle, Globe, Calendar } from 'lucide-react';
+import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { Loader2, Save, ArrowLeft, Handshake, Building, Building2, User, Wallet, XCircle, Globe, Calendar, Camera } from 'lucide-react';
 import Link from 'next/link';
 import { toast } from 'sonner';
 import { ConsultantService } from '@/lib/services/admission/consultant-service';
@@ -94,6 +96,9 @@ function EditConsultantForm() {
   const queryClient = useQueryClient();
   const consultantId = params.id as string;
   const { profile } = useAuth();
+  const { institutions } = useUserInstitutionAccess();
+  const [profilePhotoPreview, setProfilePhotoPreview] = useState<string | null>(null);
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
 
   // UUID validation for Next.js PPR compatibility
   const isValidId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(consultantId);
@@ -132,7 +137,8 @@ function EditConsultantForm() {
       contract_end_date: '',
       notes: '',
       tier: 'bronze',
-      relationship_score: 50
+      relationship_score: 50,
+      profile_photo_url: ''
     }
   });
 
@@ -168,10 +174,55 @@ function EditConsultantForm() {
         // DB column is internal_notes, form field is notes
         notes: c.internal_notes || '',
         tier: c.tier || 'bronze',
-        relationship_score: c.relationship_score || 50
+        relationship_score: c.relationship_score || 50,
+        profile_photo_url: c.profile_photo_url || ''
       });
+      // Pre-populate photo preview from saved URL
+      if (c.profile_photo_url) setProfilePhotoPreview(c.profile_photo_url);
     }
   }, [consultant, form]);
+
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      toast.error('Only JPG, PNG, and WebP images are allowed');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error('Image must be smaller than 5MB');
+      return;
+    }
+
+    setProfilePhotoPreview(URL.createObjectURL(file));
+    setIsUploadingPhoto(true);
+    try {
+      const supabase = createClientSupabaseClient();
+      const ext = file.name.split('.').pop()?.toLowerCase() || 'jpg';
+      const filePath = `consultant-profiles/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('consultant-documents')
+        .upload(filePath, file, { cacheControl: '3600', upsert: false });
+      if (uploadError) throw uploadError;
+
+      const { data: signedData, error: signedError } = await supabase.storage
+        .from('consultant-documents')
+        .createSignedUrl(filePath, 60 * 60 * 24 * 365 * 10); // 10 years
+      if (signedError || !signedData) throw signedError || new Error('Failed to generate URL');
+
+      form.setValue('profile_photo_url', signedData.signedUrl);
+      toast.success('Photo uploaded');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to upload photo');
+      setProfilePhotoPreview((consultant as any)?.profile_photo_url || null);
+      form.setValue('profile_photo_url', (consultant as any)?.profile_photo_url || '');
+    } finally {
+      setIsUploadingPhoto(false);
+      e.target.value = '';
+    }
+  };
 
   const updateMutation = useMutation({
     mutationFn: (data: UpdateConsultantInput) =>
@@ -265,6 +316,52 @@ function EditConsultantForm() {
                 <CardDescription>Basic contact details of the consultant</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
+                {/* Profile Photo Upload */}
+                <div className="flex flex-col items-center gap-2 pb-4 border-b">
+                  <div className="relative group">
+                    <div className="h-24 w-24 rounded-full overflow-hidden border-2 border-border bg-muted flex items-center justify-center">
+                      {profilePhotoPreview ? (
+                        <img src={profilePhotoPreview} alt="Profile" className="h-full w-full object-cover" />
+                      ) : (
+                        <User className="h-10 w-10 text-muted-foreground" />
+                      )}
+                    </div>
+                    <label
+                      htmlFor="edit-profile-photo"
+                      className="absolute inset-0 flex items-center justify-center bg-black/40 rounded-full opacity-0 group-hover:opacity-100 cursor-pointer transition-opacity"
+                    >
+                      {isUploadingPhoto
+                        ? <Loader2 className="h-6 w-6 text-white animate-spin" />
+                        : <Camera className="h-6 w-6 text-white" />}
+                    </label>
+                    <input
+                      id="edit-profile-photo"
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp"
+                      className="hidden"
+                      onChange={handlePhotoUpload}
+                      disabled={isUploadingPhoto}
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {isUploadingPhoto ? 'Uploading…' : 'Click to change profile photo (JPG, PNG, WebP · max 5 MB)'}
+                  </p>
+                </div>
+
+                {/* Read-only institution display — institution cannot be changed after creation */}
+                {consultant && (
+                  <div className="flex items-center gap-2 p-3 bg-muted/30 rounded-lg border">
+                    <Building2 className="h-4 w-4 text-muted-foreground shrink-0" />
+                    <span className="text-xs text-muted-foreground font-medium">Institution:</span>
+                    <span className="text-sm font-medium">
+                      {institutions.find(i => i.institution_id === (consultant as any)?.institution_id)?.institution_name
+                        ?? (consultant as any)?.institution_id
+                        ?? '—'}
+                    </span>
+                    <span className="text-xs text-muted-foreground ml-auto">(cannot be changed after creation)</span>
+                  </div>
+                )}
+
                 <div className="grid gap-4 md:grid-cols-2">
                   <FormField
                     control={form.control}
@@ -786,7 +883,7 @@ export default function EditConsultantPage() {
             </BreadcrumbItem>
           </BreadcrumbList>
         </Breadcrumb>
-        <div className="mt-6 max-w-4xl">
+        <div className="mt-6">
           <div className="flex items-center gap-3 mb-6">
             <div className="p-2 bg-primary/10 rounded-lg">
               <Handshake className="h-6 w-6 text-primary" />

@@ -32,7 +32,7 @@ import {
   TableRow
 } from '@/components/ui/table';
 import { PermissionGuard } from '@/components/auth/permission-guard';
-import { useAuth } from '@/hooks/use-auth';
+import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
 import {
   Handshake,
   UserPlus,
@@ -159,8 +159,10 @@ function ConsultantsPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
-  const { profile, isLoading: accessLoading } = useAuth();
-  const institutionId = profile?.institution_id;
+  const { institutions, selectedInstitutionId, loading: accessLoading } = useUserInstitutionAccess();
+  // Single-institution users filter to their institution.
+  // Multi-institution / super_admin users get undefined → no filter → see all consultants.
+  const institutionId = institutions.length === 1 ? selectedInstitutionId : undefined;
 
   const [searchTerm, setSearchTerm] = useState(searchParams.get('search') || '');
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -178,17 +180,17 @@ function ConsultantsPageContent() {
   };
 
   // Fetch consultants
-  const { data, isLoading, error, refetch } = useQuery({
+  const { data, isLoading, isFetching, error } = useQuery({
     queryKey: ['consultants', filters],
     queryFn: () => ConsultantService.getConsultants(filters),
-    enabled: !!institutionId
+    enabled: !accessLoading
   });
 
   // Fetch summary stats
   const { data: summaryStats } = useQuery({
     queryKey: ['consultants-summary', institutionId],
-    queryFn: () => ConsultantService.getDashboardStats(institutionId!),
-    enabled: !!institutionId
+    queryFn: () => ConsultantService.getDashboardStats(institutionId),
+    enabled: !accessLoading
   });
 
   // Delete mutation
@@ -196,9 +198,9 @@ function ConsultantsPageContent() {
     mutationFn: (id: string) => ConsultantService.deleteConsultant(id),
     onSuccess: () => {
       toast.success('Consultant deleted successfully');
-      queryClient.invalidateQueries({ queryKey: ['consultants'] });
-      queryClient.invalidateQueries({ queryKey: ['consultants-summary'] });
       setDeleteId(null);
+      queryClient.refetchQueries({ queryKey: ['consultants'] });
+      queryClient.refetchQueries({ queryKey: ['consultants-summary'] });
     },
     onError: (err: Error) => {
       toast.error(err.message || 'Failed to delete consultant');
@@ -236,13 +238,14 @@ function ConsultantsPageContent() {
 
   const hasFilters = searchParams.get('search') || searchParams.get('status') || searchParams.get('type');
 
-  // Show skeleton only while auth is loading
-  if (accessLoading) {
+  // Show skeleton while institutions are loading, consultants are fetching, or data hasn't arrived yet
+  // (the !data guard covers the one-render gap when enabled flips false→true before fetch starts)
+  if (accessLoading || isLoading || !data) {
     return <ConsultantsTableSkeleton />;
   }
 
-  // Show error if no institution assigned
-  if (!institutionId) {
+  // Show error only after everything has loaded but user has no institution access at all
+  if (institutions.length === 0) {
     return (
       <div className="text-center py-12">
         <Handshake className="h-12 w-12 mx-auto text-muted-foreground/50 mb-4" />
@@ -384,8 +387,16 @@ function ConsultantsPageContent() {
                 Clear
               </Button>
             )}
-            <Button variant="ghost" size="icon" onClick={() => refetch()}>
-              <RefreshCw className="h-4 w-4" />
+            <Button
+              variant="ghost"
+              size="icon"
+              disabled={isFetching}
+              onClick={() => {
+                queryClient.refetchQueries({ queryKey: ['consultants'] });
+                queryClient.refetchQueries({ queryKey: ['consultants-summary'] });
+              }}
+            >
+              <RefreshCw className={`h-4 w-4 ${isFetching ? 'animate-spin' : ''}`} />
             </Button>
           </div>
         </CardContent>
