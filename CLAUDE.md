@@ -51,6 +51,46 @@ supabase/migrations/       — DB migration files
 
 ---
 
+## Super Admin Access Rule (CRITICAL — applies to ALL modules)
+
+> **super_admin always has FULL ACCESS** to every module, page, and query — regardless of institution_id.
+
+### Frontend Pattern
+Never scope queries to `profile.institution_id` for super admins. Always check `isSuperAdmin` first:
+
+```typescript
+const { isSuperAdmin } = usePermissions();
+
+// ✅ Correct — super_admin sees all data, others scoped to their institution
+const institutionId = isSuperAdmin ? undefined : profile?.institution_id;
+
+// ❌ Wrong — super_admin silently gets 0 results if their institution differs
+const institutionId = profile?.institution_id;
+```
+
+### Hook `enabled` Guards
+Never gate a query on `!!institutionId` alone — super_admin context may not have an institution_id but must still fire:
+
+```typescript
+// ✅ Correct
+enabled: isSuperAdmin || !!institutionId
+
+// ❌ Wrong — blocks super_admin when institutionId is undefined
+enabled: !!institutionId
+```
+
+### DB RLS Pattern
+Every table's RLS policy must include a super_admin bypass:
+
+```sql
+USING (
+  institution_id = auth_institution_id()
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+)
+```
+
+---
+
 ## RLS / Security Architecture (CRITICAL)
 
 ### Golden Rule: `user_institution_access` is BILLING-ONLY
