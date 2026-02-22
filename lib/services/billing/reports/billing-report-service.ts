@@ -667,7 +667,11 @@ export class BillingReportService {
       query = query.lte('created_at', dateTo);
     }
 
-    const { data } = await query;
+    const { data, error } = await query;
+    if (error) {
+      console.error('[billing/reports] Error in getTotalBilled:', error.message);
+      throw error;
+    }
     return data?.reduce((sum, bill: any) => sum + (bill.final_amount || 0), 0) || 0;
   }
 
