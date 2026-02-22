@@ -26,6 +26,9 @@ import {
   XCircle,
   AlertTriangle,
   MapPin,
+  Home,
+  ArrowRight,
+  Building2,
 } from 'lucide-react';
 
 const statusConfig: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' | 'success'; icon: typeof Clock }> = {
