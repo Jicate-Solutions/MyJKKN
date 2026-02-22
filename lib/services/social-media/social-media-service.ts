@@ -265,12 +265,14 @@ export class SocialMediaService {
     });
 
     // Latest snapshots for follower totals and engagement
-    const { data: latestSnapshots } = await this.supabase
+    const { data: latestSnapshots, error: snapError } = await this.supabase
       .from('sm_snapshots')
       .select('*')
       .eq('institution_id', institutionId)
       .order('snapshot_date', { ascending: false })
       .limit(100);
+
+    if (snapError) throw new Error(`Failed to fetch snapshots: ${snapError.message}`);
 
     const snapshots: SmSnapshot[] = latestSnapshots || [];
 
