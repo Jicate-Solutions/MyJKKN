@@ -160,14 +160,28 @@ export class OKRAutoTrackService {
 
         'learners.attendance_rate': async () => {
           const { data } = await (this.supabase as any)
-            .from('daily_attendance')
-            .select('is_present')
-            .gte('date', this.getDateRangeStart(config))
-            .lte('date', this.getDateRangeEnd(config));
+            .from('student_attendance')
+            .select('attendance_data')
+            .gte('attendance_date', this.getDateRangeStart(config))
+            .lte('attendance_date', this.getDateRangeEnd(config));
 
           if (!data || data.length === 0) return 0;
-          const presentCount = data.filter((d: any) => d.is_present).length;
-          return data.length > 0 ? Math.round((presentCount / data.length) * 100) : 0;
+          // attendance_data is a JSON object mapping student IDs to their status
+          let totalEntries = 0;
+          let presentEntries = 0;
+          for (const record of data) {
+            const entries = record.attendance_data;
+            if (entries && typeof entries === 'object') {
+              for (const studentId of Object.keys(entries as Record<string, any>)) {
+                const entry = (entries as Record<string, any>)[studentId];
+                totalEntries++;
+                if (entry === 'present' || entry?.status === 'present' || entry === true) {
+                  presentEntries++;
+                }
+              }
+            }
+          }
+          return totalEntries > 0 ? Math.round((presentEntries / totalEntries) * 100) : 0;
         },
 
         'learners.enrollment_count': async () => {
