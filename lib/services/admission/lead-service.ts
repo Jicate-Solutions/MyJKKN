@@ -574,11 +574,12 @@ export class LeadService {
   /**
    * Assign counselor to lead
    */
-  static async assignCounselor(leadId: string, counselorId: string): Promise<AdmissionLead> {
+  static async assignCounselor(leadId: string, counselorId: string, profileId?: string): Promise<AdmissionLead> {
     const { data, error } = await (this.supabase as any).from('admission_leads')
       .update({
         counselor_id: counselorId,
-        assigned_counselor_id: counselorId,
+        // assigned_counselor_id references profiles(id) — use profileId when provided
+        ...(profileId ? { assigned_counselor_id: profileId } : {}),
         assigned_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       })

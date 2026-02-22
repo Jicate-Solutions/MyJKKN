@@ -373,7 +373,7 @@ function NewLeadPageContent() {
             selectedCounselorProfileId,
             institutionId || undefined
           );
-          await LeadService.assignCounselor(lead.id, counselorId);
+          await LeadService.assignCounselor(lead.id, counselorId, selectedCounselorProfileId);
         } catch (e) {
           console.warn('[leads/new] Could not assign counselor (best-effort):', e);
         }

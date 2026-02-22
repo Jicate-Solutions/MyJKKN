@@ -676,7 +676,7 @@ function LeadDetailPageContent() {
       return;
     }
     assignCounselor.mutate(
-      { leadId, counselorId },
+      { leadId, counselorId, profileId: selectedCounselorId },
       {
         onSuccess: () => {
           setSelectedCounselorId('');

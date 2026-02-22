@@ -551,8 +551,8 @@ export function useLeadMutations() {
   });
 
   const assignCounselor = useMutation({
-    mutationFn: async ({ leadId, counselorId }: { leadId: string; counselorId: string }) => {
-      return LeadService.assignCounselor(leadId, counselorId);
+    mutationFn: async ({ leadId, counselorId, profileId }: { leadId: string; counselorId: string; profileId?: string }) => {
+      return LeadService.assignCounselor(leadId, counselorId, profileId);
     },
     onSuccess: () => {
       toast.success('Counselor assigned');
