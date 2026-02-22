@@ -105,6 +105,9 @@ import {
   // Campus Living Icons
   Hotel,
   UtensilsCrossed,
+  // Admission CRM extra icons
+  Radio,
+  GitMerge,
 } from 'lucide-react';
 import { CustomRole } from '@/types/auth';
 import { FEATURE_FLAGS } from '@/lib/config/feature-flags';
@@ -389,6 +392,20 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admission/status': 'admission.status.view',
   '/admission/workflow-config': 'admission.settings.view',
   '/admission/group-dashboard': 'admission.dashboard.view',
+  '/admission/calls': 'admission.calls.view',
+  '/admission/campaigns': 'admission.campaigns.view',
+  '/admission/campaigns/monitoring': 'admission.campaigns.view',
+  '/admission/campaigns/roi': 'admission.campaigns.view',
+  '/admission/chat': 'admission.chat.view',
+  '/admission/chat/settings': 'admission.chat.view',
+  '/admission/chatbot/analytics': 'admission.chatbot.view',
+  '/admission/chatbot/knowledge': 'admission.chatbot.view',
+  '/admission/remarketing': 'admission.remarketing.view',
+  '/admission/voice-agents': 'admission.voice_agents.view',
+  '/admission/voice-broadcast': 'admission.voice_broadcast.view',
+  '/admission/briefing': 'admission.briefing.view',
+  '/admission/alerts': 'admission.alerts.view',
+  '/admission/insights': 'admission.insights.view',
 
   // Consultant Portal (EC Self-Service)
   '/consultant-portal': 'consultant_portal.view',
@@ -798,6 +815,82 @@ export function GetPages(pathname: string): MenuGroup[] {
               label: 'Assignment Rules',
               active: pathname === '/admission/assignment-rules'
             }
+          ]
+        },
+        {
+          href: '/admission/counselors',
+          label: 'Counselors & Teams',
+          active: pathname.startsWith('/admission/counselors') || pathname === '/admission/calls' || pathname === '/admission/briefing' || pathname === '/admission/reminders' || pathname === '/admission/alerts',
+          icon: UserCheck,
+          submenus: [
+            { href: '/admission/counselors', label: 'Counselors', active: pathname.startsWith('/admission/counselors') },
+            { href: '/admission/calls', label: 'Calls', active: pathname === '/admission/calls' },
+            { href: '/admission/briefing', label: 'Briefing', active: pathname === '/admission/briefing' },
+            { href: '/admission/reminders', label: 'Reminders', active: pathname === '/admission/reminders' },
+            { href: '/admission/alerts', label: 'Alerts', active: pathname === '/admission/alerts' }
+          ]
+        },
+        {
+          href: '/admission/campaigns',
+          label: 'Marketing & Engagement',
+          active: pathname.startsWith('/admission/campaigns') || pathname.startsWith('/admission/chat') || pathname.startsWith('/admission/chatbot') || pathname === '/admission/voice-agents' || pathname === '/admission/voice-broadcast' || pathname === '/admission/remarketing' || pathname === '/admission/re-engagement' || pathname === '/admission/publishers' || pathname === '/admission/parent-communication',
+          icon: Megaphone,
+          submenus: [
+            { href: '/admission/campaigns', label: 'Campaigns', active: pathname.startsWith('/admission/campaigns') },
+            { href: '/admission/chat', label: 'Live Chat', active: pathname.startsWith('/admission/chat') },
+            { href: '/admission/chatbot', label: 'Chatbot', active: pathname.startsWith('/admission/chatbot') },
+            { href: '/admission/voice-agents', label: 'Voice Agents', active: pathname === '/admission/voice-agents' },
+            { href: '/admission/voice-broadcast', label: 'Voice Broadcast', active: pathname === '/admission/voice-broadcast' },
+            { href: '/admission/remarketing', label: 'Remarketing', active: pathname === '/admission/remarketing' },
+            { href: '/admission/re-engagement', label: 'Re-engagement', active: pathname === '/admission/re-engagement' },
+            { href: '/admission/publishers', label: 'Publishers', active: pathname === '/admission/publishers' },
+            { href: '/admission/parent-communication', label: 'Parent Communication', active: pathname === '/admission/parent-communication' }
+          ]
+        },
+        {
+          href: '/admission/screening-exam',
+          label: 'Selection Process',
+          active: pathname === '/admission/screening-exam' || pathname === '/admission/merit-list' || pathname === '/admission/lateral-entry',
+          icon: ClipboardList,
+          submenus: [
+            { href: '/admission/screening-exam', label: 'Screening Exam', active: pathname === '/admission/screening-exam' },
+            { href: '/admission/merit-list', label: 'Merit List', active: pathname === '/admission/merit-list' },
+            { href: '/admission/lateral-entry', label: 'Lateral Entry', active: pathname === '/admission/lateral-entry' }
+          ]
+        },
+        {
+          href: '/admission/seat-confirmation',
+          label: 'Admissions Operations',
+          active: pathname === '/admission/seat-confirmation' || pathname === '/admission/offer-letter' || pathname === '/admission/documents' || pathname === '/admission/hostels' || pathname === '/admission/feedback' || pathname === '/admission/apply',
+          icon: CheckSquare,
+          submenus: [
+            { href: '/admission/seat-confirmation', label: 'Seat Confirmation', active: pathname === '/admission/seat-confirmation' },
+            { href: '/admission/offer-letter', label: 'Offer Letter', active: pathname === '/admission/offer-letter' },
+            { href: '/admission/documents', label: 'Documents', active: pathname === '/admission/documents' },
+            { href: '/admission/hostels', label: 'Hostels', active: pathname === '/admission/hostels' },
+            { href: '/admission/feedback', label: 'Feedback', active: pathname === '/admission/feedback' },
+            { href: '/admission/apply', label: 'Apply Online', active: pathname === '/admission/apply' }
+          ]
+        },
+        {
+          href: '/admission/insights',
+          label: 'Insights & Status',
+          active: pathname === '/admission/insights' || pathname === '/admission/status',
+          icon: Lightbulb,
+          submenus: [
+            { href: '/admission/insights', label: 'Insights', active: pathname === '/admission/insights' },
+            { href: '/admission/status', label: 'Pipeline Status', active: pathname === '/admission/status' }
+          ]
+        },
+        {
+          href: '/admission/data-profiling',
+          label: 'Data Quality',
+          active: pathname === '/admission/data-profiling' || pathname === '/admission/deduplication' || pathname === '/admission/phone-validation',
+          icon: Database,
+          submenus: [
+            { href: '/admission/data-profiling', label: 'Data Profiling', active: pathname === '/admission/data-profiling' },
+            { href: '/admission/deduplication', label: 'Deduplication', active: pathname === '/admission/deduplication' },
+            { href: '/admission/phone-validation', label: 'Phone Validation', active: pathname === '/admission/phone-validation' }
           ]
         }
       ]

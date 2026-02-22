@@ -355,7 +355,7 @@ export class TelephonyService {
       .from('admission_call_logs')
       .select(
         `*,
-        counselor:profiles!admission_call_logs_counselor_id_fkey(id, full_name, email, phone),
+        counselor:profiles!admission_call_logs_counselor_id_fkey(id, full_name, email, phone_number),
         lead:admission_leads!admission_call_logs_lead_id_fkey(id, full_name, phone, funnel_stage)`,
         { count: 'exact' }
       )
@@ -404,7 +404,7 @@ export class TelephonyService {
     const logs: CallLog[] = (data || []).map((row: any) => ({
       ...row,
       counselor: row.counselor
-        ? { id: row.counselor.id, name: row.counselor.full_name, email: row.counselor.email, phone: row.counselor.phone }
+        ? { id: row.counselor.id, name: row.counselor.full_name, email: row.counselor.email, phone: row.counselor.phone_number }
         : undefined,
       lead: row.lead
         ? { id: row.lead.id, full_name: row.lead.full_name, phone: row.lead.phone, funnel_stage: row.lead.funnel_stage }
