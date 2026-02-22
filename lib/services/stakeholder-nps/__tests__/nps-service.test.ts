@@ -91,6 +91,7 @@ vi.mock('@/lib/supabase/client', () => ({
 
 // Import AFTER mocking
 import { NPSService } from '../nps-service';
+import { sanitizeSearch } from '@/lib/config/pagination';
 
 let mockFromChain: ReturnType<typeof createChainableMock>;
 let mockRpcResult: { data: any; error: any } = { data: null, error: null };
@@ -214,39 +215,39 @@ describe('NPSService', () => {
 
   describe('sanitizeSearch (Security)', () => {
     it('should return empty string for null/undefined input', () => {
-      // Access private method through any type casting
-      const result = (NPSService as any).sanitizeSearch('');
+      const result = sanitizeSearch('');
       expect(result).toBe('');
     });
 
     it('should escape SQL ILIKE wildcard %', () => {
-      const result = (NPSService as any).sanitizeSearch('test%injection');
+      const result = sanitizeSearch('test%injection');
       expect(result).toBe('test\\%injection');
     });
 
     it('should escape SQL single-character wildcard _', () => {
-      const result = (NPSService as any).sanitizeSearch('test_injection');
+      const result = sanitizeSearch('test_injection');
       expect(result).toBe('test\\_injection');
     });
 
     it('should escape backslash to prevent escape sequence injection', () => {
-      const result = (NPSService as any).sanitizeSearch('test\\injection');
+      const result = sanitizeSearch('test\\injection');
       expect(result).toBe('test\\\\injection');
     });
 
     it('should handle multiple special characters', () => {
-      const result = (NPSService as any).sanitizeSearch('test%_\\evil');
+      const result = sanitizeSearch('test%_\\evil');
       expect(result).toBe('test\\%\\_\\\\evil');
     });
 
     it('should preserve normal text without escaping', () => {
-      const result = (NPSService as any).sanitizeSearch('normal search query');
+      const result = sanitizeSearch('normal search query');
       expect(result).toBe('normal search query');
     });
 
     it('should handle XSS attempts by escaping wildcards', () => {
-      const result = (NPSService as any).sanitizeSearch('%<script>alert(1)</script>%');
-      expect(result).toBe('\\%<script>alert(1)</script>\\%');
+      const result = sanitizeSearch('%<script>alert(1)</script>%');
+      // sanitizeSearch also escapes parentheses ( and ) along with % _ \ , '
+      expect(result).toBe('\\%<script>alert\\(1\\)</script>\\%');
     });
   });
 

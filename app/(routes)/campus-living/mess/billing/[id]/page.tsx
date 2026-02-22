@@ -24,7 +24,6 @@ import {
 } from '@/components/ui/table';
 import { ArrowLeft, Download, Search, Send, Loader2 } from 'lucide-react';
 import { useState } from 'react';
-import { useAuth } from '@/hooks/use-auth';
 import { useMessBillingPeriod, useMessStudentBilling } from '@/hooks/campus-living/use-mess-billing';
 
 interface BillingDetailPageProps {
@@ -36,10 +35,8 @@ export default function BillingDetailPage({ params }: BillingDetailPageProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
 
-  const { profile } = useAuth();
-  const institutionId = profile?.institution_id || '';
   const { data: billingData, isLoading: billingLoading } = useMessBillingPeriod(id);
-  const { data: studentData, isLoading: studentsLoading } = useMessStudentBilling(institutionId, { billing_period_id: id });
+  const { data: studentData, isLoading: studentsLoading } = useMessStudentBilling(id);
 
   const isLoading = billingLoading || studentsLoading;
 

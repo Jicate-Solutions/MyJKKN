@@ -73,11 +73,11 @@ export async function getDashboardData(
     }
   });
 
-  // Calculate overall
+  // Calculate overall — use Math.floor to match DB function (FLOOR) and service layer
   const overallScores = assessments?.map((a) => a.overall_stage) || [1];
-  const institutionOverall = Math.round(
+  const institutionOverall = Math.max(1, Math.min(4, Math.floor(
     overallScores.reduce((a, b) => a + b, 0) / overallScores.length
-  ) as MaturityStage;
+  ))) as MaturityStage;
 
   // Trend
   const trend =

@@ -1017,10 +1017,10 @@ describe('Maturity Assessment Service', () => {
 
         const stages = departmentAssessments.map((a) => a.overall_stage);
         const average = stages.reduce((a, b) => a + b, 0) / stages.length;
-        const institutionStage = Math.round(average) as MaturityStage;
+        const institutionStage = Math.floor(average) as MaturityStage;
 
-        // (2+3+2+3)/4 = 2.5 -> rounds to 3
-        expect(institutionStage).toBe(3);
+        // (2+3+2+3)/4 = 2.5 -> floors to 2 (matches DB FLOOR function)
+        expect(institutionStage).toBe(2);
       });
 
       it('should handle institution-wide assessment (no department)', () => {

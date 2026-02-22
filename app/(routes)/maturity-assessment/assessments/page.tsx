@@ -160,7 +160,6 @@ export default function MaturityAssessmentsPage() {
               {assessments.map((assessment) => {
                 const deptName =
                   (assessment as any).department?.department_name ||
-                  (assessment as any).department?.name ||
                   null;
                 const statusInfo = statusColors[assessment.status] || statusColors.draft;
 

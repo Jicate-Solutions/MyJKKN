@@ -128,7 +128,7 @@ export function DashboardCards({ data }: DashboardCardsProps) {
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
             {MATURITY_DIMENSIONS.map((dimension) => {
               const score = data.by_dimension[dimension] || 1;
-              const roundedScore = Math.round(score) as MaturityStage;
+              const roundedScore = Math.max(1, Math.min(4, Math.floor(score))) as MaturityStage;
 
               return (
                 <div
