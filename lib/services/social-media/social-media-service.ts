@@ -8,7 +8,6 @@ import { sanitizeSearch } from '@/lib/config/pagination';
 import type {
   SmAccount,
   SmSnapshot,
-  SmPostMetric,
   SmManualEntry,
   SmAccountFilters,
   SmSnapshotFilters,
