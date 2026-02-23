@@ -974,16 +974,133 @@ Week 10: Polish & Handoff
 
 Ship with these frameworks pre-configured (seeded in migration):
 
-### NAAC 2022 Revised (7 Criteria)
-| Criteria | Name | Weight | Key Metrics |
-|----------|------|--------|-------------|
-| I | Curricular Aspects | 150 | Programs with CBCS, new programs, value-added courses |
-| II | Teaching-Learning & Evaluation | 200 | Student-faculty ratio, learning outcomes, pass % |
-| III | Research, Innovations & Extension | 150 | Publications, funded projects, MOUs, extension activities |
-| IV | Infrastructure & Learning Resources | 100 | Classrooms, labs, library, IT infra |
-| V | Student Support & Progression | 100 | Scholarships, placement, alumni, grievance, governance |
-| VI | Governance, Leadership & Management | 100 | Strategic plan, decentralization, IQAC, finance |
-| VII | Institutional Values & Best Practices | 100 | Gender equity, environment, innovations, best practices |
+### NAAC 2022 Revised — Full Metric-Level Breakdown (7 Criteria, 56 Metrics)
+
+> **Source:** `NAACManual.txt` — NAAC Quality Indicator Framework (QIF) for Autonomous Colleges
+> **Scoring:** Each criterion has QlM (Qualitative — narrative + evidence) and QnM (Quantitative — data-driven) metrics
+> **Grading:** Individual metric scores → Key Indicator GPA → Criterion GPA → Overall CGPA (1.00–4.00) → Grade (A++/A+/A/B++/B+/B/C)
+> **DVV:** All QnM metrics undergo Data Validation & Verification by NAAC before peer team visit
+> **Note:** Weights shown are from the NAAC QIF Manual. Autonomous, Affiliated, and University variants share identical metric codes but have different criterion-level weights. The engine stores per-institution-type weights in `regulatory_metrics.weight`.
+
+#### Criterion Summary
+
+| Criteria | Name | Weight | KIs | Metrics | QlM | QnM |
+|----------|------|--------|-----|---------|-----|-----|
+| I | Curricular Aspects | 150 | 4 | 6 | 2 | 4 |
+| II | Teaching-Learning & Evaluation | 350 | 7 | 11 | 4 | 7 |
+| III | Research, Innovations & Extension | 110 | 5 | 9 | 3 | 6 |
+| IV | Infrastructure & Learning Resources | 100 | 4 | 6 | 3 | 3 |
+| V | Student Support & Progression | 140 | 4 | 9 | 1 | 8 |
+| VI | Governance, Leadership & Management | 100 | 5 | 9 | 4 | 5 |
+| VII | Institutional Values & Best Practices | 100 | 3 | 6 | 4 | 2 |
+| **TOTAL** | | **1050** | **32** | **56** | **21** | **35** |
+
+#### Criterion I — Curricular Aspects (150 marks)
+
+| Metric | KI | Type | Weight | Description | Data Source (MyJKKN) |
+|--------|-----|------|--------|-------------|---------------------|
+| 1.1.1 | 1.1 Curricular Planning (70) | QlM | 70 | Curriculum design & development process | Manual entry (qualitative) |
+| 1.2.1 | 1.2 Academic Flexibility (30) | QnM | 15 | Number of Add-on/Certificate/Value-added + MOOC programs (5 years) | DC-05: `vac_courses`, DC-29: `online_education_tracking` |
+| 1.2.2 | 1.2 | QnM | 15 | % students enrolled in Certificate/Add-on/MOOC programs (5 years) | DC-05: `vac_enrollments`, DC-29 |
+| 1.3.1 | 1.3 Curriculum Enrichment (30) | QlM | 20 | Crosscutting issues: ethics, gender, environment, sustainability | Manual entry (qualitative) |
+| 1.3.2 | 1.3 | QnM | 10 | % students in project work/field work/internships | DC-01: `learners_profiles`, `industry_projects` |
+| 1.4.1 | 1.4 Feedback System (20) | QnM | 20 | Stakeholder feedback: collected, analysed, action taken, published (A-E scale) | DC-11: `nps_surveys`, `nps_responses` |
+
+#### Criterion II — Teaching-Learning & Evaluation (350 marks)
+
+| Metric | KI | Type | Weight | Description | Data Source (MyJKKN) |
+|--------|-----|------|--------|-------------|---------------------|
+| 2.1.1 | 2.1 Student Enrolment (40) | QnM | 20 | Enrolment % (admitted vs sanctioned seats, 5 years) | DC-01: `learners_profiles`, DC-05: `admissions` |
+| 2.1.2 | 2.1 | QnM | 20 | % seats filled against reserved categories (SC/ST/OBC, 5 years) | DC-01: `learners_profiles` (community field), DC-09 |
+| 2.2.1 | 2.2 Student-Teacher Ratio (40) | QnM | 40 | Student : Full-time teacher ratio (latest year) | DC-01 + DC-02: `staff` |
+| 2.3.1 | 2.3 Teaching-Learning Process (40) | QlM | 40 | Student-centric methods: experiential, participative, ICT-enabled | Manual entry (qualitative) |
+| 2.4.1 | 2.4 Teacher Profile & Quality (40) | QnM | 20 | % full-time teachers against sanctioned posts (5 years) | DC-02: `staff` |
+| 2.4.2 | 2.4 | QnM | 20 | % full-time teachers with NET/SET/PhD/D.Sc./D.Litt. (5 years) | DC-16: `staff_qualifications` (NEW) |
+| 2.5.1 | 2.5 Evaluation Process (40) | QlM | 40 | Transparent internal/external assessment & grievance redressal | Manual entry (qualitative) |
+| 2.6.1 | 2.6 Student Performance (90) | QlM | 25 | Programme Outcomes (POs) & Course Outcomes (COs) stated, displayed, evaluated | DC-10: `competency_catalog`, `course_competency_mapping` |
+| 2.6.2 | 2.6 | QlM | 20 | Attainment of POs and COs evaluated with evidence | DC-10 |
+| 2.6.3 | 2.6 | QnM | 45 | Pass % of students (5-year data) | DC-17: `exam_results` (NEW) |
+| 2.7.1 | 2.7 Student Satisfaction Survey (60) | QnM | 60 | Online student satisfaction survey (NAAC-conducted) | DC-11: `nps_surveys` (partial) + external NAAC survey |
+
+#### Criterion III — Research, Innovations & Extension (110 marks)
+
+| Metric | KI | Type | Weight | Description | Data Source (MyJKKN) |
+|--------|-----|------|--------|-------------|---------------------|
+| 3.1.1 | 3.1 Resource Mobilization (10) | QnM | 10 | Research grants from govt/non-govt agencies (INR Lakhs, 5 years) | DC-18: `research_projects` (NEW) |
+| 3.2.1 | 3.2 Innovation Ecosystem (15) | QlM | 10 | Innovation ecosystem: patents filed, incubation centres, knowledge transfer | DC-19: `patents_ipr` (NEW) + Manual |
+| 3.2.2 | 3.2 | QnM | 5 | Workshops/seminars on Research Methodology, IPR, entrepreneurship (5 years) | DC-13: `facilitator_development` |
+| 3.3.1 | 3.3 Research Publications (25) | QnM | 10 | Research papers per teacher in UGC CARE-listed journals (5 years) | DC-03: `sh_publications` ✅ |
+| 3.3.2 | 3.3 | QnM | 15 | Books/chapters/conference proceedings published per teacher (5 years) | DC-03: `sh_publications` ✅ |
+| 3.4.1 | 3.4 Extension Activities (40) | QlM | 15 | Extension activities in neighbourhood community for holistic development | Manual entry (qualitative) |
+| 3.4.2 | 3.4 | QlM | 5 | Awards/recognitions for extension from government bodies | Manual entry (qualitative) |
+| 3.4.3 | 3.4 | QnM | 20 | Extension/outreach programs via NSS/NCC/industry/NGO collaboration (5 years) | DC-25: `student_activities`, `institutional_events` |
+| 3.5.1 | 3.5 Collaboration (20) | QnM | 20 | MoUs/collaborations for exchange, internship, research, training (5 years) | DC-07: `industry_partners` ✅, DC-36: `collaboration_exchanges` |
+
+#### Criterion IV — Infrastructure & Learning Resources (100 marks)
+
+| Metric | KI | Type | Weight | Description | Data Source (MyJKKN) |
+|--------|-----|------|--------|-------------|---------------------|
+| 4.1.1 | 4.1 Physical Facilities (30) | QlM | 20 | Adequacy of classrooms, labs, ICT, sports, yoga, gymnasium | DC-20: `resources` (partial) + Manual |
+| 4.1.2 | 4.1 | QnM | 10 | % expenditure on infrastructure augmentation excluding salary (5 years) | DC-21: `institutional_budgets` (NEW) |
+| 4.2.1 | 4.2 Library (20) | QlM | 20 | Library automation (ILMS), e-resources, OER, book/journal purchases | DC-28: `library_holdings` (NEW) + Manual |
+| 4.3.1 | 4.3 IT Infrastructure (30) | QlM | 20 | IT facilities, update frequency, internet bandwidth | DC-28: `ict_infrastructure` (NEW) + Manual |
+| 4.3.2 | 4.3 | QnM | 10 | Student : Computer ratio (latest year) | DC-28: `ict_infrastructure` (NEW) |
+| 4.4.1 | 4.4 Campus Maintenance (20) | QnM | 20 | % expenditure on infrastructure maintenance excluding salary (5 years) | DC-21: `institutional_budgets` (NEW) |
+
+#### Criterion V — Student Support & Progression (140 marks)
+
+| Metric | KI | Type | Weight | Description | Data Source (MyJKKN) |
+|--------|-----|------|--------|-------------|---------------------|
+| 5.1.1 | 5.1 Student Support (50) | QnM | 20 | % students with scholarships/freeships from govt/non-govt (5 years) | DC-09: `scholarships` ✅ |
+| 5.1.2 | 5.1 | QnM | 10 | Capacity building: soft skills, language, life skills, ICT/computing (A-E) | DC-05: `vac_courses` (skill programs) |
+| 5.1.3 | 5.1 | QnM | 10 | % students benefitted by competitive exam guidance & career counseling | DC-04: `career_services` (NEW) |
+| 5.1.4 | 5.1 | QnM | 10 | Grievance redressal: sexual harassment, ragging mechanisms (A-E) | DC-14: `grievance_tickets` ✅, DC-15: `anti_ragging_affidavits` ✅ |
+| 5.2.1 | 5.2 Student Progression (35) | QnM | 25 | % outgoing students placed or progressing to higher education (5 years) | DC-04: `alumni_outcomes` ✅ |
+| 5.2.2 | 5.2 | QnM | 10 | % students qualifying in JAM/CLAT/GATE/GMAT/CAT/GRE/Civil Services | DC-17: `exam_results` (NEW — qualifying exams) |
+| 5.3.1 | 5.3 Student Activities (45) | QnM | 20 | Awards/medals for sports/cultural at university/state/national/international | DC-25: `student_activities`, `awards_recognitions` |
+| 5.3.2 | 5.3 | QnM | 25 | Average sports/cultural programs with student participation (5 years) | DC-25: `student_activities` |
+| 5.4.1 | 5.4 Alumni Engagement (10) | QlM | 10 | Registered Alumni Association contributions (financial/other) | DC-04: `alumni_outcomes` (partial) + Manual |
+
+#### Criterion VI — Governance, Leadership & Management (100 marks)
+
+| Metric | KI | Type | Weight | Description | Data Source (MyJKKN) |
+|--------|-----|------|--------|-------------|---------------------|
+| 6.1.1 | 6.1 Vision & Leadership (15) | QlM | 15 | Governance aligned with vision/mission, decentralization, participation | DC-08: `okr_objectives` (partial) + Manual |
+| 6.2.1 | 6.2 Strategy Development (12) | QlM | 8 | Effective institutional bodies, policies, strategic/perspective plan | Manual entry (qualitative) |
+| 6.2.2 | 6.2 | QnM | 4 | e-Governance: Admin, Finance, Admissions, Exams (A-E scale) | MyJKKN itself is evidence ✅ |
+| 6.3.1 | 6.3 Faculty Empowerment (33) | QlM | 6 | Welfare measures & performance appraisal system | DC-02: `staff` (welfare) + Manual |
+| 6.3.2 | 6.3 | QnM | 12 | % teachers with financial support for conferences/professional memberships | DC-13: `facilitator_development` ✅ |
+| 6.3.3 | 6.3 | QnM | 15 | % teaching & non-teaching staff in FDPs/professional development (5 years) | DC-13: `facilitator_development` ✅ |
+| 6.4.1 | 6.4 Financial Management (10) | QlM | 10 | Resource mobilization strategies, regular financial audits (internal/external) | DC-33: `financial_audits` (NEW) + Manual |
+| 6.5.1 | 6.5 IQAS (30) | QlM | 15 | IQAC contribution to quality strategies, reviews, incremental improvement | `iqac_meetings` (NEW) + Manual |
+| 6.5.2 | 6.5 | QnM | 15 | Quality initiatives: IQAC meetings, NIRF participation, NBA/other accreditation | `iqac_meetings` (NEW) |
+
+#### Criterion VII — Institutional Values & Best Practices (100 marks)
+
+| Metric | KI | Type | Weight | Description | Data Source (MyJKKN) |
+|--------|-----|------|--------|-------------|---------------------|
+| 7.1.1 | 7.1 Values & Social Responsibility (50) | QlM | 10 | Gender equity promotion, national/international day celebrations | Manual entry (qualitative) |
+| 7.1.2 | 7.1 | QnM | 20 | Environmental: alternate energy, waste management, water conservation, green campus, disabled-friendly (A-E) | DC-32: `environmental_initiatives` (NEW) |
+| 7.1.3 | 7.1 | QnM | 10 | Quality audits: green audit, energy audit, clean campus, sustainability (A-E) | DC-32: `environmental_initiatives` (NEW) |
+| 7.1.4 | 7.1 | QlM | 10 | Inclusivity, tolerance, harmony, constitutional obligations, human values | Manual entry (qualitative) |
+| 7.2.1 | 7.2 Best Practices (30) | QlM | 30 | Two best practices in NAAC prescribed format (7-section structure) | Manual entry (qualitative) |
+| 7.3.1 | 7.3 Institutional Distinctiveness (20) | QlM | 20 | Distinctive performance in one priority area (1000 words) | Manual entry (qualitative) |
+
+#### NAAC 2022 Coverage Estimate (from MyJKKN)
+
+```
+QnM metrics auto-calculable:     ~20/35 = 57%  (remaining need new tables or external data)
+QlM metrics with partial data:    ~8/21  = 38%  (rest purely qualitative)
+Overall data coverage:            ~28/56 = 50%  (existing tables + partial coverage)
+After all new tables built:       ~35/56 = 63%  (remaining 21 are qualitative narratives)
+```
+
+**Key data gaps for NAAC 2022 submission:**
+- `exam_results` table needed for 2.6.3 (Pass %, 45 marks) and 5.2.2 (qualifying exams, 10 marks)
+- `staff_qualifications` table needed for 2.4.2 (PhD %, 20 marks)
+- `research_projects` table needed for 3.1.1 (grants, 10 marks)
+- `institutional_budgets` table needed for 4.1.2, 4.4.1 (infrastructure spending, 30 marks)
+- Student Satisfaction Survey (2.7.1, 60 marks) — conducted by NAAC, not institution-generated
 
 ### NIRF 2025 Overall (5 Parameters — from Official NIRF 2025 Methodology PDF)
 
