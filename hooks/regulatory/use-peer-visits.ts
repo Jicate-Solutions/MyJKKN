@@ -115,7 +115,7 @@ export function useUpdatePeerVisit() {
       }
     },
     onError: (error: Error) => {
-      toast.error(error.message || 'Failed to update peer visit')
+      toast.error(friendlyErrorMessage(error, 'Failed to update peer visit'))
     }
   })
 }
