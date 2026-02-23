@@ -401,7 +401,10 @@ export default function SubmissionsPage() {
                     {/* Main Row */}
                     <div
                       className="flex items-center justify-between cursor-pointer"
+                      role="button"
+                      tabIndex={0}
                       onClick={() => setExpandedSubmission(isExpanded ? null : sub.id)}
+                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpandedSubmission(isExpanded ? null : sub.id) } }}
                     >
                       <div className="flex items-center gap-4 min-w-0 flex-1">
                         <div className="p-2.5 rounded-lg bg-blue-50 shrink-0">
