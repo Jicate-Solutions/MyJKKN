@@ -10,10 +10,10 @@ const DEFAULT_CONFIG = {
   show_lc_events: true,
   show_lc_announcements: true,
   show_lc_polls: true,
-  event_scope_filter: [],
-  max_events_shown: 5,
+  event_scope_filter: ['campus', 'institution_wide'],
+  max_events_shown: 10,
   max_announcements_shown: 5,
-  max_polls_shown: 5,
+  max_polls_shown: 3,
 }
 
 export class CommunityService {
