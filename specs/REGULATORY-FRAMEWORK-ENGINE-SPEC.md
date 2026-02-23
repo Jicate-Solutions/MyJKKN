@@ -616,7 +616,7 @@ Each connector defines: **Source Module → Source Table(s) → Key Columns → 
 
 **Phase 1 Success (Week 4):**
 - [ ] Framework definition CRUD working — NAAC 2022 and NIRF 2025 configured
-- [ ] 36 data connectors producing metric values from existing tables
+- [ ] 15 data connectors producing metric values from existing tables (DC-01 through DC-15); remaining 21 defined and ready for new tables
 - [ ] Metric dashboard showing auto-populated vs manual-needed breakdown
 
 **Phase 2 Success (Week 7):**
