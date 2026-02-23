@@ -7,9 +7,10 @@ import { createClientSupabaseClient } from '@/lib/supabase/client'
 
 export interface RegulatoryFrameworkFilters {
   institution_id?: string
-  body_name?: string
+  body?: string        // DDL column: "body" (e.g., NAAC, NIRF, NBA)
   status?: string
-  version_year?: number
+  version?: string     // DDL column: "version" (e.g., "2022-rev", "2025")
+  framework_type?: string  // accreditation | ranking | compliance | reporting
   search?: string
   page?: number
   limit?: number
@@ -62,6 +63,11 @@ export class RegulatoryFrameworkService {
 
   /**
    * Get all frameworks with filters and pagination
+   *
+   * DDL columns: id, institution_id, name, body, framework_type, institution_type,
+   *   version, effective_from, effective_to, year_type, status, total_max_score,
+   *   description, submission_portal_url, submission_deadline, code, metadata,
+   *   created_by, created_at, updated_at
    */
   static async getFrameworks(filters: RegulatoryFrameworkFilters = {}) {
     try {
@@ -73,22 +79,25 @@ export class RegulatoryFrameworkService {
         .from('regulatory_frameworks')
         .select('*', { count: 'exact' })
 
-      // Apply filters
+      // Apply filters -- super_admin passes no institution_id to see all
       if (filters.institution_id) {
         query = query.eq('institution_id', filters.institution_id)
       }
-      if (filters.body_name) {
-        query = query.eq('body_name', filters.body_name)
+      if (filters.body) {
+        query = query.eq('body', filters.body)
       }
       if (filters.status) {
         query = query.eq('status', filters.status)
       }
-      if (filters.version_year) {
-        query = query.eq('version_year', filters.version_year)
+      if (filters.version) {
+        query = query.eq('version', filters.version)
+      }
+      if (filters.framework_type) {
+        query = query.eq('framework_type', filters.framework_type)
       }
       if (filters.search) {
         query = query.or(
-          `body_name.ilike.%${filters.search}%,description.ilike.%${filters.search}%`
+          `name.ilike.%${filters.search}%,body.ilike.%${filters.search}%,description.ilike.%${filters.search}%`
         )
       }
 
@@ -224,6 +233,9 @@ export class RegulatoryFrameworkService {
 
   /**
    * Get framework completeness: % of metrics that have values populated
+   *
+   * NOTE: regulatory_metric_values does NOT have a framework_id column.
+   * We must join through criteria -> metrics -> metric_values.
    */
   static async getFrameworkCompleteness(
     frameworkId: string,
@@ -236,7 +248,7 @@ export class RegulatoryFrameworkService {
         this.validateId(institutionId, 'institution ID')
       }
 
-      // Get all metrics for this framework
+      // Get all criteria for this framework
       const { data: criteria, error: criteriaError } = await (this.getSupabase() as any)
         .from('regulatory_criteria')
         .select('id')
@@ -249,23 +261,26 @@ export class RegulatoryFrameworkService {
         return { total_metrics: 0, populated_metrics: 0, completeness_percent: 0 }
       }
 
-      // Count total metrics
-      const { count: totalMetrics, error: totalError } = await (this.getSupabase() as any)
+      // Get all metric IDs for these criteria
+      const { data: metrics, error: metricsError } = await (this.getSupabase() as any)
         .from('regulatory_metrics')
-        .select('id', { count: 'exact', head: true })
+        .select('id')
         .in('criteria_id', criteriaIds)
 
-      if (totalError) throw totalError
+      if (metricsError) throw metricsError
 
-      if (!totalMetrics || totalMetrics === 0) {
+      const metricIds = (metrics || []).map((m: any) => m.id)
+      const totalMetrics = metricIds.length
+
+      if (totalMetrics === 0) {
         return { total_metrics: 0, populated_metrics: 0, completeness_percent: 0 }
       }
 
-      // Count metrics that have values
+      // Count metrics that have values (metric_values has metric_id, institution_id, academic_year)
       let valuesQuery = (this.getSupabase() as any)
         .from('regulatory_metric_values')
         .select('metric_id', { count: 'exact', head: true })
-        .eq('framework_id', frameworkId)
+        .in('metric_id', metricIds)
 
       if (institutionId) {
         valuesQuery = valuesQuery.eq('institution_id', institutionId)
