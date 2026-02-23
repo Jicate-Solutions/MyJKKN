@@ -7,6 +7,7 @@ import {
   useQueryClient,
   UseQueryResult
 } from '@tanstack/react-query'
+import { useMemo } from 'react'
 import {
   RegulatoryGovernanceService,
   type GoverningBodyFilters,
