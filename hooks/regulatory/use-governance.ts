@@ -210,8 +210,8 @@ export function useGoverningMeetings(
         const supabase = createClientSupabaseClient()
 
         let query = (supabase as any)
-          .from('regulatory_meetings')
-          .select('*, body:regulatory_governing_bodies(id, name)')
+          .from('regulatory_body_meetings')
+          .select('*, body:regulatory_governing_bodies(id, name, body_type)')
 
         if (institutionId) {
           query = query.eq('institution_id', institutionId)
