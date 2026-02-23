@@ -266,7 +266,7 @@ export function useStartSubmission() {
       queryClient.invalidateQueries({ queryKey: submissionKeys.all })
     },
     onError: (error: Error) => {
-      toast.error(error.message || 'Failed to start submission')
+      toast.error(friendlyErrorMessage(error, 'Failed to start submission'))
     }
   })
 }
