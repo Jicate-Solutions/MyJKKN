@@ -182,8 +182,12 @@ export class RegulatoryEvidenceService {
   }
 
   /**
-   * Search evidence using text matching on file_name and description.
-   * (DDL does not have search_vector/pg_trgm on evidence, so we use ilike.)
+   * Search evidence using full-text search via the search_vector tsvector column.
+   * Falls back to ilike if the FTS query fails (e.g., malformed input).
+   *
+   * DDL: search_vector tsvector GENERATED ALWAYS AS (
+   *   to_tsvector('english', coalesce(file_name, '') || ' ' || coalesce(description, '') || ' ' || coalesce(evidence_type, ''))
+   * ) STORED;
    */
   static async searchEvidence(
     searchTerm: string,
@@ -200,6 +204,9 @@ export class RegulatoryEvidenceService {
         return []
       }
 
+      // Try full-text search first using the search_vector column
+      const tsQuery = searchTerm.trim().split(/\s+/).join(' & ')
+
       let query = (this.getSupabase() as any)
         .from('regulatory_evidence')
         .select(`
@@ -207,9 +214,7 @@ export class RegulatoryEvidenceService {
           uploaded_by_profile:profiles!uploaded_by(id, full_name, email)
         `)
         .eq('is_deleted', false)
-        .or(
-          `file_name.ilike.%${searchTerm}%,description.ilike.%${searchTerm}%`
-        )
+        .textSearch('search_vector', tsQuery, { type: 'plain', config: 'english' })
 
       if (institutionId) {
         query = query.eq('institution_id', institutionId)
@@ -224,13 +229,55 @@ export class RegulatoryEvidenceService {
 
       const { data, error } = await query
 
-      if (error) throw error
+      // If FTS fails (e.g., bad tsquery syntax), fall back to ilike
+      if (error) {
+        console.warn('[RegulatoryEvidenceService] FTS failed, falling back to ilike:', this.formatError(error))
+        return this.searchEvidenceFallback(searchTerm, institutionId, academicYear, limit)
+      }
 
       return data || []
     } catch (error) {
       console.error('[RegulatoryEvidenceService] Error searching evidence:', this.formatError(error))
       throw error
     }
+  }
+
+  /**
+   * Fallback search using ilike (when full-text search is unavailable or fails)
+   */
+  private static async searchEvidenceFallback(
+    searchTerm: string,
+    institutionId?: string,
+    academicYear?: string,
+    limit: number = 20
+  ) {
+    let query = (this.getSupabase() as any)
+      .from('regulatory_evidence')
+      .select(`
+        *,
+        uploaded_by_profile:profiles!uploaded_by(id, full_name, email)
+      `)
+      .eq('is_deleted', false)
+      .or(
+        `file_name.ilike.%${searchTerm}%,description.ilike.%${searchTerm}%`
+      )
+
+    if (institutionId) {
+      query = query.eq('institution_id', institutionId)
+    }
+    if (academicYear) {
+      query = query.eq('academic_year', academicYear)
+    }
+
+    query = query
+      .limit(limit)
+      .order('created_at', { ascending: false })
+
+    const { data, error } = await query
+
+    if (error) throw error
+
+    return data || []
   }
 
   /**
