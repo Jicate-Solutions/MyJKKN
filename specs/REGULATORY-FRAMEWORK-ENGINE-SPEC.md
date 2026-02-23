@@ -952,10 +952,10 @@ CREATE POLICY "value_history_insert" ON regulatory_metric_value_history FOR INSE
 CREATE INDEX idx_reg_criteria_framework ON regulatory_criteria(framework_id);
 CREATE INDEX idx_reg_criteria_parent ON regulatory_criteria(parent_criteria_id);
 CREATE INDEX idx_reg_metrics_criteria ON regulatory_metrics(criteria_id);
-CREATE INDEX idx_reg_metric_values_lookup ON regulatory_metric_values(metric_id, institution_id, academic_year);
+-- NOTE: metric_values UNIQUE(metric_id, institution_id, academic_year) already creates an implicit index
 CREATE INDEX idx_reg_metric_values_inst_year ON regulatory_metric_values(institution_id, academic_year);
 CREATE INDEX idx_reg_evidence_metric ON regulatory_evidence(metric_id, institution_id, academic_year);
-CREATE INDEX idx_reg_submissions_lookup ON regulatory_submissions(framework_id, institution_id, academic_year);
+-- NOTE: submissions UNIQUE(framework_id, institution_id, academic_year) already creates an implicit index
 CREATE INDEX idx_reg_simulations_framework ON regulatory_simulations(framework_id, institution_id);
 ```
 
