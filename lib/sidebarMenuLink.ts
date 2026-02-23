@@ -108,6 +108,9 @@ import {
   WashingMachine,
   HeartPulse,
   ClipboardPlus,
+  SprayCan,
+  Stethoscope,
+  LayoutDashboard,
   // Admission CRM extra icons
   Radio,
   GitMerge,
