@@ -795,6 +795,12 @@ CREATE INDEX idx_reg_metric_values_inst_year ON regulatory_metric_values(institu
 -- metric_value_history: index on FK for fast history lookups + RLS policy subquery
 CREATE INDEX idx_reg_value_history_metric_value ON regulatory_metric_value_history(metric_value_id);
 CREATE INDEX idx_reg_evidence_metric ON regulatory_evidence(metric_id, institution_id, academic_year);
+-- FIX: Missing indexes for common evidence queries (getEvidence filters on institution_id + is_deleted + academic_year)
+CREATE INDEX idx_reg_evidence_inst_deleted ON regulatory_evidence(institution_id, is_deleted, academic_year);
+-- FIX: Missing index on criteria_id FK (evidence can be linked to a criteria, service filters on criteria_id)
+CREATE INDEX idx_reg_evidence_criteria ON regulatory_evidence(criteria_id) WHERE criteria_id IS NOT NULL;
+-- FIX: Missing index on submission_id FK (service filters on submission_id)
+CREATE INDEX idx_reg_evidence_submission ON regulatory_evidence(submission_id) WHERE submission_id IS NOT NULL;
 -- NOTE: submissions UNIQUE(framework_id, institution_id, academic_year) already creates an implicit index
 CREATE INDEX idx_reg_simulations_framework ON regulatory_simulations(framework_id, institution_id);
 -- NOTE: evidence_versions UNIQUE(evidence_id, version_number) already creates an implicit index
