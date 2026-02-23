@@ -5,6 +5,16 @@
 
 import { createClientSupabaseClient } from '@/lib/supabase/client'
 
+/**
+ * DDL: regulatory_simulations columns:
+ *   id, framework_id, institution_id, name (NOT NULL),
+ *   base_academic_year (NOT NULL), overrides (jsonb NOT NULL DEFAULT '{}'),
+ *   calculated_score, score_delta, rank_estimate,
+ *   created_by, created_at
+ *
+ * NOTE: No updated_at -- simulations are append-only (no UPDATE or DELETE policies).
+ */
+
 export interface SimulationFilters {
   framework_id?: string
   institution_id?: string
@@ -15,10 +25,9 @@ export interface SimulationFilters {
 export interface CreateSimulationData {
   framework_id: string
   institution_id: string
-  academic_year: string
-  title: string
-  description?: string | null
-  overrides: SimulationOverride[]
+  base_academic_year: string
+  name: string
+  overrides: Record<string, any>  // {metric_code: new_value, ...}
 }
 
 export interface SimulationOverride {
@@ -88,7 +97,7 @@ export class RegulatorySimulationService {
         .from('regulatory_simulations')
         .select(`
           *,
-          framework:regulatory_frameworks(id, body_name, version_year),
+          framework:regulatory_frameworks(id, name, body, version),
           created_by_profile:profiles!created_by(id, full_name, email)
         `, { count: 'exact' })
 
@@ -131,14 +140,13 @@ export class RegulatorySimulationService {
    * 1. Fetches current metric values
    * 2. Applies overrides to calculate simulated score
    * 3. Stores the simulation with both original and simulated scores
+   *
+   * NOTE: metric_values has NO framework_id -- resolve via criteria -> metrics.
    */
   static async createSimulation(data: CreateSimulationData) {
     try {
       this.validateId(data.framework_id, 'framework ID')
       this.validateId(data.institution_id, 'institution ID')
-      for (const override of data.overrides) {
-        this.validateId(override.metric_id, 'override metric ID')
-      }
 
       // Get current user
       const { data: { user } } = await this.getSupabase().auth.getUser()
@@ -147,86 +155,109 @@ export class RegulatorySimulationService {
       // Get all criteria for the framework
       const { data: criteria, error: criteriaError } = await (this.getSupabase() as any)
         .from('regulatory_criteria')
-        .select('id')
+        .select('id, max_score')
         .eq('framework_id', data.framework_id)
 
       if (criteriaError) throw criteriaError
 
       const criteriaIds = (criteria || []).map((c: any) => c.id)
 
-      // Get all metrics with weights
+      // Get all metrics
       let metrics: any[] = []
       if (criteriaIds.length > 0) {
         const { data: metricsData, error: metricsError } = await (this.getSupabase() as any)
           .from('regulatory_metrics')
-          .select('id, weight, max_score')
+          .select('id, criteria_id, code')
           .in('criteria_id', criteriaIds)
 
         if (metricsError) throw metricsError
         metrics = metricsData || []
       }
 
-      // Get current metric values
-      const { data: currentValues, error: valuesError } = await (this.getSupabase() as any)
-        .from('regulatory_metric_values')
-        .select('metric_id, numeric_value')
-        .eq('framework_id', data.framework_id)
-        .eq('institution_id', data.institution_id)
-        .eq('academic_year', data.academic_year)
+      const metricIds = metrics.map((m: any) => m.id)
 
-      if (valuesError) throw valuesError
+      // Get current metric values (no framework_id on metric_values!)
+      let currentValues: any[] = []
+      if (metricIds.length > 0) {
+        const { data: valuesData, error: valuesError } = await (this.getSupabase() as any)
+          .from('regulatory_metric_values')
+          .select('metric_id, numeric_value')
+          .in('metric_id', metricIds)
+          .eq('institution_id', data.institution_id)
+          .eq('academic_year', data.base_academic_year)
+
+        if (valuesError) throw valuesError
+        currentValues = valuesData || []
+      }
 
       // Build value maps
       const currentValueMap = new Map<string, number>()
-      for (const v of (currentValues || [])) {
+      for (const v of currentValues) {
         if (v.numeric_value !== null) {
           currentValueMap.set(v.metric_id, v.numeric_value)
         }
       }
 
-      // Build override map
-      const overrideMap = new Map<string, number>()
-      for (const override of data.overrides) {
-        overrideMap.set(override.metric_id, override.simulated_value)
+      // Build code-to-id map for overrides that use metric codes
+      const codeToIdMap = new Map<string, string>()
+      for (const m of metrics) {
+        codeToIdMap.set(m.code, m.id)
       }
 
-      // Calculate original score and simulated score
+      // Parse overrides -- could be keyed by metric_code or metric_id
+      const overrideMap = new Map<string, number>()
+      if (data.overrides && typeof data.overrides === 'object') {
+        for (const [key, value] of Object.entries(data.overrides)) {
+          const numValue = typeof value === 'number' ? value : parseFloat(String(value))
+          if (!isNaN(numValue)) {
+            // Check if key is a UUID (metric_id) or a code
+            const metricId = this.isValidUUID(key) ? key : codeToIdMap.get(key)
+            if (metricId) {
+              overrideMap.set(metricId, numValue)
+            }
+          }
+        }
+      }
+
+      // Calculate original and simulated scores
       let originalScore = 0
       let simulatedScore = 0
+
+      // Build criteria max_score map
+      const criteriaMaxMap = new Map<string, number>()
+      for (const c of (criteria || [])) {
+        criteriaMaxMap.set(c.id, c.max_score || 0)
+      }
+
       let maxPossibleScore = 0
+      for (const c of (criteria || [])) {
+        maxPossibleScore += c.max_score || 0
+      }
 
       for (const metric of metrics) {
-        const weight = metric.weight || 1
-        const maxScore = metric.max_score || 0
-        maxPossibleScore += maxScore * weight
-
         const currentVal = currentValueMap.get(metric.id) || 0
-        originalScore += currentVal * weight
+        originalScore += currentVal
 
-        // Use override if available, otherwise use current value
         const simVal = overrideMap.has(metric.id)
           ? overrideMap.get(metric.id)!
           : currentVal
-        simulatedScore += simVal * weight
+        simulatedScore += simVal
       }
 
       originalScore = Math.round(originalScore * 100) / 100
       simulatedScore = Math.round(simulatedScore * 100) / 100
-      maxPossibleScore = Math.round(maxPossibleScore * 100) / 100
       const scoreDelta = Math.round((simulatedScore - originalScore) * 100) / 100
 
       // Store the simulation
       const insertPayload = {
         framework_id: data.framework_id,
         institution_id: data.institution_id,
-        academic_year: data.academic_year,
-        title: data.title,
-        description: data.description || null,
+        name: data.name,
+        base_academic_year: data.base_academic_year,
         overrides: data.overrides,
-        original_score: originalScore,
-        simulated_score: simulatedScore,
-        max_possible_score: maxPossibleScore,
+        calculated_score: simulatedScore,
         score_delta: scoreDelta,
+        rank_estimate: null,  // could be derived from score bands
         created_by: user.id
       }
 
