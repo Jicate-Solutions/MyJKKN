@@ -1348,7 +1348,7 @@ The `regulatory_frameworks` table now has `institution_type` column. Seed 3 vari
 | 1.2 Stakeholder Participation | 10 | Document + Data | `nps_surveys` (tag by stakeholder type) |
 | 1.3 Curriculum Flexibility (CBCS — Choice Based Credit System, MEME — Multiple Entry Multiple Exit, ABC — Academic Bank of Credits) | 10 | Document + Data | `nep_compliance_tracking` (NEW) |
 | 1.4 Practical & Industry Focus | 10 | Data | `courses` (skill %), `learner_industry_engagements` |
-| 1.5 Skill Orientation (NSQF — National Skills Qualifications Framework / NHEQF — National Higher Education Qualifications Framework) | 10 | Document | Manual entry + evidence |
+| 1.5 Skill Orientation (NSQF — National Skills Qualifications Framework, NHEQF — National Higher Education Qualifications Framework) | 10 | Document | Manual entry + evidence |
 | 1.6 Indian Knowledge System (IKS) | 5 | Document + Data | `nep_compliance_tracking` (NEW) |
 | 1.7 Online & Blended Learning (SWAYAM) | 5 | Data | `online_education_tracking` (NEW) |
 | 1.8 Curriculum Revision | 10 | Data | `curriculum_revisions` (NEW) |
