@@ -318,15 +318,6 @@ export function useEvidenceSearch(
   const resolvedInstitutionId =
     institutionId ?? (isSuperAdmin ? undefined : profile?.institution_id)
 
-  const filters = useMemo<EvidenceFilters>(
-    () => ({
-      institution_id: resolvedInstitutionId,
-      page: 1,
-      limit: 50
-    }),
-    [resolvedInstitutionId]
-  )
-
   return useQuery({
     queryKey: evidenceKeys.searchFor(searchQuery, resolvedInstitutionId),
     queryFn: async () => {
