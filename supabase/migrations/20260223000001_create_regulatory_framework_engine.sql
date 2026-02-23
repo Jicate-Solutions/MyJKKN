@@ -583,7 +583,14 @@ CREATE POLICY "connectors_delete" ON regulatory_data_connectors FOR DELETE
   USING (EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'));
 
 -- Value history: append-only audit trail, scoped through parent metric_value
-CREATE POLICY "value_history_read" ON regulatory_metric_value_history FOR SELECT USING (true);
+CREATE POLICY "value_history_read" ON regulatory_metric_value_history FOR SELECT USING (
+  EXISTS (
+    SELECT 1 FROM regulatory_metric_values mv
+    WHERE mv.id = metric_value_id
+    AND (mv.institution_id = auth_institution_id()
+         OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'))
+  )
+);
 CREATE POLICY "value_history_insert" ON regulatory_metric_value_history FOR INSERT
   WITH CHECK (EXISTS (
     SELECT 1 FROM regulatory_metric_values mv
