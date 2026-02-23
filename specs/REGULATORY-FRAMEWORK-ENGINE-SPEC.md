@@ -1487,7 +1487,7 @@ regulatory_metrics (per criterion per framework):
 **NEW in NIRF 2025:**
 - **Negative Marking:** Retracted publications deduct from PU and QP scores
 - **OE (Online Education):** SWAYAM credits, online syllabus completion, digital infrastructure
-- **MIRS:** Multiple Entry/Exit + Indian Knowledge System + Regional Languages + Sustainable Living
+- **MIR:** Multiple Entry/Exit + Indian Knowledge System + Regional Languages
 - **PSDGs:** Publications aligned with UN Sustainable Development Goals
 
 ---
