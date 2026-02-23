@@ -1080,8 +1080,8 @@ Ship with these frameworks pre-configured (seeded in migration):
 | 6.3.2 | 6.3 | QnM | 12 | % teachers with financial support for conferences/professional memberships | DC-02: `facilitator_development` ✅ |
 | 6.3.3 | 6.3 | QnM | 15 | % teaching & non-teaching staff in FDPs/professional development (5 years) | DC-02: `facilitator_development` ✅ |
 | 6.4.1 | 6.4 Financial Management (10) | QlM | 10 | Resource mobilization strategies, regular financial audits (internal/external) | DC-33: `financial_audits` (NEW) + Manual |
-| 6.5.1 | 6.5 IQAS (30) | QlM | 15 | IQAC contribution to quality strategies, reviews, incremental improvement | `iqac_meetings` (NEW) + Manual |
-| 6.5.2 | 6.5 | QnM | 15 | Quality initiatives: IQAC meetings, NIRF participation, NBA/other accreditation | `iqac_meetings` (NEW) |
+| 6.5.1 | 6.5 IQAS (30) | QlM | 15 | IQAC contribution to quality strategies, reviews, incremental improvement | DC-24: `iqac_meetings` (NEW) + Manual |
+| 6.5.2 | 6.5 | QnM | 15 | Quality initiatives: IQAC meetings, NIRF participation, NBA/other accreditation | DC-24: `iqac_meetings` (NEW) |
 
 #### Criterion VII — Institutional Values & Best Practices (100 marks)
 
