@@ -188,28 +188,27 @@ export function useRegulatoryDashboardStats(
         const supabase = (await import('@/lib/supabase/client')).createClientSupabaseClient()
         let subQuery = (supabase as any)
           .from('regulatory_submissions')
-          .select('id, status, completeness_pct', { count: 'exact' })
+          .select('id, status, completeness_percentage', { count: 'exact' })
           .in('status', ['draft', 'data_collection', 'in_review'])
         if (institutionId) {
           subQuery = subQuery.eq('institution_id', institutionId)
         }
         const { data: subs, count: activeSubmissions } = await subQuery
 
-        // Avg completeness across frameworks
-        const fwData = frameworks?.data || []
-        const avgCompleteness = fwData.length > 0
-          ? Math.round(fwData.reduce((sum: number, fw: any) => sum + (fw.completeness_pct || 0), 0) / fwData.length)
+        // Avg completeness across active submissions
+        const subData = subs || []
+        const avgCompleteness = subData.length > 0
+          ? Math.round(subData.reduce((sum: number, s: any) => sum + (s.completeness_percentage || 0), 0) / subData.length)
           : 0
 
-        // Upcoming deadlines (next 30 days)
+        // Upcoming deadlines: frameworks with submission_deadline in next 30 days
         const thirtyDaysFromNow = new Date()
         thirtyDaysFromNow.setDate(thirtyDaysFromNow.getDate() + 30)
         let deadlineQuery = (supabase as any)
-          .from('regulatory_submissions')
+          .from('regulatory_frameworks')
           .select('id', { count: 'exact' })
-          .lte('due_date', thirtyDaysFromNow.toISOString())
-          .gte('due_date', new Date().toISOString())
-          .in('status', ['draft', 'data_collection', 'in_review'])
+          .lte('submission_deadline', thirtyDaysFromNow.toISOString())
+          .gte('submission_deadline', new Date().toISOString())
         if (institutionId) {
           deadlineQuery = deadlineQuery.eq('institution_id', institutionId)
         }
