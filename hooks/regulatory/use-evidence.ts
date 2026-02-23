@@ -321,12 +321,16 @@ export function useEvidenceSearch(
       const { createClientSupabaseClient } = await import('@/lib/supabase/client')
       const supabase = createClientSupabaseClient()
 
+      // Sanitize search query to prevent PostgREST filter injection.
+      // Remove characters that could break the .or() filter syntax.
+      const sanitized = searchQuery.replace(/[,().\\]/g, '')
+
       let query = (supabase as any)
         .from('regulatory_evidence')
         .select('*, uploaded_by_profile:profiles!uploaded_by(id, full_name, email)', { count: 'exact' })
         .eq('is_deleted', false)
         .or(
-          `file_name.ilike.%${searchQuery}%,title.ilike.%${searchQuery}%,description.ilike.%${searchQuery}%`
+          `file_name.ilike.%${sanitized}%,title.ilike.%${sanitized}%,description.ilike.%${sanitized}%`
         )
 
       if (resolvedInstitutionId) {
