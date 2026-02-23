@@ -43,6 +43,7 @@ import {
   useRegulatoryDashboardStats,
   useUpcomingDeadlines,
 } from '@/hooks/regulatory'
+import { RefreshCw } from 'lucide-react'
 
 // Regulatory body configuration
 const bodyConfig: Record<string, { label: string; color: string; bgColor: string; icon: React.ReactNode }> = {
