@@ -72,7 +72,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       : null;
 
   // Step 5: Fetch data
-  type ServiceRequestRow = {
+  interface ServiceRequestRow {
     id: string;
     request_number: string;
     service_type_id: string;
@@ -86,7 +86,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     closed_at: string | null;
     created_at: string;
     updated_at: string;
-  };
+  }
 
   let items: ServiceRequestRow[] = [];
   let total = 0;
