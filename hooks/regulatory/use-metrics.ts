@@ -257,7 +257,7 @@ export function useUpdateMetricValue() {
       queryClient.invalidateQueries({ queryKey: frameworkKeys.completeness() })
     },
     onError: (error: Error) => {
-      toast.error(error.message || 'Failed to update metric value')
+      toast.error(friendlyErrorMessage(error, 'Failed to update metric value'))
       console.error('[useUpdateMetricValue] Error:', error)
     }
   })
