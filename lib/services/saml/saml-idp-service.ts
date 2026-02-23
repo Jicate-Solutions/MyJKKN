@@ -31,6 +31,22 @@ export class SamlIdpService {
 
     const config: SamlIdpConfig = this.getIdPConfig();
 
+    // Collect all valid SSO locations so samlify's Destination check accepts both
+    // www.jkkn.ai and jkkn.ai variants (MathWorks may have registered either form).
+    const ssoLocations: { Binding: string; Location: string }[] = [
+      { Binding: samlify.Constants.namespace.binding.post, Location: config.ssoServiceUrl },
+      { Binding: samlify.Constants.namespace.binding.redirect, Location: config.ssoServiceUrl },
+    ];
+    // If the base URL uses www, also register the bare-domain variant (and vice-versa)
+    // so that MathWorks AuthnRequests with either Destination value pass validation.
+    const wwwVariant = config.ssoServiceUrl.includes('://www.')
+      ? config.ssoServiceUrl.replace('://www.', '://')
+      : config.ssoServiceUrl.replace('://', '://www.');
+    ssoLocations.push(
+      { Binding: samlify.Constants.namespace.binding.post, Location: wwwVariant },
+      { Binding: samlify.Constants.namespace.binding.redirect, Location: wwwVariant },
+    );
+
     this.idpInstance = samlify.IdentityProvider({
       entityID: config.entityId,
       privateKey: this.formatPrivateKey(config.privateKey),
@@ -38,16 +54,12 @@ export class SamlIdpService {
       isAssertionEncrypted: false,
       encPrivateKey: undefined,
       encPrivateKeyPass: undefined,
-      singleSignOnService: [
-        {
-          Binding: samlify.Constants.namespace.binding.post,
-          Location: config.ssoServiceUrl,
-        },
-        {
-          Binding: samlify.Constants.namespace.binding.redirect,
-          Location: config.ssoServiceUrl,
-        },
-      ],
+      // Our IdP does NOT require SPs to sign their AuthnRequests.
+      // Setting this to false prevents samlify from attempting signature
+      // validation when the SP cert is absent — which would throw and be
+      // swallowed as "Failed to parse SAML request".
+      wantAuthnRequestsSigned: false,
+      singleSignOnService: ssoLocations,
       singleLogoutService: config.sloServiceUrl
         ? [
             {
@@ -134,7 +146,12 @@ export class SamlIdpService {
             },
           ]
         : [],
-      authnRequestsSigned: sp.want_authn_requests_signed,
+      // Always false: our IdP has wantAuthnRequestsSigned=false, meaning we do
+      // not validate incoming AuthnRequest signatures regardless of what the SP
+      // metadata advertises. Setting this to true when signingCert is absent
+      // causes samlify to throw a certificate error that surfaces as the
+      // generic "Failed to parse SAML request" 500 response.
+      authnRequestsSigned: false,
       signingCert: sp.x509_certificate
         ? this.formatCertificate(sp.x509_certificate)
         : undefined,
@@ -186,6 +203,18 @@ export class SamlIdpService {
       ]);
       const idp = this.getIdP();
 
+      // Diagnostic: log the configured SSO URL and the Destination in the incoming XML.
+      // This surfaces www vs non-www mismatches which samlify rejects silently.
+      const configuredSsoUrl = this.getIdPConfig().ssoServiceUrl;
+      const destinationMatch = decoded.match(/Destination="([^"]+)"/);
+      const destination = destinationMatch?.[1];
+      if (destination && destination !== configuredSsoUrl) {
+        console.warn('[saml-idp] Destination URL mismatch (accepted via alias):', {
+          destination,
+          configuredSsoUrl,
+        });
+      }
+
       // Parse request using samlify
       // samlify expects { query: ... } for redirect binding, { body: ... } for post binding
       const requestData =
@@ -215,7 +244,13 @@ export class SamlIdpService {
       if (error instanceof SamlError) {
         throw error;
       }
-      console.error('[saml-idp] Failed to parse SAML request:', error);
+      // Log the actual samlify/internal error so it is visible in production logs.
+      // Previously this detail was lost, making Destination mismatches and
+      // certificate errors indistinguishable.
+      const detail = error instanceof Error
+        ? { message: error.message, stack: error.stack }
+        : String(error);
+      console.error('[saml-idp] parseLoginRequest threw (raw samlify error):', detail);
       throw new SamlError(
         'Failed to parse SAML request',
         SamlStatusCode.REQUESTER,
