@@ -1281,6 +1281,14 @@ CREATE TRIGGER trg_submissions_updated_at BEFORE UPDATE ON regulatory_submission
   FOR EACH ROW EXECUTE FUNCTION moddatetime(updated_at);
 CREATE TRIGGER trg_connectors_updated_at BEFORE UPDATE ON regulatory_data_connectors
   FOR EACH ROW EXECUTE FUNCTION moddatetime(updated_at);
+CREATE TRIGGER trg_peer_visits_updated_at BEFORE UPDATE ON regulatory_peer_visits
+  FOR EACH ROW EXECUTE FUNCTION moddatetime(updated_at);
+CREATE TRIGGER trg_governing_bodies_updated_at BEFORE UPDATE ON regulatory_governing_bodies
+  FOR EACH ROW EXECUTE FUNCTION moddatetime(updated_at);
+CREATE TRIGGER trg_body_meetings_updated_at BEFORE UPDATE ON regulatory_body_meetings
+  FOR EACH ROW EXECUTE FUNCTION moddatetime(updated_at);
+CREATE TRIGGER trg_syllabi_updated_at BEFORE UPDATE ON regulatory_course_syllabi
+  FOR EACH ROW EXECUTE FUNCTION moddatetime(updated_at);
 ```
 
 ---
