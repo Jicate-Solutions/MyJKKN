@@ -50,6 +50,7 @@ import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions
 import { useQueryClient } from '@tanstack/react-query';
 import { ScholarshipService } from '@/lib/services/admission/scholarship-service';
 import { useRouter } from 'next/navigation';
+import { useAcademicYears } from '@/hooks/use-academic-years';
 
 const EMPTY_FORM = {
   name: '',
@@ -83,6 +84,10 @@ function ScholarshipsPageContent() {
   const { institutions } = useInstitutionsWithAccess();
   // super_admin has no institution_id — they pick one in the form
   const institutionId = isSuperAdmin ? undefined : profile?.institution_id;
+
+  // For academic year dropdown: super_admin uses selected institution; others use their own
+  const effectiveInstitutionId = isSuperAdmin ? selectedInstitutionId || undefined : institutionId || undefined;
+  const { data: academicYears = [] } = useAcademicYears(effectiveInstitutionId);
 
   const { data: scholarships, isLoading: scholarshipsLoading } = useScholarships();
   const { data: applications, isLoading: applicationsLoading } = useScholarshipApplications();
@@ -284,11 +289,19 @@ function ScholarshipsPageContent() {
                   </div>
                   <div className="space-y-2">
                     <Label>Academic Year</Label>
-                    <Input
-                      placeholder="e.g., 2025-26"
+                    <Select
                       value={formData.academic_year}
-                      onChange={(e) => setFormData((f) => ({ ...f, academic_year: e.target.value }))}
-                    />
+                      onValueChange={(v) => setFormData((f) => ({ ...f, academic_year: v }))}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder={isSuperAdmin && !selectedInstitutionId ? 'Select institution first' : 'Select year'} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {academicYears.map((y: any) => (
+                          <SelectItem key={y.id} value={y.academic_year_name}>{y.academic_year_name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                 </div>
                 <div className="flex items-center gap-3">

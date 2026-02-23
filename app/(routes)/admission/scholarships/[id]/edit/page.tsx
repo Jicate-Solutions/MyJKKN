@@ -33,6 +33,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
 import { ScholarshipService } from '@/lib/services/admission/scholarship-service';
 import type { Scholarship } from '@/lib/services/admission/scholarship-service';
+import { useAcademicYears } from '@/hooks/use-academic-years';
 
 const SCHOLARSHIP_TYPES = [
   { value: 'merit', label: 'Merit-Based' },
@@ -57,6 +58,9 @@ export default function EditScholarshipPage() {
   const [scholarship, setScholarship] = useState<Scholarship | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+
+  // Fetch academic years for the scholarship's institution
+  const { data: academicYears = [] } = useAcademicYears(scholarship?.institution_id);
 
   // Form state mirrors the editable fields
   const [form, setForm] = useState({
@@ -307,11 +311,17 @@ export default function EditScholarshipPage() {
               </div>
               <div className="space-y-2">
                 <Label>Academic Year</Label>
-                <Input
+                <Select
                   value={form.academic_year}
-                  onChange={(e) => setForm((f) => ({ ...f, academic_year: e.target.value }))}
-                  placeholder="e.g., 2025-26"
-                />
+                  onValueChange={(v) => setForm((f) => ({ ...f, academic_year: v }))}
+                >
+                  <SelectTrigger><SelectValue placeholder="Select year" /></SelectTrigger>
+                  <SelectContent>
+                    {(academicYears as any[]).map((y) => (
+                      <SelectItem key={y.id} value={y.academic_year_name}>{y.academic_year_name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
             </div>
             <div className="space-y-2">

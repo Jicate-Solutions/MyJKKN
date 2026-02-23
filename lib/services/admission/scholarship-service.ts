@@ -5,6 +5,7 @@ import { createClientSupabaseClient } from '@/lib/supabase/client';
 
 export interface Scholarship {
   id: string;
+  institution_id: string;
   name: string;
   scholarship_type: string;
   benefit_type: string;
