@@ -229,6 +229,10 @@ export class RegulatorySubmissionService {
       this.validateId(data.framework_id, 'framework ID')
       this.validateId(data.institution_id, 'institution ID')
 
+      // Verify user is authenticated
+      const { data: { user } } = await this.getSupabase().auth.getUser()
+      if (!user) throw new Error('User not authenticated')
+
       const insertPayload = {
         framework_id: data.framework_id,
         institution_id: data.institution_id,
