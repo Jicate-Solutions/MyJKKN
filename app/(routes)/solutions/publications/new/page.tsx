@@ -32,6 +32,7 @@ import {
   PUBLICATION_STATUS_LABELS,
 } from '@/hooks/solutions/use-publications';
 import { useSolutions } from '@/hooks/solutions/use-solutions';
+import { useAuth } from '@/hooks/use-auth';
 import type { PaperType, JournalType, PublicationStatus } from '@/lib/services/solutions/types';
 
 interface FormState {
