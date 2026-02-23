@@ -945,19 +945,24 @@ export class BillingReportService {
     institutionId?: string,
     limit: number = 10
   ): Promise<any[]> {
-    const query = this.supabase
+    let query = this.supabase
       .from('billing_refunds')
       .select(
         `
         *,
-        receipt:billing_receipts(
+        receipt:billing_receipts!inner(
           receipt_number,
+          institution_id,
           student:learners_profiles(first_name, last_name, roll_number)
         )
       `
       )
       .order('created_at', { ascending: false })
       .limit(limit);
+
+    if (institutionId) {
+      query = query.eq('receipt.institution_id', institutionId);
+    }
 
     const { data, error } = await query;
     if (error) {
