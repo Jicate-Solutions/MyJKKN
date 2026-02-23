@@ -1913,6 +1913,13 @@ GROUP BY audit_type;
 - `NAAC Reforms 2024.pdf` — **Binary Accreditation Framework Workshop** (July 2024) — definitive source for new 10-attribute system with institution-type-specific scoring
 - `DrRadhakrishnanCommittee-FinalReport.pdf` — **Dr. Radhakrishnan Committee Final Report** (Nov 2023, Ministry of Education) — architectural blueprint for ONOD, Unified Elicitation Tool, adapted binary accreditation
 - `NIRF Guide Book.txt` — Transforming Tamil Nadu's Higher Education: A Guide to NIRF
+- NIRF 2025 Official Framework PDFs — [Engineering](https://www.nirfindia.org/nirfpdfcdn/2025/framework/Engineering.pdf), [Pharmacy](https://www.nirfindia.org/nirfpdfcdn/2025/framework/Pharmacy.pdf), [Colleges](https://www.nirfindia.org/nirfpdfcdn/2025/framework/Colleges.pdf), [Dental](https://www.nirfindia.org/nirfpdfcdn/2025/framework/Dental.pdf)
+- NBA Accreditation Manual (Tier-I, Washington Accord aligned) — criteria and Programme Outcomes for engineering/pharmacy programs
+
+**JKKN-specific NIRF strategy documents (from vault):**
+- `/Users/omm/Vaults/JKKNKB/NIRF/Engineering.md` — JKKN Engineering NIRF strategy with formulas and sub-parameter marks
+- `/Users/omm/Vaults/JKKNKB/NIRF/Pharmacy.md` — JKKN Pharmacy NIRF with Category A vs B analysis
+- `/Users/omm/Vaults/JKKNKB/NIRF/Index.md` — Cross-institution weight comparison for all JKKN colleges
 
 **Project analysis documents:**
 - `/Users/omm/Vaults/Claude Setup/Capture/MyJKKN/FST-SARAL-ERP-Gap-Analysis.md` — Gap analysis identifying regulatory compliance as critical gap
