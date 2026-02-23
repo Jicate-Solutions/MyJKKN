@@ -760,7 +760,7 @@ CREATE TABLE regulatory_evidence (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   metric_id uuid REFERENCES regulatory_metrics(id),
   criteria_id uuid REFERENCES regulatory_criteria(id),
-  submission_id uuid REFERENCES regulatory_submissions(id),
+  submission_id uuid,  -- FK added after regulatory_submissions table exists (see ALTER TABLE below)
   institution_id uuid NOT NULL REFERENCES institutions(id),
   academic_year text NOT NULL,
   file_url text NOT NULL,
