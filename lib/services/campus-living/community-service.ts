@@ -105,14 +105,16 @@ export class CommunityService {
         config.show_lc_events
           ? (async () => {
               try {
-                const { data, error } = await (supabase as any)
+                let q = (supabase as any)
                   .from('lc_events')
                   .select('id, title, description, starts_at, ends_at, venue_name, current_participants, max_participants, status')
                   .eq('status', 'published')
+                  .eq('institution_id', institutionId)
                   .gte('starts_at', now)
                   .order('starts_at', { ascending: true })
                   .limit(config.max_events_shown)
 
+                const { data, error } = await q
                 if (error) {
                   logger.error('campus-living/community', 'Failed to fetch LC events', error)
                   return []
