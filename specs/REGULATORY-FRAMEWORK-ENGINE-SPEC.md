@@ -1377,6 +1377,8 @@ The Dr. Radhakrishnan Committee Report (Nov 2023) recommends:
 | MIR (NEP 2020) | 5 | *NEW* | *NEW* | 5 | *NEW* | *NEW* |
 
 > **Dental** has the highest FRU (35 marks) — reflecting expensive clinical equipment needs — but lower SS (15) due to smaller programs. **Colleges and Medical/Nursing** also use FSR=30/FRU=30 (same as Engineering), departing from Overall's 25/20. "MIR" = Multiple Entry/exit, Indian Knowledge System, Regional languages (also abbreviated MIRS in some documents).
+>
+> **⚠️ OE/MIR marks note:** For Overall, OE(10)+MIR(5)=15 marks are explicitly defined, and the base 4 sub-params sum to 85. For Engineering/Pharmacy/Dental/Medical, the base 4 sub-params sum to 95-100, and NIRF 2025 marks OE+MIR as "NEW" without publishing redistributed marks. The engine should store OE/MIR marks as 0 for these disciplines until official discipline-specific values are published, then update via config. For Colleges, the base 4 also sum to 100; if OE=10/MIR=5 apply, expect NIRF to redistribute (likely reducing FSR or FRU by 15).
 
 #### GO Sub-Parameter Variations by Discipline
 
