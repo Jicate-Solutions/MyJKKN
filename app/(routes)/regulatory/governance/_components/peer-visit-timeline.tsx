@@ -212,7 +212,10 @@ export function PeerVisitTimeline({ visits, institutionId }: PeerVisitTimelinePr
                       {/* Main Row */}
                       <div
                         className="flex items-start justify-between cursor-pointer"
+                        role="button"
+                        tabIndex={0}
                         onClick={() => setExpandedVisit(isExpanded ? null : visit.id)}
+                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpandedVisit(isExpanded ? null : visit.id) } }}
                       >
                         <div className="min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
