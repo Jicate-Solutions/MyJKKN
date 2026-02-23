@@ -371,6 +371,10 @@ export class RegulatoryEvidenceService {
     try {
       this.validateId(id, 'evidence ID')
 
+      // Verify user is authenticated (RLS will enforce role, but fail-fast here)
+      const { data: { user } } = await this.getSupabase().auth.getUser()
+      if (!user) throw new Error('User not authenticated')
+
       const { data, error } = await (this.getSupabase() as any)
         .from('regulatory_evidence')
         .update({
