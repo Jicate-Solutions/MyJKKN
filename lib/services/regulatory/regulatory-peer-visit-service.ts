@@ -239,6 +239,14 @@ export class RegulatoryPeerVisitService {
     try {
       this.validateId(id, 'peer visit ID')
 
+      // Verify user is authenticated
+      const { data: { user } } = await this.getSupabase().auth.getUser()
+      if (!user) throw new Error('User not authenticated')
+
+      if (data.coordinator_id) {
+        this.validateId(data.coordinator_id, 'coordinator ID')
+      }
+
       const updatePayload: Record<string, any> = {
         updated_at: new Date().toISOString()
       }
