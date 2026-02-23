@@ -1539,7 +1539,12 @@ The engine must store and track attainment of these 12 POs per program:
 
 #### NBA for Pharmacy Programs
 
-Same 10 criteria but with pharmacy-specific POs defined by Pharmacy Council of India (PCI). The engine stores these as a separate framework:
+Same 10 criteria but with pharmacy-specific POs defined by Pharmacy Council of India (PCI). Key differences:
+- Pharmacy has **PhO1–PhO12** (Pharmaceutical Outcomes) instead of PO1–PO12
+- PhOs emphasize patient care, drug safety, pharmaceutical ethics, and regulatory compliance
+- **TODO:** Obtain exact PCI PhO definitions for the seed data — currently a gap in this spec
+
+The engine stores these as a separate framework:
 ```
 { code: 'NBA_SAR_ENGINEERING', program_type: 'B.Tech' }
 { code: 'NBA_SAR_PHARMACY', program_type: 'B.Pharm' }
