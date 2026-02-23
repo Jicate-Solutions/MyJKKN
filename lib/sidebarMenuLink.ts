@@ -2754,6 +2754,29 @@ export function GetPages(pathname: string): MenuGroup[] {
               href: '/campus-living/maintenance/preventive/tasks',
               label: 'PM Tasks',
               active: pathname === '/campus-living/maintenance/preventive/tasks'
+            },
+            {
+              href: '/campus-living/maintenance/contracts',
+              label: 'AMC Contracts',
+              active: pathname.startsWith('/campus-living/maintenance/contracts')
+            }
+          ]
+        },
+        {
+          href: '/campus-living/housekeeping',
+          label: 'Housekeeping',
+          active: pathname.startsWith('/campus-living/housekeeping'),
+          icon: SprayCan,
+          submenus: [
+            {
+              href: '/campus-living/housekeeping/schedules',
+              label: 'Schedules',
+              active: pathname.startsWith('/campus-living/housekeeping/schedules')
+            },
+            {
+              href: '/campus-living/housekeeping/tasks',
+              label: 'Tasks',
+              active: pathname === '/campus-living/housekeeping/tasks'
             }
           ]
         },
