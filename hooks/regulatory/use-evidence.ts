@@ -239,7 +239,10 @@ export function useFrameworkEvidence(
         if (institutionId) {
           query = query.eq('institution_id', institutionId)
         }
-        query = query.eq('is_deleted', false).order('created_at', { ascending: false })
+        query = query
+          .eq('is_deleted', false)
+          .order('created_at', { ascending: false })
+          .limit(500) // Safety cap: prevent unbounded fetches for large frameworks
 
         const { data: evidence, error } = await query
 
