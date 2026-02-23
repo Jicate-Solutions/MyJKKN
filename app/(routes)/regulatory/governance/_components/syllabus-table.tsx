@@ -47,7 +47,7 @@ interface Syllabus {
   cos_total?: number
   pos_mapped?: number
   pos_total?: number
-  syllabus_url?: string
+  syllabus_file_url?: string
   status?: 'draft' | 'active' | 'archived'
 }
 
@@ -321,9 +321,9 @@ export function SyllabusTable({ syllabi, institutionId }: SyllabusTableProps) {
                         )}
                       </TableCell>
                       <TableCell>
-                        {syllabus.syllabus_url && (
+                        {syllabus.syllabus_file_url && (
                           <Button variant="ghost" size="sm" className="h-7 w-7 p-0" asChild>
-                            <a href={syllabus.syllabus_url} target="_blank" rel="noopener noreferrer">
+                            <a href={syllabus.syllabus_file_url} target="_blank" rel="noopener noreferrer">
                               <ExternalLink className="h-3.5 w-3.5" />
                             </a>
                           </Button>
