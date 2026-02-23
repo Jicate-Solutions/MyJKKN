@@ -171,7 +171,49 @@ export function useCourseSyllabi(
           institution_id: institutionId,
           limit: 500
         })
-        return result?.data || []
+        const rows = result?.data || []
+
+        // Map DB columns to component-expected fields (SyllabusTable interface)
+        return rows.map((row: any) => {
+          // co_mapping is {CO1: "desc", CO2: "desc", ...} — keys = defined COs
+          const coMapping = row.co_mapping && typeof row.co_mapping === 'object'
+            ? row.co_mapping
+            : {}
+          const coKeys = Object.keys(coMapping)
+          const cosDefinedCount = coKeys.length
+
+          // po_mapping is [{co, po, level}, ...] — unique POs = mapped POs
+          const poMapping = Array.isArray(row.po_mapping) ? row.po_mapping : []
+          const uniquePOs = new Set(poMapping.map((m: any) => m.po))
+          const posMappedCount = uniquePOs.size
+
+          // Derive CO-PO mapping status from actual data
+          let coPOMappingStatus: string | undefined
+          if (cosDefinedCount === 0 && posMappedCount === 0) {
+            coPOMappingStatus = 'not_started'
+          } else if (cosDefinedCount > 0 && posMappedCount > 0) {
+            // If every CO has at least one PO mapping, consider it completed
+            const cosWithPO = new Set(poMapping.map((m: any) => m.co))
+            coPOMappingStatus = cosWithPO.size >= cosDefinedCount ? 'completed' : 'in_progress'
+          } else {
+            coPOMappingStatus = 'in_progress'
+          }
+
+          return {
+            ...row,
+            // Rename DB fields to component-expected names
+            revision_year: row.academic_year || row.revision_year,
+            completion_pct: row.completion_percentage ?? row.completion_pct ?? 0,
+            co_po_mapping_status: row.co_po_mapping_status || coPOMappingStatus,
+            program: row.institution?.name || row.program || row.program_id || undefined,
+            status: row.revision_status || row.status || 'active',
+            // Derived CO/PO counts
+            cos_defined: row.cos_defined ?? cosDefinedCount,
+            cos_total: row.cos_total ?? cosDefinedCount,
+            pos_mapped: row.pos_mapped ?? posMappedCount,
+            pos_total: row.pos_total ?? posMappedCount,
+          }
+        })
       } catch (error) {
         console.error('[useCourseSyllabi] Error:', error)
         return []
