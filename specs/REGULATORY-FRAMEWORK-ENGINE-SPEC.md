@@ -1060,7 +1060,7 @@ Ship with these frameworks pre-configured (seeded in migration):
 | Metric | KI | Type | Weight | Description | Data Source (MyJKKN) |
 |--------|-----|------|--------|-------------|---------------------|
 | 5.1.1 | 5.1 Student Support (50) | QnM | 20 | % students with scholarships/freeships from govt/non-govt (5 years) | DC-09: `scholarships` ✅ |
-| 5.1.2 | 5.1 | QnM | 10 | Capacity building: soft skills, language, life skills, ICT/computing (A-E) | DC-05: `vac_courses` (skill programs) |
+| 5.1.2 | 5.1 | QnM | 10 | Capacity building: soft skills, language, life skills, ICT/computing (A-E) | DC-12: `vac_courses` (skill programs) |
 | 5.1.3 | 5.1 | QnM | 10 | % students benefitted by competitive exam guidance & career counseling | DC-04: `career_services` (NEW) |
 | 5.1.4 | 5.1 | QnM | 10 | Grievance redressal: sexual harassment, ragging mechanisms (A-E) | DC-14: `grievance_tickets` ✅, DC-15: `anti_ragging_affidavits` ✅ |
 | 5.2.1 | 5.2 Student Progression (35) | QnM | 25 | % outgoing students placed or progressing to higher education (5 years) | DC-04: `alumni_outcomes` ✅ |
