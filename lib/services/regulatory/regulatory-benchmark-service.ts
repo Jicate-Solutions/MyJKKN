@@ -144,9 +144,12 @@ export class RegulatoryBenchmarkService {
         query = query.eq('metric_code', filters.metric_code)
       }
       if (filters.search) {
-        query = query.or(
-          `peer_institution_name.ilike.%${filters.search}%,metric_code.ilike.%${filters.search}%,notes.ilike.%${filters.search}%`
-        )
+        const safe = this.sanitizeSearch(filters.search)
+        if (safe) {
+          query = query.or(
+            `peer_institution_name.ilike.%${safe}%,metric_code.ilike.%${safe}%,notes.ilike.%${safe}%`
+          )
+        }
       }
 
       // Pagination
