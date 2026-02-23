@@ -143,7 +143,7 @@ export function useUpdateCompletionHours() {
       queryClient.invalidateQueries({ queryKey: syllabusKeys.lists() })
     },
     onError: (error: Error) => {
-      toast.error(error.message || 'Failed to update progress')
+      toast.error(friendlyErrorMessage(error, 'Failed to update teaching progress'))
     }
   })
 }
