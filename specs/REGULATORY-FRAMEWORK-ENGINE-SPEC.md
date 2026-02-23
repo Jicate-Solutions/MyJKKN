@@ -406,7 +406,7 @@ Each connector defines: **Source Module → Source Table(s) → Key Columns → 
   ```sql
   -- NIRF GO: Graduation outcome metrics
   SELECT
-    COUNT(CASE WHEN outcome_type = 'employed' THEN 1 END) as placed,
+    COUNT(CASE WHEN outcome_type = 'placed' THEN 1 END) as placed,  -- verify actual enum value against alumni_outcomes schema
     COUNT(CASE WHEN outcome_type = 'higher_studies' THEN 1 END) as higher_ed,
     COUNT(CASE WHEN outcome_type = 'entrepreneur' THEN 1 END) as entrepreneurs,
     COUNT(*) as total_graduates
