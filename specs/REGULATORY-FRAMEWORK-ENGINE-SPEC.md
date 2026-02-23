@@ -2376,6 +2376,12 @@ GROUP BY audit_type;
 > 2. ✅ NIRF discipline-specific — Engineering, Pharmacy (Cat A/B), Colleges, Dental, Medical/Nursing with weight tables and formula variations
 > 3. ✅ NBA SAR + AICTE + UGC-AISHE — criteria structures, data mappings, and engine configuration
 > 4. ✅ Report output formats — PDF/CSV/JSON specifications per regulatory body with generation architecture
+>
+> **PRD gap closure (2026-02-23):** Cross-referencing against PRD Section 10 (IQAC Module) identified 4 critical gaps, now addressed with 5 new tables:
+> 5. ✅ Evidence version control — `regulatory_evidence_versions` table for DVV/PDV document revision tracking
+> 6. ✅ Peer team visit coordination — `regulatory_peer_visits` table for NAAC/NBA visit scheduling and post-visit action tracking
+> 7. ✅ Governing bodies & committees — `regulatory_governing_bodies` + `regulatory_body_meetings` tables for composition, minutes, and resolutions
+> 8. ✅ Course syllabi & teaching plans — `regulatory_course_syllabi` table with CO-PO mapping for NBA attainment and NAAC Criterion 1
 
 ---
 
