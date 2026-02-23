@@ -813,7 +813,7 @@ CREATE TABLE regulatory_submissions (
 
 -- Add deferred FK from regulatory_evidence → regulatory_submissions (created after submissions table exists)
 ALTER TABLE regulatory_evidence ADD CONSTRAINT fk_evidence_submission
-  FOREIGN KEY (submission_id) REFERENCES regulatory_submissions(id);
+  FOREIGN KEY (submission_id) REFERENCES regulatory_submissions(id) ON DELETE RESTRICT;
 
 -- 8. Data Connector Registry (named, reusable query definitions)
 CREATE TABLE regulatory_data_connectors (
