@@ -323,7 +323,7 @@ export function useUpdatePeerBenchmark() {
       queryClient.invalidateQueries({ queryKey: benchmarkKeys.summaries() })
     },
     onError: (error: Error) => {
-      toast.error(error.message || 'Failed to update peer benchmark')
+      toast.error(friendlyErrorMessage(error, 'Failed to update peer benchmark'))
     }
   })
 }
