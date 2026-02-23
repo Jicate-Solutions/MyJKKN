@@ -127,12 +127,14 @@ export function useSimulationData(
 
       // Get metrics for these criteria (metric_values has no framework_id)
       let metricIds: string[] = []
+      let metrics: any[] = []
       if (criteriaIds.length > 0) {
-        const { data: metrics } = await (supabase as any)
+        const { data: metricsData } = await (supabase as any)
           .from('regulatory_metrics')
           .select('id, criteria_id, weight, max_score')
           .in('criteria_id', criteriaIds)
-        metricIds = (metrics || []).map((m: any) => m.id)
+        metrics = metricsData || []
+        metricIds = metrics.map((m: any) => m.id)
       }
 
       // Get metric values for those metrics
