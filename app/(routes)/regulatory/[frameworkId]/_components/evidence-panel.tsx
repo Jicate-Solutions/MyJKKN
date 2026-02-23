@@ -222,20 +222,52 @@ export function EvidencePanel({ evidence, frameworkId, institutionId }: Evidence
               <div className="border-2 border-dashed rounded-lg p-8 text-center">
                 <Upload className="h-10 w-10 mx-auto mb-3 text-muted-foreground opacity-50" />
                 <p className="text-sm text-muted-foreground mb-2">
-                  Drag and drop files here, or click to browse
+                  Select files to upload as evidence
                 </p>
-                <Button variant="outline" size="sm">
-                  Choose Files
-                </Button>
+                <input
+                  type="file"
+                  multiple
+                  accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png"
+                  onChange={handleFileChange}
+                  className="hidden"
+                  id="evidence-file-input"
+                />
+                <label htmlFor="evidence-file-input">
+                  <Button variant="outline" size="sm" asChild>
+                    <span>Choose Files</span>
+                  </Button>
+                </label>
+                {selectedFiles.length > 0 && (
+                  <div className="mt-3 text-sm text-left">
+                    {selectedFiles.map((f, i) => (
+                      <p key={i} className="text-muted-foreground truncate">{f.name}</p>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Description (optional)</label>
+                <Input
+                  placeholder="Brief description of the evidence..."
+                  value={uploadDescription}
+                  onChange={(e) => setUploadDescription(e.target.value)}
+                />
               </div>
             </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setShowUploadDialog(false)}>
+              <Button variant="outline" onClick={() => {
+                setShowUploadDialog(false)
+                setSelectedFiles([])
+                setUploadDescription('')
+              }}>
                 Cancel
               </Button>
-              <Button disabled={uploadEvidenceMutation.isPending}>
+              <Button
+                onClick={handleUpload}
+                disabled={uploadEvidenceMutation.isPending || selectedFiles.length === 0}
+              >
                 <Upload className="h-4 w-4 mr-2" />
-                Upload
+                {uploadEvidenceMutation.isPending ? 'Uploading...' : 'Upload'}
               </Button>
             </DialogFooter>
           </DialogContent>
