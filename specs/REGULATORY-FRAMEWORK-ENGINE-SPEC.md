@@ -2648,6 +2648,12 @@ GROUP BY audit_type;
 > 6. ✅ Peer team visit coordination — `regulatory_peer_visits` table for NAAC/NBA visit scheduling and post-visit action tracking
 > 7. ✅ Governing bodies & committees — `regulatory_governing_bodies` + `regulatory_body_meetings` tables for composition, minutes, and resolutions
 > 8. ✅ Course syllabi & teaching plans — `regulatory_course_syllabi` table with CO-PO mapping for NBA attainment and NAAC Criterion 1
+>
+> **PRD partial gap closure (2026-02-23):** 4 remaining partial gaps from PRD Section 10 now fully spec'd (T10 section) with schema:
+> 9. ✅ Performance benchmarking — `regulatory_peer_benchmarks` table for peer institution comparison (NAAC 6.5.3)
+> 10. ✅ Action plan management — OKR integration via `regulatory_metric_id` + `regulatory_target_value` columns on `okr_objectives` (no new table)
+> 11. ✅ Document repository search — `pg_trgm` extension + `search_vector` tsvector column + GIN indexes on `regulatory_evidence`
+> 12. ✅ Course completion tracking — `regulatory_course_completion_dashboard` view aggregating syllabus completion by department
 
 ---
 
