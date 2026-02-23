@@ -127,7 +127,7 @@ export function useSoftDeleteEvidence() {
       queryClient.invalidateQueries({ queryKey: evidenceKeys.lists() })
     },
     onError: (error: Error) => {
-      toast.error(error.message || 'Failed to remove evidence')
+      toast.error(friendlyErrorMessage(error, 'Failed to remove evidence'))
     }
   })
 }
