@@ -404,6 +404,10 @@ export class RegulatoryBenchmarkService {
     try {
       this.validateId(id, 'benchmark ID')
 
+      // Verify user is authenticated
+      const { data: { user } } = await this.getSupabase().auth.getUser()
+      if (!user) throw new Error('User not authenticated')
+
       const { error } = await (this.getSupabase() as any)
         .from('regulatory_peer_benchmarks')
         .delete()
