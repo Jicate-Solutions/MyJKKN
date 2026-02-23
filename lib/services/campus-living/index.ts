@@ -34,6 +34,10 @@ export { HostelAlertService } from './hostel-alert-service';
 export { OnboardingService } from './onboarding-service';
 export { WellnessService } from './wellness-service';
 export { LaundryService } from './laundry-service';
+export { AmcService } from './amc-service';
+export { HousekeepingService } from './housekeeping-service';
+export { HealthService } from './health-service';
+export { DashboardService } from './dashboard-service';
 
 // ── Cross-Domain ────────────────────────────────────────────────────
 export { CampusLivingAnalytics } from './campus-living-analytics';
