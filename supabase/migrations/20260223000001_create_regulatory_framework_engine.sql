@@ -758,6 +758,12 @@ CREATE POLICY "benchmarks_update" ON regulatory_peer_benchmarks FOR UPDATE
       OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'))
     AND EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN
       ('super_admin','institution_admin','iqac_coordinator'))
+  )
+  WITH CHECK (
+    (institution_id = auth_institution_id()
+      OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'))
+    AND EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN
+      ('super_admin','institution_admin','iqac_coordinator'))
   );
 CREATE POLICY "benchmarks_delete" ON regulatory_peer_benchmarks FOR DELETE
   USING (
