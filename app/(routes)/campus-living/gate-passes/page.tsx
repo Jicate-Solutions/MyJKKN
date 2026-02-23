@@ -93,6 +93,30 @@ export default function GatePassesPage() {
   const [activeTab, setActiveTab] = useState('pending');
 
   // Reject dialog state
+  // Export CSV helper
+  const handleExport = () => {
+    if (!passes.length) return;
+    const headers = ['Pass Number', 'Student', 'Type', 'Status', 'Destination', 'Out Time', 'Expected Return', 'Actual Return'];
+    const rows = passes.map((p: any) => [
+      p.pass_number ?? '',
+      p.learner?.full_name ?? '',
+      p.pass_type ?? '',
+      p.status ?? '',
+      p.destination ?? '',
+      p.out_time ?? '',
+      p.expected_return ?? '',
+      p.actual_return ?? '',
+    ]);
+    const csv = [headers.join(','), ...rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(','))].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `gate-passes-${new Date().toISOString().split('T')[0]}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState('');
