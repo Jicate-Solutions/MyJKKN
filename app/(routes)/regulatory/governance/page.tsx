@@ -36,7 +36,7 @@ export default function GovernancePage() {
   const [activeTab, setActiveTab] = useState('bodies')
 
   const {
-    data: bodies,
+    data: bodiesResult,
     isLoading: bodiesLoading,
     error: bodiesError,
   } = useGoverningBodies({ institution_id: institutionId })
@@ -54,10 +54,14 @@ export default function GovernancePage() {
   } = useCourseSyllabi({ institution_id: institutionId })
 
   const {
-    data: peerVisits,
+    data: peerVisitsResult,
     isLoading: visitsLoading,
     error: visitsError,
   } = usePeerVisits({ institution_id: institutionId })
+
+  // Unwrap paginated results to flat arrays
+  const bodies = Array.isArray(bodiesResult) ? bodiesResult : (bodiesResult as any)?.data || []
+  const peerVisits = Array.isArray(peerVisitsResult) ? peerVisitsResult : (peerVisitsResult as any)?.data || []
 
   const currentError = activeTab === 'bodies' ? bodiesError
     : activeTab === 'meetings' ? meetingsError
