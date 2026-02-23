@@ -1,7 +1,8 @@
 'use client';
 
 import { DataTable } from '@/components/data-table/data-table';
-import { columns, FUNNEL_STAGES } from './columns';
+import { getLeadColumns, FUNNEL_STAGES } from './columns';
+import { ConsultantService } from '@/lib/services/admission/consultant-service';
 import { Button } from '@/components/ui/button';
 import { Plus, TrashIcon, Flame, Star, Loader2 } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -43,6 +44,9 @@ export function LeadsDataTable() {
   const [deleteResetFn, setDeleteResetFn] = useState<(() => void) | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [refetchKey, setRefetchKey] = useState(0);
+
+  // Attribution map: leadId -> primary consultant name (populated after each page load)
+  const [attributionsMap, setAttributionsMap] = useState<Map<string, string>>(new Map());
 
   // Stage filter from URL (extra filter beyond DataTable's built-in search)
   const [stageFilter, setStageFilter] = useState<string>(
@@ -88,9 +92,28 @@ export function LeadsDataTable() {
             : undefined
       });
 
+      const leads = result.data || [];
+
+      // Best-effort: batch-fetch primary consultant for each lead on this page
+      if (leads.length) {
+        ConsultantService.getAttributionsForLeadIds(leads.map((l: any) => l.id))
+          .then((attrs) => {
+            const map = new Map<string, string>();
+            attrs.forEach((a) => {
+              if (a.consultant?.name) map.set(a.lead_id, a.consultant.name);
+            });
+            setAttributionsMap(map);
+          })
+          .catch(() => {
+            // Non-critical -- leads list works without consultant names
+          });
+      } else {
+        setAttributionsMap(new Map());
+      }
+
       return {
         success: true,
-        data: result.data || [],
+        data: leads,
         pagination: {
           page: result.metadata.page,
           limit: result.metadata.limit,
@@ -239,7 +262,7 @@ export function LeadsDataTable() {
     <>
       <DataTable
         fetchDataFn={fetchData}
-        getColumns={() => columns as any}
+        getColumns={() => getLeadColumns(attributionsMap) as any}
         exportConfig={{
           entityName: 'leads',
           columnMapping: {},
