@@ -145,7 +145,7 @@ export class ActivityHubService {
           description: `Severity: ${r.severity} | Status: ${r.status}`,
           timestamp: r.created_at,
           status: r.status,
-          link: `/campus-living/incidents/${r.id}`,
+          link: `/campus-living/safety/incidents/${r.id}`,
           block_name: r.hostel_blocks?.name ?? undefined,
           icon_color: ICON_COLORS.incident,
         }))
