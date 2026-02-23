@@ -13,11 +13,19 @@
 MyJKKN has 39 modules and 300+ tables but **zero automated regulatory reporting**. NAAC, NIRF, NBA, AICTE, and UGC submissions are done manually via spreadsheets. This module builds a **config-driven Regulatory Framework Engine** that:
 
 1. Defines ANY accreditation/ranking body's criteria as database configuration (not code)
-2. Auto-pulls data from 20+ existing MyJKKN modules via reusable Data Connectors
-3. Generates submission-ready reports in required formats
+2. Auto-pulls data from 20+ existing MyJKKN modules via **36 reusable Data Connectors** (DC-01 through DC-36)
+3. Generates submission-ready reports in required formats (PDF for NAAC SSR/AQAR, CSV/JSON for NIRF portal, HTML for AICTE disclosure)
 4. Survives regulatory changes without code rewrites — admin reconfigures, not developer
 
-**Key Architectural Decision:** ONE engine, MANY frameworks. NAAC (old 7-criteria + new Binary 10-attributes), NIRF, NBA, AICTE, and UGC are all configurations, not separate modules. When rules change, change the config — not the code. The new NAAC Binary Framework (2024) has institution-type-specific scoring — handled by creating 3 framework variants (University, Autonomous, Affiliated), each summing to 900 points but with different weight distributions.
+**Pre-configured Frameworks (15 total):**
+- NAAC 2022 Revised (7 criteria, 56 metrics)
+- NAAC Binary 2024 × 3 institution types (10 attributes, 60 metrics each)
+- NIRF 2025 Overall + 5 discipline variants (Engineering, Pharmacy Cat A/B, Colleges, Dental)
+- NBA SAR (Engineering + Pharmacy programs, 10 criteria, PO1-PO12)
+- AICTE Mandatory Disclosure (9 categories, compliance checklist)
+- UGC-AISHE (9 data sections, export-only)
+
+**Key Architectural Decision:** ONE engine, MANY frameworks. All 15 pre-configured frameworks are database configurations, not separate modules. When rules change, change the config — not the code. The NAAC Binary Framework (2024) has institution-type-specific scoring — handled by creating 3 framework variants (University, Autonomous, Affiliated), each summing to 900 points but with different weight distributions. NIRF discipline rankings share the same 5 parameters but with different weights and sub-parameter selections — the engine handles this via per-framework metric configuration.
 
 ---
 
