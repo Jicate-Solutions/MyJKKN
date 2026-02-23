@@ -107,7 +107,7 @@ export default function MetricEntryPage() {
   const criteriaOptions = useMemo(() => {
     if (!criteria) return []
     return criteria
-      .filter((c: any) => !c.parent_id) // Top-level criteria
+      .filter((c: any) => !c.parent_criteria_id) // Top-level criteria
       .map((c: any) => ({ id: c.id, code: c.code, name: c.name }))
       .sort((a: any, b: any) => a.code.localeCompare(b.code))
   }, [criteria])
