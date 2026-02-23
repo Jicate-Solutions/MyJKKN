@@ -364,8 +364,8 @@ export default function RegulatoryDashboardPage() {
                                   {fw.name}
                                 </CardTitle>
                                 <CardDescription className="mt-1">
-                                  {fw.version_year && `v${fw.version_year}`}
-                                  {fw.version_year && fw.cycle && ' | '}
+                                  {fw.version && `v${fw.version}`}
+                                  {fw.version && fw.cycle && ' | '}
                                   {fw.cycle && `Cycle: ${fw.cycle}`}
                                 </CardDescription>
                               </div>
