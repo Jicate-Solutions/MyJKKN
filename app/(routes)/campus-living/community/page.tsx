@@ -150,9 +150,9 @@ export default function CommunityHubPage() {
                       </h4>
                       <Badge
                         variant="outline"
-                        className={`shrink-0 text-xs ${URGENCY_COLORS[announcement.urgency] || URGENCY_COLORS.normal}`}
+                        className={`shrink-0 text-xs ${URGENCY_COLORS[announcement.urgency ?? 'normal'] || URGENCY_COLORS.normal}`}
                       >
-                        {announcement.urgency}
+                        {announcement.urgency ?? 'normal'}
                       </Badge>
                     </div>
                     <p className="text-xs text-muted-foreground line-clamp-2 mb-1.5">
