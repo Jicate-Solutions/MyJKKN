@@ -31,6 +31,12 @@ export class ActivityHubService {
       new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString()
     const dateTo = filters?.date_to ?? new Date().toISOString()
 
+    // For columns that are PostgreSQL `date` type (not timestamptz), we must
+    // compare with YYYY-MM-DD strings — otherwise PostgreSQL casts the date to
+    // midnight UTC which silently excludes items on the boundary date.
+    const dateFromDate = dateFrom.split('T')[0]
+    const dateToDate = dateTo.split('T')[0]
+
     // Helper: scope query to institution if provided
     const scopeInstitution = (q: any) => {
       if (institutionId) return q.eq('institution_id', institutionId)
