@@ -207,11 +207,11 @@ export default function ResidentCalendarPage() {
                       return <div key={`blank-${idx}`} className="min-h-[80px]" />
                     }
 
-                    const dayEvents = eventsMap.get(cell.dateStr) || []
+                    const cellEvents = eventsMap.get(cell.dateStr) || []
                     const isToday = cell.dateStr === todayStr
                     const isSelected = cell.dateStr === selectedDate
-                    const visibleDots = dayEvents.slice(0, 3)
-                    const overflow = dayEvents.length - 3
+                    const visibleDots = cellEvents.slice(0, 3)
+                    const overflow = cellEvents.length - 3
 
                     return (
                       <button
