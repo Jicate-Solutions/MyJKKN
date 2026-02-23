@@ -150,8 +150,17 @@ export default function RegulatoryDashboardPage() {
           <Alert variant="destructive">
             <AlertCircle className="h-4 w-4" />
             <AlertTitle>Failed to load frameworks</AlertTitle>
-            <AlertDescription>
-              {(frameworksError as Error).message || 'An unexpected error occurred. Please try again.'}
+            <AlertDescription className="flex items-center justify-between">
+              <span>{(frameworksError as Error).message || 'An unexpected error occurred. Please try again.'}</span>
+              <Button
+                variant="outline"
+                size="sm"
+                className="ml-4 shrink-0"
+                onClick={() => refetchFrameworks()}
+              >
+                <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
+                Retry
+              </Button>
             </AlertDescription>
           </Alert>
         )}
