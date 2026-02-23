@@ -168,6 +168,9 @@ export class RegulatorySubmissionService {
       }
 
       // Calculate completeness if we have framework_id and institution_id
+      // Default to safe zero values — overwritten below if metrics exist
+      data._completeness = { total_metrics: 0, populated_metrics: 0, completeness_percent: 0 }
+
       if (data.framework_id && data.institution_id) {
         try {
           // Count total metrics for the framework
