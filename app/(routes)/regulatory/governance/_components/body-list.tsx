@@ -96,6 +96,7 @@ export function BodyList({ bodies, institutionId }: BodyListProps) {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="pl-9"
+              aria-label="Search governing bodies"
             />
           </div>
         </div>
