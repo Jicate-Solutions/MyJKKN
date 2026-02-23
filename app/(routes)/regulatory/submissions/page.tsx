@@ -112,6 +112,7 @@ export default function SubmissionsPage() {
     data: submissions,
     isLoading: submissionsLoading,
     error: submissionsError,
+    refetch: refetchSubmissions,
   } = useAllSubmissions({ institution_id: institutionId })
 
   const {
