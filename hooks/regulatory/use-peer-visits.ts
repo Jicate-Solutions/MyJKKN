@@ -86,7 +86,7 @@ export function useCreatePeerVisit() {
       }
     },
     onError: (error: Error) => {
-      toast.error(error.message || 'Failed to schedule peer visit')
+      toast.error(friendlyErrorMessage(error, 'Failed to schedule peer visit'))
     }
   })
 }
