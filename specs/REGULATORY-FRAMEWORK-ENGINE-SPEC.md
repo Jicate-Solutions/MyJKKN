@@ -13,7 +13,7 @@
 MyJKKN has 39 modules and 300+ tables but **zero automated regulatory reporting**. NAAC, NIRF, NBA, AICTE, and UGC submissions are done manually via spreadsheets. This module builds a **config-driven Regulatory Framework Engine** that:
 
 1. Defines ANY accreditation/ranking body's criteria as database configuration (not code)
-2. Auto-pulls data from 20+ existing MyJKKN modules via **36 reusable Data Connectors** (DC-01 through DC-36)
+2. Auto-pulls data from 15 existing MyJKKN module tables via **36 reusable Data Connectors** (DC-01 through DC-36; 15 existing + 21 new)
 3. Generates submission-ready reports in required formats (PDF for NAAC SSR/AQAR, CSV/JSON for NIRF portal, HTML for AICTE disclosure)
 4. Survives regulatory changes without code rewrites — admin reconfigures, not developer
 
