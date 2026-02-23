@@ -110,6 +110,12 @@ export default function FrameworkDetailPage() {
     isLoading: submissionsLoading,
   } = useFrameworkSubmissions({ framework_id: frameworkId, institution_id: institutionId })
 
+  const {
+    data: completenessData,
+  } = useFrameworkCompleteness(frameworkId, institutionId)
+
+  const completenessPercent = completenessData?.completeness_percent ?? 0
+
   const startSubmissionMutation = useStartSubmission()
 
   const handleStartSubmission = async () => {
