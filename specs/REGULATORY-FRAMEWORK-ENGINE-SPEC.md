@@ -1028,7 +1028,7 @@ Ship with these frameworks pre-configured (seeded in migration):
 | 2.6.1 | 2.6 Student Performance (90) | QlM | 25 | Programme Outcomes (POs) & Course Outcomes (COs) stated, displayed, evaluated | DC-11: `competency_catalog`, `course_competency_mapping` |
 | 2.6.2 | 2.6 | QlM | 20 | Attainment of POs and COs evaluated with evidence | DC-11 |
 | 2.6.3 | 2.6 | QnM | 45 | Pass % of students (5-year data) | DC-17: `exam_results` (NEW) |
-| 2.7.1 | 2.7 Student Satisfaction Survey (60) | QnM | 60 | Online student satisfaction survey (NAAC-conducted) | DC-11: `nps_surveys` (partial) + external NAAC survey |
+| 2.7.1 | 2.7 Student Satisfaction Survey (60) | QnM | 60 | Online student satisfaction survey (NAAC-conducted) | DC-10: `nps_surveys` (partial) + external NAAC survey |
 
 #### Criterion III — Research, Innovations & Extension (110 marks)
 
