@@ -113,7 +113,7 @@ export function useCreateSubmission() {
       queryClient.invalidateQueries({ queryKey: submissionKeys.all })
     },
     onError: (error: Error) => {
-      toast.error(error.message || 'Failed to create submission')
+      toast.error(friendlyErrorMessage(error, 'Failed to create submission'))
     }
   })
 }
