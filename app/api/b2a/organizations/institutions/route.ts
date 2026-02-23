@@ -4,27 +4,35 @@ import { checkRateLimit } from '@/lib/api-keys/rate-limiter';
 import { logApiUsage, extractRequestMeta } from '@/lib/api-keys/audit-logger';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 
-const VALID_STATUSES = [
-  'draft',
-  'submitted',
-  'in_review',
-  'approved',
-  'rejected',
-  'returned',
-  'fulfilled',
-  'closed',
-  'cancelled',
-] as const;
-type ServiceRequestStatus = typeof VALID_STATUSES[number];
-
-const VALID_PRIORITIES = ['low', 'normal', 'high', 'urgent'] as const;
-type ServiceRequestPriority = typeof VALID_PRIORITIES[number];
+type InstitutionRow = {
+  id: string;
+  name: string;
+  phone: string | null;
+  email: string | null;
+  website: string | null;
+  is_active: boolean | null;
+  counselling_code: string | null;
+  category: string | null;
+  accredited_by: string | null;
+  address_line1: string | null;
+  address_line2: string | null;
+  address_line3: string | null;
+  city: string | null;
+  state: string | null;
+  country: string | null;
+  pin_code: string | null;
+  logo_url: string | null;
+  institution_type: string | null;
+  timetable_type: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+};
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const startTime = Date.now();
 
   // Step 1: Authenticate
-  const authResult = await authenticateApiKey(request, { requiredModule: 'grievance' });
+  const authResult = await authenticateApiKey(request, { requiredModule: 'organizations' });
   if ('error' in authResult) return authResult.error;
   const { context } = authResult;
 
@@ -55,40 +63,15 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const url = new URL(request.url);
   const page = Math.max(1, parseInt(url.searchParams.get('page') ?? '1', 10) || 1);
   const limit = Math.min(100, Math.max(1, parseInt(url.searchParams.get('limit') ?? '20', 10) || 20));
-  const statusParam = url.searchParams.get('status');
-  const priorityParam = url.searchParams.get('priority');
+  const isActiveParam = url.searchParams.get('is_active');
   const offset = (page - 1) * limit;
 
-  // Validate status param
-  const status: ServiceRequestStatus | null =
-    statusParam && (VALID_STATUSES as readonly string[]).includes(statusParam)
-      ? (statusParam as ServiceRequestStatus)
-      : null;
-
-  // Validate priority param
-  const priority: ServiceRequestPriority | null =
-    priorityParam && (VALID_PRIORITIES as readonly string[]).includes(priorityParam)
-      ? (priorityParam as ServiceRequestPriority)
-      : null;
+  // Convert is_active to boolean — silently ignore any value that is not 'true' or 'false'
+  const isActive: boolean | null =
+    isActiveParam === 'true' ? true : isActiveParam === 'false' ? false : null;
 
   // Step 5: Fetch data
-  interface ServiceRequestRow {
-    id: string;
-    request_number: string;
-    service_type_id: string;
-    requester_id: string;
-    institution_id: string | null;
-    status: string;
-    priority: string | null;
-    submitted_at: string | null;
-    approved_at: string | null;
-    fulfilled_at: string | null;
-    closed_at: string | null;
-    created_at: string;
-    updated_at: string;
-  }
-
-  let items: ServiceRequestRow[] = [];
+  let items: InstitutionRow[] = [];
   let total = 0;
   let statusCode = 200;
   let errorResponse: NextResponse | null = null;
@@ -97,23 +80,22 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const supabase = createServiceRoleClient();
 
     let query = supabase
-      .from('service_requests')
+      .from('institutions')
       .select(
-        'id, request_number, service_type_id, requester_id, institution_id, status, priority, ' +
-        'submitted_at, approved_at, fulfilled_at, closed_at, created_at, updated_at',
+        'id, name, phone, email, website, is_active, counselling_code, category, accredited_by, ' +
+        'address_line1, address_line2, address_line3, city, state, country, pin_code, ' +
+        'logo_url, institution_type, timetable_type, created_at, updated_at',
         { count: 'exact' }
       );
 
+    // For the institutions table there is no institution_id FK — the record IS the institution.
+    // Institution-scoped keys see only their own record via .eq('id', institutionId).
     if (institutionId) {
-      query = query.eq('institution_id', institutionId);
+      query = query.eq('id', institutionId);
     }
 
-    if (status) {
-      query = query.eq('status', status);
-    }
-
-    if (priority) {
-      query = query.eq('priority', priority);
+    if (isActive !== null) {
+      query = query.eq('is_active', isActive);
     }
 
     query = query
@@ -125,17 +107,17 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     if (error) {
       statusCode = 500;
       errorResponse = NextResponse.json(
-        { error: { code: 'INTERNAL_ERROR', message: 'Failed to fetch grievance records.' } },
+        { error: { code: 'INTERNAL_ERROR', message: 'Failed to fetch institution records.' } },
         { status: 500 }
       );
     } else {
-      items = (data ?? []) as unknown as ServiceRequestRow[]; // required: Supabase infers GenericStringError[] with multiple chained .eq() calls
+      items = (data ?? []) as unknown as InstitutionRow[]; // required: Supabase infers GenericStringError[] with multiple chained .eq() calls
       total = count ?? 0;
     }
   } catch {
     statusCode = 500;
     errorResponse = NextResponse.json(
-      { error: { code: 'INTERNAL_ERROR', message: 'Failed to fetch grievance records.' } },
+      { error: { code: 'INTERNAL_ERROR', message: 'Failed to fetch institution records.' } },
       { status: 500 }
     );
   }
@@ -143,8 +125,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   // Step 6: Single audit log call — always fires, success AND error paths
   logApiUsage({
     apiKeyId: context.keyId,
-    endpoint: '/api/b2a/grievance',
-    module: 'grievance',
+    endpoint: '/api/b2a/organizations/institutions',
+    module: 'organizations',
     institutionId,
     statusCode,
     responseTimeMs: Date.now() - startTime,
@@ -152,7 +134,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     userAgent,
   });
 
-  // Step 7: Return error or success
+  // Return error or success
   if (errorResponse) return errorResponse;
 
   return NextResponse.json(
