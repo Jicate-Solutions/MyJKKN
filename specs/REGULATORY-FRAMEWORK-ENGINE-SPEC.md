@@ -319,7 +319,7 @@ Each connector defines: **Source Module → Source Table(s) → Key Columns → 
     COUNT(CASE WHEN lp.gender = 'Female' THEN 1 END) as female_count,
     COUNT(CASE WHEN lp.category IN ('SC','ST') THEN 1 END) as sc_st_count
   FROM learners_profiles lp
-  JOIN programs p ON lp.program_id = p.id
+  JOIN programs p ON lp.program_id = p.id  -- verify FK column name against actual learners_profiles schema
   WHERE lp.institution_id = $1 AND lp.lifecycle_status = 'active'
   GROUP BY p.program_name;
   ```
