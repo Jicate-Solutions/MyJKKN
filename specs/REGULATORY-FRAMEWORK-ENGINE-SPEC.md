@@ -1569,7 +1569,7 @@ Same 10 criteria but with pharmacy-specific POs defined by Pharmacy Council of I
 **Engine handling:** AICTE disclosure is primarily a data EXPORT — no scoring or grading. The engine generates a structured document from existing data connectors.
 
 ```
-{ code: 'AICTE_MANDATORY_DISCLOSURE_2025', scoring_type: 'compliance_checklist' }
+{ code: 'AICTE_MANDATORY_DISCLOSURE_2025', framework_type: 'compliance' }
 ```
 
 ---
