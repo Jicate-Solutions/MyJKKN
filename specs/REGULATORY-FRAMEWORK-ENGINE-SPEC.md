@@ -766,14 +766,16 @@ CREATE TABLE regulatory_evidence (
   file_url text NOT NULL,
   file_name text NOT NULL,
   file_type text,                                    -- pdf, jpg, xlsx, etc.
-  file_size_bytes integer,
+  file_size_bytes bigint,                            -- bigint to support files > 2GB
   description text,
   evidence_type text DEFAULT 'supporting',           -- supporting | primary | certificate | screenshot
   uploaded_by uuid NOT NULL REFERENCES profiles(id),
   is_deleted boolean DEFAULT false,
   deleted_at timestamptz,
   created_at timestamptz DEFAULT now(),
-  metadata jsonb DEFAULT '{}'
+  updated_at timestamptz DEFAULT now(),
+  metadata jsonb DEFAULT '{}',
+  CHECK (metric_id IS NOT NULL OR criteria_id IS NOT NULL)  -- evidence must link to a metric or criteria
 );
 
 -- 7. Submissions (workflow: draft → review → approved → submitted)
