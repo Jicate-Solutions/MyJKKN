@@ -257,7 +257,7 @@ Regulatory Compliance/
 
 ### T10: Connections — Module Integration Map
 
-This is the core of the spec. The Regulatory Framework Engine connects to **20 existing MyJKKN modules** via Data Connectors.
+This is the core of the spec. The Regulatory Framework Engine connects to **15 existing MyJKKN modules** (DC-01 through DC-15) via Data Connectors.
 
 #### CONNECTION MAP (Visual)
 
