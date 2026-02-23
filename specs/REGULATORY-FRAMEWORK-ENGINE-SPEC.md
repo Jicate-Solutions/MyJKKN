@@ -810,10 +810,6 @@ CREATE TABLE regulatory_submissions (
 ALTER TABLE regulatory_evidence ADD CONSTRAINT fk_evidence_submission
   FOREIGN KEY (submission_id) REFERENCES regulatory_submissions(id);
 
--- Add deferred FK from regulatory_metrics → regulatory_data_connectors
-ALTER TABLE regulatory_metrics ADD CONSTRAINT fk_metrics_data_connector
-  FOREIGN KEY (data_connector_id) REFERENCES regulatory_data_connectors(id);
-
 -- 8. Data Connector Registry (named, reusable query definitions)
 CREATE TABLE regulatory_data_connectors (
   id text PRIMARY KEY,                               -- "DC-01", "DC-02", ...
@@ -832,6 +828,10 @@ CREATE TABLE regulatory_data_connectors (
   created_at timestamptz DEFAULT now(),
   updated_at timestamptz DEFAULT now()
 );
+
+-- Add deferred FK from regulatory_metrics → regulatory_data_connectors (now that both tables exist)
+ALTER TABLE regulatory_metrics ADD CONSTRAINT fk_metrics_data_connector
+  FOREIGN KEY (data_connector_id) REFERENCES regulatory_data_connectors(id);
 
 -- 9. Score Simulations (what-if scenarios)
 CREATE TABLE regulatory_simulations (
