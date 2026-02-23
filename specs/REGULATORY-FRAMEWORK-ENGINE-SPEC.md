@@ -1509,7 +1509,7 @@ regulatory_metrics (per criterion per framework):
 | 4 | Students' Performance | 120 | DC-17: `exam_results`, DC-04: `alumni_outcomes` |
 | 5 | Faculty Information & Contributions | 100 | DC-02: `staff`, DC-16: `staff_qualifications`, DC-03: `sh_publications` |
 | 6 | Facilities & Technical Support | 80 | DC-20: `resources`, DC-28: `library_holdings`, `ict_infrastructure` |
-| 7 | Continuous Improvement | 100 | DC-08: `okr_objectives`, `iqac_meetings` |
+| 7 | Continuous Improvement | 100 | DC-10: `okr_objectives`, DC-24: `iqac_meetings` |
 | 8 | First Year Academics | 70 | DC-01: `learners_profiles` (1st year), DC-17 |
 | 9 | Student Support Systems | 80 | DC-09: `scholarships`, DC-14: `grievance_tickets`, DC-04: `career_services` |
 | 10 | Governance, Institutional Support & Financial Resources | 120 | DC-21: `institutional_budgets`, DC-33: `financial_audits` |
