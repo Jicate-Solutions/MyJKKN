@@ -1540,6 +1540,8 @@ regulatory_metrics (per criterion per framework):
 
 #### Key Formulas (Common to All NIRF Disciplines)
 
+> **Note on `f()` notation:** NIRF uses specific sigmoid/logarithmic scaling functions (not a single generic function). `f(x)` denotes the discipline-specific normalization function from the official NIRF methodology PDF. Exact function definitions (cutoffs, slopes) must be extracted from the PDF during implementation. The coefficients shown below are for **Overall** marks; disciplines with different sub-parameter marks (e.g., Dental SS=15 instead of 20) require proportionally adjusted coefficients.
+
 **TLR:**
 - `SS = f(NT, NE) × 15 + f(NP) × 5` — Student Strength including doctoral students
 - `FSR = f(F/N)` — Target 1:15 for max marks (1:20 for State Public Universities)
