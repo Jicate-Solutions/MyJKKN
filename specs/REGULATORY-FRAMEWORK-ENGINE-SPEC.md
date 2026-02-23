@@ -1598,7 +1598,7 @@ Same 10 criteria but with pharmacy-specific POs defined by Pharmacy Council of I
 **Engine handling:** Like AICTE, AISHE is a data EXPORT to an external portal. The engine generates CSV/JSON data matching the AISHE portal template. No scoring involved.
 
 ```
-{ code: 'UGC_AISHE_2025', scoring_type: 'data_export' }
+{ code: 'UGC_AISHE_2025', framework_type: 'reporting' }
 ```
 
 **ONOD Integration:** The Radhakrishnan Committee's One Nation One Data (ONOD) platform will eventually unify AISHE + NIRF + NAAC + AICTE data collection into a single submission. The engine's REST API design (Section T11) should anticipate this by exposing data in ONOD-compatible formats.
