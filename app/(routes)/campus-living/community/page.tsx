@@ -215,7 +215,7 @@ export default function CommunityHubPage() {
                       <div className="flex items-center justify-between">
                         <Badge variant="secondary" className="text-xs">
                           <Users className="h-3 w-3 mr-1" />
-                          {poll.total_votes} vote{poll.total_votes !== 1 ? 's' : ''}
+                          {poll.total_votes ?? 0} vote{(poll.total_votes ?? 0) !== 1 ? 's' : ''}
                         </Badge>
                         <span className="text-xs text-muted-foreground flex items-center gap-1">
                           <Clock className="h-3 w-3" />
