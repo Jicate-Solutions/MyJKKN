@@ -217,8 +217,8 @@ export function useFrameworkMetricValues(
 }
 
 /**
- * useUpdateMetricValue — adapter that accepts { metric_id, framework_id, institution_id?, value }.
- * Simpler API used by page components.
+ * useUpdateMetricValue — adapter that accepts { metric_id, framework_id, institution_id?, academic_year?, value }.
+ * Simpler API used by page components. framework_id is used for cache invalidation only.
  */
 export function useUpdateMetricValue() {
   const queryClient = useQueryClient()
@@ -229,25 +229,29 @@ export function useUpdateMetricValue() {
       metric_id: string
       framework_id: string
       institution_id?: string
+      academic_year?: string
       value: any
     }) => {
       return await RegulatoryMetricService.upsertMetricValue({
         metric_id: input.metric_id,
-        framework_id: input.framework_id,
         institution_id: input.institution_id || profile?.institution_id || '',
-        value: input.value,
-        updated_by: profile?.id
+        academic_year: input.academic_year || new Date().getFullYear().toString(),
+        value: typeof input.value === 'string' ? input.value : String(input.value ?? ''),
+        numeric_value: typeof input.value === 'number' ? input.value : undefined
       })
     },
     onSuccess: (_data, variables) => {
+      toast.success('Metric value updated')
       queryClient.invalidateQueries({
         queryKey: [...metricKeys.all, 'framework-metric-values', variables.framework_id]
       })
       queryClient.invalidateQueries({
         queryKey: metricKeys.valuesFor(variables.framework_id)
       })
+      queryClient.invalidateQueries({ queryKey: frameworkKeys.completeness() })
     },
     onError: (error: Error) => {
+      toast.error(error.message || 'Failed to update metric value')
       console.error('[useUpdateMetricValue] Error:', error)
     }
   })
