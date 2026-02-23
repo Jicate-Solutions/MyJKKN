@@ -215,7 +215,14 @@ export function useFrameworkSubmissions(
           framework_id: opts.framework_id,
           institution_id: institutionId
         })
-        return result?.data || []
+        // Flatten nested join objects for page convenience
+        return (result?.data || []).map((sub: any) => ({
+          ...sub,
+          framework_name: sub.framework?.name || '',
+          body: sub.framework?.body || '',
+          institution_name: sub.institution?.name || '',
+          completeness_pct: sub.completeness_percentage ?? null,
+        }))
       } catch (error) {
         console.error('[useFrameworkSubmissions] Error:', error)
         return []
