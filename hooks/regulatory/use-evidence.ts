@@ -107,7 +107,7 @@ export function useUploadEvidence() {
       }
     },
     onError: (error: Error) => {
-      toast.error(error.message || 'Failed to upload evidence')
+      toast.error(friendlyErrorMessage(error, 'Failed to upload evidence'))
     }
   })
 }
