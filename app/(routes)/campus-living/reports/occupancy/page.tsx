@@ -19,27 +19,20 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { Download, Printer, Building2, Loader2 } from 'lucide-react';
+import { Download, Printer, Building2, Loader2, AlertTriangle } from 'lucide-react';
 import { useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
-import { useExportReport } from '@/hooks/campus-living/use-campus-living-reports';
+import { useOccupancyReport, useExportReport } from '@/hooks/campus-living/use-campus-living-reports';
 
 export default function OccupancyReportPage() {
   const [blockFilter, setBlockFilter] = useState('all');
   const { profile } = useAuth();
+  const institutionId = profile?.institution_id ?? '';
+  const { data: report, isLoading, isError } = useOccupancyReport(institutionId);
   const exportReport = useExportReport();
 
-  const occupancyData = [
-    { block: 'Block A', floor: 'Ground', total_rooms: 25, occupied: 24, vacant: 1, total_beds: 50, beds_occupied: 48 },
-    { block: 'Block A', floor: '1st', total_rooms: 25, occupied: 25, vacant: 0, total_beds: 50, beds_occupied: 50 },
-    { block: 'Block A', floor: '2nd', total_rooms: 25, occupied: 23, vacant: 2, total_beds: 50, beds_occupied: 46 },
-    { block: 'Block B', floor: 'Ground', total_rooms: 20, occupied: 19, vacant: 1, total_beds: 40, beds_occupied: 37 },
-    { block: 'Block B', floor: '1st', total_rooms: 20, occupied: 20, vacant: 0, total_beds: 40, beds_occupied: 40 },
-    { block: 'Block C', floor: 'Ground', total_rooms: 30, occupied: 28, vacant: 2, total_beds: 60, beds_occupied: 57 },
-    { block: 'Block C', floor: '1st', total_rooms: 30, occupied: 30, vacant: 0, total_beds: 60, beds_occupied: 60 },
-  ];
-
-  const filteredData = occupancyData.filter(d => blockFilter === 'all' || d.block === blockFilter);
+  const blocks = report?.blocks ?? [];
+  const filteredBlocks = blocks.filter(b => blockFilter === 'all' || b.id === blockFilter);
 
   return (
     <ContentLayout title="Occupancy Report">
@@ -50,12 +43,14 @@ export default function OccupancyReportPage() {
             <p className="text-muted-foreground">Room and bed occupancy status across all blocks</p>
           </div>
           <div className="flex gap-2">
-            <Button variant="outline"><Printer className="mr-2 h-4 w-4" />Print</Button>
+            <Button variant="outline" onClick={() => window.print()}>
+              <Printer className="mr-2 h-4 w-4" />Print
+            </Button>
             <Button
               variant="outline"
               disabled={exportReport.isPending}
               onClick={() => exportReport.mutate({
-                institutionId: profile?.institution_id ?? '',
+                institutionId,
                 reportType: 'occupancy',
                 format: 'json',
               })}
@@ -66,54 +61,122 @@ export default function OccupancyReportPage() {
           </div>
         </div>
 
+        {/* Summary Cards */}
+        {report?.summary && (
+          <div className="grid gap-4 grid-cols-2 sm:grid-cols-4">
+            <Card>
+              <CardContent className="p-4 text-center">
+                <p className="text-sm text-muted-foreground">Total Blocks</p>
+                <p className="text-3xl font-bold">{report.summary.total_blocks}</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-4 text-center">
+                <p className="text-sm text-muted-foreground">Total Rooms</p>
+                <p className="text-3xl font-bold">{report.summary.total_rooms}</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-4 text-center">
+                <p className="text-sm text-muted-foreground">Total Capacity</p>
+                <p className="text-3xl font-bold">{report.summary.total_capacity}</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-4 text-center">
+                <p className="text-sm text-muted-foreground">Occupancy Rate</p>
+                <p className={`text-3xl font-bold ${report.summary.overall_percentage >= 90 ? 'text-green-600' : report.summary.overall_percentage >= 70 ? 'text-yellow-600' : 'text-red-600'}`}>
+                  {report.summary.overall_percentage}%
+                </p>
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
         <Card>
           <CardHeader>
             <div className="flex items-center justify-between">
-              <CardTitle className="flex items-center gap-2"><Building2 className="h-5 w-5" />Occupancy Details</CardTitle>
+              <CardTitle className="flex items-center gap-2"><Building2 className="h-5 w-5" />Block-wise Occupancy</CardTitle>
               <Select value={blockFilter} onValueChange={setBlockFilter}>
-                <SelectTrigger className="w-[140px]"><SelectValue placeholder="Block" /></SelectTrigger>
+                <SelectTrigger className="w-[180px]"><SelectValue placeholder="Block" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Blocks</SelectItem>
-                  <SelectItem value="Block A">Block A</SelectItem>
-                  <SelectItem value="Block B">Block B</SelectItem>
-                  <SelectItem value="Block C">Block C</SelectItem>
+                  {blocks.map((b) => (
+                    <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
           </CardHeader>
           <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Block</TableHead>
-                  <TableHead>Floor</TableHead>
-                  <TableHead>Total Rooms</TableHead>
-                  <TableHead>Occupied</TableHead>
-                  <TableHead>Vacant</TableHead>
-                  <TableHead>Total Beds</TableHead>
-                  <TableHead>Beds Occupied</TableHead>
-                  <TableHead>Rate</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredData.map((row, idx) => (
-                  <TableRow key={idx}>
-                    <TableCell className="font-medium">{row.block}</TableCell>
-                    <TableCell>{row.floor}</TableCell>
-                    <TableCell>{row.total_rooms}</TableCell>
-                    <TableCell>{row.occupied}</TableCell>
-                    <TableCell>{row.vacant > 0 ? <Badge className="bg-blue-100 text-blue-800 hover:bg-blue-100">{row.vacant}</Badge> : '0'}</TableCell>
-                    <TableCell>{row.total_beds}</TableCell>
-                    <TableCell>{row.beds_occupied}</TableCell>
-                    <TableCell>
-                      <Badge className={Math.round((row.beds_occupied / row.total_beds) * 100) >= 95 ? 'bg-green-100 text-green-800 hover:bg-green-100' : 'bg-yellow-100 text-yellow-800 hover:bg-yellow-100'}>
-                        {Math.round((row.beds_occupied / row.total_beds) * 100)}%
-                      </Badge>
-                    </TableCell>
+            {isLoading && (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+              </div>
+            )}
+            {isError && (
+              <div className="flex flex-col items-center justify-center py-12 gap-2">
+                <AlertTriangle className="h-8 w-8 text-muted-foreground" />
+                <p className="text-muted-foreground">Failed to load occupancy data.</p>
+              </div>
+            )}
+            {!isLoading && !isError && (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Block</TableHead>
+                    <TableHead>Type</TableHead>
+                    <TableHead>Total Rooms</TableHead>
+                    <TableHead>Capacity</TableHead>
+                    <TableHead>Occupied</TableHead>
+                    <TableHead>Vacant</TableHead>
+                    <TableHead>Rate</TableHead>
+                    <TableHead>Status</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {filteredBlocks.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
+                        No blocks found.
+                      </TableCell>
+                    </TableRow>
+                  )}
+                  {filteredBlocks.map((block) => (
+                    <TableRow key={block.id}>
+                      <TableCell className="font-medium">{block.name}</TableCell>
+                      <TableCell className="capitalize">{block.hostel_type?.replace('_', ' ') ?? '—'}</TableCell>
+                      <TableCell>{block.total_rooms}</TableCell>
+                      <TableCell>{block.total_capacity}</TableCell>
+                      <TableCell>{block.current_occupancy}</TableCell>
+                      <TableCell>
+                        {(block.total_capacity - block.current_occupancy) > 0 ? (
+                          <Badge className="bg-blue-100 text-blue-800 hover:bg-blue-100">
+                            {block.total_capacity - block.current_occupancy}
+                          </Badge>
+                        ) : '0'}
+                      </TableCell>
+                      <TableCell>
+                        <Badge className={
+                          block.occupancy_percentage >= 95
+                            ? 'bg-green-100 text-green-800 hover:bg-green-100'
+                            : block.occupancy_percentage >= 70
+                              ? 'bg-yellow-100 text-yellow-800 hover:bg-yellow-100'
+                              : 'bg-red-100 text-red-800 hover:bg-red-100'
+                        }>
+                          {block.occupancy_percentage}%
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={block.status === 'active' ? 'default' : 'secondary'}>
+                          {block.status}
+                        </Badge>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
           </CardContent>
         </Card>
       </div>
