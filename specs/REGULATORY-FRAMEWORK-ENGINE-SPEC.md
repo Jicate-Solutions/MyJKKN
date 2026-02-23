@@ -1511,7 +1511,7 @@ regulatory_metrics (per criterion per framework):
 | 6 | Facilities & Technical Support | 80 | DC-20: `resources`, DC-28: `library_holdings`, `ict_infrastructure` |
 | 7 | Continuous Improvement | 100 | DC-10: `okr_objectives`, DC-24: `iqac_meetings` |
 | 8 | First Year Academics | 70 | DC-01: `learners_profiles` (1st year), DC-17 |
-| 9 | Student Support Systems | 80 | DC-09: `scholarships`, DC-14: `grievance_tickets`, DC-04: `career_services` |
+| 9 | Student Support Systems | 80 | DC-09: `scholarships`, `grievance_tickets`; DC-25: `career_services` |
 | 10 | Governance, Institutional Support & Financial Resources | 120 | DC-21: `institutional_budgets`, DC-33: `financial_audits` |
 | | **TOTAL** | **1000** | |
 
