@@ -50,6 +50,7 @@ import {
   useAllSubmissions,
   useRegulatoryFrameworks,
   useCreateSubmission,
+  useUpdateSubmissionStatus,
 } from '@/hooks/regulatory'
 import { SubmissionWorkflow } from './_components/submission-workflow'
 import toast from 'react-hot-toast'
