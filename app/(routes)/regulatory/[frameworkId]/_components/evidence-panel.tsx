@@ -165,6 +165,7 @@ export function EvidencePanel({ evidence, frameworkId, institutionId }: Evidence
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="pl-9"
+              aria-label="Search evidence"
             />
           </div>
 
