@@ -1858,8 +1858,6 @@ FROM nep_compliance_tracking
 WHERE institution_id = $1 AND academic_year = $2;
 ```
 
-**Updated totals: 30 Data Connectors (15 existing + 15 new)**
-
 ### DC-31: PhD Scholar Tracking
 **Source table(s):** `phd_scholars` (NEW — does not exist)
 **Feeds:** NIRF GO-GPHD (40 marks × 0.20 weight = **8% of total NIRF**) + NAAC Binary 9.4 (20 pts)
