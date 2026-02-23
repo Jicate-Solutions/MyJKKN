@@ -284,7 +284,7 @@ INSERT INTO regulatory_criteria (framework_id, code, name, description, weight, 
 SELECT f.id, v.code, v.name, v.description, 0, 0, v.sort_order, v.is_qual, v.evidence
 FROM regulatory_frameworks f,
 (VALUES
-  ('AICTE-C1', 'Institution Information', 'Name, address, approval, affiliation.', 1, false, false),
+  ('AICTE-C1', 'Institution Information', 'Name, address, approval, affiliation.', 1, true, false),
   ('AICTE-C2', 'Programme Information', 'Intake, courses, fee structure.', 2, false, false),
   ('AICTE-C3', 'Faculty Information', 'Name, qualification, designation, experience.', 3, false, false),
   ('AICTE-C4', 'Student Information', 'Enrollment by gender and category.', 4, false, false),
