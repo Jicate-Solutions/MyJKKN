@@ -94,13 +94,23 @@ export default function ResidentCalendarPage() {
   }
 
   // ── Build events map keyed by "YYYY-MM-DD" ──────────────────────────
+  // Multi-day events (leaves, LC events) expand across all days in their range
   const eventsMap = useMemo(() => {
     const map = new Map<string, CalendarEvent[]>()
     if (!events) return map
     for (const ev of events) {
-      const key = ev.date
-      if (!map.has(key)) map.set(key, [])
-      map.get(key)!.push(ev)
+      const start = ev.date
+      const end = ev.end_date || ev.date
+      // Iterate from start to end, adding the event to each day
+      // Use noon to avoid DST edge cases
+      let cursor = new Date(start + 'T12:00:00').getTime()
+      const endMs = new Date(end + 'T12:00:00').getTime()
+      while (cursor <= endMs) {
+        const key = format(new Date(cursor), 'yyyy-MM-dd')
+        if (!map.has(key)) map.set(key, [])
+        map.get(key)!.push(ev)
+        cursor += 86_400_000 // +1 day in milliseconds
+      }
     }
     return map
   }, [events])
