@@ -1555,8 +1555,8 @@ Same 10 criteria but with pharmacy-specific POs defined by Pharmacy Council of I
 
 The engine stores these as a separate framework:
 ```
-{ code: 'NBA_SAR_ENGINEERING', program_type: 'B.Tech' }
-{ code: 'NBA_SAR_PHARMACY', program_type: 'B.Pharm' }
+{ code: 'NBA_SAR_ENGINEERING', metadata: { program_type: 'B.Tech' } }
+{ code: 'NBA_SAR_PHARMACY', metadata: { program_type: 'B.Pharm' } }
 ```
 
 ---
