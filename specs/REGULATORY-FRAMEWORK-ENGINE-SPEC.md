@@ -1962,7 +1962,7 @@ GROUP BY audit_type;
 >
 > **Spec completeness update (2026-02-23):** All 4 previously identified gaps have been addressed:
 > 1. ✅ Old NAAC 2022 — full 56-metric breakdown with KI groupings and data connector mappings
-> 2. ✅ NIRF discipline-specific — Engineering, Pharmacy (Cat A/B), Colleges, Dental with weight tables and formula variations
+> 2. ✅ NIRF discipline-specific — Engineering, Pharmacy (Cat A/B), Colleges, Dental, Medical/Nursing with weight tables and formula variations
 > 3. ✅ NBA SAR + AICTE + UGC-AISHE — criteria structures, data mappings, and engine configuration
 > 4. ✅ Report output formats — PDF/CSV/JSON specifications per regulatory body with generation architecture
 
