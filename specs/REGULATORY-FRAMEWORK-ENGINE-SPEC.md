@@ -225,6 +225,13 @@ Regulatory Compliance/
 │   │   └── Report         — Generate & download submission report
 │   └── + New Framework    — Config wizard for new framework
 ├── Submissions/           — Submission history with status tracking
+├── Governance/            — Governing bodies, meetings, syllabi, peer visits
+│   ├── Bodies             — IQAC, BoS, Academic Council composition
+│   ├── Meetings           — Minutes, resolutions, action items
+│   ├── Course Syllabi     — Syllabus completion, CO-PO mapping
+│   └── Peer Visits        — NAAC/NBA visit coordination
+├── Benchmarks/            — Peer institution comparison (manual data)
+├── Evidence Repository/   — Full-text search across all evidence documents
 ├── Data Sources/          — Data connector health check & status
 └── Settings/              — Year config, notification preferences
 ```
