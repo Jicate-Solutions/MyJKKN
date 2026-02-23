@@ -1073,7 +1073,7 @@ Ship with these frameworks pre-configured (seeded in migration):
 
 | Metric | KI | Type | Weight | Description | Data Source (MyJKKN) |
 |--------|-----|------|--------|-------------|---------------------|
-| 6.1.1 | 6.1 Vision & Leadership (15) | QlM | 15 | Governance aligned with vision/mission, decentralization, participation | DC-08: `okr_objectives` (partial) + Manual |
+| 6.1.1 | 6.1 Vision & Leadership (15) | QlM | 15 | Governance aligned with vision/mission, decentralization, participation | DC-10: `okr_objectives` (partial) + Manual |
 | 6.2.1 | 6.2 Strategy Development (12) | QlM | 8 | Effective institutional bodies, policies, strategic/perspective plan | Manual entry (qualitative) |
 | 6.2.2 | 6.2 | QnM | 4 | e-Governance: Admin, Finance, Admissions, Exams (A-E scale) | MyJKKN itself is evidence ✅ |
 | 6.3.1 | 6.3 Faculty Empowerment (33) | QlM | 6 | Welfare measures & performance appraisal system | DC-02: `staff` (welfare) + Manual |
