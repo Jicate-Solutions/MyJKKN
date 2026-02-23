@@ -141,13 +141,25 @@ export function useMeetings(
   const { profile, isLoading: authLoading } = useAuth()
   const { isSuperAdmin } = usePermissions()
 
+  const resolvedFilters = useMemo<MeetingFilters>(
+    () => ({ ...filters }),
+    [
+      filters.body_id,
+      filters.status,
+      filters.from_date,
+      filters.to_date,
+      filters.page,
+      filters.limit
+    ]
+  )
+
   return useQuery({
-    queryKey: governanceKeys.meetingsFor(filters),
-    queryFn: () => RegulatoryGovernanceService.getMeetings(filters),
+    queryKey: governanceKeys.meetingsFor(resolvedFilters),
+    queryFn: () => RegulatoryGovernanceService.getMeetings(resolvedFilters),
     enabled:
       !authLoading &&
       !!profile &&
-      !!filters.body_id &&
+      !!resolvedFilters.body_id &&
       (isSuperAdmin || !!profile?.institution_id),
     ...QUERY_CONFIG.SEMI_STABLE_DATA
   })
