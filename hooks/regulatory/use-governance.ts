@@ -211,7 +211,7 @@ export function useGoverningMeetings(
 
         let query = (supabase as any)
           .from('regulatory_meetings')
-          .select('*, governing_body:regulatory_governing_bodies(id, name)')
+          .select('*, body:regulatory_governing_bodies(id, name)')
 
         if (institutionId) {
           query = query.eq('institution_id', institutionId)
@@ -223,8 +223,8 @@ export function useGoverningMeetings(
 
         return (data || []).map((m: any) => ({
           ...m,
-          body_name: m.governing_body?.name || '',
-          body_id: m.governing_body?.id || m.governing_body_id
+          body_name: m.body?.name || '',
+          body_id: m.body?.id || m.body_id
         }))
       } catch (error) {
         console.error('[useGoverningMeetings] Error:', error)
