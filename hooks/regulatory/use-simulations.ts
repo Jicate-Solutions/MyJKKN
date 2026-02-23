@@ -154,6 +154,19 @@ export function useSimulationData(
         values = valData || []
       }
 
+      // Build a map of criteria_id -> aggregated numeric value from metric values
+      // This helps compute actual scores when criteria.score is not pre-populated
+      const criteriaScoreMap = new Map<string, number>()
+      if (metrics && values.length > 0) {
+        const metricToCriteria = new Map((metrics || []).map((m: any) => [m.id, m.criteria_id]))
+        for (const val of values) {
+          const critId = metricToCriteria.get(val.metric_id)
+          if (critId && val.numeric_value != null) {
+            criteriaScoreMap.set(critId, (criteriaScoreMap.get(critId) || 0) + val.numeric_value)
+          }
+        }
+      }
+
       // Build criteria with score data
       const enrichedCriteria = (criteria || []).map((c: any) => ({
         id: c.id,
@@ -161,7 +174,7 @@ export function useSimulationData(
         name: c.name,
         weight: c.weightage || c.weight || 0,
         max_score: c.max_score || 100,
-        current_score: c.score || 0,
+        current_score: c.score || criteriaScoreMap.get(c.id) || 0,
       }))
 
       return {
