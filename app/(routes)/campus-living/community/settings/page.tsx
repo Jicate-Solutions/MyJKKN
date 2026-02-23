@@ -39,14 +39,21 @@ export default function CommunitySettingsPage() {
     }
   }, [config])
 
+  // Clamp a number to a valid range (guards against NaN / 0 from cleared inputs)
+  function clamp(val: number, min: number, max: number) {
+    if (Number.isNaN(val) || val < min) return min
+    if (val > max) return max
+    return Math.floor(val)
+  }
+
   function handleSave() {
     updateConfig.mutate({
       show_lc_events: showEvents,
       show_lc_announcements: showAnnouncements,
       show_lc_polls: showPolls,
-      max_events_shown: maxEvents,
-      max_announcements_shown: maxAnnouncements,
-      max_polls_shown: maxPolls,
+      max_events_shown: clamp(maxEvents, 1, 50),
+      max_announcements_shown: clamp(maxAnnouncements, 1, 20),
+      max_polls_shown: clamp(maxPolls, 1, 10),
     })
   }
 
