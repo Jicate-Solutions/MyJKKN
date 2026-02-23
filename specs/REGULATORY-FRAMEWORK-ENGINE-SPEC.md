@@ -1564,7 +1564,7 @@ Same 10 criteria but with pharmacy-specific POs defined by Pharmacy Council of I
 | 6 | Placement Records | Placed students (company, package), higher education, self-employed | DC-04: `alumni_outcomes` ✅ |
 | 7 | Financial Information | Fee collected, salary expenditure, infra expenditure, audited statements | DC-21: `institutional_budgets`, DC-33: `financial_audits` |
 | 8 | Governance | Board of Governors, Academic Council, Faculty committees | Manual entry |
-| 9 | AICTE Compliance | Anti-ragging measures, grievance mechanisms, mandatory committees | DC-14, DC-15, `grievance_tickets` ✅ |
+| 9 | AICTE Compliance | Anti-ragging measures, grievance mechanisms, mandatory committees | DC-09: `grievance_tickets` ✅ |
 
 **Engine handling:** AICTE disclosure is primarily a data EXPORT — no scoring or grading. The engine generates a structured document from existing data connectors.
 
