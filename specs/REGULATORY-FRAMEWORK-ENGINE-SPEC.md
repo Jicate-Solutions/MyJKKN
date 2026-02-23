@@ -1380,16 +1380,23 @@ The Dr. Radhakrishnan Committee Report (Nov 2023) recommends:
 
 #### GO Sub-Parameter Variations by Discipline
 
-| Discipline | GUE (Exam Results) | GPHD (PhD Graduates) | GPH (Placements/Higher Studies) |
-|------------|-------------------|---------------------|-------------------------------|
-| Overall | 60 | 40 | — |
-| Engineering | 60 | 40 | — |
-| Pharmacy Cat A | 50 | 50 | — |
-| **Pharmacy Cat B** | **60** | — | **40** (Placements replace GPHD) |
-| **Colleges** | **40** | — | **60** (Placements/Higher Studies dominate) |
-| Dental | 60 | 40 | — |
+| Discipline | GUE (Exam Results) | GPHD (PhD Graduates) | GPH (Placements/Higher Studies) | GPROF (Professional Registration) |
+|------------|-------------------|---------------------|-------------------------------|----------------------------------|
+| Overall | 60 | 40 | — | — |
+| Engineering | 60 | 40 | — | — |
+| Pharmacy Cat A | 50 | 50 | — | — |
+| **Pharmacy Cat B** | **60** | — | **40** (replaces GPHD) | — |
+| **Colleges** | **60** | — | **40** (replaces GPHD) | — |
+| **Dental** | **50** | — | **30** | **20** (Dental Council registration) |
+| **Medical/Nursing** | **50** | — | **30** | **20** (Nursing/Medical Council registration) |
 
-> **CRITICAL for Engine:** Pharmacy Cat B and Colleges use GPH (Placements & Higher Studies) instead of GPHD (PhD Graduates). This is NOT a weight change — it's a completely different sub-parameter. The engine must handle this by allowing different sub-parameter lists per framework configuration.
+> **CRITICAL for Engine:** Four distinct GO structures exist:
+> 1. **Overall/Engineering:** GUE + GPHD (2 sub-params)
+> 2. **Pharmacy Cat A:** GUE + GPHD (2 sub-params, different weights)
+> 3. **Pharmacy Cat B / Colleges:** GUE + GPH — replaces GPHD entirely
+> 4. **Dental / Medical/Nursing:** GUE + GPH + GPROF (3 sub-params) — GPROF is unique to clinical programs requiring professional council registration
+>
+> The engine must support **different sub-parameter lists per framework**, not just different weights.
 
 #### RP Sub-Parameter Variations (Pharmacy)
 
