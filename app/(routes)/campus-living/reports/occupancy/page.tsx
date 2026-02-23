@@ -145,7 +145,7 @@ export default function OccupancyReportPage() {
                   {filteredBlocks.map((block) => (
                     <TableRow key={block.id}>
                       <TableCell className="font-medium">{block.name}</TableCell>
-                      <TableCell className="capitalize">{block.hostel_type?.replace('_', ' ') ?? '—'}</TableCell>
+                      <TableCell className="capitalize">{block.hostel_type?.replace(/_/g, ' ') ?? '—'}</TableCell>
                       <TableCell>{block.total_rooms}</TableCell>
                       <TableCell>{block.total_capacity}</TableCell>
                       <TableCell>{block.current_occupancy}</TableCell>
