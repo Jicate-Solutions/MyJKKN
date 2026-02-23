@@ -1012,7 +1012,7 @@ Ship with these frameworks pre-configured (seeded in migration):
 | 1.2.2 | 1.2 | QnM | 15 | % students enrolled in Certificate/Add-on/MOOC programs (5 years) | DC-12: `vac_enrollments`, DC-29 |
 | 1.3.1 | 1.3 Curriculum Enrichment (30) | QlM | 20 | Crosscutting issues: ethics, gender, environment, sustainability | Manual entry (qualitative) |
 | 1.3.2 | 1.3 | QnM | 10 | % students in project work/field work/internships | DC-01: `learners_profiles`, DC-08: `industry_partners` |
-| 1.4.1 | 1.4 Feedback System (20) | QnM | 20 | Stakeholder feedback: collected, analysed, action taken, published (A-E scale) | DC-11: `nps_surveys`, `nps_responses` |
+| 1.4.1 | 1.4 Feedback System (20) | QnM | 20 | Stakeholder feedback: collected, analysed, action taken, published (A-E scale) | DC-10: `nps_surveys`, `nps_responses` |
 
 #### Criterion II — Teaching-Learning & Evaluation (350 marks)
 
