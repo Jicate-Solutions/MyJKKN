@@ -62,10 +62,20 @@ export function useGoverningBodies(
   const resolvedInstitutionId =
     filters.institution_id ?? (isSuperAdmin ? undefined : profile?.institution_id)
 
-  const resolvedFilters: GoverningBodyFilters = {
-    ...filters,
-    institution_id: resolvedInstitutionId
-  }
+  const resolvedFilters = useMemo<GoverningBodyFilters>(
+    () => ({
+      ...filters,
+      institution_id: resolvedInstitutionId
+    }),
+    [
+      filters.institution_id,
+      filters.body_type,
+      filters.is_active,
+      filters.page,
+      filters.limit,
+      resolvedInstitutionId
+    ]
+  )
 
   return useQuery({
     queryKey: governanceKeys.bodiesFor(resolvedFilters),
