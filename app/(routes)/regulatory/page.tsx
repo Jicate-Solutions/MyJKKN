@@ -389,15 +389,15 @@ export default function RegulatoryDashboardPage() {
                               </span>
                             </div>
 
-                            {/* Completeness */}
+                            {/* Completeness — only shown if data is available (computed per-framework on detail page) */}
                             <div className="space-y-1.5">
                               <div className="flex items-center justify-between text-sm">
                                 <span className="text-muted-foreground">Completeness</span>
-                                <span className={`font-medium ${getCompletenessColor(fw.completeness_pct ?? 0)}`}>
-                                  {fw.completeness_pct ?? 0}%
+                                <span className="font-medium text-muted-foreground">
+                                  View details
                                 </span>
                               </div>
-                              <Progress value={fw.completeness_pct ?? 0} className="h-1.5" />
+                              <Progress value={0} className="h-1.5" />
                             </div>
 
                             {/* Score */}
