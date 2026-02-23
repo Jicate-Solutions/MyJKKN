@@ -24,3 +24,6 @@ export * from './use-peer-visits'
 
 // Syllabus management & CO-PO mapping
 export * from './use-syllabi'
+
+// Peer institution benchmarks (NAAC 6.5.3 peer comparison)
+export * from './use-benchmarks'
