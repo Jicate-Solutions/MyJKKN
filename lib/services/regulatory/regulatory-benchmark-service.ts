@@ -365,6 +365,10 @@ export class RegulatoryBenchmarkService {
     try {
       this.validateId(id, 'benchmark ID')
 
+      // Verify user is authenticated
+      const { data: { user } } = await this.getSupabase().auth.getUser()
+      if (!user) throw new Error('User not authenticated')
+
       const updatePayload: Record<string, any> = {
         updated_at: new Date().toISOString()
       }
