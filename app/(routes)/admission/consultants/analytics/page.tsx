@@ -359,6 +359,7 @@ export default function ConsultantAnalyticsPage() {
   const {
     data: dashboardStats,
     isLoading: statsLoading,
+    isFetching: statsFetching,
     refetch: refetchStats
   } = useQuery({
     queryKey: ['consultant-dashboard-stats', institutionId],
@@ -369,12 +370,19 @@ export default function ConsultantAnalyticsPage() {
   // Fetch liability report
   const {
     data: liabilityReport,
-    isLoading: liabilityLoading
+    isLoading: liabilityLoading,
+    isFetching: liabilityFetching,
+    refetch: refetchLiability
   } = useQuery({
     queryKey: ['consultant-liability-report', institutionId],
     queryFn: () => ConsultantService.getCommissionLiabilityReport(institutionId),
     enabled: isSuperAdmin || !!institutionId
   });
+
+  const handleRefresh = () => {
+    refetchStats();
+    refetchLiability();
+  };
 
   // Prepare chart data
   const tierChartData = useMemo(() => {
@@ -404,6 +412,7 @@ export default function ConsultantAnalyticsPage() {
   }, [liabilityReport]);
 
   const isLoading = statsLoading || liabilityLoading;
+  const isRefreshing = statsFetching || liabilityFetching;
 
   return (
     <PermissionGuard module="admission.consultants.analytics" action="view">
@@ -453,8 +462,8 @@ export default function ConsultantAnalyticsPage() {
                 <SelectItem value="1y">Last year</SelectItem>
               </SelectContent>
             </Select>
-            <Button variant="outline" size="icon" onClick={() => refetchStats()}>
-              <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+            <Button variant="outline" size="icon" onClick={handleRefresh} disabled={isRefreshing}>
+              <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
             </Button>
             <Button variant="outline">
               <Download className="h-4 w-4 mr-2" />
