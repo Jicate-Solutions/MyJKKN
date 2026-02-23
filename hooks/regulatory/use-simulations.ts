@@ -200,9 +200,9 @@ export function useSaveSimulation() {
       return await RegulatorySimulationService.createSimulation({
         framework_id: input.framework_id,
         institution_id: input.institution_id || profile?.institution_id || '',
-        title: input.name,
-        academic_year: input.academic_year || new Date().getFullYear().toString(),
-        overrides: Array.isArray(input.overrides) ? input.overrides : []
+        name: input.name,
+        base_academic_year: input.academic_year || new Date().getFullYear().toString(),
+        overrides: input.overrides && typeof input.overrides === 'object' ? input.overrides : {}
       })
     },
     onSuccess: (_data, variables) => {
