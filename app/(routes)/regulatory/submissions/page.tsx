@@ -162,7 +162,7 @@ export default function SubmissionsPage() {
     try {
       await createSubmissionMutation.mutateAsync({
         framework_id: newSubmissionFramework,
-        institution_id: institutionId,
+        institution_id: institutionId || profile?.institution_id || '',
         academic_year: newSubmissionYear,
       })
       toast.success('Submission created successfully')
