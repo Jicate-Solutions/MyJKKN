@@ -315,6 +315,10 @@ export class RegulatorySyllabusService {
     try {
       this.validateId(id, 'syllabus ID')
 
+      // Verify user is authenticated
+      const { data: { user } } = await this.getSupabase().auth.getUser()
+      if (!user) throw new Error('User not authenticated')
+
       if (typeof completedHours !== 'number' || completedHours < 0) {
         throw new Error(`Invalid completed hours: ${completedHours}. Must be a non-negative number.`)
       }
