@@ -1481,8 +1481,9 @@ regulatory_metrics (per criterion per framework):
 
 **GO:**
 - `GUE = f(pass_rate)` — 3-year average pass percentage
-- `GPHD = f(PhD_awarded / faculty)` — PhD graduates per eligible faculty
-- `GPH = f(placed_or_higher_ed / graduates)` — Placement + higher education rate (Cat B/Colleges only)
+- `GPHD = f(PhD_awarded / faculty)` — PhD graduates per eligible faculty (Overall/Engineering/Pharmacy Cat A)
+- `GPH = f(placed_or_higher_ed / graduates)` — Placement + higher education rate (Cat B/Colleges/Dental/Medical)
+- `GPROF = f(council_registered / graduates)` — Professional council registration rate (Dental/Medical only)
 
 **NEW in NIRF 2025:**
 - **Negative Marking:** Retracted publications deduct from PU and QP scores
