@@ -136,11 +136,10 @@ WHERE f.code = 'NAAC_2022_REVISED'
 ON CONFLICT (framework_id, code) DO NOTHING;
 
 -- Key Indicators (sub-criteria under each criterion)
+-- Uses a subquery to resolve parent_criteria_id via LATERAL join
 INSERT INTO regulatory_criteria (framework_id, parent_criteria_id, code, name, weight, max_score, sort_order, is_qualitative, evidence_required)
 SELECT f.id, pc.id, v.code, v.name, v.weight, v.max_score, v.sort_order, false, true
-FROM regulatory_frameworks f
-JOIN regulatory_criteria pc ON pc.framework_id = f.id AND pc.code = v.parent_code,
-(VALUES
+FROM (VALUES
   ('CR-I', 'KI-1.1', 'Curricular Planning & Implementation', 70, 70, 1),
   ('CR-I', 'KI-1.2', 'Academic Flexibility', 30, 30, 2),
   ('CR-I', 'KI-1.3', 'Curriculum Enrichment', 30, 30, 3),
@@ -174,6 +173,8 @@ JOIN regulatory_criteria pc ON pc.framework_id = f.id AND pc.code = v.parent_cod
   ('CR-VII', 'KI-7.2', 'Best Practices', 30, 30, 2),
   ('CR-VII', 'KI-7.3', 'Institutional Distinctiveness', 20, 20, 3)
 ) AS v(parent_code, code, name, weight, max_score, sort_order)
+CROSS JOIN regulatory_frameworks f
+JOIN regulatory_criteria pc ON pc.framework_id = f.id AND pc.code = v.parent_code
 WHERE f.code = 'NAAC_2022_REVISED'
 ON CONFLICT (framework_id, code) DO NOTHING;
 
