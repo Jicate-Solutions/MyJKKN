@@ -222,14 +222,14 @@ export function BodyList({ bodies, institutionId }: BodyListProps) {
                                 <div className="min-w-0">
                                   <div className="flex items-center gap-2">
                                     <p className="text-sm font-medium truncate">{member.name}</p>
-                                    {member.is_external && (
+                                    {(member.is_external || member.member_type === 'external') && (
                                       <Badge variant="outline" className="text-xs">
                                         External
                                       </Badge>
                                     )}
                                   </div>
                                   <div className="flex items-center gap-3 text-xs text-muted-foreground mt-0.5">
-                                    {member.role && <span>{member.role}</span>}
+                                    {(member.role || member.role_in_body) && <span>{member.role || member.role_in_body}</span>}
                                     {member.designation && <span>{member.designation}</span>}
                                   </div>
                                   <div className="flex items-center gap-3 text-xs text-muted-foreground mt-0.5">
@@ -244,6 +244,9 @@ export function BodyList({ bodies, institutionId }: BodyListProps) {
                                         <Phone className="h-3 w-3" />
                                         {member.phone}
                                       </span>
+                                    )}
+                                    {member.affiliation && !member.email && !member.phone && (
+                                      <span>{member.affiliation}</span>
                                     )}
                                   </div>
                                 </div>
