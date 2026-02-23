@@ -1172,9 +1172,9 @@ export type OkrObjectiveRegulatoryInsert = Partial<OkrObjectiveRegulatoryFields>
 /** Filters for querying regulatory frameworks */
 export interface RegulatoryFrameworkFilters {
   /** Filter by regulatory body: "NAAC", "NIRF", etc. */
-  body_name?: string
-  /** Filter by version year */
-  version_year?: string
+  body?: string
+  /** Filter by version */
+  version?: string
   /** Filter by lifecycle status */
   status?: FrameworkStatus
   /** Filter by institution type (university, autonomous_college, affiliated_college) */
