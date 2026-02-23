@@ -685,7 +685,7 @@ CREATE TABLE regulatory_criteria (
   max_score numeric,                                 -- max points for this criteria
   sort_order integer NOT NULL DEFAULT 0,
   is_qualitative boolean DEFAULT false,              -- some criteria are descriptive, not numeric
-  evidence_required boolean DEFAULT true,
+  evidence_required boolean DEFAULT true,             -- criteria-level: does this criteria require evidence? (cf. regulatory_metrics.requires_evidence for metric-level)
   guidance_notes text,                               -- NAAC DVV guidance, tips
   metadata jsonb DEFAULT '{}',
   created_at timestamptz DEFAULT now(),
