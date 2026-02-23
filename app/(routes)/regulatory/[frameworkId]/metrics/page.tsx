@@ -175,7 +175,7 @@ export default function MetricEntryPage() {
       })
       toast.success(`Refreshed ${metric.metric_code}`)
     } catch {
-      toast.error('Failed to refresh metric')
+      toast.error('Failed to refresh metric. Please try again.')
     }
   }
 
@@ -187,7 +187,7 @@ export default function MetricEntryPage() {
       })
       toast.success('All auto metrics refreshed')
     } catch {
-      toast.error('Failed to refresh auto metrics')
+      toast.error('Failed to refresh auto metrics. Please try again.')
     }
   }
 
