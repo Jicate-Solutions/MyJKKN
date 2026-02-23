@@ -2658,12 +2658,17 @@ export function GetPages(pathname: string): MenuGroup[] {
             {
               href: '/campus-living/allocations',
               label: 'Room Allocations',
-              active: pathname.startsWith('/campus-living/allocations')
+              active: pathname.startsWith('/campus-living/allocations') && !pathname.startsWith('/campus-living/allocations/onboarding')
             },
             {
               href: '/campus-living/allocations/roommate-matching',
               label: 'Roommate Matching',
               active: pathname === '/campus-living/allocations/roommate-matching'
+            },
+            {
+              href: '/campus-living/allocations/onboarding',
+              label: 'Onboarding',
+              active: pathname.startsWith('/campus-living/allocations/onboarding')
             }
           ]
         },
