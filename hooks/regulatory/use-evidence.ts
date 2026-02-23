@@ -169,7 +169,7 @@ export function useAddEvidenceVersion() {
       queryClient.invalidateQueries({ queryKey: evidenceKeys.lists() })
     },
     onError: (error: Error) => {
-      toast.error(error.message || 'Failed to upload new version')
+      toast.error(friendlyErrorMessage(error, 'Failed to upload new version'))
     }
   })
 }
