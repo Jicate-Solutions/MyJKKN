@@ -79,6 +79,7 @@ function parseAuthorsText(
 
 export default function NewPublicationPage() {
   const router = useRouter();
+  const { profile } = useAuth();
   const createPublication = useCreatePublication();
   const { data: solutionsData } = useSolutions({ limit: 100 });
   const solutions = solutionsData?.data || [];
