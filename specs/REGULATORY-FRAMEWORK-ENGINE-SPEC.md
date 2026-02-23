@@ -1463,6 +1463,7 @@ regulatory_frameworks:
   { code: 'NIRF_2025_COLLEGES', institution_type: null }
   { code: 'NIRF_2025_DENTAL', institution_type: null }
   { code: 'NIRF_2025_MEDICAL', institution_type: null }
+  -- Education excluded: estimated weights only, pending official NIRF framework publication
 
 regulatory_criteria (per framework):
   Same 5 parameters, different weights
