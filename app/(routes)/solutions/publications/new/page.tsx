@@ -103,6 +103,11 @@ export default function NewPublicationPage() {
       return;
     }
 
+    if (!profile?.id) {
+      toast.error('User profile not loaded. Please refresh and try again.');
+      return;
+    }
+
     try {
       await createPublication.mutateAsync({
         solution_id: form.solution_id,
@@ -115,7 +120,7 @@ export default function NewPublicationPage() {
         submission_date: form.submission_date || undefined,
         nirf_category: form.nirf_category || undefined,
         naac_criterion: form.naac_criterion || undefined,
-        created_by: profile?.id || '',
+        created_by: profile.id,
       });
 
       toast.success('Publication added successfully');
