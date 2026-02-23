@@ -254,6 +254,10 @@ export class RegulatorySyllabusService {
         this.validateId(data.bos_meeting_id, 'BOS meeting ID')
       }
 
+      // Verify user is authenticated
+      const { data: { user } } = await this.getSupabase().auth.getUser()
+      if (!user) throw new Error('User not authenticated')
+
       const upsertPayload: Record<string, any> = {
         institution_id: data.institution_id,
         department: data.department,
