@@ -1903,7 +1903,7 @@ export class ConsultantService {
     // Get consultant counts by status and tier
     let consultantsQuery = (supabase as any)
       .from('education_consultants')
-      .select('id, status, tier, consultant_type, total_leads_referred, total_conversions');
+      .select('id, name, code, status, tier, consultant_type, total_leads_referred, total_conversions');
     if (institutionId) consultantsQuery = consultantsQuery.eq('institution_id', institutionId);
     const { data: consultants } = await consultantsQuery;
 
@@ -1964,8 +1964,8 @@ export class ConsultantService {
       .slice(0, 5)
       .map((c) => ({
         consultant_id: c.id,
-        consultant_name: '', // Would need join
-        consultant_code: null,
+        consultant_name: c.name || '',
+        consultant_code: c.code || null,
         tier: c.tier as ConsultantPerformanceMetrics['tier'],
         total_leads: c.total_leads_referred || 0,
         leads_this_month: 0, // Would need calculation
