@@ -32,6 +32,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { useAuth } from '@/hooks/use-auth';
+import { usePermissions } from '@/hooks/use-permissions';
 import {
   BarChart3,
   Users,
@@ -349,7 +350,9 @@ function LiabilitySummary({
 
 export default function ConsultantAnalyticsPage() {
   const { profile } = useAuth();
-  const institutionId = profile?.institution_id;
+  const { isSuperAdmin } = usePermissions();
+  // super_admin has no institution_id but must see all data
+  const institutionId = isSuperAdmin ? undefined : profile?.institution_id;
   const [dateRange, setDateRange] = useState('30d');
 
   // Fetch dashboard stats
@@ -359,8 +362,8 @@ export default function ConsultantAnalyticsPage() {
     refetch: refetchStats
   } = useQuery({
     queryKey: ['consultant-dashboard-stats', institutionId],
-    queryFn: () => ConsultantService.getDashboardStats(institutionId!),
-    enabled: !!institutionId
+    queryFn: () => ConsultantService.getDashboardStats(institutionId),
+    enabled: isSuperAdmin || !!institutionId
   });
 
   // Fetch liability report
@@ -369,8 +372,8 @@ export default function ConsultantAnalyticsPage() {
     isLoading: liabilityLoading
   } = useQuery({
     queryKey: ['consultant-liability-report', institutionId],
-    queryFn: () => ConsultantService.getCommissionLiabilityReport(institutionId!),
-    enabled: !!institutionId
+    queryFn: () => ConsultantService.getCommissionLiabilityReport(institutionId),
+    enabled: isSuperAdmin || !!institutionId
   });
 
   // Prepare chart data

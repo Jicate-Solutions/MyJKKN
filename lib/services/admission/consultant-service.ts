@@ -2051,11 +2051,11 @@ export class ConsultantService {
    * Get commission liability report
    */
   static async getCommissionLiabilityReport(
-    institutionId: string
+    institutionId: string | undefined
   ): Promise<CommissionLiabilityReport> {
     const supabase = createClientSupabaseClient();
 
-    const { data: transactions } = await (supabase as any)
+    let liabilityQuery = (supabase as any)
       .from('consultant_commission_transactions')
       .select(
         `
@@ -2065,8 +2065,9 @@ export class ConsultantService {
         created_at
       `
       )
-      .eq('institution_id', institutionId)
       .in('status', ['pending', 'earned', 'approved']);
+    if (institutionId) liabilityQuery = liabilityQuery.eq('institution_id', institutionId);
+    const { data: transactions } = await liabilityQuery;
 
     // Aggregate by consultant
     const byConsultant: Record<
