@@ -109,7 +109,7 @@ export default function CommunityHubPage() {
                     <div className="mt-2">
                       <Badge variant="secondary" className="text-xs">
                         <Users className="h-3 w-3 mr-1" />
-                        {event.current_participants}
+                        {event.current_participants ?? 0}
                         {event.max_participants ? ` / ${event.max_participants}` : ''} joined
                       </Badge>
                     </div>
