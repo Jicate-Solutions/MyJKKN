@@ -50,7 +50,9 @@ export class RegulatoryFrameworkService {
    */
   private static sanitizeSearch(term: string): string {
     // Remove characters that could break PostgREST .or() filter parsing
-    return term.replace(/[,()]/g, ' ').trim()
+    // Strips: commas, parentheses, periods (PostgREST field separators),
+    // backslashes, and percent signs (ilike wildcards from user input)
+    return term.replace(/[,().\\%]/g, ' ').trim()
   }
 
   /**
