@@ -196,7 +196,7 @@ export default function FrameworkDetailPage() {
               </div>
               <p className="text-sm text-muted-foreground mt-1">
                 {framework.body}
-                {framework.version_year && ` | Version ${framework.version_year}`}
+                {framework.version && ` | Version ${framework.version}`}
                 {framework.cycle && ` | Cycle: ${framework.cycle}`}
               </p>
             </div>
