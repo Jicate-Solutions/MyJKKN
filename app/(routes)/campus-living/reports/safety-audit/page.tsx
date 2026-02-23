@@ -3,57 +3,47 @@
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
 import { Download, Printer, Shield, CheckCircle2, AlertTriangle, Loader2 } from 'lucide-react';
+import { useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
-import { useExportReport } from '@/hooks/campus-living/use-campus-living-reports';
+import { useSafetyAuditReport, useExportReport } from '@/hooks/campus-living/use-campus-living-reports';
 
 export default function SafetyAuditReportPage() {
+  const today = new Date().toISOString().split('T')[0];
+  const oneYearAgo = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+  const [dateFrom, setDateFrom] = useState(oneYearAgo);
+  const [dateTo, setDateTo] = useState(today);
   const { profile } = useAuth();
+  const institutionId = profile?.institution_id ?? '';
+  const { data: report, isLoading, isError } = useSafetyAuditReport(institutionId, dateFrom, dateTo);
   const exportReport = useExportReport();
-  const inspections = [
-    { name: 'Fire Safety Audit', date: '2026-01-10', agency: 'District Fire Dept', score: 95, findings: 2, critical: 0, resolved: 2 },
-    { name: 'Electrical Safety', date: '2025-11-20', agency: 'Internal Audit', score: 88, findings: 4, critical: 1, resolved: 4 },
-    { name: 'Kitchen / FSSAI', date: '2025-12-15', agency: 'FSSAI Inspector', score: 91, findings: 3, critical: 0, resolved: 3 },
-    { name: 'Water Quality', date: '2025-10-05', agency: 'External Lab', score: 96, findings: 1, critical: 0, resolved: 1 },
-    { name: 'Structural Safety', date: '2025-08-10', agency: 'Structural Engineer', score: 93, findings: 2, critical: 0, resolved: 2 },
-  ];
 
-  const incidents = [
-    { type: 'Fire / Fire Alarm', count: 2, critical: 0, resolved: 2 },
-    { type: 'Medical', count: 5, critical: 1, resolved: 5 },
-    { type: 'Theft', count: 3, critical: 0, resolved: 2 },
-    { type: 'Ragging', count: 1, critical: 1, resolved: 1 },
-    { type: 'Security Breach', count: 2, critical: 0, resolved: 1 },
-  ];
-
-  const overallScore = Math.round(inspections.reduce((sum, i) => sum + i.score, 0) / inspections.length);
+  const incidents = report?.incidents;
+  const inspections = report?.inspections;
+  const safetyMaintenance = report?.safety_maintenance;
 
   return (
     <ContentLayout title="Safety Audit Report">
       <div className="space-y-6">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div>
-            <h1 className="text-2xl font-bold">Annual Safety Audit Report</h1>
-            <p className="text-muted-foreground">Comprehensive safety audit for academic year 2025-26</p>
+            <h1 className="text-2xl font-bold">Safety Audit Report</h1>
+            <p className="text-muted-foreground">Incidents, inspections, and safety maintenance summary</p>
           </div>
           <div className="flex gap-2">
-            <Button variant="outline"><Printer className="mr-2 h-4 w-4" />Print</Button>
+            <Button variant="outline" onClick={() => window.print()}>
+              <Printer className="mr-2 h-4 w-4" />Print
+            </Button>
             <Button
               variant="outline"
               disabled={exportReport.isPending}
               onClick={() => exportReport.mutate({
-                institutionId: profile?.institution_id ?? '',
+                institutionId,
                 reportType: 'safety',
                 format: 'json',
+                filters: { dateFrom, dateTo },
               })}
             >
               {exportReport.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
@@ -62,105 +52,184 @@ export default function SafetyAuditReportPage() {
           </div>
         </div>
 
-        {/* Overall Score */}
-        <div className="grid gap-4 grid-cols-2 sm:grid-cols-4">
-          <Card>
-            <CardContent className="p-4 text-center">
-              <p className="text-sm text-muted-foreground">Overall Safety Score</p>
-              <p className={`text-3xl font-bold ${overallScore >= 90 ? 'text-green-600' : 'text-yellow-600'}`}>{overallScore}%</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4 text-center">
-              <p className="text-sm text-muted-foreground">Inspections Completed</p>
-              <p className="text-3xl font-bold">{inspections.length}</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4 text-center">
-              <p className="text-sm text-muted-foreground">Total Incidents</p>
-              <p className="text-3xl font-bold">{incidents.reduce((sum, i) => sum + i.count, 0)}</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4 text-center">
-              <p className="text-sm text-muted-foreground">Incident Resolution</p>
-              <p className="text-3xl font-bold text-green-600">
-                {Math.round((incidents.reduce((sum, i) => sum + i.resolved, 0) / incidents.reduce((sum, i) => sum + i.count, 0)) * 100)}%
-              </p>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Inspections */}
+        {/* Date Range Filter */}
         <Card>
-          <CardHeader><CardTitle className="flex items-center gap-2"><Shield className="h-5 w-5" />Inspection Results</CardTitle></CardHeader>
-          <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Inspection</TableHead>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Agency</TableHead>
-                  <TableHead>Score</TableHead>
-                  <TableHead>Findings</TableHead>
-                  <TableHead>Critical</TableHead>
-                  <TableHead>Resolved</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {inspections.map((insp) => (
-                  <TableRow key={insp.name}>
-                    <TableCell className="font-medium">{insp.name}</TableCell>
-                    <TableCell>{insp.date}</TableCell>
-                    <TableCell className="text-sm">{insp.agency}</TableCell>
-                    <TableCell>
-                      <Badge className={insp.score >= 90 ? 'bg-green-100 text-green-800 hover:bg-green-100' : 'bg-yellow-100 text-yellow-800 hover:bg-yellow-100'}>
-                        {insp.score}%
-                      </Badge>
-                    </TableCell>
-                    <TableCell>{insp.findings}</TableCell>
-                    <TableCell>{insp.critical > 0 ? <span className="text-red-600 font-medium">{insp.critical}</span> : '0'}</TableCell>
-                    <TableCell><CheckCircle2 className="h-4 w-4 text-green-600 inline" /> {insp.resolved}/{insp.findings}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+          <CardContent className="p-4">
+            <div className="flex flex-wrap items-center gap-4">
+              <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="w-[180px]" />
+              <span className="text-muted-foreground">to</span>
+              <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="w-[180px]" />
+            </div>
           </CardContent>
         </Card>
 
-        {/* Incident Summary */}
-        <Card>
-          <CardHeader><CardTitle className="flex items-center gap-2"><AlertTriangle className="h-5 w-5" />Incident Summary</CardTitle></CardHeader>
-          <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Incident Type</TableHead>
-                  <TableHead>Total</TableHead>
-                  <TableHead>Critical</TableHead>
-                  <TableHead>Resolved</TableHead>
-                  <TableHead>Resolution Rate</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {incidents.map((inc) => (
-                  <TableRow key={inc.type}>
-                    <TableCell className="font-medium">{inc.type}</TableCell>
-                    <TableCell>{inc.count}</TableCell>
-                    <TableCell>{inc.critical > 0 ? <Badge className="bg-red-100 text-red-800 hover:bg-red-100">{inc.critical}</Badge> : '0'}</TableCell>
-                    <TableCell>{inc.resolved}</TableCell>
-                    <TableCell>
-                      <Badge className={Math.round((inc.resolved / inc.count) * 100) === 100 ? 'bg-green-100 text-green-800 hover:bg-green-100' : 'bg-yellow-100 text-yellow-800 hover:bg-yellow-100'}>
-                        {Math.round((inc.resolved / inc.count) * 100)}%
-                      </Badge>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
+        {isLoading && (
+          <div className="flex items-center justify-center py-16">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          </div>
+        )}
+
+        {isError && (
+          <div className="flex flex-col items-center justify-center py-16 gap-2">
+            <AlertTriangle className="h-8 w-8 text-muted-foreground" />
+            <p className="text-muted-foreground">Failed to load safety audit data.</p>
+          </div>
+        )}
+
+        {!isLoading && !isError && report && (
+          <>
+            {/* Overall Summary */}
+            <div className="grid gap-4 grid-cols-2 sm:grid-cols-4">
+              <Card>
+                <CardContent className="p-4 text-center">
+                  <p className="text-sm text-muted-foreground">Avg Inspection Score</p>
+                  <p className={`text-3xl font-bold ${(inspections?.average_score ?? 0) >= 90 ? 'text-green-600' : 'text-yellow-600'}`}>
+                    {inspections?.average_score ?? 0}%
+                  </p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-4 text-center">
+                  <p className="text-sm text-muted-foreground">Inspections</p>
+                  <p className="text-3xl font-bold">{inspections?.total ?? 0}</p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-4 text-center">
+                  <p className="text-sm text-muted-foreground">Total Incidents</p>
+                  <p className="text-3xl font-bold">{incidents?.total ?? 0}</p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-4 text-center">
+                  <p className="text-sm text-muted-foreground">Incident Resolution</p>
+                  <p className="text-3xl font-bold text-green-600">
+                    {(incidents?.total ?? 0) > 0
+                      ? Math.round(((incidents?.resolved ?? 0) / incidents!.total) * 100)
+                      : 0}%
+                  </p>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Incidents by Severity */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <AlertTriangle className="h-5 w-5" />
+                  Incidents by Severity
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                  <div className="p-3 bg-red-50 dark:bg-red-950 rounded-lg text-center">
+                    <p className="text-xs text-muted-foreground">Critical</p>
+                    <p className="text-xl font-bold text-red-600">{incidents?.by_severity?.critical ?? 0}</p>
+                  </div>
+                  <div className="p-3 bg-orange-50 dark:bg-orange-950 rounded-lg text-center">
+                    <p className="text-xs text-muted-foreground">Major</p>
+                    <p className="text-xl font-bold text-orange-600">{incidents?.by_severity?.major ?? 0}</p>
+                  </div>
+                  <div className="p-3 bg-yellow-50 dark:bg-yellow-950 rounded-lg text-center">
+                    <p className="text-xs text-muted-foreground">Moderate</p>
+                    <p className="text-xl font-bold text-yellow-600">{incidents?.by_severity?.moderate ?? 0}</p>
+                  </div>
+                  <div className="p-3 bg-blue-50 dark:bg-blue-950 rounded-lg text-center">
+                    <p className="text-xs text-muted-foreground">Minor</p>
+                    <p className="text-xl font-bold text-blue-600">{incidents?.by_severity?.minor ?? 0}</p>
+                  </div>
+                </div>
+
+                {/* By Type */}
+                {incidents?.by_type && Object.keys(incidents.by_type).length > 0 && (
+                  <div className="mt-4">
+                    <p className="text-sm font-medium mb-2">By Type</p>
+                    <div className="flex flex-wrap gap-2">
+                      {Object.entries(incidents.by_type).map(([type, count]) => (
+                        <Badge key={type} variant="outline" className="capitalize">
+                          {type.replace(/_/g, ' ')}: {count as number}
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="mt-4 flex gap-4">
+                  <Badge className="bg-green-100 text-green-800 hover:bg-green-100">
+                    <CheckCircle2 className="mr-1 h-3 w-3" /> Resolved: {incidents?.resolved ?? 0}
+                  </Badge>
+                  <Badge className="bg-yellow-100 text-yellow-800 hover:bg-yellow-100">
+                    Open: {incidents?.open ?? 0}
+                  </Badge>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Inspections Summary */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Shield className="h-5 w-5" />
+                  Inspections Summary
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                  <div className="p-3 bg-muted/50 rounded-lg text-center">
+                    <p className="text-xs text-muted-foreground">Total Inspections</p>
+                    <p className="text-xl font-bold">{inspections?.total ?? 0}</p>
+                  </div>
+                  <div className="p-3 bg-muted/50 rounded-lg text-center">
+                    <p className="text-xs text-muted-foreground">Avg Score</p>
+                    <p className="text-xl font-bold">{inspections?.average_score ?? 0}%</p>
+                  </div>
+                  <div className="p-3 bg-muted/50 rounded-lg text-center">
+                    <p className="text-xs text-muted-foreground">Pending Follow-ups</p>
+                    <p className="text-xl font-bold text-yellow-600">{inspections?.pending_follow_ups ?? 0}</p>
+                  </div>
+                </div>
+
+                {inspections?.by_type && Object.keys(inspections.by_type).length > 0 && (
+                  <div className="mt-4">
+                    <p className="text-sm font-medium mb-2">By Inspection Type</p>
+                    <div className="flex flex-wrap gap-2">
+                      {Object.entries(inspections.by_type).map(([type, count]) => (
+                        <Badge key={type} variant="outline" className="capitalize">
+                          {type.replace(/_/g, ' ')}: {count as number}
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Safety Maintenance */}
+            {safetyMaintenance && (safetyMaintenance.total > 0) && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Safety-Related Maintenance</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-3 gap-4">
+                    <div className="p-3 bg-muted/50 rounded-lg text-center">
+                      <p className="text-xs text-muted-foreground">Total Requests</p>
+                      <p className="text-xl font-bold">{safetyMaintenance.total}</p>
+                    </div>
+                    <div className="p-3 bg-muted/50 rounded-lg text-center">
+                      <p className="text-xs text-muted-foreground">Resolved</p>
+                      <p className="text-xl font-bold text-green-600">{safetyMaintenance.resolved}</p>
+                    </div>
+                    <div className="p-3 bg-muted/50 rounded-lg text-center">
+                      <p className="text-xs text-muted-foreground">Pending</p>
+                      <p className="text-xl font-bold text-yellow-600">{safetyMaintenance.pending}</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </>
+        )}
       </div>
     </ContentLayout>
   );
