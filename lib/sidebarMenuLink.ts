@@ -2812,6 +2812,13 @@ export function GetPages(pathname: string): MenuGroup[] {
           ]
         },
         {
+          href: '/campus-living/health',
+          label: 'Health Cases',
+          active: pathname.startsWith('/campus-living/health'),
+          icon: Stethoscope,
+          submenus: []
+        },
+        {
           href: '/campus-living/safety',
           label: 'Safety & Compliance',
           active: pathname.startsWith('/campus-living/safety'),
