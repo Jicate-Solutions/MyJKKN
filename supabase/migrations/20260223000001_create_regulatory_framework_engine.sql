@@ -511,6 +511,12 @@ CREATE POLICY "evidence_update" ON regulatory_evidence FOR UPDATE
       OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'))
     AND EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN
       ('super_admin','institution_admin','iqac_coordinator'))
+  )
+  WITH CHECK (
+    (institution_id = auth_institution_id()
+      OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'))
+    AND EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN
+      ('super_admin','institution_admin','iqac_coordinator'))
   );
 -- No DELETE policy — use soft-delete (UPDATE is_deleted = true) instead
 
