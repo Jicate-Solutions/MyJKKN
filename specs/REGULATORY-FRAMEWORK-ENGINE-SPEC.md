@@ -1566,7 +1566,7 @@ The engine stores these as a separate framework:
 | 2 | Programme Information | Approved intake, courses offered, fee structure | `programs`, `billing_student_bills` |
 | 3 | Faculty Information | Name, qualification, designation, experience, pay scale, photo | DC-02: `staff`, DC-16: `staff_qualifications` (**NOTE:** `staff` table may need `pay_scale` column for AICTE) |
 | 4 | Student Information | Enrollment (gender/category-wise), lateral entry, NRI/foreign students | DC-01: `learners_profiles` |
-| 5 | Infrastructure | Land area, built-up area, classrooms, labs, library, hostel, sports | DC-20: `resources`, DC-28 |
+| 5 | Infrastructure | Land area, built-up area, classrooms, labs, library, hostel, sports | DC-14: `resources`, DC-20: `library_holdings`, DC-28: `ict_infrastructure` |
 | 6 | Placement Records | Placed students (company, package), higher education, self-employed | DC-04: `alumni_outcomes` ✅ |
 | 7 | Financial Information | Fee collected, salary expenditure, infra expenditure, audited statements | DC-21: `institutional_budgets`, DC-33: `financial_audits` |
 | 8 | Governance | Board of Governors, Academic Council, Faculty committees | Manual entry |
