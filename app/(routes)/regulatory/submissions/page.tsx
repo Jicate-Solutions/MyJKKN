@@ -284,7 +284,10 @@ export default function SubmissionsPage() {
                 className={`cursor-pointer transition-colors ${
                   statusFilter === status ? 'border-primary' : 'hover:border-primary/50'
                 }`}
+                role="button"
+                tabIndex={0}
                 onClick={() => setStatusFilter(statusFilter === status ? 'all' : status)}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setStatusFilter(statusFilter === status ? 'all' : status) } }}
               >
                 <CardContent className="pt-4 pb-4">
                   <div className="flex items-center gap-3">
