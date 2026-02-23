@@ -1572,3 +1572,124 @@ export interface ManagementSummaryKPIs {
   active_health_cases: number;
   expiring_contracts: number;
 }
+
+// ===================================================================
+// PHASE 4: INTEGRATION LAYER — Activity Hub, Calendar, Community Bridge
+// ===================================================================
+
+// ── Activity Hub Types ────────────────────────────────────────────────
+
+export const ACTIVITY_TYPE = {
+  MAINTENANCE: 'maintenance',
+  LEAVE: 'leave',
+  INCIDENT: 'incident',
+  HEALTH: 'health',
+  PM_TASK: 'pm_task',
+  CLEANING: 'cleaning',
+  LAUNDRY: 'laundry',
+  ONBOARDING: 'onboarding',
+} as const;
+export type ActivityType = (typeof ACTIVITY_TYPE)[keyof typeof ACTIVITY_TYPE];
+
+export interface ActivityItem {
+  id: string;
+  type: ActivityType;
+  title: string;
+  description: string;
+  timestamp: string;
+  status: string;
+  link: string;
+  block_name?: string;
+  icon_color?: string;
+}
+
+export interface ActivityFilters {
+  activity_type?: ActivityType;
+  block_id?: string;
+  date_from?: string;
+  date_to?: string;
+  limit?: number;
+  offset?: number;
+}
+
+// ── Resident Calendar Types ───────────────────────────────────────────
+
+export const CALENDAR_EVENT_TYPE = {
+  PM_TASK: 'pm_task',
+  CLEANING: 'cleaning',
+  LEAVE: 'leave',
+  LC_EVENT: 'lc_event',
+} as const;
+export type CalendarEventType = (typeof CALENDAR_EVENT_TYPE)[keyof typeof CALENDAR_EVENT_TYPE];
+
+export interface CalendarEvent {
+  id: string;
+  type: CalendarEventType;
+  title: string;
+  date: string;
+  end_date?: string;
+  color: string;
+  link: string;
+}
+
+export interface CalendarFilters {
+  month: number;
+  year: number;
+  layers?: CalendarEventType[];
+}
+
+// ── Community Bridge Types ────────────────────────────────────────────
+
+export interface HostelCommunityConfig {
+  id: string;
+  institution_id: string;
+  show_lc_events: boolean;
+  show_lc_announcements: boolean;
+  show_lc_polls: boolean;
+  event_scope_filter: string[];
+  max_events_shown: number;
+  max_announcements_shown: number;
+  max_polls_shown: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface UpdateCommunityConfigDTO {
+  show_lc_events?: boolean;
+  show_lc_announcements?: boolean;
+  show_lc_polls?: boolean;
+  event_scope_filter?: string[];
+  max_events_shown?: number;
+  max_announcements_shown?: number;
+  max_polls_shown?: number;
+}
+
+export interface CommunityFeed {
+  events: Array<{
+    id: string;
+    title: string;
+    description: string;
+    starts_at: string;
+    ends_at: string;
+    venue_name: string | null;
+    current_participants: number;
+    max_participants: number | null;
+    status: string;
+  }>;
+  announcements: Array<{
+    id: string;
+    title: string;
+    content: string;
+    type: string;
+    urgency: string;
+    published_at: string | null;
+  }>;
+  polls: Array<{
+    id: string;
+    title: string;
+    description: string | null;
+    ends_at: string;
+    total_votes: number;
+    status: string;
+  }>;
+}
