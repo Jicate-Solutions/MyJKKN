@@ -650,7 +650,11 @@ export class BillingReportService {
       query = query.lte('receipt_date', dateTo);
     }
 
-    const { count } = await query;
+    const { count, error } = await query;
+    if (error) {
+      console.error('[billing/reports] Error in getTotalReceipts:', error.message);
+      throw error;
+    }
     return count || 0;
   }
 
