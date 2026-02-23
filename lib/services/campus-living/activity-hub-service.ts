@@ -217,7 +217,7 @@ export class ActivityHubService {
           description: `Due: ${r.due_date} | Status: ${r.status}`,
           timestamp: r.due_date,
           status: r.status,
-          link: '/campus-living/maintenance/pm-tasks',
+          link: '/campus-living/maintenance/preventive/tasks',
           block_name: r.hostel_blocks?.name ?? undefined,
           icon_color: ICON_COLORS.pm_task,
         }))
