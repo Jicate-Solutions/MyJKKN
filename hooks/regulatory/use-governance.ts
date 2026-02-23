@@ -120,12 +120,10 @@ export function useUpdateGoverningBody() {
       const { id, ...data } = input
       return await RegulatoryGovernanceService.updateGoverningBody(id, data)
     },
-    onSuccess: (data) => {
+    onSuccess: () => {
       toast.success('Governing body updated')
-      queryClient.invalidateQueries({ queryKey: governanceKeys.bodies() })
-      queryClient.invalidateQueries({
-        queryKey: governanceKeys.bodyDetail(data.id)
-      })
+      // Invalidate all governance queries (bodies + meetings may reference body data)
+      queryClient.invalidateQueries({ queryKey: governanceKeys.all })
     },
     onError: (error: Error) => {
       toast.error(error.message || 'Failed to update governing body')
