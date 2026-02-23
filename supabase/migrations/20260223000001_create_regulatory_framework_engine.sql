@@ -775,6 +775,18 @@ CREATE POLICY "benchmarks_delete" ON regulatory_peer_benchmarks FOR DELETE
 -- INDEXES
 -- ═══════════════════════════════════════════════
 
+-- FIX: Partial unique index to prevent duplicate (body, version) when institution_type IS NULL
+-- PostgreSQL treats NULL != NULL in UNIQUE constraints, so the table-level UNIQUE allows
+-- multiple rows with (same institution_id, body, version, NULL). This partial index closes the gap.
+CREATE UNIQUE INDEX idx_reg_frameworks_universal
+  ON regulatory_frameworks (institution_id, body, version) WHERE institution_type IS NULL;
+
+-- FIX: Missing indexes on regulatory_frameworks for common query filters
+-- Service queries filter on: institution_id, body, status, framework_type, code
+CREATE INDEX idx_reg_frameworks_body_status ON regulatory_frameworks(body, status);
+CREATE INDEX idx_reg_frameworks_inst ON regulatory_frameworks(institution_id) WHERE institution_id IS NOT NULL;
+CREATE INDEX idx_reg_frameworks_type ON regulatory_frameworks(framework_type);
+
 CREATE INDEX idx_reg_criteria_framework ON regulatory_criteria(framework_id);
 CREATE INDEX idx_reg_criteria_parent ON regulatory_criteria(parent_criteria_id);
 CREATE INDEX idx_reg_metrics_criteria ON regulatory_metrics(criteria_id);
