@@ -1159,8 +1159,8 @@ The `regulatory_frameworks` table now has `institution_type` column. Seed 3 vari
 |---|-----------|-----|------|-------|---------|------------------------|
 | 1 | Curriculum | 75 | 75 | 50 | 8 | DC-01, DC-27, DC-29, DC-30 |
 | 2 | Faculty Resources | 50 | 50 | 100 | 3 | DC-02, DC-16 |
-| 3 | Infrastructure | 50 | 50 | 75 | 6 | DC-20, DC-28, DC-26 |
-| 4 | Financial Resources & Management | 50 | 50 | 50 | 4 | DC-21 |
+| 3 | Infrastructure | 50 | 50 | 75 | 6 | DC-14, DC-20, DC-28, DC-26 |
+| 4 | Financial Resources & Management | 50 | 50 | 50 | 4 | DC-21, DC-33 |
 | 5 | Learning & Teaching | 125 | 150 | 150 | 7 | DC-01, DC-05, DC-29 |
 | 6 | Extended Curricular Engagements | 100 | 125 | 125 | 6 | DC-25 (new: `student_activities`) |
 | 7 | Governance & Administration | 100 | 100 | 125 | 10 | DC-08, DC-24, DC-26 |
