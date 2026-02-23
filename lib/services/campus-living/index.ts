@@ -31,6 +31,7 @@ export { AntiRaggingService } from './anti-ragging-service';
 export { InspectionService } from './inspection-service';
 export { PmScheduleService } from './pm-schedule-service';
 export { HostelAlertService } from './hostel-alert-service';
+export { OnboardingService } from './onboarding-service';
 
 // ── Cross-Domain ────────────────────────────────────────────────────
 export { CampusLivingAnalytics } from './campus-living-analytics';
