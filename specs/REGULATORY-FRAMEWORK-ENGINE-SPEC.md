@@ -906,7 +906,7 @@ CREATE INDEX idx_reg_simulations_framework ON regulatory_simulations(framework_i
 Week 1: Database & Core API
 ├── Day 1-2: Apply migration (9 new tables + RLS + indexes)
 ├── Day 3-4: CRUD hooks for frameworks, criteria, metrics
-├── Day 5: Seed frameworks: NAAC 2022 (7 criteria, 56 metrics), NIRF Overall + 5 discipline variants, NAAC Binary × 3 institution types
+├── Day 5: Seed frameworks: NAAC 2022 (7 criteria, 56 metrics), NIRF Overall + 6 discipline variants, NAAC Binary × 3 institution types
 
 Week 2: Data Connectors
 ├── Day 1-2: Build DC-01 through DC-05 (enrollment, faculty, publications, placement, admissions)
