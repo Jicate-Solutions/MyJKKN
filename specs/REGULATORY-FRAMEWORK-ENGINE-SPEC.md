@@ -1339,6 +1339,359 @@ The Dr. Radhakrishnan Committee Report (Nov 2023) recommends:
 
 ---
 
+### NIRF 2025 Discipline-Specific Rankings
+
+> **Source:** Official NIRF 2025 Framework PDFs + `/Users/omm/Vaults/JKKNKB/NIRF/` vault strategy documents
+> **Key Principle:** All discipline categories share the same 5 parameters (TLR, RP, GO, OI, PR) but with **different weights and sub-parameter marks**. The engine stores weights per `regulatory_framework` row, so each discipline = a separate framework configuration.
+
+#### Discipline Weight Comparison
+
+| Discipline | TLR | RP | GO | OI | PR | JKKN Institution |
+|------------|-----|-----|-----|-----|-----|-----------------|
+| **Overall** | 0.30 | 0.30 | 0.20 | 0.10 | 0.10 | All (if ≥1000 students) |
+| **Engineering** | 0.30 | 0.30 | 0.20 | 0.10 | 0.10 | JKKN College of Engineering & Technology |
+| **Pharmacy Cat A** (Research) | 0.30 | 0.30 | 0.15 | 0.15 | 0.10 | JKKN College of Pharmacy (if PhD programs) |
+| **Pharmacy Cat B** (Teaching) | 0.30 | 0.20 | 0.25 | 0.15 | 0.10 | JKKN College of Pharmacy (if no PhD) |
+| **Colleges** (Arts & Science) | 0.30 | 0.15 | 0.25 | 0.20 | 0.10 | JKKN College of Arts & Science |
+| **Dental** | 0.35 | 0.30 | 0.20 | 0.10 | 0.10 | JKKN Dental College and Hospital |
+| **Medical/Nursing** | 0.30 | 0.30 | 0.20 | 0.10 | 0.10 | JKKN College of Nursing / Allied Health Sciences |
+
+#### TLR Sub-Parameter Variations by Discipline
+
+| Sub-Parameter | Overall | Engineering | Pharmacy | Colleges | Dental |
+|---------------|---------|-------------|----------|----------|--------|
+| SS (Student Strength) | 20 | 20 | 20 | 20 | 20 |
+| FSR (Faculty-Student Ratio) | 25 | **30** | **30** | 25 | **30** |
+| FQE (Faculty Quality & Exp) | 20 | 20 | 20 | 20 | 20 |
+| FRU (Financial Resources) | 20 | **30** | **30** | 20 | **30** |
+| OE (Online Education) | 10 | *NEW* | *NEW* | 10 | *NEW* |
+| MIRS (NEP 2020) | 5 | *NEW* | *NEW* | 5 | *NEW* |
+
+> Engineering, Pharmacy, and Dental allocate more marks to FSR (30) and FRU (30) vs Overall (25, 20). This reflects higher infrastructure requirements for technical/clinical programs.
+
+#### GO Sub-Parameter Variations by Discipline
+
+| Discipline | GUE (Exam Results) | GPHD (PhD Graduates) | GPH (Placements/Higher Studies) |
+|------------|-------------------|---------------------|-------------------------------|
+| Overall | 60 | 40 | — |
+| Engineering | 60 | 40 | — |
+| Pharmacy Cat A | 50 | 50 | — |
+| **Pharmacy Cat B** | **60** | — | **40** (Placements replace GPHD) |
+| **Colleges** | **40** | — | **60** (Placements/Higher Studies dominate) |
+| Dental | 60 | 40 | — |
+
+> **CRITICAL for Engine:** Pharmacy Cat B and Colleges use GPH (Placements & Higher Studies) instead of GPHD (PhD Graduates). This is NOT a weight change — it's a completely different sub-parameter. The engine must handle this by allowing different sub-parameter lists per framework configuration.
+
+#### RP Sub-Parameter Variations (Pharmacy)
+
+| Sub-Parameter | Cat A (Research) | Cat B (Teaching) |
+|---------------|-----------------|-----------------|
+| PU (Publications) | 35 | **30** |
+| QP (Quality of Publications) | **35** | **30** |
+| IPR (Patents) | 15 | **20** |
+| FPPP (Funded Projects) | **15** | **20** |
+
+> Cat B de-emphasizes publication quality and bumps up patents/projects — reflecting practical orientation.
+
+#### OI Sub-Parameter Variations
+
+| Sub-Parameter | Overall/Engg | Pharmacy/Dental | Colleges |
+|---------------|-------------|-----------------|----------|
+| RD (Regional Diversity) | 30 | **25** | **25** |
+| WD (Women Diversity) | 30 | **25** | **25** |
+| ESCS (Economically Challenged) | 20 | **25** | **25** |
+| PCS (Physically Challenged) | 20 | **25** | **25** |
+
+> Pharmacy, Dental, and Colleges have equal distribution (25 each) vs Overall/Engineering's unequal split.
+
+#### Data Connector Mapping per Discipline
+
+All NIRF disciplines share the same data connectors since the underlying data sources are identical. The difference is purely in weights and sub-parameter selection. The engine handles this by:
+
+```
+regulatory_frameworks:
+  { code: 'NIRF_2025_OVERALL', institution_type: null }
+  { code: 'NIRF_2025_ENGINEERING', institution_type: null }
+  { code: 'NIRF_2025_PHARMACY_A', institution_type: null }
+  { code: 'NIRF_2025_PHARMACY_B', institution_type: null }
+  { code: 'NIRF_2025_COLLEGES', institution_type: null }
+  { code: 'NIRF_2025_DENTAL', institution_type: null }
+
+regulatory_criteria (per framework):
+  Same 5 parameters, different weights
+
+regulatory_metrics (per criterion per framework):
+  Same sub-parameter codes but different max_score values
+  Pharmacy Cat B: GPHD replaced by GPH (different metric entirely)
+  Colleges: GPHD replaced by GPH
+```
+
+#### Key Formulas (Common to All NIRF Disciplines)
+
+**TLR:**
+- `SS = f(NT, NE) × 15 + f(NP) × 5` — Student Strength including doctoral students
+- `FSR = f(F/N)` — Target 1:15 for max marks (1:20 for State Public Universities)
+- `FQE = FQ + FE` — FQ from PhD % (10 marks), FE from experience distribution (10 marks)
+- `FRU = 7.5×f(BC) + 22.5×f(BO)` — Capital + Operational expenditure per student (3-year avg)
+
+**RP:**
+- `PU = 35 × f(P/FRQ) - 5 × f(Pret)` — Publications per faculty, minus retraction penalty
+- `QP = {20 × f(CC/FRQ) + 20 × f(TOP25P/P)} - 5 × f(Cret)` — Citations + quality, minus retraction
+- `IPR = 10×f(PG) + 5×f(PP)` — Patents granted + published
+- `PSDGs` — NEW: SDG-aligned publications (bonus, marks TBD)
+
+**GO:**
+- `GUE = f(pass_rate)` — 3-year average pass percentage
+- `GPHD = f(PhD_awarded / faculty)` — PhD graduates per eligible faculty
+- `GPH = f(placed_or_higher_ed / graduates)` — Placement + higher education rate (Cat B/Colleges only)
+
+**NEW in NIRF 2025:**
+- **Negative Marking:** Retracted publications deduct from PU and QP scores
+- **OE (Online Education):** SWAYAM credits, online syllabus completion, digital infrastructure
+- **MIRS:** Multiple Entry/Exit + Indian Knowledge System + Regional Languages + Sustainable Living
+- **PSDGs:** Publications aligned with UN Sustainable Development Goals
+
+---
+
+### NBA Self-Assessment Report (SAR) — Engineering Programs
+
+> **Source:** NBA Accreditation Manual, Tier-I criteria
+> **Applicable to:** JKKN College of Engineering & Technology (program-level, not institution-level)
+> **Cycle:** Every 3 years per program (B.Tech/M.Tech)
+> **Key Difference from NAAC:** NBA evaluates individual PROGRAMS, not the whole institution
+
+#### NBA Criteria (Tier-I — Washington Accord Aligned)
+
+| # | Criterion | Max Score | Primary Data Connectors |
+|---|-----------|-----------|------------------------|
+| 1 | Vision, Mission & PEOs | 60 | Manual + `okr_objectives` |
+| 2 | Programme Curriculum & Teaching-Learning | 120 | DC-10: `competency_catalog`, `course_competency_mapping` |
+| 3 | Course Outcomes & Programme Outcomes | 150 | DC-10: CO-PO mapping, attainment levels |
+| 4 | Students' Performance | 120 | DC-17: `exam_results`, DC-04: `alumni_outcomes` |
+| 5 | Faculty Information & Contributions | 100 | DC-02: `staff`, DC-16: `staff_qualifications`, DC-03: `sh_publications` |
+| 6 | Facilities & Technical Support | 80 | DC-20: `resources`, DC-28: `library_holdings`, `ict_infrastructure` |
+| 7 | Continuous Improvement | 100 | DC-08: `okr_objectives`, `iqac_meetings` |
+| 8 | First Year Academics | 70 | DC-01: `learners_profiles` (1st year), DC-17 |
+| 9 | Student Support Systems | 80 | DC-09: `scholarships`, DC-14: `grievance_tickets`, DC-04: `career_services` |
+| 10 | Governance, Institutional Support & Financial Resources | 120 | DC-21: `institutional_budgets`, DC-33: `financial_audits` |
+| | **TOTAL** | **1000** | |
+
+#### Programme Outcomes (PO1–PO12 — Washington Accord)
+
+The engine must store and track attainment of these 12 POs per program:
+
+| PO | Description | Measured Via |
+|----|-------------|-------------|
+| PO1 | Engineering Knowledge | CO attainment in core courses |
+| PO2 | Problem Analysis | CO attainment + project evaluations |
+| PO3 | Design/Development of Solutions | Capstone projects, design courses |
+| PO4 | Conduct Investigations | Lab courses, research projects |
+| PO5 | Modern Tool Usage | Software/simulation lab performance |
+| PO6 | Engineer and Society | Humanities/ethics course COs |
+| PO7 | Environment and Sustainability | Environmental engineering COs |
+| PO8 | Ethics | Professional ethics course + activity |
+| PO9 | Individual and Team Work | Project courses, team assignments |
+| PO10 | Communication | Presentation scores, report quality |
+| PO11 | Project Management & Finance | Management course + capstone |
+| PO12 | Life-long Learning | Self-learning initiatives, MOOC completion |
+
+**CO-PO Mapping:** The engine's existing `competency_catalog` + `course_competency_mapping` tables provide the foundation. Each Course Outcome maps to Programme Outcomes with correlation levels (1=Low, 2=Medium, 3=High). Attainment is computed from exam/assignment scores.
+
+#### NBA for Pharmacy Programs
+
+Same 10 criteria but with pharmacy-specific POs defined by Pharmacy Council of India (PCI). The engine stores these as a separate framework:
+```
+{ code: 'NBA_SAR_ENGINEERING', program_type: 'B.Tech' }
+{ code: 'NBA_SAR_PHARMACY', program_type: 'B.Pharm' }
+```
+
+---
+
+### AICTE Mandatory Disclosure
+
+> **Applicable to:** All AICTE-approved institutions (Engineering, Pharmacy, Management)
+> **Frequency:** Annual (updated on institution website)
+> **Format:** Structured data on institution website + AICTE portal submission
+
+#### AICTE Disclosure Categories
+
+| # | Category | Data Points | Data Source (MyJKKN) |
+|---|----------|-------------|---------------------|
+| 1 | Institution Information | Name, address, approval status, university affiliation, year of establishment | `institutions` table ✅ |
+| 2 | Programme Information | Approved intake, courses offered, fee structure | `programs`, `billing_student_bills` |
+| 3 | Faculty Information | Name, qualification, designation, experience, pay scale, photo | DC-02: `staff`, DC-16: `staff_qualifications` |
+| 4 | Student Information | Enrollment (gender/category-wise), lateral entry, NRI/foreign students | DC-01: `learners_profiles` |
+| 5 | Infrastructure | Land area, built-up area, classrooms, labs, library, hostel, sports | DC-20: `resources`, DC-28 |
+| 6 | Placement Records | Placed students (company, package), higher education, self-employed | DC-04: `alumni_outcomes` ✅ |
+| 7 | Financial Information | Fee collected, salary expenditure, infra expenditure, audited statements | DC-21: `institutional_budgets`, DC-33: `financial_audits` |
+| 8 | Governance | Board of Governors, Academic Council, Faculty committees | Manual entry |
+| 9 | AICTE Compliance | Anti-ragging measures, grievance mechanisms, mandatory committees | DC-14, DC-15, `grievance_tickets` ✅ |
+
+**Engine handling:** AICTE disclosure is primarily a data EXPORT — no scoring or grading. The engine generates a structured document from existing data connectors.
+
+```
+{ code: 'AICTE_MANDATORY_DISCLOSURE_2025', scoring_type: 'compliance_checklist' }
+```
+
+---
+
+### UGC-AISHE (All India Survey on Higher Education)
+
+> **Applicable to:** ALL higher education institutions (mandatory annual submission to MHRD)
+> **Frequency:** Annual (typically December–February)
+> **Format:** Online portal at aishe.gov.in
+> **Purpose:** National-level education statistics — feeds into NIRF, policy decisions, budget allocation
+
+#### AISHE Data Collection Sections
+
+| # | Section | Data Points | Data Source (MyJKKN) |
+|---|---------|-------------|---------------------|
+| 1 | Institution Profile | Type, management, year, affiliating university, NAAC/NBA status | `institutions` ✅ |
+| 2 | Programme-wise Enrollment | Students by programme, year, gender, category (SC/ST/OBC/General), PwD, Muslim minority, state domicile | DC-01: `learners_profiles` ✅ |
+| 3 | Student Intake | Sanctioned intake vs admitted (programme-wise, gender-wise) | DC-05: `admissions` |
+| 4 | Examination Results | Students appeared vs passed (programme-wise, gender-wise) | DC-17: `exam_results` (NEW) |
+| 5 | Faculty Information | Full-time, part-time, contractual — by gender, category, qualification, designation | DC-02: `staff`, DC-16: `staff_qualifications` |
+| 6 | Infrastructure | Classrooms, labs, computers, internet bandwidth, library books, hostels | DC-20: `resources`, DC-28 |
+| 7 | Financial Information | Receipts (fees, grants, donations) + Expenditure (salary, infra, scholarships) | DC-21: `institutional_budgets` |
+| 8 | Scholarship Data | Students receiving scholarships by type, amount, gender, category | DC-09: `scholarships` ✅ |
+| 9 | Placement Data | Students placed, median salary, companies visiting campus | DC-04: `alumni_outcomes` ✅ |
+
+**Engine handling:** Like AICTE, AISHE is a data EXPORT to an external portal. The engine generates CSV/JSON data matching the AISHE portal template. No scoring involved.
+
+```
+{ code: 'UGC_AISHE_2025', scoring_type: 'data_export' }
+```
+
+**ONOD Integration:** The Radhakrishnan Committee's One Nation One Data (ONOD) platform will eventually unify AISHE + NIRF + NAAC + AICTE data collection into a single submission. The engine's REST API design (Section T11) should anticipate this by exposing data in ONOD-compatible formats.
+
+---
+
+### Report Output Format Specifications
+
+> **Each regulatory body requires specific output formats.** The engine's `report-generator.ts` must support multiple output templates. Reports combine auto-calculated data with manually entered evidence and qualitative narratives.
+
+#### NAAC Submissions
+
+| Report | Format | Sections | Auto-Generated? | Frequency |
+|--------|--------|----------|-----------------|-----------|
+| **SSR (Self-Study Report)** | PDF (200-300 pages) | Extended Profile + 7 Criteria sections + SWOC + Declaration | Partial — QnM data auto-filled, QlM narratives manual | Every 5 years (accreditation cycle) |
+| **AQAR (Annual Quality Assurance Report)** | PDF (40-60 pages) | Academic year summary, criterion-wise improvements, best practices | Partial — data summaries auto-generated | Annual (mandatory post-accreditation) |
+| **DVV Data** | Excel/CSV | QnM metric data with supporting evidence links | Full auto-generation from data connectors | As part of SSR submission |
+| **IIQA (Institutional Information for QA)** | Online form | Basic institutional data, readiness indicators | Full auto-fill | Pre-SSR submission |
+
+**SSR PDF Structure:**
+```
+Part A: Extended Profile (auto-generated)
+  - Student strength (5 years) — DC-01
+  - Faculty count (5 years) — DC-02
+  - Financial data (5 years) — DC-21
+  - Programme count — programs table
+
+Part B: Criterion-wise Analysis
+  Criterion I–VII: Each contains:
+    - Key Indicator sections with metric values (QnM → auto-populated)
+    - Qualitative descriptions (QlM → from manual entry fields)
+    - Supporting data tables (auto-generated from connectors)
+    - Evidence links (from evidence_attachments table)
+
+Part C: SWOC Analysis (manual)
+Part D: Declaration (template)
+
+Appendices: Data templates per criterion (auto-generated Excel)
+```
+
+#### NIRF Submissions
+
+| Report | Format | Sections | Auto-Generated? | Frequency |
+|--------|--------|----------|-----------------|-----------|
+| **NIRF Data Submission** | Online portal (CSV/JSON upload) | 5 parameter sections with sub-parameter data | Full auto-generation | Annual (Jan–Mar) |
+| **Score Simulation Report** | Internal PDF | Estimated scores per parameter, historical trends, gap analysis | Full auto-generation | On-demand |
+| **Data Verification Sheets** | Excel/CSV | Raw data backing each sub-parameter with source references | Full auto-generation | For internal review |
+
+**NIRF Portal Data Format:**
+```json
+{
+  "institution_id": "NIRF-IR-...",
+  "academic_year": "2024-25",
+  "parameters": {
+    "TLR": {
+      "SS": { "ug_enrolled": 1200, "pg_enrolled": 300, "phd_enrolled": 45, "sanctioned_intake": 1500 },
+      "FSR": { "full_time_faculty": 120, "total_students": 1545 },
+      "FQE": { "phd_faculty": 85, "exp_0_8": 30, "exp_8_15": 45, "exp_gt_15": 45 },
+      "FRU": { "capital_exp_3yr": [1200000, 1500000, 1800000], "operational_exp_3yr": [8000000, 8500000, 9000000] }
+    },
+    "RPC": {
+      "PU": { "wos_papers": 45, "scopus_papers": 62, "retracted": 0, "faculty_count": 120 },
+      "QP": { "total_citations": 890, "top25p_citations": 340, "retracted_citations": 0 },
+      "IPR": { "patents_granted": 3, "patents_published": 8 },
+      "FPPP": { "funded_projects_amount": 4500000, "consultancy_amount": 1200000 }
+    },
+    "GO": {
+      "GUE": { "appeared": [400, 420, 410], "passed": [360, 380, 375] },
+      "GPHD": { "phds_awarded": [5, 7, 8] }
+    },
+    "OI": {
+      "RD": { "other_state_students": 180, "international_students": 12, "total_students": 1545 },
+      "WD": { "women_students": 720, "women_faculty": 48, "total_students": 1545, "total_faculty": 120 },
+      "ESCS": { "scholarship_students": 450, "freeships": 120, "total_students": 1545 },
+      "PCS": { "pwd_students": 15, "accessible_buildings_pct": 85 }
+    }
+  }
+}
+```
+
+#### NBA SAR Report
+
+| Report | Format | Sections | Auto-Generated? | Frequency |
+|--------|--------|----------|-----------------|-----------|
+| **SAR (Self-Assessment Report)** | PDF (150-200 pages per program) | 10 criteria + CO-PO matrices + attainment data | Partial — attainment data auto-calc, narratives manual | Every 3 years per program |
+| **CO-PO Attainment Matrix** | Excel | Course × PO mapping with attainment levels | Full auto-generation from competency data | Continuous tracking |
+| **Compliance Report** | PDF summary | Criterion-wise compliance status | Full auto-generation | On-demand |
+
+#### AICTE & UGC-AISHE Reports
+
+| Report | Format | Sections | Auto-Generated? | Frequency |
+|--------|--------|----------|-----------------|-----------|
+| **AICTE Mandatory Disclosure** | HTML (website) + PDF | 9 categories | Full auto-generation | Annual |
+| **AISHE Data Submission** | CSV (portal upload format) | 9 sections | Full auto-generation | Annual |
+
+#### Report Generation Architecture
+
+```
+report-generator.ts
+├── generateNAAC_SSR(frameworkId, assessmentYear)
+│   ├── Extended Profile → auto from connectors
+│   ├── QnM sections → auto from metric_values
+│   ├── QlM sections → from manual_entries table
+│   ├── Evidence links → from evidence_attachments
+│   └── Output: PDF via react-pdf or puppeteer
+│
+├── generateNIRF_Submission(frameworkId, academicYear)
+│   ├── Parameter data → auto from connectors
+│   └── Output: JSON/CSV matching portal format
+│
+├── generateNBA_SAR(frameworkId, programId)
+│   ├── CO-PO matrices → from competency tables
+│   ├── Attainment data → calculated from exam results
+│   └── Output: PDF
+│
+├── generateAICTE_Disclosure(institutionId)
+│   ├── All 9 categories → auto from connectors
+│   └── Output: HTML + PDF
+│
+├── generateAISHE_Data(institutionId, surveyYear)
+│   ├── All 9 sections → auto from connectors
+│   └── Output: CSV matching AISHE portal template
+│
+└── generateScoreSimulation(frameworkId)
+    ├── Current scores → from metric_values
+    ├── Gap analysis → target vs actual
+    ├── Trend data → historical metric_values
+    └── Output: Internal PDF/dashboard data
+```
+
+---
+
 ## File Structure (New)
 
 ```
