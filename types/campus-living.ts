@@ -1689,7 +1689,7 @@ export interface CommunityFeed {
     title: string;
     description: string | null;
     ends_at: string;
-    total_votes: number;
-    status: string;
+    total_votes: number | null;
+    status: string | null;
   }>;
 }
