@@ -81,7 +81,7 @@ export function useCreateSimulation() {
       queryClient.invalidateQueries({ queryKey: simulationKeys.all })
     },
     onError: (error: Error) => {
-      toast.error(error.message || 'Failed to create simulation')
+      toast.error(friendlyErrorMessage(error, 'Failed to create simulation'))
     }
   })
 }
