@@ -995,3 +995,329 @@ export interface MealRecordFilters {
   meal_type?: MealType;
   learner_id?: string;
 }
+
+// ===================================================================
+// ZOLO GAP FEATURES — Phase 2
+// Preventive Maintenance | Onboarding | Wellness Pulse | Laundry
+// ===================================================================
+
+// ===== PREVENTIVE MAINTENANCE ENUMS =====
+export const PM_FREQUENCY = { DAILY: 'daily', WEEKLY: 'weekly', BIWEEKLY: 'biweekly', MONTHLY: 'monthly', QUARTERLY: 'quarterly', HALF_YEARLY: 'half_yearly', YEARLY: 'yearly' } as const;
+export const PM_SCHEDULE_STATUS = { ACTIVE: 'active', PAUSED: 'paused', COMPLETED: 'completed', CANCELLED: 'cancelled' } as const;
+
+export type PmFrequency = (typeof PM_FREQUENCY)[keyof typeof PM_FREQUENCY];
+export type PmScheduleStatus = (typeof PM_SCHEDULE_STATUS)[keyof typeof PM_SCHEDULE_STATUS];
+
+// ===== ONBOARDING ENUMS =====
+export const ONBOARDING_STATUS = { NOT_STARTED: 'not_started', IN_PROGRESS: 'in_progress', COMPLETED: 'completed', SKIPPED: 'skipped' } as const;
+export const ONBOARDING_ITEM_TYPE = { ROOM_READINESS: 'room_readiness', DOCUMENT_COLLECTION: 'document_collection', WELCOME_KIT: 'welcome_kit', ORIENTATION: 'orientation', EMERGENCY_CONTACT: 'emergency_contact', RULES_ACKNOWLEDGMENT: 'rules_acknowledgment', ID_CARD: 'id_card', MESS_REGISTRATION: 'mess_registration', WIFI_SETUP: 'wifi_setup', CUSTOM: 'custom' } as const;
+
+export type OnboardingStatus = (typeof ONBOARDING_STATUS)[keyof typeof ONBOARDING_STATUS];
+export type OnboardingItemType = (typeof ONBOARDING_ITEM_TYPE)[keyof typeof ONBOARDING_ITEM_TYPE];
+
+// ===== WELLNESS PULSE ENUMS =====
+export const PULSE_FREQUENCY = { WEEKLY: 'weekly', BIWEEKLY: 'biweekly', MONTHLY: 'monthly' } as const;
+export const PULSE_STATUS = { DRAFT: 'draft', ACTIVE: 'active', PAUSED: 'paused', COMPLETED: 'completed', ARCHIVED: 'archived' } as const;
+export const PULSE_QUESTION_TYPE = { EMOJI_SCALE: 'emoji_scale', RATING_5: 'rating_5', YES_NO: 'yes_no', TEXT: 'text' } as const;
+
+export type PulseFrequency = (typeof PULSE_FREQUENCY)[keyof typeof PULSE_FREQUENCY];
+export type PulseStatus = (typeof PULSE_STATUS)[keyof typeof PULSE_STATUS];
+export type PulseQuestionType = (typeof PULSE_QUESTION_TYPE)[keyof typeof PULSE_QUESTION_TYPE];
+
+// ===== LAUNDRY ENUMS =====
+export const LAUNDRY_SERVICE_TYPE = { IN_HOUSE: 'in_house', VENDOR: 'vendor' } as const;
+export const LAUNDRY_ORDER_STATUS = { SUBMITTED: 'submitted', COLLECTED: 'collected', WASHING: 'washing', READY: 'ready', DELIVERED: 'delivered', DISPUTED: 'disputed' } as const;
+export const LAUNDRY_ITEM_TYPE = { SHIRT: 'shirt', PANT: 'pant', TSHIRT: 'tshirt', SHORTS: 'shorts', BEDSHEET: 'bedsheet', TOWEL: 'towel', UNIFORM: 'uniform', TRADITIONAL: 'traditional', INNERWEAR: 'innerwear', OTHER: 'other' } as const;
+
+export type LaundryServiceType = (typeof LAUNDRY_SERVICE_TYPE)[keyof typeof LAUNDRY_SERVICE_TYPE];
+export type LaundryOrderStatus = (typeof LAUNDRY_ORDER_STATUS)[keyof typeof LAUNDRY_ORDER_STATUS];
+export type LaundryItemType = (typeof LAUNDRY_ITEM_TYPE)[keyof typeof LAUNDRY_ITEM_TYPE];
+
+
+// ===================================================================
+// INTERFACES — Phase 2
+// ===================================================================
+
+// ── Preventive Maintenance ──────────────────────────────────────────
+
+export interface PmChecklistItem {
+  item: string;
+  done: boolean;
+}
+
+export interface HostelPmSchedule {
+  id: string;
+  institution_id: string;
+  block_id: string | null;
+  title: string;
+  description: string | null;
+  category: MaintenanceCategory;
+  priority: MaintenancePriority;
+  frequency: PmFrequency;
+  day_of_week: number | null;
+  day_of_month: number | null;
+  month_of_year: number | null;
+  time_of_day: string;
+  assigned_to_name: string | null;
+  assigned_to_phone: string | null;
+  vendor_name: string | null;
+  estimated_cost: number | null;
+  checklist: PmChecklistItem[] | null;
+  next_due_date: string;
+  last_completed_date: string | null;
+  total_completions: number;
+  status: PmScheduleStatus;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type CreatePmScheduleDTO = Omit<
+  HostelPmSchedule,
+  'id' | 'last_completed_date' | 'total_completions' | 'created_at' | 'updated_at'
+>;
+
+export interface HostelPmTask {
+  id: string;
+  institution_id: string;
+  schedule_id: string;
+  block_id: string | null;
+  due_date: string;
+  title: string;
+  category: MaintenanceCategory;
+  priority: MaintenancePriority;
+  assigned_to_name: string | null;
+  assigned_to_phone: string | null;
+  checklist: PmChecklistItem[] | null;
+  status: MaintenanceStatus;
+  completed_by: string | null;
+  completed_at: string | null;
+  completion_notes: string | null;
+  photo_urls: string[] | null;
+  cost_actual: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CompletePmTaskDTO {
+  completion_notes: string;
+  photo_urls?: string[];
+  cost_actual?: number;
+  checklist?: PmChecklistItem[];
+}
+
+export interface PmScheduleFilters {
+  block_id?: string;
+  category?: MaintenanceCategory;
+  status?: PmScheduleStatus;
+}
+
+export interface PmTaskFilters {
+  schedule_id?: string;
+  block_id?: string;
+  status?: MaintenanceStatus;
+  due_from?: string;
+  due_to?: string;
+  overdue_only?: boolean;
+}
+
+// ── Onboarding ──────────────────────────────────────────────────────
+
+export interface OnboardingTemplateItem {
+  type: OnboardingItemType;
+  title: string;
+  required: boolean;
+  order: number;
+}
+
+export interface OnboardingChecklistItem extends OnboardingTemplateItem {
+  status: 'pending' | 'done' | 'skipped';
+  completed_at: string | null;
+  completed_by: string | null;
+  notes: string | null;
+}
+
+export interface HostelOnboardingTemplate {
+  id: string;
+  institution_id: string;
+  name: string;
+  items: OnboardingTemplateItem[];
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface HostelOnboardingChecklist {
+  id: string;
+  institution_id: string;
+  allocation_id: string;
+  learner_id: string;
+  template_id: string | null;
+  status: OnboardingStatus;
+  items: OnboardingChecklistItem[];
+  started_at: string | null;
+  completed_at: string | null;
+  completed_by: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateOnboardingTemplateDTO {
+  institution_id: string;
+  name: string;
+  items: OnboardingTemplateItem[];
+  is_active?: boolean;
+}
+
+export interface OnboardingFilters {
+  status?: OnboardingStatus;
+  block_id?: string;
+  allocation_id?: string;
+}
+
+// ── Wellness Pulse ──────────────────────────────────────────────────
+
+export interface PulseQuestion {
+  id: string;
+  type: PulseQuestionType;
+  question: string;
+  required: boolean;
+  order: number;
+}
+
+export interface PulseAnswer {
+  value: number | string | boolean;
+  type: PulseQuestionType;
+}
+
+export interface HostelPulseConfig {
+  id: string;
+  institution_id: string;
+  title: string;
+  description: string | null;
+  frequency: PulseFrequency;
+  questions: PulseQuestion[];
+  target_blocks: string[] | null;
+  status: PulseStatus;
+  starts_at: string | null;
+  ends_at: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type CreatePulseConfigDTO = Omit<
+  HostelPulseConfig,
+  'id' | 'created_at' | 'updated_at'
+>;
+
+export interface HostelPulseResponse {
+  id: string;
+  institution_id: string;
+  config_id: string;
+  learner_id: string;
+  period_start: string;
+  answers: Record<string, PulseAnswer>;
+  overall_mood: number | null;
+  submitted_at: string;
+}
+
+export interface SubmitPulseResponseDTO {
+  institution_id: string;
+  config_id: string;
+  learner_id: string;
+  period_start: string;
+  answers: Record<string, PulseAnswer>;
+  overall_mood: number | null;
+}
+
+export interface PulseConfigFilters {
+  status?: PulseStatus;
+}
+
+export interface PulseResponseFilters {
+  config_id?: string;
+  period_start?: string;
+  learner_id?: string;
+}
+
+// ── Laundry ─────────────────────────────────────────────────────────
+
+export interface LaundryItem {
+  type: LaundryItemType;
+  quantity: number;
+  returned: number;
+  damaged: number;
+}
+
+export interface HostelLaundryConfig {
+  id: string;
+  institution_id: string;
+  block_id: string | null;
+  service_type: LaundryServiceType;
+  vendor_name: string | null;
+  vendor_phone: string | null;
+  vendor_contract_start: string | null;
+  vendor_contract_end: string | null;
+  collection_days: number[];
+  delivery_days: number[];
+  max_items_per_student: number;
+  cost_per_item: number | null;
+  is_included_in_fees: boolean;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export type CreateLaundryConfigDTO = Omit<
+  HostelLaundryConfig,
+  'id' | 'created_at' | 'updated_at'
+>;
+
+export interface HostelLaundryOrder {
+  id: string;
+  institution_id: string;
+  learner_id: string;
+  block_id: string;
+  config_id: string | null;
+  order_number: string;
+  items: LaundryItem[];
+  total_items: number;
+  total_returned: number;
+  total_damaged: number;
+  total_missing: number;
+  status: LaundryOrderStatus;
+  collected_at: string | null;
+  ready_at: string | null;
+  delivered_at: string | null;
+  student_confirmed: boolean;
+  dispute_reason: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateLaundryOrderDTO {
+  institution_id: string;
+  learner_id: string;
+  block_id: string;
+  config_id?: string;
+  items: LaundryItem[];
+  total_items: number;
+  notes?: string;
+}
+
+export interface LaundryOrderFilters {
+  block_id?: string;
+  status?: LaundryOrderStatus;
+  learner_id?: string;
+  date_from?: string;
+  date_to?: string;
+}
+
+export interface LaundryConfigFilters {
+  block_id?: string;
+  service_type?: LaundryServiceType;
+  is_active?: boolean;
+}
