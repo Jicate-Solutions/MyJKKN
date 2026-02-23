@@ -989,6 +989,8 @@ Ship with these frameworks pre-configured (seeded in migration):
 
 ### NAAC 2022 Revised — Full Metric-Level Breakdown (7 Criteria, 56 Metrics)
 
+> **Framework Status:** Currently active for institutions in the existing NAAC cycle. Being phased out in favor of the Binary 2024 framework (below). Both must be supported — the engine seeds both as separate `regulatory_frameworks` rows.
+
 > **Source:** `NAACManual.txt` — NAAC Quality Indicator Framework (QIF) for Autonomous Colleges
 > **Scoring:** Each criterion has QlM (Qualitative — narrative + evidence) and QnM (Quantitative — data-driven) metrics
 > **Grading:** Individual metric scores → Key Indicator GPA → Criterion GPA → Overall CGPA (1.00–4.00) → Grade (A++/A+/A/B++/B+/B/C)
