@@ -300,13 +300,13 @@ export default function FrameworkDetailPage() {
               <div className="space-y-2">
                 <div className="flex items-end gap-2">
                   <span className={`text-2xl font-bold ${
-                    (framework.completeness_pct ?? 0) >= 80 ? 'text-emerald-600' :
-                    (framework.completeness_pct ?? 0) >= 50 ? 'text-amber-600' : 'text-red-600'
+                    (completenessPercent ?? 0) >= 80 ? 'text-emerald-600' :
+                    (completenessPercent ?? 0) >= 50 ? 'text-amber-600' : 'text-red-600'
                   }`}>
-                    {framework.completeness_pct ?? 0}%
+                    {completenessPercent ?? 0}%
                   </span>
                 </div>
-                <Progress value={framework.completeness_pct ?? 0} className="h-1.5" />
+                <Progress value={completenessPercent ?? 0} className="h-1.5" />
               </div>
             </CardContent>
           </Card>
