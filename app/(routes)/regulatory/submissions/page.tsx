@@ -269,8 +269,17 @@ export default function SubmissionsPage() {
           <Alert variant="destructive">
             <AlertCircle className="h-4 w-4" />
             <AlertTitle>Failed to load submissions</AlertTitle>
-            <AlertDescription>
-              {(submissionsError as Error).message || 'An unexpected error occurred.'}
+            <AlertDescription className="flex items-center justify-between">
+              <span>{(submissionsError as Error).message || 'An unexpected error occurred.'}</span>
+              <Button
+                variant="outline"
+                size="sm"
+                className="ml-4 shrink-0"
+                onClick={() => refetchSubmissions()}
+              >
+                <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
+                Retry
+              </Button>
             </AlertDescription>
           </Alert>
         )}
