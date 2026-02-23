@@ -5,6 +5,19 @@
 
 import { createClientSupabaseClient } from '@/lib/supabase/client'
 
+/**
+ * DDL: regulatory_governing_bodies columns:
+ *   id, institution_id, body_type, name, mandate, formation_date,
+ *   is_active, meeting_frequency, members (jsonb), created_at, updated_at
+ *
+ * DDL: regulatory_body_meetings columns:
+ *   id, body_id, institution_id, meeting_number, academic_year,
+ *   meeting_date, quorum_met, attendees_count, agenda (jsonb),
+ *   resolutions (jsonb), action_items (jsonb), minutes_file_url,
+ *   approved_by, approved_at, created_at, updated_at
+ *   UNIQUE(body_id, academic_year, meeting_number)
+ */
+
 export interface GoverningBodyFilters {
   institution_id?: string
   body_type?: string
@@ -17,18 +30,18 @@ export interface CreateGoverningBodyData {
   institution_id: string
   name: string
   body_type: string
-  description?: string | null
   mandate?: string | null
   formation_date?: string | null
+  meeting_frequency?: string | null
   members?: GoverningBodyMember[]
 }
 
 export interface UpdateGoverningBodyData {
   name?: string
   body_type?: string
-  description?: string | null
   mandate?: string | null
   is_active?: boolean
+  meeting_frequency?: string | null
   members?: GoverningBodyMember[]
 }
 
@@ -36,15 +49,17 @@ export interface GoverningBodyMember {
   name: string
   designation: string
   role_in_body: string
-  email?: string | null
-  phone?: string | null
-  is_external?: boolean
+  affiliation?: string | null
+  member_type?: string | null     // internal | external | nominee
+  nominated_by?: string | null
+  tenure_start?: string | null
+  tenure_end?: string | null
 }
 
 export interface MeetingFilters {
   body_id?: string
+  institution_id?: string
   academic_year?: string
-  status?: string
   page?: number
   limit?: number
 }
@@ -52,28 +67,39 @@ export interface MeetingFilters {
 export interface CreateMeetingData {
   body_id: string
   institution_id: string
-  title: string
+  meeting_number: number
+  academic_year: string
   meeting_date: string
-  venue?: string | null
-  agenda?: string | null
-  academic_year?: string
+  quorum_met?: boolean
+  attendees_count?: number | null
+  agenda?: MeetingAgendaItem[]
 }
 
 export interface UpdateMeetingData {
-  title?: string
   meeting_date?: string
-  venue?: string | null
-  agenda?: string | null
-  minutes?: string | null
+  quorum_met?: boolean
+  attendees_count?: number | null
+  agenda?: MeetingAgendaItem[]
   resolutions?: MeetingResolution[]
-  attendees?: string[]
-  status?: string
+  action_items?: MeetingActionItem[]
+  minutes_file_url?: string | null
+}
+
+export interface MeetingAgendaItem {
+  item_number: number
+  topic: string
+  presented_by?: string | null
 }
 
 export interface MeetingResolution {
   resolution_number: string
-  description: string
-  responsible_person?: string | null
+  text: string
+  status?: string   // approved | deferred | rejected
+}
+
+export interface MeetingActionItem {
+  action: string
+  responsible?: string | null
   deadline?: string | null
   status?: string
 }
@@ -182,25 +208,21 @@ export class RegulatoryGovernanceService {
 
   /**
    * Create a new governing body
+   * NOTE: DDL has no created_by column on governing_bodies.
    */
   static async createGoverningBody(data: CreateGoverningBodyData) {
     try {
       this.validateId(data.institution_id, 'institution ID')
 
-      // Get current user
-      const { data: { user } } = await this.getSupabase().auth.getUser()
-      if (!user) throw new Error('User not authenticated')
-
       const insertPayload = {
         institution_id: data.institution_id,
         name: data.name,
         body_type: data.body_type,
-        description: data.description || null,
         mandate: data.mandate || null,
         formation_date: data.formation_date || null,
+        meeting_frequency: data.meeting_frequency || null,
         members: data.members || [],
-        is_active: true,
-        created_by: user.id
+        is_active: true
       }
 
       const { data: result, error } = await (this.getSupabase() as any)
@@ -239,9 +261,9 @@ export class RegulatoryGovernanceService {
 
       if (data.name !== undefined) updatePayload.name = data.name
       if (data.body_type !== undefined) updatePayload.body_type = data.body_type
-      if (data.description !== undefined) updatePayload.description = data.description
       if (data.mandate !== undefined) updatePayload.mandate = data.mandate
       if (data.is_active !== undefined) updatePayload.is_active = data.is_active
+      if (data.meeting_frequency !== undefined) updatePayload.meeting_frequency = data.meeting_frequency
       if (data.members !== undefined) updatePayload.members = data.members
 
       const { data: result, error } = await (this.getSupabase() as any)
@@ -261,34 +283,38 @@ export class RegulatoryGovernanceService {
   }
 
   // ===========================
-  // Meetings
+  // Meetings (regulatory_body_meetings)
   // ===========================
 
   /**
    * Get meetings with filters
+   * CORRECT TABLE: regulatory_body_meetings (NOT regulatory_meetings)
    */
   static async getMeetings(filters: MeetingFilters = {}) {
     try {
       if (filters.body_id !== undefined) {
         this.validateId(filters.body_id, 'body_id filter')
       }
+      if (filters.institution_id !== undefined) {
+        this.validateId(filters.institution_id, 'institution_id filter')
+      }
 
       let query = (this.getSupabase() as any)
-        .from('regulatory_meetings')
+        .from('regulatory_body_meetings')
         .select(`
           *,
           body:regulatory_governing_bodies(id, name, body_type),
-          created_by_profile:profiles!created_by(id, full_name, email)
+          approved_by_profile:profiles!approved_by(id, full_name, email)
         `, { count: 'exact' })
 
       if (filters.body_id) {
         query = query.eq('body_id', filters.body_id)
       }
+      if (filters.institution_id) {
+        query = query.eq('institution_id', filters.institution_id)
+      }
       if (filters.academic_year) {
         query = query.eq('academic_year', filters.academic_year)
-      }
-      if (filters.status) {
-        query = query.eq('status', filters.status)
       }
 
       // Pagination
@@ -320,30 +346,29 @@ export class RegulatoryGovernanceService {
 
   /**
    * Create a new meeting record
+   * CORRECT TABLE: regulatory_body_meetings
+   * DDL columns: body_id, institution_id, meeting_number, academic_year,
+   *   meeting_date, quorum_met, attendees_count, agenda, resolutions,
+   *   action_items, minutes_file_url, approved_by, approved_at
    */
   static async createMeeting(data: CreateMeetingData) {
     try {
       this.validateId(data.body_id, 'governing body ID')
       this.validateId(data.institution_id, 'institution ID')
 
-      // Get current user
-      const { data: { user } } = await this.getSupabase().auth.getUser()
-      if (!user) throw new Error('User not authenticated')
-
       const insertPayload = {
         body_id: data.body_id,
         institution_id: data.institution_id,
-        title: data.title,
+        meeting_number: data.meeting_number,
+        academic_year: data.academic_year,
         meeting_date: data.meeting_date,
-        venue: data.venue || null,
-        agenda: data.agenda || null,
-        academic_year: data.academic_year || null,
-        status: 'scheduled',
-        created_by: user.id
+        quorum_met: data.quorum_met ?? true,
+        attendees_count: data.attendees_count || null,
+        agenda: data.agenda || []
       }
 
       const { data: result, error } = await (this.getSupabase() as any)
-        .from('regulatory_meetings')
+        .from('regulatory_body_meetings')
         .insert([insertPayload])
         .select()
         .single()
@@ -366,7 +391,8 @@ export class RegulatoryGovernanceService {
   }
 
   /**
-   * Update a meeting (minutes, resolutions, status, etc.)
+   * Update a meeting (minutes, resolutions, action items, etc.)
+   * CORRECT TABLE: regulatory_body_meetings
    */
   static async updateMeeting(id: string, data: UpdateMeetingData) {
     try {
@@ -376,17 +402,16 @@ export class RegulatoryGovernanceService {
         updated_at: new Date().toISOString()
       }
 
-      if (data.title !== undefined) updatePayload.title = data.title
       if (data.meeting_date !== undefined) updatePayload.meeting_date = data.meeting_date
-      if (data.venue !== undefined) updatePayload.venue = data.venue
+      if (data.quorum_met !== undefined) updatePayload.quorum_met = data.quorum_met
+      if (data.attendees_count !== undefined) updatePayload.attendees_count = data.attendees_count
       if (data.agenda !== undefined) updatePayload.agenda = data.agenda
-      if (data.minutes !== undefined) updatePayload.minutes = data.minutes
       if (data.resolutions !== undefined) updatePayload.resolutions = data.resolutions
-      if (data.attendees !== undefined) updatePayload.attendees = data.attendees
-      if (data.status !== undefined) updatePayload.status = data.status
+      if (data.action_items !== undefined) updatePayload.action_items = data.action_items
+      if (data.minutes_file_url !== undefined) updatePayload.minutes_file_url = data.minutes_file_url
 
       const { data: result, error } = await (this.getSupabase() as any)
-        .from('regulatory_meetings')
+        .from('regulatory_body_meetings')
         .update(updatePayload)
         .eq('id', id)
         .select()
@@ -397,6 +422,38 @@ export class RegulatoryGovernanceService {
       return result
     } catch (error) {
       console.error('[RegulatoryGovernanceService] Error updating meeting:', this.formatError(error))
+      throw error
+    }
+  }
+
+  /**
+   * Approve meeting minutes
+   * Sets approved_by and approved_at on the meeting record.
+   */
+  static async approveMeeting(id: string) {
+    try {
+      this.validateId(id, 'meeting ID')
+
+      // Get current user
+      const { data: { user } } = await this.getSupabase().auth.getUser()
+      if (!user) throw new Error('User not authenticated')
+
+      const { data: result, error } = await (this.getSupabase() as any)
+        .from('regulatory_body_meetings')
+        .update({
+          approved_by: user.id,
+          approved_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', id)
+        .select()
+        .single()
+
+      if (error) throw error
+
+      return result
+    } catch (error) {
+      console.error('[RegulatoryGovernanceService] Error approving meeting:', this.formatError(error))
       throw error
     }
   }
