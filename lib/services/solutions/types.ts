@@ -838,6 +838,7 @@ export interface CreateClientInput {
   source_type?: SourceType;
   source_department_id?: string;
   partner_status?: PartnerStatus;
+  created_by?: string;
 }
 
 export interface CreateSolutionInput {
