@@ -1032,6 +1032,8 @@ CREATE INDEX idx_reg_metrics_criteria ON regulatory_metrics(criteria_id);
 -- NOTE: metric_values UNIQUE(metric_id, institution_id, academic_year) already creates an implicit index
 CREATE INDEX idx_reg_metric_values_inst_year ON regulatory_metric_values(institution_id, academic_year);
 CREATE INDEX idx_reg_evidence_metric ON regulatory_evidence(metric_id, institution_id, academic_year);
+-- NOTE: submissions UNIQUE(framework_id, institution_id, academic_year) already creates an implicit index
+CREATE INDEX idx_reg_simulations_framework ON regulatory_simulations(framework_id, institution_id);
 
 -- ═══════════════════════════════════════════════
 -- TRIGGERS
