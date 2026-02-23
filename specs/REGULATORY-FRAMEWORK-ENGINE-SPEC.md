@@ -1993,7 +1993,7 @@ GROUP BY audit_type;
 **Project analysis documents:**
 - `/Users/omm/Vaults/Claude Setup/Capture/MyJKKN/FST-SARAL-ERP-Gap-Analysis.md` — Gap analysis identifying regulatory compliance as critical gap
 - `/Users/omm/Vaults/Claude Setup/Capture/MyJKKN/FST-Future-Proof-Regulatory-Architecture.md` — Architecture design for config-driven framework engine
-- `/Users/omm/Vaults/Claude Setup/Capture/MyJKKN/FST-Missing-Regulatory-Data-Sources.md` — Complete gap map with 19 missing tables
+- `/Users/omm/Vaults/Claude Setup/Capture/MyJKKN/FST-Missing-Regulatory-Data-Sources.md` — Complete gap map with 21 missing tables (originally 19, expanded to 21 after DC-31 through DC-36 additions)
 - `/Users/omm/Vaults/Claude Setup/Capture/MyJKKN/FST-NIRF-NAAC-Official-Cross-Check.md` — Cross-check corrections against official documents
 - `/Users/omm/Vaults/Claude Setup/Capture/MyJKKN/FST-NAAC-Binary-Framework-Gap-Analysis.md` — NAAC Binary 2024 vs Old 7-criteria comparison with attribute-by-attribute MyJKKN gap map
 - `/Users/omm/Vaults/Claude Setup/Capture/MyJKKN/FST-Regulatory-Engine-Completeness-Audit.md` — FST audit of connector completeness across all frameworks (found 6 gaps, added DC-31 through DC-36)
