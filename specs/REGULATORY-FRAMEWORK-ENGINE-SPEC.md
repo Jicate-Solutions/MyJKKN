@@ -1837,7 +1837,7 @@ WHERE institution_id = $1 AND academic_year = $2;
 
 ### DC-30: NEP 2020 Compliance
 **Source table(s):** `nep_compliance_tracking` (NEW — does not exist)
-**Feeds:** NIRF TLR-MIRS (5 marks × 0.30 weight = 1.5% of total NIRF)
+**Feeds:** NIRF TLR-MIR (5 marks × 0.30 weight = 1.5% of total NIRF)
 **Also feeds:** NAAC Cr I (KI 1.2 — Academic Flexibility)
 **Data points:**
 - Academic Bank of Credits (ABC) registration status
