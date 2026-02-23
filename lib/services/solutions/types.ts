@@ -846,6 +846,7 @@ export interface CreateSolutionInput {
   title: string;
   description?: string;
   lead_department_id: string;
+  institution_id?: string;
   base_price?: number;
   discount_percentage?: number;
   start_date?: string;
