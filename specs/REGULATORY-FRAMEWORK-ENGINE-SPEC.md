@@ -1468,7 +1468,7 @@ regulatory_criteria (per framework):
   Same 5 parameters, different weights
 
 regulatory_metrics (per criterion per framework):
-  Same sub-parameter codes but different max_score values
+  Same sub-parameter codes but different scoring (controlled via regulatory_criteria.max_score per framework)
   Pharmacy Cat B / Colleges: GPHD replaced by GPH (different metric entirely)
   Dental / Medical: 3 GO sub-params (GUE + GPH + GPROF)
   Colleges: 5 RP sub-params (adds PSDGs)
