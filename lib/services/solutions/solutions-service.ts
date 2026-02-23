@@ -273,6 +273,7 @@ export class SolutionsService extends BaseService {
         title: input.title,
         description: input.description,
         lead_department_id: input.lead_department_id,
+        institution_id: input.institution_id,
         base_price: input.base_price,
         discount_percentage: totalDiscountPct > 0 ? totalDiscountPct : null,
         discount_reason: partnerDiscount > 0 ? `Partner ${partnerDiscount * 100}%` + (discountPct > 0 ? ` + HOD ${discountPct}%` : '') : (discountPct > 0 ? `HOD ${discountPct}%` : null),
