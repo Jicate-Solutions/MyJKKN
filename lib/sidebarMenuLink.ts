@@ -2735,7 +2735,49 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'Maintenance',
           active: pathname.startsWith('/campus-living/maintenance'),
           icon: Wrench,
-          submenus: []
+          submenus: [
+            {
+              href: '/campus-living/maintenance/preventive',
+              label: 'Preventive Schedules',
+              active: pathname.startsWith('/campus-living/maintenance/preventive')
+            },
+            {
+              href: '/campus-living/maintenance/preventive/tasks',
+              label: 'PM Tasks',
+              active: pathname === '/campus-living/maintenance/preventive/tasks'
+            }
+          ]
+        },
+        {
+          href: '/campus-living/laundry',
+          label: 'Laundry',
+          active: pathname.startsWith('/campus-living/laundry'),
+          icon: WashingMachine,
+          submenus: [
+            {
+              href: '/campus-living/laundry/orders',
+              label: 'Orders',
+              active: pathname.startsWith('/campus-living/laundry/orders')
+            },
+            {
+              href: '/campus-living/laundry/settings',
+              label: 'Configuration',
+              active: pathname === '/campus-living/laundry/settings'
+            }
+          ]
+        },
+        {
+          href: '/campus-living/wellness',
+          label: 'Wellness',
+          active: pathname.startsWith('/campus-living/wellness'),
+          icon: HeartPulse,
+          submenus: [
+            {
+              href: '/campus-living/wellness/surveys',
+              label: 'Pulse Surveys',
+              active: pathname.startsWith('/campus-living/wellness/surveys')
+            }
+          ]
         },
         {
           href: '/campus-living/safety',
