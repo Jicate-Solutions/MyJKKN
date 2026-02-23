@@ -204,11 +204,10 @@ export function useSaveSimulation() {
         overrides: input.overrides && typeof input.overrides === 'object' ? input.overrides : {}
       })
     },
-    onSuccess: (_data, variables) => {
+    onSuccess: () => {
       toast.success('Simulation saved')
-      queryClient.invalidateQueries({
-        queryKey: simulationKeys.listFor(variables.framework_id, variables.institution_id)
-      })
+      // Invalidate all simulation queries (including adapter keys like 'saved')
+      queryClient.invalidateQueries({ queryKey: simulationKeys.all })
     },
     onError: (error: Error) => {
       toast.error(error.message || 'Failed to save simulation')
