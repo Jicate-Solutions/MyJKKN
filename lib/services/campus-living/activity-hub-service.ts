@@ -88,7 +88,7 @@ export class ActivityHubService {
       try {
         let q = (supabase as any)
           .from('hostel_leave_requests')
-          .select('id, status, created_at, start_date, end_date, block_id, hostel_blocks(name)')
+          .select('id, status, created_at, from_date, to_date, block_id, hostel_blocks(name)')
           .gte('created_at', dateFrom)
           .lte('created_at', dateTo)
           .order('created_at', { ascending: false })
@@ -106,7 +106,7 @@ export class ActivityHubService {
           id: r.id,
           type: 'leave' as ActivityType,
           title: `Leave Request: ${r.status}`,
-          description: `${r.start_date} to ${r.end_date}`,
+          description: `${r.from_date} to ${r.to_date}`,
           timestamp: r.created_at,
           status: r.status,
           link: `/campus-living/leave/${r.id}`,
