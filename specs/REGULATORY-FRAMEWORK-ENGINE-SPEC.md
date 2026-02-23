@@ -25,7 +25,7 @@ MyJKKN has 39 modules and 300+ tables but **zero automated regulatory reporting*
 - AICTE Mandatory Disclosure (9 categories, compliance checklist)
 - UGC-AISHE (9 data sections, export-only)
 
-**Key Architectural Decision:** ONE engine, MANY frameworks. All 15 pre-configured frameworks are database configurations, not separate modules. When rules change, change the config — not the code. The NAAC Binary Framework (2024) has institution-type-specific scoring — handled by creating 3 framework variants (University, Autonomous, Affiliated), each summing to 900 points but with different weight distributions. NIRF discipline rankings share the same 5 parameters but with different weights and sub-parameter selections — the engine handles this via per-framework metric configuration.
+**Key Architectural Decision:** ONE engine, MANY frameworks. All 15 pre-configured frameworks (1 NAAC Old + 3 NAAC Binary + 7 NIRF + 2 NBA + 1 AICTE + 1 AISHE) are database configurations, not separate modules. When rules change, change the config — not the code. The NAAC Binary Framework (2024) has institution-type-specific scoring — handled by creating 3 framework variants (University, Autonomous, Affiliated), each summing to 900 points but with different weight distributions. NIRF discipline rankings share the same 5 parameters but with different weights and sub-parameter selections — the engine handles this via per-framework metric configuration.
 
 ---
 
