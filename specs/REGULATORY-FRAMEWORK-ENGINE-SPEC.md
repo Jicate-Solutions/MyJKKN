@@ -132,7 +132,7 @@ Currently: **ALL done manually** — staff spends 3-6 months collecting data fro
 
 **Flow 2: Chairman reviews NIRF ranking simulation**
 1. Navigate to Regulatory → NIRF → Score Simulator
-2. See current estimated score across 5 parameters (TLR, RPC, GO, OI, Perception)
+2. See current estimated score across 5 parameters (TLR, RP, GO, OI, Perception)
 3. Drill into TLR → see student-faculty ratio, faculty qualifications, financial resources
 4. Toggle "What-if" mode → increase PhD faculty by 5 → see rank impact
 5. Compare against last 3 years → see trend line
