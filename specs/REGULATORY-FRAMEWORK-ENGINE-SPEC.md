@@ -20,7 +20,7 @@ MyJKKN has 39 modules and 300+ tables but **zero automated regulatory reporting*
 **Pre-configured Frameworks (15 total):**
 - NAAC 2022 Revised (7 criteria, 56 metrics)
 - NAAC Binary 2024 × 3 institution types (10 attributes, 60 metrics each)
-- NIRF 2025 Overall + 5 discipline variants (Engineering, Pharmacy Cat A/B, Colleges, Dental)
+- NIRF 2025 Overall + 6 discipline variants (Engineering, Pharmacy Cat A/B, Colleges, Dental, Medical/Nursing)
 - NBA SAR (Engineering + Pharmacy programs, 10 criteria, PO1-PO12)
 - AICTE Mandatory Disclosure (9 categories, compliance checklist)
 - UGC-AISHE (9 data sections, export-only)
