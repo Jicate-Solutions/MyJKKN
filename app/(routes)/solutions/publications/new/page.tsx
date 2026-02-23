@@ -115,7 +115,7 @@ export default function NewPublicationPage() {
         submission_date: form.submission_date || undefined,
         nirf_category: form.nirf_category || undefined,
         naac_criterion: form.naac_criterion || undefined,
-        created_by: 'current-user',
+        created_by: profile?.id || '',
       });
 
       toast.success('Publication added successfully');
