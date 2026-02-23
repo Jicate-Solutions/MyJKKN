@@ -272,7 +272,7 @@ This is the core of the spec. The Regulatory Framework Engine connects to **20 e
                     │       │             │         │
                     │  ┌────▼─────────────▼─────┐  │
                     │  │   DATA CONNECTOR LAYER  │  │
-                    │  │   (60+ reusable queries)│  │
+                    │  │   (36 data connectors)  │  │
                     │  └────┬──┬──┬──┬──┬──┬────┘  │
                     └───────┼──┼──┼──┼──┼──┼────────┘
            ┌────────────────┘  │  │  │  │  └──────────────────┐
