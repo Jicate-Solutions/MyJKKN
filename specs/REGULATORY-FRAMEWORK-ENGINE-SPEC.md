@@ -1346,7 +1346,7 @@ The `regulatory_frameworks` table now has `institution_type` column. Seed 3 vari
 |--------|-------|---------------|-------------|
 | 1.1 Outcome-based curriculum (OBE) | 15 | Document + Data | `competency_catalog`, `course_competency_mapping` |
 | 1.2 Stakeholder Participation | 10 | Document + Data | `nps_surveys` (tag by stakeholder type) |
-| 1.3 Curriculum Flexibility (CBCS, MEME, ABC) | 10 | Document + Data | `nep_compliance_tracking` (NEW) |
+| 1.3 Curriculum Flexibility (CBCS — Choice Based Credit System, MEME — Multiple Entry Multiple Exit, ABC — Academic Bank of Credits) | 10 | Document + Data | `nep_compliance_tracking` (NEW) |
 | 1.4 Practical & Industry Focus | 10 | Data | `courses` (skill %), `learner_industry_engagements` |
 | 1.5 Skill Orientation (NSQF/NHEQF) | 10 | Document | Manual entry + evidence |
 | 1.6 Indian Knowledge System (IKS) | 5 | Document + Data | `nep_compliance_tracking` (NEW) |
