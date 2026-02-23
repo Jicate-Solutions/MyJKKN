@@ -1644,7 +1644,7 @@ regulatory_metrics (per criterion per framework):
 > **Note on `f()` notation:** NIRF uses specific sigmoid/logarithmic scaling functions (not a single generic function). `f(x)` denotes the discipline-specific normalization function from the official NIRF methodology PDF. Exact function definitions (cutoffs, slopes) must be extracted from the PDF during implementation. The coefficients shown below are for **Overall** marks; disciplines with different sub-parameter marks (e.g., Dental SS=15 instead of 20) require proportionally adjusted coefficients.
 
 **TLR:**
-- `SS = f(NT, NE) × 15 + f(NP) × 5` — Student Strength including doctoral students
+- `SS = f(NT, NE) × 15 + f(NP) × 5` — Student Strength including doctoral students (NT=total students, NE=enrolled, NP=PhD students; variable names follow NIRF methodology notation — full definitions in the official NIRF PDF)
 - `FSR = f(F/N)` — Target 1:15 for max marks (1:20 for State Public Universities)
 - `FQE = FQ + FE` — FQ from PhD % (10 marks), FE from experience distribution (10 marks)
 - `FRU = 7.5×f(BC) + 22.5×f(BO)` — Capital + Operational expenditure per student (3-year avg). **Note:** Coefficients (7.5/22.5) shown for Engineering/Pharmacy/Colleges (FRU=30). For Overall (FRU=20), coefficients scale proportionally. For Dental (FRU=35), coefficients are 8.75/26.25.
