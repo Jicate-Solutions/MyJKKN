@@ -87,7 +87,8 @@ function ScholarshipsPageContent() {
 
   // For academic year dropdown: super_admin uses selected institution; others use their own
   const effectiveInstitutionId = isSuperAdmin ? selectedInstitutionId || undefined : institutionId || undefined;
-  const { data: academicYears = [] } = useAcademicYears(effectiveInstitutionId);
+  const { data: academicYearsResult } = useAcademicYears(effectiveInstitutionId);
+  const academicYears = academicYearsResult?.data || [];
 
   const { data: scholarships, isLoading: scholarshipsLoading } = useScholarships();
   const { data: applications, isLoading: applicationsLoading } = useScholarshipApplications();

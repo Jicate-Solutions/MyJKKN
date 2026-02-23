@@ -60,7 +60,8 @@ export default function EditScholarshipPage() {
   const [saving, setSaving] = useState(false);
 
   // Fetch academic years for the scholarship's institution
-  const { data: academicYears = [] } = useAcademicYears(scholarship?.institution_id);
+  const { data: academicYearsResult } = useAcademicYears(scholarship?.institution_id);
+  const academicYears = academicYearsResult?.data || [];
 
   // Form state mirrors the editable fields
   const [form, setForm] = useState({
@@ -317,7 +318,7 @@ export default function EditScholarshipPage() {
                 >
                   <SelectTrigger><SelectValue placeholder="Select year" /></SelectTrigger>
                   <SelectContent>
-                    {(academicYears as any[]).map((y) => (
+                    {academicYears.map((y: any) => (
                       <SelectItem key={y.id} value={y.academic_year_name}>{y.academic_year_name}</SelectItem>
                     ))}
                   </SelectContent>
