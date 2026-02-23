@@ -365,6 +365,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admission/consultants/commissions': 'admission.consultants.commissions.view',
   '/admission/consultants/rewards': 'admission.consultants.rewards.view',
   '/admission/consultants/analytics': 'admission.consultants.analytics.view',
+  '/admission/consultants/referrals': 'admission.consultants.view',
   '/admission/counselors': 'admission.counselors.view',
   '/admission/interviews': 'admission.interviews.view',
   '/admission/gd-pi': 'admission.gd_pi.view',
@@ -732,6 +733,11 @@ export function GetPages(pathname: string): MenuGroup[] {
               href: '/admission/consultants/analytics',
               label: 'Analytics',
               active: pathname === '/admission/consultants/analytics'
+            },
+            {
+              href: '/admission/consultants/referrals',
+              label: 'Referrals',
+              active: pathname === '/admission/consultants/referrals'
             }
           ]
         },
