@@ -25,6 +25,18 @@ CREATE EXTENSION IF NOT EXISTS moddatetime;
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
 -- ═══════════════════════════════════════════════
+-- HELPER FUNCTIONS (idempotent — safe to re-run)
+-- ═══════════════════════════════════════════════
+
+-- auth_institution_id(): Returns the institution_id of the currently authenticated user.
+-- Used by RLS policies to scope rows to the user's institution.
+-- CREATE OR REPLACE ensures this is idempotent if already created outside of migrations.
+CREATE OR REPLACE FUNCTION auth_institution_id()
+RETURNS uuid LANGUAGE sql STABLE SECURITY INVOKER AS $$
+  SELECT institution_id FROM profiles WHERE id = auth.uid() LIMIT 1
+$$;
+
+-- ═══════════════════════════════════════════════
 -- REGULATORY FRAMEWORK ENGINE — MIGRATION
 -- ═══════════════════════════════════════════════
 
