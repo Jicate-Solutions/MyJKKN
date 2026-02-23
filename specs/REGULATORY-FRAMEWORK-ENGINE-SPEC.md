@@ -1504,8 +1504,8 @@ regulatory_metrics (per criterion per framework):
 | # | Criterion | Max Score | Primary Data Connectors |
 |---|-----------|-----------|------------------------|
 | 1 | Vision, Mission & PEOs | 60 | Manual + `okr_objectives` |
-| 2 | Programme Curriculum & Teaching-Learning | 120 | DC-10: `competency_catalog`, `course_competency_mapping` |
-| 3 | Course Outcomes & Programme Outcomes | 150 | DC-10: CO-PO mapping, attainment levels |
+| 2 | Programme Curriculum & Teaching-Learning | 120 | DC-11: `competency_catalog`, `course_competency_mapping` |
+| 3 | Course Outcomes & Programme Outcomes | 150 | DC-11: CO-PO mapping, attainment levels |
 | 4 | Students' Performance | 120 | DC-17: `exam_results`, DC-04: `alumni_outcomes` |
 | 5 | Faculty Information & Contributions | 100 | DC-02: `staff`, DC-16: `staff_qualifications`, DC-03: `sh_publications` |
 | 6 | Facilities & Technical Support | 80 | DC-20: `resources`, DC-28: `library_holdings`, `ict_infrastructure` |
