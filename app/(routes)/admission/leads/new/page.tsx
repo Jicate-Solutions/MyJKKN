@@ -367,7 +367,7 @@ function NewLeadPageContent() {
       const lead = await createLeadWithProfile.mutateAsync(leadPayload);
 
       // Best-effort counselor assignment — does not block navigation
-      if (selectedCounselorProfileId) {
+      if (selectedCounselorProfileId && selectedCounselorProfileId !== '_none') {
         try {
           const counselorId = await CounselorDailyViewService.resolveOrCreateCounselor(
             selectedCounselorProfileId,
@@ -926,7 +926,7 @@ function NewLeadPageContent() {
                         <SelectValue placeholder={institutionId ? 'Select counselor' : 'Select institution first'} />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="">No counselor</SelectItem>
+                        <SelectItem value="_none">No counselor</SelectItem>
                         {(counselorProfiles || []).map((c) => (
                           <SelectItem key={c.profile_id} value={c.profile_id}>
                             {c.name}{c.designation ? ` (${c.designation})` : ''}
