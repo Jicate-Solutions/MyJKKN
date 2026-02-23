@@ -20,6 +20,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { Switch } from '@/components/ui/switch';
 import {
   Award,
   Trophy,
@@ -58,6 +59,10 @@ const EMPTY_FORM = {
   total_slots: '',
   description: '',
   eligibility_criteria: '',
+  is_active: true,
+  valid_from: '',
+  valid_until: '',
+  academic_year: '',
 };
 
 function ScholarshipsPageContent() {
@@ -260,6 +265,39 @@ function ScholarshipsPageContent() {
                     onChange={(e) => setFormData((f) => ({ ...f, eligibility_criteria: e.target.value }))}
                   />
                 </div>
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="space-y-2">
+                    <Label>Valid From</Label>
+                    <Input
+                      type="date"
+                      value={formData.valid_from}
+                      onChange={(e) => setFormData((f) => ({ ...f, valid_from: e.target.value }))}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Valid Until</Label>
+                    <Input
+                      type="date"
+                      value={formData.valid_until}
+                      onChange={(e) => setFormData((f) => ({ ...f, valid_until: e.target.value }))}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Academic Year</Label>
+                    <Input
+                      placeholder="e.g., 2025-26"
+                      value={formData.academic_year}
+                      onChange={(e) => setFormData((f) => ({ ...f, academic_year: e.target.value }))}
+                    />
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <Switch
+                    checked={formData.is_active}
+                    onCheckedChange={(v) => setFormData((f) => ({ ...f, is_active: v }))}
+                  />
+                  <Label>Active (visible to applicants)</Label>
+                </div>
               </div>
               <DialogFooter>
                 <Button
@@ -291,6 +329,10 @@ function ScholarshipsPageContent() {
                         total_slots: parseInt(formData.total_slots),
                         description: formData.description || undefined,
                         eligibility_criteria: formData.eligibility_criteria || undefined,
+                        is_active: formData.is_active,
+                        valid_from: formData.valid_from || undefined,
+                        valid_until: formData.valid_until || undefined,
+                        academic_year: formData.academic_year || undefined,
                       });
                       queryClient.invalidateQueries({ queryKey: ['admission', 'scholarships', institutionId] });
                       setIsCreateDialogOpen(false);

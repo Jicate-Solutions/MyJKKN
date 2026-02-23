@@ -121,6 +121,10 @@ export class ScholarshipService {
       total_slots: number;
       description?: string;
       eligibility_criteria?: string;
+      is_active?: boolean;
+      valid_from?: string;
+      valid_until?: string;
+      academic_year?: string;
     }
   ): Promise<Scholarship> {
     const supabase = createClientSupabaseClient();
@@ -139,7 +143,10 @@ export class ScholarshipService {
         eligibility_criteria: input.eligibility_criteria
           ? { raw: input.eligibility_criteria }
           : {},
-        is_active: true,
+        is_active: input.is_active ?? true,
+        valid_from: input.valid_from || null,
+        valid_until: input.valid_until || null,
+        academic_year: input.academic_year || null,
         used_slots: 0,
       })
       .select()
