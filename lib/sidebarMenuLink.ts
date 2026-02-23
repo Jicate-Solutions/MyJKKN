@@ -2666,6 +2666,27 @@ export function GetPages(pathname: string): MenuGroup[] {
           submenus: []
         },
         {
+          href: '/campus-living/activity',
+          label: 'Activity Feed',
+          active: pathname === '/campus-living/activity',
+          icon: Activity,
+          submenus: []
+        },
+        {
+          href: '/campus-living/calendar',
+          label: 'Calendar',
+          active: pathname === '/campus-living/calendar',
+          icon: Calendar,
+          submenus: []
+        },
+        {
+          href: '/campus-living/community',
+          label: 'Community',
+          active: pathname.startsWith('/campus-living/community'),
+          icon: UsersRound,
+          submenus: []
+        },
+        {
           href: '/campus-living/blocks',
           label: 'Hostel Blocks',
           active: pathname.startsWith('/campus-living/blocks'),
