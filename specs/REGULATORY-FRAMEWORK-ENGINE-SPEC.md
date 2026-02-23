@@ -1481,7 +1481,7 @@ regulatory_metrics (per criterion per framework):
 - `SS = f(NT, NE) × 15 + f(NP) × 5` — Student Strength including doctoral students
 - `FSR = f(F/N)` — Target 1:15 for max marks (1:20 for State Public Universities)
 - `FQE = FQ + FE` — FQ from PhD % (10 marks), FE from experience distribution (10 marks)
-- `FRU = 7.5×f(BC) + 22.5×f(BO)` — Capital + Operational expenditure per student (3-year avg)
+- `FRU = 7.5×f(BC) + 22.5×f(BO)` — Capital + Operational expenditure per student (3-year avg). **Note:** Coefficients (7.5/22.5) shown for Engineering/Pharmacy/Colleges (FRU=30). For Overall (FRU=20), coefficients scale proportionally. For Dental (FRU=35), coefficients are 8.75/26.25.
 
 **RP:**
 - `PU = 35 × f(P/FRQ) - 5 × f(Pret)` — Publications per faculty, minus retraction penalty
