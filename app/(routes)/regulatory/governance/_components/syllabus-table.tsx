@@ -177,6 +177,7 @@ export function SyllabusTable({ syllabi, institutionId }: SyllabusTableProps) {
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="pl-9"
+            aria-label="Search courses"
           />
         </div>
 
