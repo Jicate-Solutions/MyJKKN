@@ -2653,9 +2653,16 @@ export function GetPages(pathname: string): MenuGroup[] {
       menus: [
         {
           href: '/campus-living',
-          label: 'Dashboard',
+          label: 'Overview',
           active: pathname === '/campus-living',
           icon: Building2,
+          submenus: []
+        },
+        {
+          href: '/campus-living/dashboard',
+          label: 'Mgmt Dashboard',
+          active: pathname === '/campus-living/dashboard',
+          icon: LayoutDashboard,
           submenus: []
         },
         {
