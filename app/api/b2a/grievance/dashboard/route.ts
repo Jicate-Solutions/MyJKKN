@@ -68,7 +68,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         .from('service_requests')
         .select('id', { count: 'exact', head: true })
         .eq('status', status);
-      if (institutionId !== null) {
+      if (institutionId) {
         q = q.eq('institution_id', institutionId);
       }
       return q;
