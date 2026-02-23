@@ -159,10 +159,16 @@ export default function FrameworkDetailPage() {
             {(frameworkError as Error).message || 'An unexpected error occurred.'}
           </AlertDescription>
         </Alert>
-        <Button variant="outline" className="mt-4" onClick={() => router.push('/regulatory')}>
-          <ArrowLeft className="h-4 w-4 mr-2" />
-          Back to Dashboard
-        </Button>
+        <div className="flex items-center gap-2 mt-4">
+          <Button variant="outline" onClick={() => router.push('/regulatory')}>
+            <ArrowLeft className="h-4 w-4 mr-2" />
+            Back to Dashboard
+          </Button>
+          <Button variant="outline" onClick={() => refetchFramework()}>
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Retry
+          </Button>
+        </div>
       </ContentLayout>
     )
   }
