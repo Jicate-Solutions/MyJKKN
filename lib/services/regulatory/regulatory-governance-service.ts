@@ -214,6 +214,10 @@ export class RegulatoryGovernanceService {
     try {
       this.validateId(data.institution_id, 'institution ID')
 
+      // Verify user is authenticated (RLS will enforce role, but fail-fast with clear error)
+      const { data: { user } } = await this.getSupabase().auth.getUser()
+      if (!user) throw new Error('User not authenticated')
+
       const insertPayload = {
         institution_id: data.institution_id,
         name: data.name,
