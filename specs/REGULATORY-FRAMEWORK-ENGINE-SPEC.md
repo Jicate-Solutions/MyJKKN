@@ -1,6 +1,6 @@
 # Regulatory Framework Engine — Complete Specification
 
-> **Status:** Ready for Implementation
+> **Status:** Ready for Implementation (Phase 1 scope; NBA Pharmacy PhOs and NIRF Education framework pending verification)
 > **Created:** 2026-02-23
 > **Based On:** FST Gap Analysis (SARAL ERP vs MyJKKN), Future-Proof Regulatory Architecture FST
 > **Total Effort Estimate:** 8-10 weeks
