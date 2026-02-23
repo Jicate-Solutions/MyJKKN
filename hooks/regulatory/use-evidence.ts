@@ -304,7 +304,7 @@ export function useDeleteEvidence() {
       }
     },
     onError: (error: Error) => {
-      toast.error(error.message || 'Failed to delete evidence')
+      toast.error(friendlyErrorMessage(error, 'Failed to delete evidence'))
     }
   })
 }
