@@ -119,7 +119,7 @@ export function useUpsertSyllabus() {
       }
     },
     onError: (error: Error) => {
-      toast.error(error.message || 'Failed to save syllabus')
+      toast.error(friendlyErrorMessage(error, 'Failed to save syllabus'))
     }
   })
 }
