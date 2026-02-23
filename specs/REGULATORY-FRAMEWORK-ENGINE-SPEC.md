@@ -1927,7 +1927,7 @@ WHERE institution_id = $1 AND academic_year = $2;
 **Sample query:**
 ```sql
 SELECT
-  abc_registered as has_abc,
+  bool_or(abc_registered) as has_abc,
   COUNT(DISTINCT student_id) FILTER (WHERE entry_exit_type IS NOT NULL) as multi_entry_exit_students,
   COUNT(DISTINCT course_id) FILTER (WHERE is_iks_course = true) as iks_courses,
   COUNT(DISTINCT program_id) FILTER (WHERE is_regional_language = true) as regional_programs,
