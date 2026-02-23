@@ -294,8 +294,8 @@ export function EvidencePanel({ evidence, frameworkId, institutionId }: Evidence
 
                             {/* Meta Info */}
                             <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground">
-                              {item.file_size != null && (
-                                <span>{formatFileSize(item.file_size)}</span>
+                              {item.file_size_bytes != null && (
+                                <span>{formatFileSize(item.file_size_bytes)}</span>
                               )}
                               {item.metric_code && (
                                 <span className="flex items-center gap-1">
