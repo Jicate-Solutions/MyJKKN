@@ -173,7 +173,18 @@ export function useAllSubmissions(
           institution_id: institutionId,
           limit: 100
         })
-        return result?.data || []
+        // Flatten nested join objects for page convenience
+        return (result?.data || []).map((sub: any) => ({
+          ...sub,
+          framework_name: sub.framework?.name || '',
+          body: sub.framework?.body || '',
+          framework_version: sub.framework?.version || '',
+          institution_name: sub.institution?.name || '',
+          submitted_by_name: sub.submitted_by_profile?.full_name || '',
+          approved_by_name: sub.approved_by_profile?.full_name || '',
+          // DDL column is completeness_percentage, alias for page
+          completeness_pct: sub.completeness_percentage ?? null,
+        }))
       } catch (error) {
         console.error('[useAllSubmissions] Error:', error)
         return []
