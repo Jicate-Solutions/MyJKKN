@@ -876,6 +876,7 @@ export interface CreateBuilderInput {
   learner_id?: string;
   staff_id?: string;
   department_id?: string;
+  institution_id?: string;
   trained_date?: string;
   hourly_rate?: number;
   specialization?: string;
