@@ -118,7 +118,7 @@ export function useSimulationData(
         .from('regulatory_criteria')
         .select('*')
         .eq('framework_id', opts.framework_id)
-        .is('parent_id', null)
+        .is('parent_criteria_id', null)
         .order('sort_order', { ascending: true })
         .order('code', { ascending: true })
 
