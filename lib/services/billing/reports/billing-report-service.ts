@@ -809,8 +809,12 @@ export class BillingReportService {
   ): Promise<number> {
     let query = this.supabase
       .from('billing_discounts')
-      .select('discount_amount')
+      .select('discount_amount, bill:billing_student_bills!inner(institution_id)')
       .eq('approval_status', 'approved');
+
+    if (institutionId) {
+      query = query.eq('bill.institution_id', institutionId);
+    }
 
     if (dateFrom) {
       query = query.gte('effective_date', dateFrom);
