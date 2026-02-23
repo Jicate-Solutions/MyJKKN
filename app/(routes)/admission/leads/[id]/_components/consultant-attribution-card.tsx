@@ -73,15 +73,20 @@ export function ConsultantAttributionCard({
     }
     setIsLinking(true);
     try {
+      const percentageByType: Record<string, number> = {
+        primary: 100,
+        secondary: 50,
+        assist: 0,
+      };
       await ConsultantService.createLeadAttribution({
         institution_id: institutionId,
         lead_id: leadId,
         consultant_id: selectedConsultantId,
         attribution_type: attributionType,
-        attribution_percentage: 100,
+        attribution_percentage: percentageByType[attributionType] ?? 100,
       });
       toast.success('Consultant linked successfully');
-      queryClient.invalidateQueries({ queryKey: ['lead-attributions', leadId] });
+      queryClient.invalidateQueries({ queryKey: ['lead-attributions'] });
       handleCloseDialog(false);
     } catch (err: any) {
       toast.error(err?.message || 'Failed to link consultant');

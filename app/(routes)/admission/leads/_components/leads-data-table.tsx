@@ -95,6 +95,7 @@ export function LeadsDataTable() {
       const leads = result.data || [];
 
       // Best-effort: batch-fetch primary consultant for each lead on this page
+      setAttributionsMap(new Map()); // clear immediately to avoid stale names on new page
       if (leads.length) {
         ConsultantService.getAttributionsForLeadIds(leads.map((l: any) => l.id))
           .then((attrs) => {
