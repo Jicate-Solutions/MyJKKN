@@ -1328,7 +1328,7 @@ These are completely new requirements introduced by the Binary Framework that th
 **Impact on Regulatory Engine:** These new metrics require:
 - `nep_compliance_tracking` table (for IKS, MEME, ABC, Bharatiya Bhashas)
 - `online_education_tracking` table (for SWAYAM credits)
-- `environmental_initiatives` table (for Net Zero, Green Audits) — **20th new table added**
+- `environmental_initiatives` table (for Net Zero, Green Audits) — **21st new table added**
 - Data export mechanism for Learning Experience Survey (student/alumni database push to NAAC)
 
 #### Radhakrishnan Committee: Architecture Implications
