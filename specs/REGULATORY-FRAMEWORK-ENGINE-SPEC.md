@@ -681,7 +681,11 @@ CREATE TABLE regulatory_criteria (
   code text NOT NULL,                                -- "I", "1.1", "TLR", "TLR-1"
   name text NOT NULL,                                -- "Curricular Aspects"
   description text,
-  weight numeric,                                    -- 0-100 (% contribution at this level)
+  weight numeric,                                    -- interpretation varies by framework:
+  --   NIRF: fractional weights (0.30 = 30% of total)
+  --   NAAC Old: absolute max points per criterion (e.g., 150, 350)
+  --   NAAC Binary: absolute points per attribute (e.g., 75, 50)
+  --   NBA/AICTE/UGC: percentage contribution (0-100)
   max_score numeric,                                 -- max points for this criteria
   sort_order integer NOT NULL DEFAULT 0,
   is_qualitative boolean DEFAULT false,              -- some criteria are descriptive, not numeric
