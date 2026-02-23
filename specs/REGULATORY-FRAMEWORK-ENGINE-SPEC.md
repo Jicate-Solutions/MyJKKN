@@ -1250,6 +1250,14 @@ CREATE INDEX idx_reg_metric_values_inst_year ON regulatory_metric_values(institu
 CREATE INDEX idx_reg_evidence_metric ON regulatory_evidence(metric_id, institution_id, academic_year);
 -- NOTE: submissions UNIQUE(framework_id, institution_id, academic_year) already creates an implicit index
 CREATE INDEX idx_reg_simulations_framework ON regulatory_simulations(framework_id, institution_id);
+-- NOTE: evidence_versions UNIQUE(evidence_id, version_number) already creates an implicit index
+CREATE INDEX idx_reg_peer_visits_submission ON regulatory_peer_visits(submission_id, institution_id);
+CREATE INDEX idx_reg_peer_visits_status ON regulatory_peer_visits(institution_id, status);
+CREATE INDEX idx_reg_governing_bodies_inst ON regulatory_governing_bodies(institution_id, body_type);
+-- NOTE: body_meetings UNIQUE(body_id, academic_year, meeting_number) already creates an implicit index
+CREATE INDEX idx_reg_body_meetings_inst_year ON regulatory_body_meetings(institution_id, academic_year);
+-- NOTE: course_syllabi UNIQUE(institution_id, course_code, academic_year, semester) already creates an implicit index
+CREATE INDEX idx_reg_syllabi_dept ON regulatory_course_syllabi(institution_id, department, academic_year);
 
 -- ═══════════════════════════════════════════════
 -- TRIGGERS
