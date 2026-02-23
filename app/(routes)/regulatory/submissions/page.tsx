@@ -42,6 +42,7 @@ import {
   CircleCheck,
   Send,
   Filter,
+  RefreshCw,
 } from 'lucide-react'
 import { useAuth } from '@/hooks/use-auth'
 import { usePermissions } from '@/hooks/use-permissions'
