@@ -94,9 +94,29 @@ export function EvidencePanel({ evidence, frameworkId, institutionId }: Evidence
   const [criteriaFilter, setCriteriaFilter] = useState<string>('all')
   const [showUploadDialog, setShowUploadDialog] = useState(false)
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([])
+  const [uploadDescription, setUploadDescription] = useState('')
 
   const deleteEvidenceMutation = useDeleteEvidence()
   const uploadEvidenceMutation = useUploadEvidence()
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      setSelectedFiles(Array.from(e.target.files))
+    }
+  }
+
+  const handleUpload = async () => {
+    if (selectedFiles.length === 0) {
+      toast.error('Please select at least one file')
+      return
+    }
+    // Evidence upload requires a metric_id or criteria_id — for now, show a message
+    toast.error('Please upload evidence from a specific metric using the upload button in the Metrics tab')
+    setShowUploadDialog(false)
+    setSelectedFiles([])
+    setUploadDescription('')
+  }
 
   // Unique criteria for filter
   const criteriaOptions = useMemo(() => {
