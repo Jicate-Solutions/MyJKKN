@@ -44,8 +44,10 @@ import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { useLeadMutations, useCounselorProfiles } from '@/hooks/admission';
+import { useConsultantsForDropdown } from '@/hooks/admission/use-consultants';
 import { CounselorDailyViewService } from '@/lib/services/admission/counselor-daily-view-service';
 import { LeadService } from '@/lib/services/admission/lead-service';
+import { ConsultantService } from '@/lib/services/admission/consultant-service';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { ArrowLeft, Save, Loader2, ChevronsUpDown, X } from 'lucide-react';
 import Link from 'next/link';
@@ -117,6 +119,9 @@ function NewLeadPageContent() {
   // Counselor assignment (optional at creation time)
   const [selectedCounselorProfileId, setSelectedCounselorProfileId] = useState<string>('');
 
+  // Consultant attribution (optional at creation time)
+  const [selectedConsultantId, setSelectedConsultantId] = useState<string>('');
+
   // Auto-set institution if user has only one
   useEffect(() => {
     if (!isSuperAdmin && profile?.institution_id) {
@@ -128,6 +133,7 @@ function NewLeadPageContent() {
 
   const institutionId = selectedInstitutionId;
   const { data: counselorProfiles } = useCounselorProfiles(institutionId || undefined);
+  const { data: consultants = [] } = useConsultantsForDropdown(institutionId || undefined);
 
   // Programs loaded based on selected institution
   const [programs, setPrograms] = useState<ProgramOption[]>([]);
@@ -376,6 +382,21 @@ function NewLeadPageContent() {
           await LeadService.assignCounselor(lead.id, counselorId, selectedCounselorProfileId);
         } catch (e) {
           console.warn('[leads/new] Could not assign counselor (best-effort):', e);
+        }
+      }
+
+      // Best-effort consultant attribution
+      if (selectedConsultantId && selectedConsultantId !== '_none' && institutionId) {
+        try {
+          await ConsultantService.createLeadAttribution({
+            institution_id: institutionId,
+            lead_id: lead.id,
+            consultant_id: selectedConsultantId,
+            attribution_type: 'primary',
+            attribution_percentage: 100,
+          });
+        } catch (e) {
+          console.warn('[leads/new] Could not create consultant attribution (best-effort):', e);
         }
       }
 
@@ -930,6 +951,33 @@ function NewLeadPageContent() {
                         {(counselorProfiles || []).map((c) => (
                           <SelectItem key={c.profile_id} value={c.profile_id}>
                             {c.name}{c.designation ? ` (${c.designation})` : ''}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </CardContent>
+                </Card>
+
+                {/* Attribute to Consultant */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Referred by Consultant</CardTitle>
+                    <CardDescription>Optional — attribute this lead to a consultant</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <Select
+                      value={selectedConsultantId}
+                      onValueChange={setSelectedConsultantId}
+                      disabled={!institutionId}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder={institutionId ? 'Select consultant' : 'Select institution first'} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="_none">No consultant</SelectItem>
+                        {consultants.map((c) => (
+                          <SelectItem key={c.id} value={c.id}>
+                            {c.name}
                           </SelectItem>
                         ))}
                       </SelectContent>
