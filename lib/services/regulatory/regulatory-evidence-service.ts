@@ -85,6 +85,14 @@ export class RegulatoryEvidenceService {
   }
 
   /**
+   * Sanitize a search term for safe use in PostgREST .or() filter strings.
+   * Escapes commas and parentheses that could break the filter syntax.
+   */
+  private static sanitizeSearch(term: string): string {
+    return term.replace(/[,()]/g, ' ').trim()
+  }
+
+  /**
    * Format error for logging (handles Supabase PostgrestError which doesn't serialize properly)
    */
   private static formatError(error: unknown): string {
