@@ -11,7 +11,6 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -34,7 +33,9 @@ import {
   Info,
   RefreshCw,
   AlertCircle,
-  Users
+  Users,
+  Plus,
+  X
 } from 'lucide-react';
 import { UseFormReturn } from 'react-hook-form';
 
@@ -264,25 +265,60 @@ export function ParentAuthSettings({
             name="allowed_redirect_uris"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Allowed Redirect URIs</FormLabel>
-                <FormDescription>
-                  Allowed callback URLs after authentication (one per line)
-                </FormDescription>
-                <FormControl>
-                  <Textarea
-                    placeholder={`https://yourapp.myjkkn.ac.in/auth/callback
-http://localhost:3000/auth/callback`}
-                    value={field.value?.join('\n') || ''}
-                    onChange={(e) => {
-                      const uris = e.target.value
-                        .split('\n')
-                        .map((uri) => uri.trim())
-                        .filter((uri) => uri.length > 0);
-                      field.onChange(uris);
-                    }}
-                    rows={4}
-                  />
-                </FormControl>
+                <div className="flex items-center justify-between mb-1">
+                  <div>
+                    <FormLabel>Allowed Redirect URIs</FormLabel>
+                    <FormDescription>
+                      Allowed callback URLs after authentication
+                    </FormDescription>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() =>
+                      field.onChange([...(field.value || []), ''])
+                    }
+                  >
+                    <Plus className="h-4 w-4 mr-1" />
+                    Add URL
+                  </Button>
+                </div>
+                <div className="space-y-2">
+                  {(field.value || []).length === 0 ? (
+                    <p className="text-sm text-muted-foreground py-2 border border-dashed rounded-md px-3">
+                      No redirect URIs added. Click &quot;Add URL&quot; to add one.
+                    </p>
+                  ) : (
+                    (field.value as string[]).map((uri, index) => (
+                      <div key={index} className="flex gap-2">
+                        <Input
+                          placeholder="https://yourapp.example.com/auth/callback"
+                          value={uri}
+                          onChange={(e) => {
+                            const updated = [...(field.value as string[])];
+                            updated[index] = e.target.value;
+                            field.onChange(updated);
+                          }}
+                        />
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => {
+                            const updated = (field.value as string[]).filter(
+                              (_, i) => i !== index
+                            );
+                            field.onChange(updated);
+                          }}
+                          className="text-muted-foreground hover:text-destructive shrink-0"
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    ))
+                  )}
+                </div>
                 <FormMessage />
               </FormItem>
             )}
