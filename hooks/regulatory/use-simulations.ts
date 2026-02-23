@@ -278,7 +278,8 @@ export function useDeleteSimulation() {
       return { success: true }
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: simulationKeys.lists() })
+      // Invalidate all simulation queries (including adapter keys like 'saved')
+      queryClient.invalidateQueries({ queryKey: simulationKeys.all })
     },
     onError: (error: Error) => {
       toast.error(error.message || 'Failed to delete simulation. Simulations may be read-only.')
