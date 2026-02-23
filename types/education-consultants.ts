@@ -99,6 +99,10 @@ export interface EducationConsultant {
   // Profile
   profile_photo_url: string | null;
   learner_profile_id: string | null;
+  website: string | null;
+
+  // Banking
+  bank_account_holder: string | null;
 
   // Status
   status: ConsultantStatus;
@@ -117,6 +121,7 @@ export interface EducationConsultant {
   updated_by: string | null;
 
   // Relationships (optional populated)
+  institution?: { id: string; name: string } | null;
   commission_structures?: ConsultantCommissionStructure[];
   communications?: ConsultantCommunication[];
   documents?: ConsultantDocument[];
@@ -226,64 +231,77 @@ export interface ConsultantCommissionStructure {
   institution_id: string;
   consultant_id: string;
   program_id: string | null;
+  degree_id: string | null;
+  department_id: string | null;
 
-  // Commission Settings
-  calculation_method: CommissionCalculationMethod;
-  base_rate: number;
-  rate_type: 'percentage' | 'flat';
+  // Structure identity
+  name: string;
+  description: string | null;
+  priority: number | null;
+
+  // Commission Settings — uses DB column names
+  commission_type: string;  // 'percentage' | 'flat' | 'tiered' | 'milestone'
+  commission_basis: string | null;
+  base_rate: number | null;
+  base_amount: number | null;
+  applies_to_all_programs: boolean | null;
 
   // Milestone Configuration (for milestone method)
-  milestone_config: MilestoneConfig[] | null;
+  milestones: any;  // Json array []
 
-  // Volume Tiers (slab rates)
-  volume_tiers: VolumeTier[] | null;
+  // Volume Tiers
+  volume_tiers: any | null;
+  volume_tiers_enabled: boolean | null;
 
   // Clawback Rules
-  clawback_enabled: boolean;
+  clawback_enabled: boolean | null;
   clawback_period_days: number | null;
   clawback_percentage: number | null;
   clawback_conditions: Record<string, unknown> | null;
 
-  // Caps & Limits
-  max_commission_per_student: number | null;
-  max_monthly_commission: number | null;
-  min_enrollment_duration_days: number | null;
-
   // Validity
   effective_from: string;
   effective_to: string | null;
-  is_active: boolean;
+  is_active: boolean | null;
 
   // Metadata
-  notes: string | null;
-  created_at: string;
-  updated_at: string;
+  created_at: string | null;
+  updated_at: string | null;
   created_by: string | null;
+  updated_by: string | null;
 
-  // Relationships
+  // Relationships (optional populated)
   consultant?: EducationConsultant;
+
+  // Allow dynamic DB fields
+  [key: string]: any;
 }
 
 export interface CreateCommissionStructureInput {
   institution_id: string;
   consultant_id: string;
+  name: string;
+  commission_type: string;
+  base_rate?: number | null;
+  base_amount?: number | null;
   program_id?: string | null;
-  calculation_method: CommissionCalculationMethod;
-  base_rate: number;
-  rate_type: 'percentage' | 'flat';
-  milestone_config?: MilestoneConfig[] | null;
-  volume_tiers?: VolumeTier[] | null;
-  clawback_enabled?: boolean;
+  degree_id?: string | null;
+  department_id?: string | null;
+  description?: string | null;
+  applies_to_all_programs?: boolean | null;
+  milestones?: any;
+  volume_tiers?: any | null;
+  volume_tiers_enabled?: boolean | null;
+  clawback_enabled?: boolean | null;
   clawback_period_days?: number | null;
   clawback_percentage?: number | null;
   clawback_conditions?: Record<string, unknown> | null;
-  max_commission_per_student?: number | null;
-  max_monthly_commission?: number | null;
-  min_enrollment_duration_days?: number | null;
-  effective_from: string;
+  effective_from?: string;
   effective_to?: string | null;
-  is_active?: boolean;
-  notes?: string | null;
+  is_active?: boolean | null;
+  priority?: number | null;
+  commission_basis?: string | null;
+  created_by?: string | null;
 }
 
 export interface UpdateCommissionStructureInput extends Partial<CreateCommissionStructureInput> {

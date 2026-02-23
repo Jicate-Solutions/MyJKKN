@@ -156,7 +156,7 @@ function EditConsultantForm() {
         consultant_type: c.consultant_type || 'external',
         status: c.status || 'active',
         contact_person: c.contact_person || '',
-        website: '', // No DB column for website
+        website: c.website || '',
         gst_number: c.gst_number || '',
         pan_number: c.pan_number || '',
         // DB column is address_line1, form field is address
@@ -168,7 +168,7 @@ function EditConsultantForm() {
         bank_name: c.bank_name || '',
         bank_account_number: c.bank_account_number || '',
         bank_ifsc: c.bank_ifsc || '',
-        bank_account_holder: '', // No DB column for bank_account_holder
+        bank_account_holder: c.bank_account_holder || '',
         contract_start_date: c.contract_start_date || '',
         contract_end_date: c.contract_end_date || '',
         // DB column is internal_notes, form field is notes
@@ -241,7 +241,7 @@ function EditConsultantForm() {
 
   const onSubmit = (data: UpdateConsultantInput) => {
     // Transform form field names to match DB column names
-    const { address, notes, website, bank_account_holder, geographic_coverage, specializations, programs_handled, id: _id, ...rest } = data as any;
+    const { address, notes, geographic_coverage, specializations, programs_handled, id: _id, ...rest } = data as any;
     const dbData: Record<string, any> = {
       ...rest,
       id: consultantId,
@@ -254,9 +254,6 @@ function EditConsultantForm() {
       ...(specializations?.length ? { specialized_degrees: specializations } : {}),
       ...(programs_handled?.length ? { specialized_programs: programs_handled } : {}),
     };
-    // Remove fields that don't exist in DB
-    delete dbData.website;
-    delete dbData.bank_account_holder;
 
     updateMutation.mutate(dbData as UpdateConsultantInput);
   };

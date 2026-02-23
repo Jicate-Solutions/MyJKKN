@@ -22,7 +22,8 @@ import {
   SelectValue
 } from '@/components/ui/select';
 import { PermissionGuard } from '@/components/auth/permission-guard';
-import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
+import { useAuth } from '@/hooks/use-auth';
+import { usePermissions } from '@/hooks/use-permissions';
 import {
   useAdmissionDashboard,
   useFunnelAnalyticsDashboard
@@ -433,12 +434,13 @@ function StuckLeadsTable({
 }
 
 function AdmissionAnalyticsPageContent() {
-  const { selectedInstitutionId, loading: accessLoading } = useUserInstitutionAccess();
-  const institutionId = selectedInstitutionId;
+  const { profile } = useAuth();
+  const { isSuperAdmin } = usePermissions();
+  const institutionId = isSuperAdmin ? undefined : profile?.institution_id;
   const [dateRange, setDateRange] = useState('30');
 
   // Phase 1 hooks
-  const { summary, isLoading: dashboardLoading, refetchAll: refetchDashboard } = useAdmissionDashboard(institutionId || '');
+  const { summary, isLoading: dashboardLoading, refetchAll: refetchDashboard } = useAdmissionDashboard(institutionId);
 
   // Phase 2 hooks
   const {
@@ -448,9 +450,9 @@ function AdmissionAnalyticsPageContent() {
     bottlenecks,
     isLoading: funnelLoading,
     refetchAll: refetchFunnel
-  } = useFunnelAnalyticsDashboard(institutionId || '');
+  } = useFunnelAnalyticsDashboard(institutionId);
 
-  const isLoading = accessLoading || dashboardLoading || funnelLoading;
+  const isLoading = dashboardLoading || funnelLoading;
 
   const handleRefresh = async () => {
     try {
@@ -615,13 +617,15 @@ function AdmissionAnalyticsPageContent() {
             </TabsContent>
 
             <TabsContent value="counselors" className="mt-4">
-              {institutionId && (
+              {(isSuperAdmin || !!institutionId) && (
                 <CounselorPerformanceDashboard institutionId={institutionId} />
               )}
             </TabsContent>
 
             <TabsContent value="sources" className="mt-4">
-              {institutionId && <SourceROIDashboard institutionId={institutionId} />}
+              {(isSuperAdmin || !!institutionId) && (
+                <SourceROIDashboard institutionId={institutionId} />
+              )}
             </TabsContent>
           </Tabs>
         </div>

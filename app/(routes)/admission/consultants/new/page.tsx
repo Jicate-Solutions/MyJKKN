@@ -159,7 +159,7 @@ function NewConsultantForm() {
     }
 
     // Build base DB payload (transform form field names to DB column names)
-    const { address, notes, website, bank_account_holder, geographic_coverage, specializations, programs_handled, ...rest } = data as any;
+    const { address, notes, geographic_coverage, specializations, programs_handled, ...rest } = data as any;
     const baseData: Record<string, any> = {
       ...rest,
       ...(address ? { address_line1: address } : {}),
@@ -168,8 +168,6 @@ function NewConsultantForm() {
       ...(specializations?.length ? { specialized_degrees: specializations } : {}),
       ...(programs_handled?.length ? { specialized_programs: programs_handled } : {}),
     };
-    delete baseData.website;
-    delete baseData.bank_account_holder;
     delete baseData.institution_id; // set per-institution below
 
     setIsSubmitting(true);

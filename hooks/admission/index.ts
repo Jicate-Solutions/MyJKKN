@@ -3,6 +3,8 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import { useAuth } from '@/hooks/use-auth';
+import { usePermissions } from '@/hooks/use-permissions';
 import { LeadService } from '@/lib/services/admission/lead-service';
 import { ApplicationService } from '@/lib/services/admission/application-service';
 import { CommunicationTemplatesService } from '@/lib/services/admission/communication-templates-service';
@@ -1008,10 +1010,12 @@ export function useAdmissionDashboard(filtersOrId?: string | any) {
     ? filtersOrId
     : filtersOrId?.institution_id;
 
+  const { isSuperAdmin } = usePermissions();
+
   const query = useQuery({
     queryKey: ['admission-dashboard', institutionId],
     queryFn: async () => {
-      if (!institutionId) {
+      if (!isSuperAdmin && !institutionId) {
         return {
           summary: {
             totalLeads: 0,
@@ -1032,7 +1036,7 @@ export function useAdmissionDashboard(filtersOrId?: string | any) {
 
       return { summary, funnel: funnel.stages };
     },
-    enabled: !!institutionId
+    enabled: isSuperAdmin || !!institutionId
   });
 
   return {
@@ -1097,10 +1101,12 @@ export function useFunnelAnalyticsDashboard(filtersOrId?: string | any) {
     ? filtersOrId
     : filtersOrId?.institution_id || filtersOrId?.institutionId;
 
+  const { isSuperAdmin } = usePermissions();
+
   const query = useQuery({
     queryKey: ['funnel-analytics-dashboard', institutionId],
     queryFn: async () => {
-      if (!institutionId) return { enhanced: [], dropOff: [], stuckLeads: [], bottlenecks: [] };
+      if (!isSuperAdmin && !institutionId) return { enhanced: [], dropOff: [], stuckLeads: [], bottlenecks: [] };
       const supabase = createClientSupabaseClient();
 
       const STAGES = [
@@ -1113,17 +1119,19 @@ export function useFunnelAnalyticsDashboard(filtersOrId?: string | any) {
       ];
 
       // Fetch leads with stage info
-      const { data: leads } = await (supabase as any)
+      let leadsQuery = (supabase as any)
         .from('admission_leads')
-        .select('id, stage, funnel_stage, stage_changed_at, created_at, is_hot_lead, combined_score, counselor_id')
-        .eq('institution_id', institutionId);
+        .select('id, stage, funnel_stage, stage_changed_at, created_at, is_hot_lead, combined_score, counselor_id');
+      if (institutionId) leadsQuery = leadsQuery.eq('institution_id', institutionId);
+      const { data: leads } = await leadsQuery;
 
       // Fetch stuck leads from the view
-      const { data: stuckData, error: stuckError } = await (supabase as any)
+      let stuckQuery = (supabase as any)
         .from('v_stuck_leads')
         .select('*')
-        .eq('institution_id', institutionId)
         .order('days_in_stage', { ascending: false });
+      if (institutionId) stuckQuery = stuckQuery.eq('institution_id', institutionId);
+      const { data: stuckData, error: stuckError } = await stuckQuery;
 
       if (stuckError) {
         console.error('[admission] v_stuck_leads query failed:', stuckError);
@@ -1215,7 +1223,7 @@ export function useFunnelAnalyticsDashboard(filtersOrId?: string | any) {
 
       return { enhanced, dropOff, stuckLeads, bottlenecks };
     },
-    enabled: !!institutionId
+    enabled: isSuperAdmin || !!institutionId
   });
 
   return {

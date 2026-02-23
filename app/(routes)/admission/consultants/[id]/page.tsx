@@ -45,14 +45,18 @@ import {
   FileText,
   CreditCard,
   Award,
-  Star
+  Star,
+  Globe,
+  User
 } from 'lucide-react';
 import Link from 'next/link';
 import { ConsultantService } from '@/lib/services/admission/consultant-service';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { useQuery } from '@tanstack/react-query';
 import type { EducationConsultant, ConsultantLeadAttribution, ConsultantCommissionTransaction } from '@/types/education-consultants';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { CommissionStructureTab } from './_components/commission-structure-tab';
 import { format } from 'date-fns';
 import {
   DropdownMenu,
@@ -183,6 +187,21 @@ function ConsultantDetailContent() {
     enabled: !!consultantId && isValidId
   });
 
+  // Fetch sibling registrations — same consultant registered at other institutions
+  const { data: siblings } = useQuery({
+    queryKey: ['consultant-siblings', consultantId, consultant?.email],
+    queryFn: async () => {
+      const supabase = createClientSupabaseClient();
+      const { data } = await (supabase as any)
+        .from('education_consultants')
+        .select('id, institution:institutions(id, name)')
+        .eq('email', consultant!.email)
+        .neq('id', consultantId);
+      return (data || []) as Array<{ id: string; institution: { id: string; name: string } | null }>;
+    },
+    enabled: !!consultant?.email && isValidId
+  });
+
   if (isLoading) {
     return <ConsultantDetailSkeleton />;
   }
@@ -214,6 +233,7 @@ function ConsultantDetailContent() {
       <div className="flex items-start justify-between">
         <div className="flex items-start gap-6">
           <Avatar className="h-24 w-24">
+            <AvatarImage src={consultant.profile_photo_url || ''} alt={consultant.name} />
             <AvatarFallback className="text-2xl">
               {consultant.name?.split(' ').map(n => n[0]).join('').toUpperCase() || 'EC'}
             </AvatarFallback>
@@ -239,6 +259,12 @@ function ConsultantDetailContent() {
               </Badge>
             </div>
             <div className="flex items-center gap-4 mt-3 text-sm text-muted-foreground">
+              {consultant.institution && (
+                <span className="flex items-center gap-1 font-medium text-foreground">
+                  <Building className="h-4 w-4" />
+                  {consultant.institution.name}
+                </span>
+              )}
               {consultant.email && (
                 <span className="flex items-center gap-1">
                   <Mail className="h-4 w-4" />
@@ -252,6 +278,19 @@ function ConsultantDetailContent() {
                 </span>
               )}
             </div>
+            {siblings && siblings.length > 0 && (
+              <div className="flex items-center gap-2 mt-2 flex-wrap">
+                <span className="text-xs text-muted-foreground">Also registered at:</span>
+                {siblings.map(s => (
+                  <Link key={s.id} href={`/admission/consultants/${s.id}`}>
+                    <Badge variant="outline" className="text-xs cursor-pointer hover:bg-muted gap-1">
+                      <Building className="h-3 w-3" />
+                      {s.institution?.name || 'Unknown Institution'}
+                    </Badge>
+                  </Link>
+                ))}
+              </div>
+            )}
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -358,6 +397,7 @@ function ConsultantDetailContent() {
       <Tabs defaultValue="details" className="w-full">
         <TabsList>
           <TabsTrigger value="details">Details</TabsTrigger>
+          <TabsTrigger value="commission-structure">Commission Structure</TabsTrigger>
           <TabsTrigger value="referrals">Recent Referrals</TabsTrigger>
           <TabsTrigger value="commissions">Recent Commissions</TabsTrigger>
         </TabsList>
@@ -440,7 +480,7 @@ function ConsultantDetailContent() {
             </Card>
 
             {/* Business Information */}
-            {(consultant.contact_person || consultant.gst_number || consultant.pan_number) && (
+            {(consultant.contact_person || consultant.gst_number || consultant.pan_number || consultant.website) && (
               <Card>
                 <CardHeader>
                   <CardTitle className="text-base">Business Information</CardTitle>
@@ -450,6 +490,20 @@ function ConsultantDetailContent() {
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Contact Person</span>
                       <span className="font-medium">{consultant.contact_person}</span>
+                    </div>
+                  )}
+                  {consultant.website && (
+                    <div className="flex justify-between items-center">
+                      <span className="text-muted-foreground">Website</span>
+                      <a
+                        href={consultant.website}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="font-medium flex items-center gap-1 text-primary hover:underline"
+                      >
+                        <Globe className="h-3.5 w-3.5" />
+                        {consultant.website.replace(/^https?:\/\//, '')}
+                      </a>
                     </div>
                   )}
                   {consultant.gst_number && (
@@ -469,16 +523,27 @@ function ConsultantDetailContent() {
             )}
 
             {/* Bank Details */}
-            {consultant.bank_name && (
+            {(consultant.bank_name || consultant.bank_account_holder) && (
               <Card>
                 <CardHeader>
                   <CardTitle className="text-base">Bank Details</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-3">
+                  {consultant.bank_account_holder && (
+                    <div className="flex justify-between items-center">
+                      <span className="text-muted-foreground">Account Holder</span>
+                      <span className="font-medium flex items-center gap-1">
+                        <User className="h-3.5 w-3.5 text-muted-foreground" />
+                        {consultant.bank_account_holder}
+                      </span>
+                    </div>
+                  )}
+                  {consultant.bank_name && (
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Bank Name</span>
                     <span className="font-medium">{consultant.bank_name}</span>
                   </div>
+                  )}
                   {consultant.bank_branch && (
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Bank Branch</span>
@@ -609,6 +674,13 @@ function ConsultantDetailContent() {
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="commission-structure" className="mt-4 space-y-4">
+          <CommissionStructureTab
+            consultantId={consultantId}
+            institutionId={consultant.institution_id}
+          />
         </TabsContent>
 
         <TabsContent value="referrals" className="mt-4">

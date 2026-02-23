@@ -166,7 +166,7 @@ export default function ScholarshipViewPage() {
         </Button>
       </div>
 
-      <div className="mt-6 max-w-4xl space-y-6">
+      <div className="mt-6 space-y-6">
         {/* Application Stats */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <StatCard label="Total Applications" value={totalApps} icon={FileText} color="bg-blue-50 text-blue-800" />

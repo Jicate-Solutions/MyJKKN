@@ -145,7 +145,7 @@ export default function EditScholarshipPage() {
   if (loading) {
     return (
       <ContentLayout title="Edit Scholarship">
-        <div className="space-y-6 max-w-2xl">
+        <div className="space-y-6">
           <Skeleton className="h-8 w-64" />
           <Skeleton className="h-[400px] w-full" />
         </div>
@@ -199,7 +199,7 @@ export default function EditScholarshipPage() {
         </div>
       </div>
 
-      <div className="mt-6 max-w-2xl space-y-6">
+      <div className="mt-6 space-y-6">
         {/* Basic Information */}
         <Card>
           <CardHeader>
