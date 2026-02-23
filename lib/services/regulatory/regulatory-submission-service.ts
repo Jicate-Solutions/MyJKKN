@@ -1,16 +1,26 @@
 // ============================================================================
 // Regulatory Submission Service
-// Handles submission lifecycle: draft -> in_review -> submitted -> graded
+// Handles submission lifecycle: draft -> data_collection -> in_review -> approved -> submitted -> accepted
 // ============================================================================
 
 import { createClientSupabaseClient } from '@/lib/supabase/client'
+
+/**
+ * DDL: regulatory_submissions columns:
+ *   id, framework_id, institution_id, academic_year, status, completeness_percentage,
+ *   auto_populated_count, manual_entry_count, total_metrics_count,
+ *   calculated_score, submitted_at, submitted_by, approved_at, approved_by,
+ *   portal_reference, report_file_url, notes, created_at, updated_at
+ *
+ * UNIQUE(framework_id, institution_id, academic_year)
+ * Status flow: draft | data_collection | in_review | approved | submitted | accepted
+ */
 
 export interface SubmissionFilters {
   framework_id?: string
   institution_id?: string
   academic_year?: string
   status?: string
-  search?: string
   page?: number
   limit?: number
 }
@@ -19,11 +29,10 @@ export interface CreateSubmissionData {
   framework_id: string
   institution_id: string
   academic_year: string
-  title?: string
   notes?: string | null
 }
 
-export type SubmissionStatus = 'draft' | 'in_progress' | 'in_review' | 'submitted' | 'graded' | 'archived'
+export type SubmissionStatus = 'draft' | 'data_collection' | 'in_review' | 'approved' | 'submitted' | 'accepted'
 
 export class RegulatorySubmissionService {
   // Get fresh client for each request to ensure auth token is current
@@ -86,9 +95,10 @@ export class RegulatorySubmissionService {
         .from('regulatory_submissions')
         .select(`
           *,
-          framework:regulatory_frameworks(id, body_name, version_year, description),
+          framework:regulatory_frameworks(id, name, body, version, description),
           institution:institutions(id, name),
-          created_by_profile:profiles!created_by(id, full_name, email)
+          submitted_by_profile:profiles!submitted_by(id, full_name, email),
+          approved_by_profile:profiles!approved_by(id, full_name, email)
         `, { count: 'exact' })
 
       // Apply filters
@@ -103,11 +113,6 @@ export class RegulatorySubmissionService {
       }
       if (filters.status) {
         query = query.eq('status', filters.status)
-      }
-      if (filters.search) {
-        query = query.or(
-          `title.ilike.%${filters.search}%,notes.ilike.%${filters.search}%`
-        )
       }
 
       // Pagination
@@ -148,10 +153,10 @@ export class RegulatorySubmissionService {
         .from('regulatory_submissions')
         .select(`
           *,
-          framework:regulatory_frameworks(id, body_name, version_year, description, status),
+          framework:regulatory_frameworks(id, name, body, version, description, status),
           institution:institutions(id, name),
-          created_by_profile:profiles!created_by(id, full_name, email),
-          reviewed_by_profile:profiles!reviewed_by(id, full_name, email)
+          submitted_by_profile:profiles!submitted_by(id, full_name, email),
+          approved_by_profile:profiles!approved_by(id, full_name, email)
         `)
         .eq('id', id)
         .maybeSingle()
@@ -174,29 +179,32 @@ export class RegulatorySubmissionService {
           const criteriaIds = (criteria || []).map((c: any) => c.id)
 
           if (criteriaIds.length > 0) {
-            const { count: totalMetrics } = await (this.getSupabase() as any)
+            const { data: metricsData } = await (this.getSupabase() as any)
               .from('regulatory_metrics')
-              .select('id', { count: 'exact', head: true })
+              .select('id')
               .in('criteria_id', criteriaIds)
 
-            let valuesQuery = (this.getSupabase() as any)
-              .from('regulatory_metric_values')
-              .select('metric_id', { count: 'exact', head: true })
-              .eq('framework_id', data.framework_id)
-              .eq('institution_id', data.institution_id)
+            const metricIds = (metricsData || []).map((m: any) => m.id)
+            const totalMetrics = metricIds.length
 
-            if (data.academic_year) {
-              valuesQuery = valuesQuery.eq('academic_year', data.academic_year)
-            }
+            if (totalMetrics > 0) {
+              let valuesQuery = (this.getSupabase() as any)
+                .from('regulatory_metric_values')
+                .select('metric_id', { count: 'exact', head: true })
+                .in('metric_id', metricIds)
+                .eq('institution_id', data.institution_id)
 
-            const { count: populatedMetrics } = await valuesQuery
+              if (data.academic_year) {
+                valuesQuery = valuesQuery.eq('academic_year', data.academic_year)
+              }
 
-            data._completeness = {
-              total_metrics: totalMetrics || 0,
-              populated_metrics: populatedMetrics || 0,
-              completeness_percent: totalMetrics
-                ? Math.round(((populatedMetrics || 0) / totalMetrics) * 100)
-                : 0
+              const { count: populatedMetrics } = await valuesQuery
+
+              data._completeness = {
+                total_metrics: totalMetrics,
+                populated_metrics: populatedMetrics || 0,
+                completeness_percent: Math.round(((populatedMetrics || 0) / totalMetrics) * 100)
+              }
             }
           }
         } catch (completenessError) {
@@ -221,20 +229,16 @@ export class RegulatorySubmissionService {
       this.validateId(data.framework_id, 'framework ID')
       this.validateId(data.institution_id, 'institution ID')
 
-      // Get current user
-      const { data: { user } } = await this.getSupabase().auth.getUser()
-      if (!user) throw new Error('User not authenticated')
-
       const insertPayload = {
         framework_id: data.framework_id,
         institution_id: data.institution_id,
         academic_year: data.academic_year,
-        title: data.title || null,
         notes: data.notes || null,
         status: 'draft' as SubmissionStatus,
-        created_by: user.id,
-        total_score: null,
-        grade: null
+        completeness_percentage: 0,
+        auto_populated_count: 0,
+        manual_entry_count: 0,
+        total_metrics_count: 0
       }
 
       const { data: result, error } = await (this.getSupabase() as any)
@@ -262,7 +266,7 @@ export class RegulatorySubmissionService {
 
   /**
    * Update submission status with workflow transitions
-   * Valid transitions: draft -> in_progress -> in_review -> submitted -> graded
+   * Valid transitions: draft -> data_collection -> in_review -> approved -> submitted -> accepted
    */
   static async updateSubmissionStatus(id: string, status: SubmissionStatus) {
     try {
@@ -277,13 +281,14 @@ export class RegulatorySubmissionService {
         updated_at: new Date().toISOString()
       }
 
-      // Track reviewer and submission dates
-      if (status === 'in_review') {
-        updatePayload.reviewed_by = user.id
+      // Track approver and submission dates
+      if (status === 'approved') {
+        updatePayload.approved_by = user.id
+        updatePayload.approved_at = new Date().toISOString()
       }
       if (status === 'submitted') {
-        updatePayload.submitted_at = new Date().toISOString()
         updatePayload.submitted_by = user.id
+        updatePayload.submitted_at = new Date().toISOString()
       }
 
       const { data, error } = await (this.getSupabase() as any)
@@ -304,7 +309,9 @@ export class RegulatorySubmissionService {
 
   /**
    * Calculate total submission score from metric values
-   * Sums (metric_value * metric_weight) for all metrics in the framework
+   * Uses metrics' max_score and criteria weights.
+   *
+   * NOTE: metric_values has NO framework_id. We resolve via criteria -> metrics.
    */
   static async calculateSubmissionScore(id: string) {
     try {
@@ -320,43 +327,40 @@ export class RegulatorySubmissionService {
       if (subError) throw subError
       if (!submission) throw new Error('Submission not found.')
 
-      // Get all criteria for this framework
+      // Get all criteria for this framework (with weight and max_score)
       const { data: criteria, error: criteriaError } = await (this.getSupabase() as any)
         .from('regulatory_criteria')
-        .select('id')
+        .select('id, weight, max_score')
         .eq('framework_id', submission.framework_id)
 
       if (criteriaError) throw criteriaError
 
       const criteriaIds = (criteria || []).map((c: any) => c.id)
       if (criteriaIds.length === 0) {
-        return { total_score: 0, max_possible_score: 0, grade: null }
+        return { total_score: 0, max_possible_score: 0, percentage: 0, grade: null }
       }
 
-      // Get all metrics with their weights and max scores
+      // Get all metrics
       const { data: metrics, error: metricsError } = await (this.getSupabase() as any)
         .from('regulatory_metrics')
-        .select('id, weight, max_score')
+        .select('id, criteria_id')
         .in('criteria_id', criteriaIds)
 
       if (metricsError) throw metricsError
 
       if (!metrics || metrics.length === 0) {
-        return { total_score: 0, max_possible_score: 0, grade: null }
+        return { total_score: 0, max_possible_score: 0, percentage: 0, grade: null }
       }
 
-      // Get all metric values for this submission
-      let valuesQuery = (this.getSupabase() as any)
+      const metricIds = metrics.map((m: any) => m.id)
+
+      // Get all metric values for this submission scope
+      const { data: values, error: valuesError } = await (this.getSupabase() as any)
         .from('regulatory_metric_values')
         .select('metric_id, numeric_value')
-        .eq('framework_id', submission.framework_id)
+        .in('metric_id', metricIds)
         .eq('institution_id', submission.institution_id)
-
-      if (submission.academic_year) {
-        valuesQuery = valuesQuery.eq('academic_year', submission.academic_year)
-      }
-
-      const { data: values, error: valuesError } = await valuesQuery
+        .eq('academic_year', submission.academic_year)
 
       if (valuesError) throw valuesError
 
@@ -368,26 +372,46 @@ export class RegulatorySubmissionService {
         }
       }
 
-      // Calculate weighted score
+      // Build criteria map for weights and max_scores
+      const criteriaMap = new Map<string, any>()
+      for (const c of (criteria || [])) {
+        criteriaMap.set(c.id, c)
+      }
+
+      // Calculate score per criteria, respecting weights
       let totalScore = 0
       let maxPossibleScore = 0
 
-      for (const metric of metrics) {
-        const weight = metric.weight || 1
-        const maxScore = metric.max_score || 0
-        maxPossibleScore += maxScore * weight
+      // Group metrics by criteria
+      const metricsByCriteria = new Map<string, any[]>()
+      for (const m of metrics) {
+        const list = metricsByCriteria.get(m.criteria_id) || []
+        list.push(m)
+        metricsByCriteria.set(m.criteria_id, list)
+      }
 
-        const value = valueMap.get(metric.id)
-        if (value !== undefined) {
-          totalScore += value * weight
+      for (const [criteriaId, criteriaMetrics] of metricsByCriteria) {
+        const crit = criteriaMap.get(criteriaId)
+        const critMaxScore = crit?.max_score || 0
+        maxPossibleScore += critMaxScore
+
+        // Sum numeric values for metrics under this criteria
+        let criteriaValue = 0
+        for (const m of criteriaMetrics) {
+          const val = valueMap.get(m.id)
+          if (val !== undefined) {
+            criteriaValue += val
+          }
         }
+
+        totalScore += criteriaValue
       }
 
       // Round to 2 decimal places
       totalScore = Math.round(totalScore * 100) / 100
       maxPossibleScore = Math.round(maxPossibleScore * 100) / 100
 
-      // Determine grade (NAAC-style: A++, A+, A, B++, B+, B, C, D)
+      // Calculate percentage and determine grade
       const percentage = maxPossibleScore > 0 ? (totalScore / maxPossibleScore) * 100 : 0
       let grade: string | null = null
       if (percentage >= 91) grade = 'A++'
@@ -403,10 +427,8 @@ export class RegulatorySubmissionService {
       const { error: updateError } = await (this.getSupabase() as any)
         .from('regulatory_submissions')
         .update({
-          total_score: totalScore,
-          max_possible_score: maxPossibleScore,
-          grade,
-          score_calculated_at: new Date().toISOString(),
+          calculated_score: totalScore,
+          completeness_percentage: Math.round(percentage * 100) / 100,
           updated_at: new Date().toISOString()
         })
         .eq('id', id)
