@@ -105,6 +105,7 @@ export default function RegulatoryDashboardPage() {
     data: frameworks,
     isLoading: frameworksLoading,
     error: frameworksError,
+    refetch: refetchFrameworks,
   } = useRegulatoryFrameworks({ institution_id: institutionId })
 
   const {
