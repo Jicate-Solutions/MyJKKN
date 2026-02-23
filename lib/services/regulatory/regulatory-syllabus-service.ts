@@ -167,9 +167,12 @@ export class RegulatorySyllabusService {
         query = query.eq('revision_status', filters.revision_status)
       }
       if (filters.search) {
-        query = query.or(
-          `course_name.ilike.%${filters.search}%,course_code.ilike.%${filters.search}%`
-        )
+        const safe = this.sanitizeSearch(filters.search)
+        if (safe) {
+          query = query.or(
+            `course_name.ilike.%${safe}%,course_code.ilike.%${safe}%`
+          )
+        }
       }
 
       // Pagination
