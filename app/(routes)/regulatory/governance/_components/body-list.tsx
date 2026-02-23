@@ -128,7 +128,10 @@ export function BodyList({ bodies, institutionId }: BodyListProps) {
                   {/* Main Row */}
                   <div
                     className="flex items-center justify-between cursor-pointer"
+                    role="button"
+                    tabIndex={0}
                     onClick={() => setExpandedBody(isExpanded ? null : body.id)}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpandedBody(isExpanded ? null : body.id) } }}
                   >
                     <div className="flex items-center gap-4 min-w-0">
                       <div className="p-2.5 rounded-lg bg-blue-50 shrink-0">
