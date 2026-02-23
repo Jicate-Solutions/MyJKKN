@@ -4,7 +4,6 @@ import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
 import { Database, UpdateApiKeyInput } from '@/types/api-keys';
-import toast from 'react-hot-toast';
 
 export async function PATCH(
   request: NextRequest,
@@ -132,7 +131,6 @@ export async function DELETE(
       !profile ||
       !['super_admin', 'administrator'].includes(profile.role)
     ) {
-      toast.error('You are not authorized to delete this API key');
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 

@@ -218,7 +218,14 @@
       "Bash(timeout /t 2 /nobreak)",
       "Bash(tree:*)",
       "Bash(openssl x509:*)",
-      "WebFetch(domain:www.githubstatus.com)"
+      "WebFetch(domain:www.githubstatus.com)",
+      "Bash(cd /d/Projects/MyJKKN && bun run typecheck 2>&1)",
+      "Bash(cd /d/Projects/MyJKKN && bun test __tests__/lib/api-keys/authenticate.test.ts 2>&1)",
+      "Bash(cd /d/Projects/MyJKKN && bun test __tests__/lib/api-keys/rate-limiter.test.ts 2>&1)",
+      "Bash(cd \"D:/Projects/MyJKKN\" && bun test __tests__/lib/api-keys/audit-logger.test.ts 2>&1)",
+      "Bash(cd D:/Projects/MyJKKN && bun test __tests__/lib/api-keys/audit-logger.test.ts 2>&1)",
+      "Bash(cd D:/Projects/MyJKKN && bun test __tests__/lib/api-keys/ 2>&1)",
+      "Bash(cd /d/Projects/MyJKKN && bun test __tests__/lib/api-keys/ 2>&1)"
     ],
     "deny": [],
     "ask": []
