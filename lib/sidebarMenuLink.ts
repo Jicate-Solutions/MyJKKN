@@ -105,6 +105,9 @@ import {
   // Campus Living Icons
   Hotel,
   UtensilsCrossed,
+  WashingMachine,
+  HeartPulse,
+  ClipboardPlus,
   // Admission CRM extra icons
   Radio,
   GitMerge,
