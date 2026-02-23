@@ -224,7 +224,7 @@ export function useFrameworkEvidence(
         if (institutionId) {
           query = query.eq('institution_id', institutionId)
         }
-        query = query.is('deleted_at', null).order('created_at', { ascending: false })
+        query = query.eq('is_deleted', false).order('created_at', { ascending: false })
 
         const { data: evidence, error } = await query
 
