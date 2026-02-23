@@ -123,6 +123,7 @@ export default function SubmissionsPage() {
   } = useRegulatoryFrameworks({ institution_id: institutionId })
 
   const createSubmissionMutation = useCreateSubmission()
+  const updateStatusMutation = useUpdateSubmissionStatus()
 
   const isLoading = submissionsLoading || frameworksLoading
 
