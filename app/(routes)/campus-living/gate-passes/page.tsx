@@ -92,8 +92,14 @@ export default function GatePassesPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState('pending');
 
-  // Reject dialog state
   // Export CSV helper
+  const sanitizeCsvValue = (val: string) => {
+    // Prevent CSV formula injection — prefix dangerous characters with a single quote
+    const s = String(val);
+    if (/^[=+\-@\t\r]/.test(s)) return `'${s}`;
+    return s;
+  };
+
   const handleExport = () => {
     if (!passes.length) return;
     const headers = ['Pass Number', 'Student', 'Type', 'Status', 'Destination', 'Out Time', 'Expected Return', 'Actual Return'];
@@ -107,7 +113,7 @@ export default function GatePassesPage() {
       p.expected_return ?? '',
       p.actual_return ?? '',
     ]);
-    const csv = [headers.join(','), ...rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(','))].join('\n');
+    const csv = [headers.join(','), ...rows.map(r => r.map(v => `"${sanitizeCsvValue(v).replace(/"/g, '""')}"`).join(','))].join('\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
