@@ -25,7 +25,7 @@ interface CriterionNode {
   score?: number
   completeness_pct?: number
   metric_count?: number
-  parent_id?: string | null
+  parent_criteria_id?: string | null
   level?: number
   children?: CriterionNode[]
 }
@@ -48,8 +48,8 @@ function buildTree(items: CriterionNode[]): CriterionNode[] {
   // Build parent-child relationships
   items.forEach((item) => {
     const node = map.get(item.id)!
-    if (item.parent_id && map.has(item.parent_id)) {
-      map.get(item.parent_id)!.children!.push(node)
+    if (item.parent_criteria_id && map.has(item.parent_criteria_id)) {
+      map.get(item.parent_criteria_id)!.children!.push(node)
     } else {
       roots.push(node)
     }
