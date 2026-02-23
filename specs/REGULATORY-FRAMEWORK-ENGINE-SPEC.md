@@ -1706,10 +1706,30 @@ Appendices: Data templates per criterion (auto-generated Excel)
 report-generator.ts
 ├── generateNAAC_SSR(frameworkId, assessmentYear)
 │   ├── Extended Profile → auto from connectors
-│   ├── QnM sections → auto from metric_values
-│   ├── QlM sections → from manual_entries table
-│   ├── Evidence links → from evidence_attachments
+│   ├── QnM sections → auto from regulatory_metric_values
+│   ├── QlM sections → from regulatory_metric_values (is_auto_calculated = false)
+│   ├── Evidence links → from regulatory_evidence
 │   └── Output: PDF via react-pdf or puppeteer
+│
+├── generateNAAC_AQAR(frameworkId, academicYear)
+│   ├── Annual quality summary → from metric_values (current year vs previous)
+│   ├── Criterion-wise improvements → auto-diff from historical values
+│   └── Output: PDF (40-60 pages)
+│
+├── generateNAAC_DVV(frameworkId, assessmentYear)
+│   ├── QnM metric data → auto from connectors
+│   ├── Evidence URLs → from regulatory_evidence
+│   └── Output: Excel/CSV for DVV verification
+│
+├── generateNAAC_IIQA(institutionId)
+│   ├── Institutional profile → from institutions table
+│   ├── Readiness indicators → from regulatory_metric_values
+│   └── Output: JSON/form data for NAAC portal
+│
+├── generateNAAC_Binary(frameworkId, assessmentYear)
+│   ├── 10 attribute scores → auto from metric_values
+│   ├── Institution-type-specific weights → from framework config
+│   └── Output: PDF + portal submission data
 │
 ├── generateNIRF_Submission(frameworkId, academicYear)
 │   ├── Parameter data → auto from connectors
