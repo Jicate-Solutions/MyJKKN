@@ -48,6 +48,7 @@ import { usePermissions } from '@/hooks/use-permissions';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { useQueryClient } from '@tanstack/react-query';
 import { ScholarshipService } from '@/lib/services/admission/scholarship-service';
+import { useRouter } from 'next/navigation';
 
 const EMPTY_FORM = {
   name: '',
@@ -73,6 +74,7 @@ function ScholarshipsPageContent() {
   const { profile } = useAuth();
   const { isSuperAdmin } = usePermissions();
   const queryClient = useQueryClient();
+  const router = useRouter();
   const { institutions } = useInstitutionsWithAccess();
   // super_admin has no institution_id — they pick one in the form
   const institutionId = isSuperAdmin ? undefined : profile?.institution_id;
@@ -290,7 +292,7 @@ function ScholarshipsPageContent() {
                         description: formData.description || undefined,
                         eligibility_criteria: formData.eligibility_criteria || undefined,
                       });
-                      queryClient.invalidateQueries({ queryKey: ['admission', 'scholarships'] });
+                      queryClient.invalidateQueries({ queryKey: ['admission', 'scholarships', institutionId] });
                       setIsCreateDialogOpen(false);
                       setFormData(EMPTY_FORM);
                       setSelectedInstitutionId('');
@@ -463,7 +465,7 @@ function ScholarshipsPageContent() {
                         <Eye className="h-4 w-4 mr-1" />
                         View
                       </Button>
-                      <Button variant="outline" size="sm" className="flex-1" onClick={() => toast.success('Opening scholarship editor')}>
+                      <Button variant="outline" size="sm" className="flex-1" onClick={() => router.push(`/admission/scholarships/${scholarship.id}/edit`)}>
                         <Edit className="h-4 w-4 mr-1" />
                         Edit
                       </Button>

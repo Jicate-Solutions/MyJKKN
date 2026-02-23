@@ -149,6 +149,68 @@ export class ScholarshipService {
     return data;
   }
 
+  static async getScholarshipById(id: string): Promise<Scholarship | null> {
+    const supabase = createClientSupabaseClient();
+    const { data, error } = await (supabase as any)
+      .from('scholarships')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (error) return null;
+    return data;
+  }
+
+  static async updateScholarship(
+    id: string,
+    input: {
+      name?: string;
+      scholarship_type?: string;
+      benefit_type?: string;
+      benefit_value?: number;
+      total_slots?: number;
+      description?: string;
+      eligibility_criteria?: string;
+      is_active?: boolean;
+      valid_from?: string | null;
+      valid_until?: string | null;
+      academic_year?: string | null;
+    }
+  ): Promise<Scholarship> {
+    const supabase = createClientSupabaseClient();
+
+    const payload: Record<string, any> = {};
+    if (input.name !== undefined) {
+      payload.name = input.name;
+      // regenerate code when name changes
+      payload.code = generateCode(input.name);
+    }
+    if (input.scholarship_type !== undefined) payload.scholarship_type = input.scholarship_type;
+    if (input.benefit_type !== undefined) payload.benefit_type = input.benefit_type;
+    if (input.benefit_value !== undefined) payload.benefit_value = input.benefit_value;
+    if (input.total_slots !== undefined) payload.total_slots = input.total_slots;
+    if (input.description !== undefined) payload.description = input.description || null;
+    if (input.eligibility_criteria !== undefined) {
+      payload.eligibility_criteria = input.eligibility_criteria
+        ? { raw: input.eligibility_criteria }
+        : {};
+    }
+    if (input.is_active !== undefined) payload.is_active = input.is_active;
+    if (input.valid_from !== undefined) payload.valid_from = input.valid_from;
+    if (input.valid_until !== undefined) payload.valid_until = input.valid_until;
+    if (input.academic_year !== undefined) payload.academic_year = input.academic_year;
+
+    const { data, error } = await (supabase as any)
+      .from('scholarships')
+      .update(payload)
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
+  }
+
   static async updateApplicationStatus(
     applicationId: string,
     status: 'approved' | 'rejected',
