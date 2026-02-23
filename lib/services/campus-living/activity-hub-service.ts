@@ -203,8 +203,8 @@ export class ActivityHubService {
         let q = (supabase as any)
           .from('hostel_pm_tasks')
           .select('id, title, status, due_date, block_id, hostel_blocks(name)')
-          .gte('due_date', dateFrom)
-          .lte('due_date', dateTo)
+          .gte('due_date', dateFromDate)
+          .lte('due_date', dateToDate)
           .order('due_date', { ascending: false })
           .limit(PER_TABLE_LIMIT)
 
