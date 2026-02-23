@@ -1677,7 +1677,7 @@ Appendices: Data templates per criterion (auto-generated Excel)
       "OE": { "swayam_courses": 12, "swayam_completions": 85, "online_syllabus_pct": 40, "online_exams_pct": 15 },
       "MIR": { "abc_registered": true, "multi_entry_exit_students": 22, "iks_courses": 4, "regional_language_programs": 2 }
     },
-    "RPC": {
+    "RP": {
       "PU": { "wos_papers": 45, "scopus_papers": 62, "retracted": 0, "faculty_count": 120 },
       "QP": { "total_citations": 890, "top25p_citations": 340, "retracted_citations": 0 },
       "IPR": { "patents_granted": 3, "patents_published": 8 },
