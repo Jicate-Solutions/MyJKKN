@@ -350,7 +350,7 @@ export function useDeletePeerBenchmark() {
       queryClient.invalidateQueries({ queryKey: benchmarkKeys.summaries() })
     },
     onError: (error: Error) => {
-      toast.error(error.message || 'Failed to delete peer benchmark')
+      toast.error(friendlyErrorMessage(error, 'Failed to delete peer benchmark'))
     }
   })
 }
