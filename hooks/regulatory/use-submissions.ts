@@ -148,7 +148,7 @@ export function useUpdateSubmissionStatus() {
       queryClient.invalidateQueries({ queryKey: submissionKeys.all })
     },
     onError: (error: Error) => {
-      toast.error(error.message || 'Failed to update submission status')
+      toast.error(friendlyErrorMessage(error, 'Failed to update submission status'))
     }
   })
 }
