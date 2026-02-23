@@ -258,7 +258,7 @@ export function useFrameworkEvidence(
             criteria_code: crit?.code || '',
             criteria_name: crit?.name || '',
             metric_code: metric?.code || '',
-            uploaded_by_name: e.uploaded_by_name || ''
+            uploaded_by_name: e.uploaded_by_profile?.full_name || ''
           }
         })
       } catch (error) {
