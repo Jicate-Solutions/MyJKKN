@@ -1411,14 +1411,14 @@ The Dr. Radhakrishnan Committee Report (Nov 2023) recommends:
 
 #### OI Sub-Parameter Variations
 
-| Sub-Parameter | Overall/Engg | Pharmacy/Dental | Colleges |
-|---------------|-------------|-----------------|----------|
+| Sub-Parameter | Overall/Engg/Dental/Medical | Pharmacy | Colleges |
+|---------------|---------------------------|----------|----------|
 | RD (Regional Diversity) | 30 | **25** | **25** |
 | WD (Women Diversity) | 30 | **25** | **25** |
 | ESCS (Economically Challenged) | 20 | **25** | **25** |
 | PCS (Physically Challenged) | 20 | **25** | **25** |
 
-> Pharmacy, Dental, and Colleges have equal distribution (25 each) vs Overall/Engineering's unequal split.
+> **Dental and Medical/Nursing** use the same OI distribution as Overall/Engineering (30/30/20/20). Only **Pharmacy and Colleges** use equal distribution (25 each). Education also uses 25/25/25/25.
 
 #### Data Connector Mapping per Discipline
 
