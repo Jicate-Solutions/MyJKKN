@@ -151,6 +151,105 @@ export function useUpdateSubmissionStatus() {
 }
 
 // ---------------------------------------------------------------------------
+// Adapter hooks (used by page components with different signatures)
+// ---------------------------------------------------------------------------
+
+/**
+ * useAllSubmissions — returns flat array of submissions.
+ * Accepts { institution_id? }.
+ */
+export function useAllSubmissions(
+  opts: { institution_id?: string } = {}
+) {
+  const { profile, isLoading: authLoading } = useAuth()
+  const { isSuperAdmin } = usePermissions()
+
+  const institutionId = opts.institution_id ?? (isSuperAdmin ? undefined : profile?.institution_id)
+
+  return useQuery<any[], Error>({
+    queryKey: [...submissionKeys.all, 'all-flat', institutionId] as const,
+    queryFn: async () => {
+      try {
+        const result = await RegulatorySubmissionService.getSubmissions({
+          institution_id: institutionId,
+          limit: 100
+        })
+        return result?.data || []
+      } catch (error) {
+        console.error('[useAllSubmissions] Error:', error)
+        return []
+      }
+    },
+    enabled: !authLoading && !!profile && (isSuperAdmin || !!institutionId),
+    ...QUERY_CONFIG.SEMI_STABLE_DATA
+  })
+}
+
+/**
+ * useFrameworkSubmissions — submissions for a specific framework.
+ * Accepts { framework_id, institution_id? }. Returns flat array.
+ */
+export function useFrameworkSubmissions(
+  opts: { framework_id: string; institution_id?: string }
+) {
+  const { profile, isLoading: authLoading } = useAuth()
+  const { isSuperAdmin } = usePermissions()
+
+  const institutionId = opts.institution_id ?? (isSuperAdmin ? undefined : profile?.institution_id)
+
+  return useQuery<any[], Error>({
+    queryKey: [...submissionKeys.all, 'framework', opts.framework_id, institutionId] as const,
+    queryFn: async () => {
+      try {
+        const result = await RegulatorySubmissionService.getSubmissions({
+          framework_id: opts.framework_id,
+          institution_id: institutionId
+        })
+        return result?.data || []
+      } catch (error) {
+        console.error('[useFrameworkSubmissions] Error:', error)
+        return []
+      }
+    },
+    enabled:
+      !authLoading &&
+      !!profile &&
+      !!opts.framework_id &&
+      (isSuperAdmin || !!institutionId),
+    ...QUERY_CONFIG.SEMI_STABLE_DATA
+  })
+}
+
+/**
+ * useStartSubmission — alias for useCreateSubmission with simpler input.
+ * Accepts { framework_id, institution_id? }.
+ */
+export function useStartSubmission() {
+  const queryClient = useQueryClient()
+  const { profile } = useAuth()
+
+  return useMutation({
+    mutationFn: async (input: {
+      framework_id: string
+      institution_id?: string
+    }) => {
+      return await RegulatorySubmissionService.createSubmission({
+        framework_id: input.framework_id,
+        institution_id: input.institution_id || profile?.institution_id || '',
+        created_by: profile?.id || '',
+      } as any)
+    },
+    onSuccess: () => {
+      toast.success('Submission started')
+      queryClient.invalidateQueries({ queryKey: submissionKeys.lists() })
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to start submission')
+    }
+  })
+}
+
+// ---------------------------------------------------------------------------
 // useCalculateScore — compute total weighted score for a submission
 // Uses the service which also persists score to DB
 // ---------------------------------------------------------------------------
