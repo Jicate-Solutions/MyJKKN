@@ -233,9 +233,13 @@ export function useUpdateMetricValue() {
       academic_year?: string
       value: any
     }) => {
+      const resolvedInstitutionId = input.institution_id || profile?.institution_id
+      if (!resolvedInstitutionId) {
+        throw new Error('Institution ID is required to save a metric value.')
+      }
       return await RegulatoryMetricService.upsertMetricValue({
         metric_id: input.metric_id,
-        institution_id: input.institution_id || profile?.institution_id || '',
+        institution_id: resolvedInstitutionId,
         academic_year: input.academic_year || new Date().getFullYear().toString(),
         value: typeof input.value === 'string' ? input.value : String(input.value ?? ''),
         numeric_value: typeof input.value === 'number' ? input.value : undefined
