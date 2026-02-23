@@ -198,6 +198,8 @@ export function usePeerBenchmarkSummary(
         query = query.eq('academic_year', academicYear)
       }
 
+      query = query.limit(1000) // Safety cap: prevent unbounded fetches
+
       const { data, error } = await query
 
       if (error) throw error
