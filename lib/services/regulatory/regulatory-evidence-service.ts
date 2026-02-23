@@ -213,7 +213,10 @@ export class RegulatoryEvidenceService {
       }
 
       // Try full-text search first using the search_vector column
-      const tsQuery = searchTerm.trim().split(/\s+/).join(' & ')
+      // Sanitize: remove characters that could break tsquery or PostgREST filter syntax
+      const sanitized = this.sanitizeSearch(searchTerm)
+      if (!sanitized) return []
+      const tsQuery = sanitized.split(/\s+/).join(' & ')
 
       let query = (this.getSupabase() as any)
         .from('regulatory_evidence')
