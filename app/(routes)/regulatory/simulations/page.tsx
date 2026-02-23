@@ -584,7 +584,7 @@ export default function SimulationsPage() {
         )}
 
         {/* No Data for Selected Framework */}
-        {selectedFramework && !dataLoading && !simulationData && (
+        {selectedFramework && !dataLoading && !simulationError && !simulationData && (
           <Card>
             <CardContent className="pt-12 pb-12">
               <div className="text-center text-muted-foreground">
