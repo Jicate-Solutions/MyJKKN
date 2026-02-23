@@ -262,6 +262,9 @@ export class RegulatoryEvidenceService {
     academicYear?: string,
     limit: number = 20
   ) {
+    const safe = this.sanitizeSearch(searchTerm)
+    if (!safe) return []
+
     let query = (this.getSupabase() as any)
       .from('regulatory_evidence')
       .select(`
@@ -270,7 +273,7 @@ export class RegulatoryEvidenceService {
       `)
       .eq('is_deleted', false)
       .or(
-        `file_name.ilike.%${searchTerm}%,description.ilike.%${searchTerm}%`
+        `file_name.ilike.%${safe}%,description.ilike.%${safe}%`
       )
 
     if (institutionId) {
