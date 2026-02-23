@@ -134,7 +134,7 @@ interface PeerVisit {
 }
 
 interface PeerVisitTimelineProps {
-  visits: PeerVisit[]
+  visits: PeerVisitRaw[]
   institutionId?: string
 }
 
