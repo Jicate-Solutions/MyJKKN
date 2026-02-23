@@ -1441,7 +1441,7 @@ Engineering diverges from Overall, and Colleges introduces a 5th RP sub-paramete
 #### Education Category (Estimated)
 
 > **Note:** Education may follow the Colleges framework if a separate Education framework is not published. The following is estimated from the `/Users/omm/Vaults/JKKNKB/NIRF/Education.md` vault strategy:
-> - RP replaces IPR with **AR (Action Research, 20 marks)** and adjusts PU/QP to 30/30
+> - RP replaces IPR with **AR (Action Research, 20 marks)** and adjusts PU/QP to 30/30; **FPPP = 20** (teacher training projects)
 > - GO has 3 unique sub-params: **GUE(50) + GTET(30) (Teacher Eligibility Test) + GPL(20) (Placements)**
 > - JKKN College of Education would use this framework
 
