@@ -1657,24 +1657,30 @@ Appendices: Data templates per criterion (auto-generated Excel)
       "SS": { "ug_enrolled": 1200, "pg_enrolled": 300, "phd_enrolled": 45, "sanctioned_intake": 1500 },
       "FSR": { "full_time_faculty": 120, "total_students": 1545 },
       "FQE": { "phd_faculty": 85, "exp_0_8": 30, "exp_8_15": 45, "exp_gt_15": 45 },
-      "FRU": { "capital_exp_3yr": [1200000, 1500000, 1800000], "operational_exp_3yr": [8000000, 8500000, 9000000] }
+      "FRU": { "capital_exp_3yr": [1200000, 1500000, 1800000], "operational_exp_3yr": [8000000, 8500000, 9000000] },
+      "OE": { "swayam_courses": 12, "swayam_completions": 85, "online_syllabus_pct": 40, "online_exams_pct": 15 },
+      "MIR": { "abc_registered": true, "multi_entry_exit_students": 22, "iks_courses": 4, "regional_language_programs": 2 }
     },
     "RPC": {
       "PU": { "wos_papers": 45, "scopus_papers": 62, "retracted": 0, "faculty_count": 120 },
       "QP": { "total_citations": 890, "top25p_citations": 340, "retracted_citations": 0 },
       "IPR": { "patents_granted": 3, "patents_published": 8 },
-      "FPPP": { "funded_projects_amount": 4500000, "consultancy_amount": 1200000 }
+      "FPPP": { "funded_projects_amount": 4500000, "consultancy_amount": 1200000 },
+      "PSDGs": { "sdg_aligned_papers": 8, "sdg_categories": ["SDG3", "SDG4", "SDG9"] }
     },
     "GO": {
       "GUE": { "appeared": [400, 420, 410], "passed": [360, 380, 375] },
-      "GPHD": { "phds_awarded": [5, 7, 8] }
+      "GPHD": { "phds_awarded": [5, 7, 8] },
+      "GPH": null,
+      "GPROF": null
     },
     "OI": {
       "RD": { "other_state_students": 180, "international_students": 12, "total_students": 1545 },
       "WD": { "women_students": 720, "women_faculty": 48, "total_students": 1545, "total_faculty": 120 },
       "ESCS": { "scholarship_students": 450, "freeships": 120, "total_students": 1545 },
       "PCS": { "pwd_students": 15, "accessible_buildings_pct": 85 }
-    }
+    },
+    "PR": { "source": "external_survey", "note": "NIRF-conducted, not institution-generated" }
   }
 }
 ```
