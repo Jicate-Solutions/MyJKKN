@@ -125,10 +125,10 @@ export default function FrameworkDetailPage() {
         framework_id: frameworkId,
         institution_id: institutionId,
       })
-      toast.success('Submission started successfully')
+      // Toast is handled by the useStartSubmission hook's onSuccess
       setShowStartDialog(false)
-    } catch (err) {
-      toast.error('Failed to start submission')
+    } catch {
+      // Error toast is handled by the useStartSubmission hook's onError
     }
   }
 
