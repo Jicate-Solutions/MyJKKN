@@ -44,7 +44,7 @@ interface EvidenceItem {
   file_name: string
   file_url?: string
   file_type?: string
-  file_size?: number
+  file_size_bytes?: number
   criteria_id?: string
   criteria_code?: string
   criteria_name?: string
