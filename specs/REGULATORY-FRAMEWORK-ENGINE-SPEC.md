@@ -1118,7 +1118,7 @@ After all new tables built:       ~35/56 = 63%  (remaining 21 are qualitative na
 
 | Parameter | Weight | Sub-Parameters (Marks) | Primary Data Connectors |
 |-----------|--------|------------------------|------------------------|
-| TLR (Teaching, Learning & Resources) | 0.30 | SS(20), FSR(25), FQE(20), FRU(20), OE(10), MIRS(5) | DC-01, DC-02, DC-06, DC-16, DC-21, DC-29, DC-30 |
+| TLR (Teaching, Learning & Resources) | 0.30 | SS(20), FSR(25), FQE(20), FRU(20), OE(10), MIR(5) | DC-01, DC-02, DC-06, DC-16, DC-21, DC-29, DC-30 |
 | RPC (Research & Professional Practice) | 0.30 | PU(35), QP(35), IPR(15), FPPP(15) | DC-03, DC-18, DC-19 |
 | GO (Graduation Outcomes) | 0.20 | GUE(60), GPHD(40) | DC-17, DC-31 |
 | OI (Outreach & Inclusivity) | 0.10 | RD(30), WD(30), ESCS(20), PCS(20) | DC-01, DC-09, DC-26 |
