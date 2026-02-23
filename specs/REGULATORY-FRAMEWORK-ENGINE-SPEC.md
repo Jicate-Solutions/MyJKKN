@@ -993,7 +993,7 @@ Ship with these frameworks pre-configured (seeded in migration):
 > **Scoring:** Each criterion has QlM (Qualitative — narrative + evidence) and QnM (Quantitative — data-driven) metrics
 > **Grading:** Individual metric scores → Key Indicator GPA → Criterion GPA → Overall CGPA (1.00–4.00) → Grade (A++/A+/A/B++/B+/B/C)
 > **DVV:** All QnM metrics undergo Data Validation & Verification by NAAC before peer team visit
-> **Note:** Weights shown are from the NAAC QIF Manual. Autonomous, Affiliated, and University variants share identical metric codes but have different criterion-level weights. The engine stores per-institution-type weights in `regulatory_metrics.weight`.
+> **Note:** Weights shown are from the NAAC QIF Manual. Autonomous, Affiliated, and University variants share identical metric codes but have different criterion-level weights. The engine stores per-institution-type weights in `regulatory_criteria.weight` (criterion-level weights).
 
 #### Criterion Summary
 
