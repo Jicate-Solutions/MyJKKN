@@ -180,7 +180,7 @@ export function useCreateMeeting() {
       queryClient.invalidateQueries({ queryKey: governanceKeys.all })
     },
     onError: (error: Error) => {
-      toast.error(error.message || 'Failed to create meeting')
+      toast.error(friendlyErrorMessage(error, 'Failed to create meeting'))
     }
   })
 }
