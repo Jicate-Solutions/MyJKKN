@@ -5,6 +5,8 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
+import { useAuth } from '@/hooks/use-auth';
+import { usePermissions } from '@/hooks/use-permissions';
 import { DataQualityService } from '@/lib/services/admission/data-quality-service';
 import { ScholarshipService } from '@/lib/services/admission/scholarship-service';
 import { HostelService } from '@/lib/services/admission/hostel-service';
@@ -106,20 +108,24 @@ export function useDuplicateGroups() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 export function useScholarships() {
-  const institutionId = useInstitutionId();
+  const { profile } = useAuth();
+  const { isSuperAdmin } = usePermissions();
+  const institutionId = isSuperAdmin ? undefined : profile?.institution_id;
   return useQuery({
     queryKey: ['admission', 'scholarships', institutionId],
-    queryFn: () => ScholarshipService.getScholarships(institutionId!),
-    enabled: !!institutionId,
+    queryFn: () => ScholarshipService.getScholarships(institutionId),
+    enabled: isSuperAdmin || !!institutionId,
   });
 }
 
 export function useScholarshipApplications() {
-  const institutionId = useInstitutionId();
+  const { profile } = useAuth();
+  const { isSuperAdmin } = usePermissions();
+  const institutionId = isSuperAdmin ? undefined : profile?.institution_id;
   return useQuery({
     queryKey: ['admission', 'scholarship-applications', institutionId],
-    queryFn: () => ScholarshipService.getScholarshipApplications(institutionId!),
-    enabled: !!institutionId,
+    queryFn: () => ScholarshipService.getScholarshipApplications(institutionId),
+    enabled: isSuperAdmin || !!institutionId,
   });
 }
 

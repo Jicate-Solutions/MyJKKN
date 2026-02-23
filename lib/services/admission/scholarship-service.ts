@@ -45,21 +45,23 @@ export interface ScholarshipApplication {
 }
 
 export class ScholarshipService {
-  static async getScholarships(institutionId: string): Promise<Scholarship[]> {
+  static async getScholarships(institutionId: string | undefined): Promise<Scholarship[]> {
     const supabase = createClientSupabaseClient();
-    const { data: scholarships, error } = await (supabase as any)
+    let scholarshipsQuery = (supabase as any)
       .from('scholarships')
       .select('*')
-      .eq('institution_id', institutionId)
       .order('created_at', { ascending: false });
+    if (institutionId) scholarshipsQuery = scholarshipsQuery.eq('institution_id', institutionId);
+    const { data: scholarships, error } = await scholarshipsQuery;
 
     if (error) throw error;
 
     // Get application counts per scholarship
-    const { data: appCounts, error: appError } = await (supabase as any)
+    let appCountsQuery = (supabase as any)
       .from('scholarship_applications')
-      .select('scholarship_id, status')
-      .eq('institution_id', institutionId);
+      .select('scholarship_id, status');
+    if (institutionId) appCountsQuery = appCountsQuery.eq('institution_id', institutionId);
+    const { data: appCounts, error: appError } = await appCountsQuery;
 
     if (appError) throw appError;
 
@@ -80,16 +82,17 @@ export class ScholarshipService {
     }));
   }
 
-  static async getScholarshipApplications(institutionId: string): Promise<ScholarshipApplication[]> {
+  static async getScholarshipApplications(institutionId: string | undefined): Promise<ScholarshipApplication[]> {
     const supabase = createClientSupabaseClient();
-    const { data, error } = await (supabase as any)
+    let query = (supabase as any)
       .from('scholarship_applications')
       .select(`
         *,
         scholarship:scholarships(id, name, scholarship_type, benefit_type, benefit_value)
       `)
-      .eq('institution_id', institutionId)
       .order('applied_at', { ascending: false });
+    if (institutionId) query = query.eq('institution_id', institutionId);
+    const { data, error } = await query;
 
     if (error) throw error;
     return data || [];

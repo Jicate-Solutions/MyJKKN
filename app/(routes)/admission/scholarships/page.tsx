@@ -43,6 +43,21 @@ import {
 import { toast } from 'sonner';
 import { AdmissionErrorBoundary } from '@/components/admission';
 import { useScholarships, useScholarshipApplications } from '@/hooks/admission/use-data-quality';
+import { useAuth } from '@/hooks/use-auth';
+import { usePermissions } from '@/hooks/use-permissions';
+import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
+import { useQueryClient } from '@tanstack/react-query';
+import { ScholarshipService } from '@/lib/services/admission/scholarship-service';
+
+const EMPTY_FORM = {
+  name: '',
+  scholarship_type: '',
+  benefit_type: 'fixed',
+  benefit_value: '',
+  total_slots: '',
+  description: '',
+  eligibility_criteria: '',
+};
 
 function ScholarshipsPageContent() {
   const [activeTab, setActiveTab] = useState('scholarships');
@@ -52,6 +67,15 @@ function ScholarshipsPageContent() {
   const [isCreating, setIsCreating] = useState(false);
   const [approvingId, setApprovingId] = useState<string | null>(null);
   const [rejectingId, setRejectingId] = useState<string | null>(null);
+  const [formData, setFormData] = useState(EMPTY_FORM);
+  const [selectedInstitutionId, setSelectedInstitutionId] = useState('');
+
+  const { profile } = useAuth();
+  const { isSuperAdmin } = usePermissions();
+  const queryClient = useQueryClient();
+  const { institutions } = useInstitutionsWithAccess();
+  // super_admin has no institution_id — they pick one in the form
+  const institutionId = isSuperAdmin ? undefined : profile?.institution_id;
 
   const { data: scholarships, isLoading: scholarshipsLoading } = useScholarships();
   const { data: applications, isLoading: applicationsLoading } = useScholarshipApplications();
@@ -141,14 +165,34 @@ function ScholarshipsPageContent() {
                 <DialogDescription>Define scholarship criteria and allocate budget</DialogDescription>
               </DialogHeader>
               <div className="grid gap-4 py-4">
+                {/* Institution picker — only shown to super_admin */}
+                {isSuperAdmin && (
+                  <div className="space-y-2">
+                    <Label>Institution <span className="text-destructive">*</span></Label>
+                    <Select value={selectedInstitutionId} onValueChange={setSelectedInstitutionId}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select institution" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {institutions.map((inst) => (
+                          <SelectItem key={inst.id} value={inst.id}>{inst.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label>Scholarship Name</Label>
-                    <Input placeholder="e.g., Merit Excellence Award" />
+                    <Label>Scholarship Name <span className="text-destructive">*</span></Label>
+                    <Input
+                      placeholder="e.g., Merit Excellence Award"
+                      value={formData.name}
+                      onChange={(e) => setFormData((f) => ({ ...f, name: e.target.value }))}
+                    />
                   </div>
                   <div className="space-y-2">
-                    <Label>Type</Label>
-                    <Select>
+                    <Label>Type <span className="text-destructive">*</span></Label>
+                    <Select value={formData.scholarship_type} onValueChange={(v) => setFormData((f) => ({ ...f, scholarship_type: v }))}>
                       <SelectTrigger>
                         <SelectValue placeholder="Select type" />
                       </SelectTrigger>
@@ -161,45 +205,96 @@ function ScholarshipsPageContent() {
                     </Select>
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-3 gap-4">
                   <div className="space-y-2">
-                    <Label>Benefit Value</Label>
-                    <Input type="number" placeholder="50000" />
+                    <Label>Benefit Type</Label>
+                    <Select value={formData.benefit_type} onValueChange={(v) => setFormData((f) => ({ ...f, benefit_type: v }))}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="fixed">Fixed (₹)</SelectItem>
+                        <SelectItem value="percentage">Percentage (%)</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
                   <div className="space-y-2">
-                    <Label>Total Slots</Label>
-                    <Input type="number" placeholder="20" />
+                    <Label>Benefit Value <span className="text-destructive">*</span></Label>
+                    <Input
+                      type="number"
+                      placeholder={formData.benefit_type === 'percentage' ? '50' : '50000'}
+                      value={formData.benefit_value}
+                      onChange={(e) => setFormData((f) => ({ ...f, benefit_value: e.target.value }))}
+                    />
                   </div>
+                  <div className="space-y-2">
+                    <Label>Total Slots <span className="text-destructive">*</span></Label>
+                    <Input
+                      type="number"
+                      placeholder="20"
+                      value={formData.total_slots}
+                      onChange={(e) => setFormData((f) => ({ ...f, total_slots: e.target.value }))}
+                    />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label>Description</Label>
+                  <Input
+                    placeholder="Brief description of the scholarship"
+                    value={formData.description}
+                    onChange={(e) => setFormData((f) => ({ ...f, description: e.target.value }))}
+                  />
                 </div>
                 <div className="space-y-2">
                   <Label>Eligibility Criteria</Label>
-                  <Textarea placeholder="Minimum academic score, attendance requirements, etc." />
-                </div>
-                <div className="space-y-2">
-                  <Label>Applicable Programs</Label>
-                  <Select>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select programs" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All Programs</SelectItem>
-                      <SelectItem value="btech">B.Tech</SelectItem>
-                      <SelectItem value="mtech">M.Tech</SelectItem>
-                      <SelectItem value="mba">MBA</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  <Textarea
+                    placeholder="Minimum academic score, attendance requirements, etc."
+                    value={formData.eligibility_criteria}
+                    onChange={(e) => setFormData((f) => ({ ...f, eligibility_criteria: e.target.value }))}
+                  />
                 </div>
               </div>
               <DialogFooter>
-                <Button variant="outline" onClick={() => setIsCreateDialogOpen(false)} disabled={isCreating}>Cancel</Button>
+                <Button
+                  variant="outline"
+                  onClick={() => { setIsCreateDialogOpen(false); setFormData(EMPTY_FORM); setSelectedInstitutionId(''); }}
+                  disabled={isCreating}
+                >
+                  Cancel
+                </Button>
                 <Button
                   disabled={isCreating}
                   onClick={async () => {
+                    if (!formData.name.trim()) { toast.error('Scholarship name is required'); return; }
+                    if (!formData.scholarship_type) { toast.error('Please select a type'); return; }
+                    if (!formData.benefit_value) { toast.error('Benefit value is required'); return; }
+                    if (!formData.total_slots) { toast.error('Total slots is required'); return; }
+                    const effectiveInstitutionId = isSuperAdmin ? selectedInstitutionId : institutionId;
+                    if (!effectiveInstitutionId) {
+                      toast.error(isSuperAdmin ? 'Please select an institution' : 'No institution found');
+                      return;
+                    }
                     setIsCreating(true);
-                    await new Promise(resolve => setTimeout(resolve, 1000));
-                    setIsCreating(false);
-                    setIsCreateDialogOpen(false);
-                    toast.success('Scholarship created successfully');
+                    try {
+                      await ScholarshipService.createScholarship(effectiveInstitutionId, {
+                        name: formData.name.trim(),
+                        scholarship_type: formData.scholarship_type,
+                        benefit_type: formData.benefit_type,
+                        benefit_value: parseFloat(formData.benefit_value),
+                        total_slots: parseInt(formData.total_slots),
+                        description: formData.description || undefined,
+                        eligibility_criteria: formData.eligibility_criteria || undefined,
+                      });
+                      queryClient.invalidateQueries({ queryKey: ['admission', 'scholarships'] });
+                      setIsCreateDialogOpen(false);
+                      setFormData(EMPTY_FORM);
+                      setSelectedInstitutionId('');
+                      toast.success('Scholarship created successfully');
+                    } catch (err: any) {
+                      toast.error(err?.message || 'Failed to create scholarship');
+                    } finally {
+                      setIsCreating(false);
+                    }
                   }}
                 >
                   {isCreating && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
