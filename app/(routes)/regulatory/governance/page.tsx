@@ -72,6 +72,11 @@ export default function GovernancePage() {
     : activeTab === 'syllabi' ? syllabiError
     : visitsError
 
+  const currentRefetch = activeTab === 'bodies' ? refetchBodies
+    : activeTab === 'meetings' ? refetchMeetings
+    : activeTab === 'syllabi' ? refetchSyllabi
+    : refetchVisits
+
   return (
     <ContentLayout title="Governance">
       <div className="space-y-6">
