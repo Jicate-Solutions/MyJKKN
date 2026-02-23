@@ -203,8 +203,8 @@ export function BodyList({ bodies, institutionId }: BodyListProps) {
                   {/* Expanded Content: Members */}
                   {isExpanded && (
                     <div className="mt-4 pt-4 border-t">
-                      {body.description && (
-                        <p className="text-sm text-muted-foreground mb-4">{body.description}</p>
+                      {(body.description || body.mandate) && (
+                        <p className="text-sm text-muted-foreground mb-4">{body.description || body.mandate}</p>
                       )}
 
                       {body.members && body.members.length > 0 ? (
