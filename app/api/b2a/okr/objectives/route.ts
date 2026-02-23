@@ -72,7 +72,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       : null;
 
   // Step 5: Fetch data
-  interface OkrObjectiveRow {
+  type OkrObjectiveRow = {
     id: string;
     title: string;
     description: string | null;
@@ -91,7 +91,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     approved_at: string | null;
     created_at: string;
     updated_at: string;
-  }
+  };
 
   let items: OkrObjectiveRow[] = [];
   let total = 0;
