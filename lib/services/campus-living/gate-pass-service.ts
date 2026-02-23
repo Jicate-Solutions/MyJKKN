@@ -49,7 +49,14 @@ export class GatePassService {
       const supabase = createClientSupabaseClient();
       const { data, error } = await supabase
         .from('hostel_gate_passes')
-        .select('*, hostel_leave_requests(*)')
+        .select(`
+          *,
+          learner:profiles!hostel_gate_passes_learner_id_fkey(id, full_name, email, phone),
+          block:hostel_blocks!block_id(id, name, code),
+          approver:profiles!hostel_gate_passes_approved_by_fkey(id, full_name),
+          security_out:profiles!hostel_gate_passes_gate_security_out_fkey(id, full_name),
+          security_in:profiles!hostel_gate_passes_gate_security_in_fkey(id, full_name)
+        `)
         .eq('id', id)
         .single();
 
@@ -57,7 +64,7 @@ export class GatePassService {
         logger.error('campus-living/gate-pass', 'Failed to fetch gate pass', error);
         throw error;
       }
-      return data as HostelGatePass & { hostel_leave_requests: unknown };
+      return data;
     } catch (error) {
       logger.error('campus-living/gate-pass', 'Unexpected error in getGatePass', error);
       throw error;
