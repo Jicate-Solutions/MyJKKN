@@ -853,15 +853,35 @@ ALTER TABLE regulatory_data_connectors ENABLE ROW LEVEL SECURITY;
 ALTER TABLE regulatory_simulations ENABLE ROW LEVEL SECURITY;
 
 -- Standard pattern: institution_id match OR super_admin bypass
--- Frameworks: global templates (institution_id IS NULL) visible to all, institution-specific scoped
-CREATE POLICY "frameworks_access" ON regulatory_frameworks FOR ALL USING (
+-- All institution-scoped tables use USING + WITH CHECK per CLAUDE.md template
+
+-- Frameworks: global templates (institution_id IS NULL) visible to all, writable only by super_admin
+CREATE POLICY "frameworks_read" ON regulatory_frameworks FOR SELECT USING (
   institution_id IS NULL
   OR institution_id = auth_institution_id()
   OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
 );
+CREATE POLICY "frameworks_write" ON regulatory_frameworks FOR INSERT
+  WITH CHECK (
+    institution_id = auth_institution_id()
+    OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+  );
+CREATE POLICY "frameworks_modify" ON regulatory_frameworks FOR UPDATE USING (
+  institution_id = auth_institution_id()
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+) WITH CHECK (
+  institution_id = auth_institution_id()
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+);
+CREATE POLICY "frameworks_delete" ON regulatory_frameworks FOR DELETE USING (
+  EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+);
 
--- All other tables: standard institution scoping
+-- Metric values: standard institution scoping with WITH CHECK
 CREATE POLICY "metric_values_access" ON regulatory_metric_values FOR ALL USING (
+  institution_id = auth_institution_id()
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+) WITH CHECK (
   institution_id = auth_institution_id()
   OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
 );
@@ -869,9 +889,15 @@ CREATE POLICY "metric_values_access" ON regulatory_metric_values FOR ALL USING (
 CREATE POLICY "evidence_access" ON regulatory_evidence FOR ALL USING (
   institution_id = auth_institution_id()
   OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+) WITH CHECK (
+  institution_id = auth_institution_id()
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
 );
 
 CREATE POLICY "submissions_access" ON regulatory_submissions FOR ALL USING (
+  institution_id = auth_institution_id()
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+) WITH CHECK (
   institution_id = auth_institution_id()
   OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
 );
@@ -879,13 +905,45 @@ CREATE POLICY "submissions_access" ON regulatory_submissions FOR ALL USING (
 CREATE POLICY "simulations_access" ON regulatory_simulations FOR ALL USING (
   institution_id = auth_institution_id()
   OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+) WITH CHECK (
+  institution_id = auth_institution_id()
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
 );
 
--- Criteria, metrics, connectors: accessible via framework join (no direct institution_id)
-CREATE POLICY "criteria_access" ON regulatory_criteria FOR ALL USING (true);
-CREATE POLICY "metrics_access" ON regulatory_metrics FOR ALL USING (true);
-CREATE POLICY "connectors_access" ON regulatory_data_connectors FOR ALL USING (true);
-CREATE POLICY "value_history_access" ON regulatory_metric_value_history FOR ALL USING (true);
+-- Criteria & metrics: readable by all, writable only by super_admin (framework definitions)
+CREATE POLICY "criteria_read" ON regulatory_criteria FOR SELECT USING (true);
+CREATE POLICY "criteria_write" ON regulatory_criteria FOR INSERT
+  WITH CHECK (EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'));
+CREATE POLICY "criteria_modify" ON regulatory_criteria FOR UPDATE
+  USING (EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'));
+CREATE POLICY "criteria_delete" ON regulatory_criteria FOR DELETE
+  USING (EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'));
+
+CREATE POLICY "metrics_read" ON regulatory_metrics FOR SELECT USING (true);
+CREATE POLICY "metrics_write" ON regulatory_metrics FOR INSERT
+  WITH CHECK (EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'));
+CREATE POLICY "metrics_modify" ON regulatory_metrics FOR UPDATE
+  USING (EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'));
+
+-- Data connectors: readable by all, writable only by super_admin (contains query_template SQL)
+CREATE POLICY "connectors_read" ON regulatory_data_connectors FOR SELECT USING (true);
+CREATE POLICY "connectors_write" ON regulatory_data_connectors FOR INSERT
+  WITH CHECK (EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'));
+CREATE POLICY "connectors_modify" ON regulatory_data_connectors FOR UPDATE
+  USING (EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'));
+CREATE POLICY "connectors_delete" ON regulatory_data_connectors FOR DELETE
+  USING (EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'));
+
+-- Value history: append-only audit trail, scoped through parent metric_value
+CREATE POLICY "value_history_read" ON regulatory_metric_value_history FOR SELECT USING (true);
+CREATE POLICY "value_history_insert" ON regulatory_metric_value_history FOR INSERT
+  WITH CHECK (EXISTS (
+    SELECT 1 FROM regulatory_metric_values mv
+    WHERE mv.id = metric_value_id
+    AND (mv.institution_id = auth_institution_id()
+         OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'))
+  ));
+-- No UPDATE or DELETE policies on history = immutable audit trail
 
 -- ═══════════════════════════════════════════════
 -- INDEXES
