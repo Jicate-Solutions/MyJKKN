@@ -198,9 +198,14 @@ function ScholarshipsPageContent() {
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="merit">Merit-Based</SelectItem>
-                        <SelectItem value="sports">Sports Achievement</SelectItem>
                         <SelectItem value="need_based">Need-Based</SelectItem>
-                        <SelectItem value="diversity">Diversity</SelectItem>
+                        <SelectItem value="sports">Sports Achievement</SelectItem>
+                        <SelectItem value="minority">Minority</SelectItem>
+                        <SelectItem value="special">Special</SelectItem>
+                        <SelectItem value="government">Government</SelectItem>
+                        <SelectItem value="single_parent">Single Parent</SelectItem>
+                        <SelectItem value="disability">Disability</SelectItem>
+                        <SelectItem value="alumni_sibling">Alumni Sibling</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -392,9 +397,14 @@ function ScholarshipsPageContent() {
               <SelectContent>
                 <SelectItem value="all">All Types</SelectItem>
                 <SelectItem value="merit">Merit-Based</SelectItem>
-                <SelectItem value="sports">Sports</SelectItem>
                 <SelectItem value="need_based">Need-Based</SelectItem>
-                <SelectItem value="diversity">Diversity</SelectItem>
+                <SelectItem value="sports">Sports</SelectItem>
+                <SelectItem value="minority">Minority</SelectItem>
+                <SelectItem value="special">Special</SelectItem>
+                <SelectItem value="government">Government</SelectItem>
+                <SelectItem value="single_parent">Single Parent</SelectItem>
+                <SelectItem value="disability">Disability</SelectItem>
+                <SelectItem value="alumni_sibling">Alumni Sibling</SelectItem>
               </SelectContent>
             </Select>
           </div>
