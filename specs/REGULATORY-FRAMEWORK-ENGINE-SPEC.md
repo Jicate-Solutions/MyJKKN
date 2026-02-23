@@ -1422,19 +1422,21 @@ The Dr. Radhakrishnan Committee Report (Nov 2023) recommends:
 
 > **Dental and Medical/Nursing** use the same OI distribution as Overall/Engineering (30/30/20/20). Only **Pharmacy and Colleges** use equal distribution (25 each). Education also uses 25/25/25/25.
 
-#### RP Sub-Parameter Variations (Colleges)
+#### RP Sub-Parameter Variations
 
-Colleges introduces a 5th RP sub-parameter: PSDGs (SDG-aligned publications).
+Engineering diverges from Overall, and Colleges introduces a 5th RP sub-parameter: PSDGs (SDG-aligned publications).
 
-| Sub-Parameter | Overall/Engineering | Colleges |
-|---------------|--------------------|---------|
-| PU (Publications) | 35 | **30** |
-| QP (Quality of Publications) | 35 | **30** |
-| IPR (Patents) | 15 | 15 |
-| FPPP (Funded Projects) | 15 | 15 |
-| PSDGs (SDG Publications) | — | **10** |
+| Sub-Parameter | Overall | Engineering | Colleges |
+|---------------|---------|-------------|---------|
+| PU (Publications) | 35 | 35 | **30** |
+| QP (Quality of Publications) | 35 | **40** | **30** |
+| IPR (Patents) | 15 | 15 | 15 |
+| FPPP (Funded Projects) | 15 | **10** | 15 |
+| PSDGs (SDG Publications) | — | *NEW* | **10** |
 
-> Colleges is the only category with PSDGs as a separate scored sub-parameter. Other categories may include SDG metrics in future NIRF revisions.
+> **Engineering RP:** QP gets 40 marks (vs Overall's 35) reflecting emphasis on citation quality, while FPPP drops to 10 (vs 15). Source: `/Users/omm/Vaults/JKKNKB/NIRF/Engineering.md` — verify against [official Engineering framework PDF](https://www.nirfindia.org/nirfpdfcdn/2025/framework/Engineering.pdf).
+>
+> **Colleges** is the only category with PSDGs as a separately scored sub-parameter. Engineering lists PSDGs as "NEW" (marks TBD). Other categories may include SDG metrics in future NIRF revisions.
 
 #### Education Category (Estimated)
 
