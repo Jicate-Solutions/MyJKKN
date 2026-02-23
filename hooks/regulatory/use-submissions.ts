@@ -236,8 +236,8 @@ export function useStartSubmission() {
       return await RegulatorySubmissionService.createSubmission({
         framework_id: input.framework_id,
         institution_id: input.institution_id || profile?.institution_id || '',
-        created_by: profile?.id || '',
-      } as any)
+        academic_year: new Date().getFullYear().toString()
+      })
     },
     onSuccess: () => {
       toast.success('Submission started')
