@@ -11,7 +11,7 @@ import type { AdmissionLead } from '@/types/admission';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useAuth } from '@/hooks/use-auth';
 import { useLeadMutations } from '@/hooks/admission';
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -63,7 +63,7 @@ export function LeadsDataTable() {
   // Regular users are scoped to their own institution_id.
   const institutionId = isSuperAdmin ? undefined : profile?.institution_id;
 
-  const fetchData = async (params: {
+  const fetchData = useCallback(async (params: {
     page: number;
     limit: number;
     search: string;
@@ -126,7 +126,7 @@ export function LeadsDataTable() {
       console.error('Error fetching leads:', error);
       throw error;
     }
-  };
+  }, [institutionId, stageFilter, priorityFilter]);
 
   const handleBulkDelete = async (
     selectedRows: AdmissionLead[],
