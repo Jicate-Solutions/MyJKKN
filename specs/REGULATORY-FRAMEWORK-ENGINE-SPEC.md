@@ -1520,6 +1520,8 @@ CREATE INDEX idx_reg_governing_bodies_inst ON regulatory_governing_bodies(instit
 CREATE INDEX idx_reg_body_meetings_inst_year ON regulatory_body_meetings(institution_id, academic_year);
 -- NOTE: course_syllabi UNIQUE(institution_id, course_code, academic_year, semester) already creates an implicit index
 CREATE INDEX idx_reg_syllabi_dept ON regulatory_course_syllabi(institution_id, department, academic_year);
+-- NOTE: peer_benchmarks UNIQUE(institution_id, framework_id, academic_year, peer_institution_name, metric_code) already creates an implicit index
+CREATE INDEX idx_reg_benchmarks_inst_framework ON regulatory_peer_benchmarks(institution_id, framework_id, academic_year);
 
 -- ═══════════════════════════════════════════════
 -- TRIGGERS
