@@ -199,6 +199,12 @@ Currently: **ALL done manually** — staff spends 3-6 months collecting data fro
 | Approve submission | ✅ | ✅ | ❌ | ✅ | ❌ | ❌ |
 | View dashboard | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
 | View cross-institution comparison | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Manage peer benchmarks | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ |
+| Manage governing bodies/meetings | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ |
+| Manage course syllabi | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ |
+| Coordinate peer team visits | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ |
+| Create IQAC action plans (→ OKR) | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ |
+| Search evidence repository | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 
 ---
 
