@@ -132,7 +132,7 @@ const tlrSubParams: Record<DisciplineKey, TLRSubParams> = {
   pharmacy_a:  { SS: 20, FSR: 30, FQE: 20, FRU: 30, OE: 0,  MIR: 0 },
   pharmacy_b:  { SS: 20, FSR: 30, FQE: 20, FRU: 30, OE: 0,  MIR: 0 },
   colleges:    { SS: 20, FSR: 30, FQE: 20, FRU: 30, OE: 0,  MIR: 0 },
-  dental:      { SS: 15, FSR: 25, FQE: 20, FRU: 35, OE: 0,  MIR: 0 },
+  dental:      { SS: 15, FSR: 30, FQE: 20, FRU: 35, OE: 0,  MIR: 0 },
   medical:     { SS: 20, FSR: 30, FQE: 20, FRU: 30, OE: 0,  MIR: 0 },
 }
 
