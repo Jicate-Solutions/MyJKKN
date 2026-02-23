@@ -1553,6 +1553,8 @@ CREATE TRIGGER trg_body_meetings_updated_at BEFORE UPDATE ON regulatory_body_mee
   FOR EACH ROW EXECUTE FUNCTION moddatetime(updated_at);
 CREATE TRIGGER trg_syllabi_updated_at BEFORE UPDATE ON regulatory_course_syllabi
   FOR EACH ROW EXECUTE FUNCTION moddatetime(updated_at);
+CREATE TRIGGER trg_benchmarks_updated_at BEFORE UPDATE ON regulatory_peer_benchmarks
+  FOR EACH ROW EXECUTE FUNCTION moddatetime(updated_at);
 ```
 
 ---
