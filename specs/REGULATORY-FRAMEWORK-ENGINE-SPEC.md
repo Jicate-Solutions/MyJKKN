@@ -1050,7 +1050,7 @@ Ship with these frameworks pre-configured (seeded in migration):
 |--------|-----|------|--------|-------------|---------------------|
 | 4.1.1 | 4.1 Physical Facilities (30) | QlM | 20 | Adequacy of classrooms, labs, ICT, sports, yoga, gymnasium | DC-20: `resources` (partial) + Manual |
 | 4.1.2 | 4.1 | QnM | 10 | % expenditure on infrastructure augmentation excluding salary (5 years) | DC-21: `institutional_budgets` (NEW) |
-| 4.2.1 | 4.2 Library (20) | QlM | 20 | Library automation (ILMS), e-resources, OER, book/journal purchases | DC-28: `library_holdings` (NEW) + Manual |
+| 4.2.1 | 4.2 Library (20) | QlM | 20 | Library automation (ILMS), e-resources, OER, book/journal purchases | DC-20: `library_holdings` (NEW) + Manual |
 | 4.3.1 | 4.3 IT Infrastructure (30) | QlM | 20 | IT facilities, update frequency, internet bandwidth | DC-28: `ict_infrastructure` (NEW) + Manual |
 | 4.3.2 | 4.3 | QnM | 10 | Student : Computer ratio (latest year) | DC-28: `ict_infrastructure` (NEW) |
 | 4.4.1 | 4.4 Campus Maintenance (20) | QnM | 20 | % expenditure on infrastructure maintenance excluding salary (5 years) | DC-21: `institutional_budgets` (NEW) |
