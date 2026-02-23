@@ -56,7 +56,6 @@ export function useSubmissions(
       filters.framework_id,
       filters.academic_year,
       filters.status,
-      filters.search,
       filters.page,
       filters.limit,
       institutionId
