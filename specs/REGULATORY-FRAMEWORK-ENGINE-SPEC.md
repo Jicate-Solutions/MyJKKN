@@ -82,7 +82,7 @@ Currently: **ALL done manually** — staff spends 3-6 months collecting data fro
 - ✅ `learners_profiles` — 60+ columns including gender, category, community, state, accommodation, annual_income (feeds NIRF OI, NAAC diversity)
 - ✅ `staff` — role_type, designation, department_id, facilitator_certification, outcome_metrics (feeds NIRF TLR, NAAC faculty)
 - ✅ `alumni_outcomes` — 60+ columns: outcome_type, salary_range, company_name, is_relevant_to_program, skills_used (feeds NIRF GO, NAAC placement)
-- ✅ `sh_publications` — Already has `nirf_category`, `naac_criterion`, `scopus_indexed`, `wos_indexed`, `ugc_listed`, impact_factor, citation_count (feeds NIRF RPC)
+- ✅ `sh_publications` — Already has `nirf_category`, `naac_criterion`, `scopus_indexed`, `wos_indexed`, `ugc_listed`, impact_factor, citation_count (feeds NIRF RP)
 - ✅ `student_attendance` — attendance tracking (feeds NAAC teaching-learning)
 - ✅ `admission_leads` + `admissions` — enrollment pipeline (feeds NAAC/NIRF student intake)
 - ✅ `billing_receipts` + `billing_student_bills` — fee collection (feeds financial metrics)
@@ -363,11 +363,11 @@ Each connector defines: **Source Module → Source Table(s) → Key Columns → 
 - **Key Columns:**
   - `sh_publications.paper_type` → Journal/conference/book chapter
   - `sh_publications.journal_type` → National/international classification
-  - `sh_publications.scopus_indexed` → Scopus count (NIRF RPC)
+  - `sh_publications.scopus_indexed` → Scopus count (NIRF RP)
   - `sh_publications.wos_indexed` → Web of Science count
   - `sh_publications.ugc_listed` → UGC-CARE list count
   - `sh_publications.impact_factor` → Average impact factor
-  - `sh_publications.citation_count` → Total citations (NIRF RPC)
+  - `sh_publications.citation_count` → Total citations (NIRF RP)
   - `sh_publications.h_index_contribution` → H-index calculation
   - `sh_publications.nirf_category` → **Already mapped to NIRF!**
   - `sh_publications.naac_criterion` → **Already mapped to NAAC!**
@@ -375,7 +375,7 @@ Each connector defines: **Source Module → Source Table(s) → Key Columns → 
   - `sh_publications.publication_date` → Year-wise counts
 - **Sample Queries:**
   ```sql
-  -- NIRF RPC: Publications per faculty
+  -- NIRF RP: Publications per faculty
   SELECT COUNT(*) as total_pubs,
     COUNT(CASE WHEN scopus_indexed THEN 1 END) as scopus_count,
     SUM(citation_count) as total_citations,
@@ -385,7 +385,7 @@ Each connector defines: **Source Module → Source Table(s) → Key Columns → 
   AND publication_date BETWEEN $2 AND $3
   AND status = 'published';
   ```
-- **Feeds:** NAAC Criterion III | NIRF RPC | NBA SAR
+- **Feeds:** NAAC Criterion III | NIRF RP | NBA SAR
 
 ---
 
@@ -474,7 +474,7 @@ Each connector defines: **Source Module → Source Table(s) → Key Columns → 
   - `sh_solutions` → Consultancy projects (revenue, impact)
   - `sh_training_programs` → Extension/outreach programs
   - `learner_industry_engagements` → Student industry exposure
-- **Feeds:** NAAC Criteria III | NIRF RPC (sponsored projects) | NBA
+- **Feeds:** NAAC Criteria III | NIRF RP (sponsored projects) | NBA
 
 ---
 
@@ -587,7 +587,7 @@ Each connector defines: **Source Module → Source Table(s) → Key Columns → 
 | DC-16 | Faculty Qualifications | **`staff_qualifications`** | NAAC Cr I, II / NIRF TLR (FQE) / NBA / AICTE | 🔴 P0 |
 | DC-17 | Examination Results | **`exam_results`** | NAAC Cr II / NIRF GO (GUE — 20% weight!) | 🔴 P0 |
 | DC-18 | Research Grants | **`research_projects`** | NAAC Cr III / NIRF RP (FPPP — 4.5% of total NIRF) | 🔴 P0 |
-| DC-19 | Patents & IPR | **`patents_ipr`** | NAAC Cr III / NIRF RPC (IPR) | 🔴 P0 |
+| DC-19 | Patents & IPR | **`patents_ipr`** | NAAC Cr III / NIRF RP (IPR) | 🔴 P0 |
 | DC-20 | Library Resources | **`library_holdings`**, **`library_e_resources`** | NAAC Cr IV | 🟡 P1 |
 | DC-21 | Budget & Expenditure | **`institutional_budgets`** | NAAC Cr IV, VI / NIRF TLR (FRQ) | 🟡 P1 |
 | DC-22 | Institutional Events | **`institutional_events`** | NAAC Cr III | 🟡 P1 |
