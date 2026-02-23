@@ -231,6 +231,7 @@ export class PublicationsService extends BaseService {
         submission_date: input.submission_date,
         nirf_category: input.nirf_category,
         naac_criterion: input.naac_criterion,
+        institution_id: input.institution_id,
         status: 'draft' as PublicationStatus,
         created_by: input.created_by,
       })
