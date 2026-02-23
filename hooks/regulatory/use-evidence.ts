@@ -315,43 +315,22 @@ export function useEvidenceSearch(
   return useQuery({
     queryKey: evidenceKeys.searchFor(searchQuery, resolvedInstitutionId),
     queryFn: async () => {
-      // Use the service's getEvidence with text search via Supabase
-      // The service does not have a built-in search param, so we use
-      // a direct query with search applied as an ilike filter
-      const { createClientSupabaseClient } = await import('@/lib/supabase/client')
-      const supabase = createClientSupabaseClient()
-
-      // Sanitize search query to prevent PostgREST filter injection.
-      // Remove characters that could break the .or() filter syntax.
-      const sanitized = searchQuery.replace(/[,().\\]/g, '')
-
-      let query = (supabase as any)
-        .from('regulatory_evidence')
-        .select('*, uploaded_by_profile:profiles!uploaded_by(id, full_name, email)', { count: 'exact' })
-        .eq('is_deleted', false)
-        .or(
-          `file_name.ilike.%${sanitized}%,title.ilike.%${sanitized}%,description.ilike.%${sanitized}%`
-        )
-
-      if (resolvedInstitutionId) {
-        query = query.eq('institution_id', resolvedInstitutionId)
-      }
-
-      query = query
-        .range(0, 49)
-        .order('created_at', { ascending: false })
-
-      const { data, error, count } = await query
-
-      if (error) throw error
+      // Delegate to the service's searchEvidence method which handles
+      // sanitization, full-text search, and ilike fallback safely
+      const results = await RegulatoryEvidenceService.searchEvidence(
+        searchQuery,
+        resolvedInstitutionId,
+        undefined, // academicYear
+        50         // limit
+      )
 
       return {
-        data: data || [],
+        data: results || [],
         metadata: {
-          total: count || 0,
+          total: (results || []).length,
           page: 1,
           limit: 50,
-          totalPages: count ? Math.ceil(count / 50) : 0
+          totalPages: 1
         }
       }
     },
