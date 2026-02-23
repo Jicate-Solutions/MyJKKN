@@ -1104,10 +1104,10 @@ Ship with these frameworks pre-configured (seeded in migration):
 #### NAAC 2022 Coverage Estimate (from MyJKKN)
 
 ```
-QnM metrics auto-calculable:     ~20/35 = 57%  (remaining need new tables or external data)
-QlM metrics with partial data:    ~8/21  = 38%  (rest purely qualitative)
+QnM metrics auto-calculable:     ~20/34 = 59%  (remaining need new tables or external data)
+QlM metrics with partial data:    ~8/22  = 36%  (rest purely qualitative)
 Overall data coverage:            ~28/56 = 50%  (existing tables + partial coverage)
-After all new tables built:       ~35/56 = 63%  (remaining 21 are qualitative narratives)
+After all new tables built:       ~34/56 = 61%  (remaining 22 are qualitative narratives)
 ```
 
 **Key data gaps for NAAC 2022 submission:**
