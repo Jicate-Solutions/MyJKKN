@@ -259,6 +259,10 @@ export class RegulatoryGovernanceService {
     try {
       this.validateId(id, 'governing body ID')
 
+      // Verify user is authenticated
+      const { data: { user } } = await this.getSupabase().auth.getUser()
+      if (!user) throw new Error('User not authenticated')
+
       const updatePayload: Record<string, any> = {
         updated_at: new Date().toISOString()
       }
