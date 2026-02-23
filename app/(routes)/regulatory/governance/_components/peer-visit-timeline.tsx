@@ -30,6 +30,88 @@ import {
   Users,
 } from 'lucide-react'
 
+interface PeerVisitRaw {
+  id: string
+  // Component field names
+  title?: string
+  framework_name?: string
+  body?: string
+  visit_type?: string
+  status: string
+  visit_date?: string
+  end_date?: string
+  location?: string
+  team_lead?: string
+  team_members?: string[]
+  team_size?: number
+  observations?: string[]
+  recommendations?: string | string[]
+  grade?: string
+  score?: number
+  report_url?: string
+  created_at?: string
+  // DB field names
+  scheduled_date?: string
+  actual_start_date?: string
+  actual_end_date?: string
+  team_composition?: { name: string; designation?: string; institution?: string; role?: string }[]
+  findings?: Record<string, any>
+  grade_awarded?: string
+  report_file_url?: string
+  submission?: { id?: string; framework_id?: string; academic_year?: string }
+  notes?: string
+}
+
+// Normalize a raw DB row or pre-mapped row into a consistent shape
+function normalizePeerVisit(raw: PeerVisitRaw) {
+  // Build title if missing
+  const visitType = raw.visit_type?.replace(/_/g, ' ') || 'Visit'
+  const title = raw.title || `${visitType.charAt(0).toUpperCase() + visitType.slice(1)}`
+
+  // Map team_composition to team_members / team_lead
+  const teamComp = Array.isArray(raw.team_composition) ? raw.team_composition : []
+  const teamLead = raw.team_lead || teamComp.find((m: any) => m.role === 'lead' || m.role === 'chairperson')?.name || teamComp[0]?.name
+  const teamMembers = raw.team_members || teamComp.map((m: any) => m.name)
+  const teamSize = raw.team_size || teamComp.length || undefined
+
+  // Map findings to observations
+  let observations = raw.observations
+  if (!observations && raw.findings && typeof raw.findings === 'object') {
+    observations = Object.entries(raw.findings)
+      .filter(([, v]) => typeof v === 'string')
+      .map(([k, v]) => `${k}: ${v}`)
+    if (observations.length === 0) observations = undefined
+  }
+
+  // Normalize recommendations
+  const recommendations = Array.isArray(raw.recommendations)
+    ? raw.recommendations
+    : raw.recommendations
+    ? [raw.recommendations]
+    : undefined
+
+  return {
+    id: raw.id,
+    title,
+    framework_name: raw.framework_name,
+    body: raw.body,
+    visit_type: raw.visit_type as PeerVisit['visit_type'],
+    status: raw.status as PeerVisit['status'],
+    visit_date: raw.visit_date || raw.scheduled_date,
+    end_date: raw.end_date || raw.actual_end_date,
+    location: raw.location,
+    team_lead: teamLead,
+    team_members: teamMembers.length > 0 ? teamMembers : undefined,
+    team_size: teamSize,
+    observations,
+    recommendations,
+    grade: raw.grade || raw.grade_awarded,
+    score: raw.score,
+    report_url: raw.report_url || raw.report_file_url,
+    created_at: raw.created_at,
+  }
+}
+
 interface PeerVisit {
   id: string
   title: string
