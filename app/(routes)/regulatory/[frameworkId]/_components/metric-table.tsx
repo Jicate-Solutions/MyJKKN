@@ -150,19 +150,23 @@ export function MetricTable({ metrics, frameworkId, institutionId }: MetricTable
       return
     }
 
-    try {
-      await Promise.all(
-        autoMetrics.map((m) =>
-          refreshAutoMutation.mutateAsync({
-            metric_id: m.metric_id,
-            framework_id: frameworkId,
-            institution_id: institutionId,
-          })
-        )
+    const results = await Promise.allSettled(
+      autoMetrics.map((m) =>
+        refreshAutoMutation.mutateAsync({
+          metric_id: m.metric_id,
+          framework_id: frameworkId,
+          institution_id: institutionId,
+        })
       )
-      toast.success(`Refreshed ${autoMetrics.length} auto metrics`)
-    } catch {
-      toast.error('Some metrics failed to refresh')
+    )
+    const succeeded = results.filter((r) => r.status === 'fulfilled').length
+    const failed = results.filter((r) => r.status === 'rejected').length
+    if (failed === 0) {
+      toast.success(`Refreshed ${succeeded} auto metrics`)
+    } else if (succeeded === 0) {
+      toast.error('Failed to refresh auto metrics')
+    } else {
+      toast.error(`Refreshed ${succeeded}, but ${failed} failed`)
     }
   }
 
