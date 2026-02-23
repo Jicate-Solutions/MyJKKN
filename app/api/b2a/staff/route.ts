@@ -114,7 +114,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         { status: 500 }
       );
     } else {
-      items = (data ?? []) as unknown as StaffRow[];
+      items = (data ?? []) as unknown as StaffRow[]; // required: Supabase infers GenericStringError[] with multiple chained .eq() calls
       total = count ?? 0;
     }
   } catch {
