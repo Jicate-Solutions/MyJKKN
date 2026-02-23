@@ -1672,9 +1672,9 @@ export interface CommunityFeed {
     starts_at: string;
     ends_at: string;
     venue_name: string | null;
-    current_participants: number;
+    current_participants: number | null;
     max_participants: number | null;
-    status: string;
+    status: string | null;
   }>;
   announcements: Array<{
     id: string;
