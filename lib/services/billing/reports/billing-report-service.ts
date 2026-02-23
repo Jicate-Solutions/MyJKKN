@@ -709,7 +709,11 @@ export class BillingReportService {
       receiptQuery = receiptQuery.lte('receipt_date', dateTo);
     }
 
-    const { data: receiptData } = await receiptQuery;
+    const { data: receiptData, error: receiptError } = await receiptQuery;
+    if (receiptError) {
+      console.error('[billing/reports] Error in getTotalAmountCollected (receipts):', receiptError.message);
+      throw receiptError;
+    }
     const totalReceiptAmount =
       receiptData?.reduce(
         (sum, receipt: any) => sum + (receipt.payment_amount || 0),
