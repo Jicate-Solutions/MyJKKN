@@ -40,7 +40,7 @@ export default function ResidentCalendarPage() {
   const { profile } = useAuth()
   const institutionId = profile?.institution_id || ''
 
-  const today = new Date()
+  const [today] = useState(() => new Date())
   const [currentMonth, setCurrentMonth] = useState(today.getMonth() + 1)
   const [currentYear, setCurrentYear] = useState(today.getFullYear())
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
