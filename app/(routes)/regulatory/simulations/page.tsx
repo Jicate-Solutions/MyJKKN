@@ -159,13 +159,15 @@ export default function SimulationsPage() {
   const handleOverrideChange = useCallback((criteriaId: string, value: string) => {
     const numVal = parseFloat(value)
     if (isNaN(numVal)) {
-      const newOverrides = { ...overrides }
-      delete newOverrides[criteriaId]
-      setOverrides(newOverrides)
+      setOverrides((prev) => {
+        const next = { ...prev }
+        delete next[criteriaId]
+        return next
+      })
     } else {
       setOverrides((prev) => ({ ...prev, [criteriaId]: numVal }))
     }
-  }, [overrides])
+  }, [])
 
   const handleReset = () => {
     setOverrides({})
