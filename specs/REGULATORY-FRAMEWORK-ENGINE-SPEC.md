@@ -121,7 +121,7 @@ Currently: **ALL done manually** — staff spends 3-6 months collecting data fro
 
 **Flow 1: IQAC Coordinator generates NAAC AQAR**
 1. Navigate to Regulatory → Frameworks → NAAC AQAR 2025-26
-2. Dashboard shows: 34/56 metrics auto-populated, 22 need manual entry (qualitative narratives)
+2. Dashboard shows: 33/56 metrics auto-populated, 23 need manual entry (22 qualitative + 1 external survey)
 3. Click "Auto-Refresh" — system pulls latest data from all connected modules
 4. Review auto-calculated values, drill down to source records
 5. Enter 7 manual metrics (e.g., patents filed — no source table yet)
