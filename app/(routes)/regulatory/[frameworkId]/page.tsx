@@ -47,6 +47,7 @@ import {
   useFrameworkMetricValues,
   useFrameworkEvidence,
   useFrameworkSubmissions,
+  useFrameworkCompleteness,
   useStartSubmission,
 } from '@/hooks/regulatory'
 import { CriteriaTree } from './_components/criteria-tree'
