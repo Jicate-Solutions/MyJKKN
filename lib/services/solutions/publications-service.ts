@@ -48,6 +48,7 @@ export interface CreatePublicationInput {
   submission_date?: string;
   nirf_category?: string;
   naac_criterion?: string;
+  institution_id?: string;
   created_by: string;
 }
 
