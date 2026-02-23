@@ -196,7 +196,7 @@ export default function GatePassesPage() {
               Track student exit and entry with QR-based gate pass system
             </p>
           </div>
-          <Button variant="outline">
+          <Button variant="outline" onClick={handleExport} disabled={!passes.length}>
             <Download className="mr-2 h-4 w-4" />
             Export
           </Button>
