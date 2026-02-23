@@ -175,9 +175,10 @@ export function useCreateMeeting() {
     mutationFn: async (input: CreateMeetingData) => {
       return await RegulatoryGovernanceService.createMeeting(input)
     },
-    onSuccess: (_data, variables) => {
+    onSuccess: () => {
       toast.success('Meeting created')
-      queryClient.invalidateQueries({ queryKey: governanceKeys.meetings() })
+      // Invalidate all governance queries (including adapter key 'all-meetings')
+      queryClient.invalidateQueries({ queryKey: governanceKeys.all })
     },
     onError: (error: Error) => {
       toast.error(error.message || 'Failed to create meeting')
