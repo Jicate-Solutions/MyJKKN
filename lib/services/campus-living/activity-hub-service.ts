@@ -304,14 +304,14 @@ export class ActivityHubService {
       try {
         let q = (supabase as any)
           .from('hostel_onboarding_checklists')
-          .select('id, learner_id, status, created_at')
+          .select('id, learner_id, status, created_at, profiles!learner_id(full_name)')
           .gte('created_at', dateFrom)
           .lte('created_at', dateTo)
           .order('created_at', { ascending: false })
           .limit(PER_TABLE_LIMIT)
 
         q = scopeInstitution(q)
-        // onboarding_checklists may not have block_id — no block scoping
+        // onboarding_checklists has no block_id — no block scoping
 
         const { data, error } = await q
         if (error) {
@@ -322,7 +322,7 @@ export class ActivityHubService {
           id: r.id,
           type: 'onboarding' as ActivityType,
           title: `Onboarding: ${r.status}`,
-          description: `Learner: ${r.learner_id} | Status: ${r.status}`,
+          description: `Learner: ${r.profiles?.full_name || 'Unknown'} | Status: ${r.status}`,
           timestamp: r.created_at,
           status: r.status,
           link: '/campus-living/allocations/onboarding',
