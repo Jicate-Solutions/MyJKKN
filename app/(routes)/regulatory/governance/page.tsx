@@ -39,24 +39,28 @@ export default function GovernancePage() {
     data: bodiesResult,
     isLoading: bodiesLoading,
     error: bodiesError,
+    refetch: refetchBodies,
   } = useGoverningBodies({ institution_id: institutionId })
 
   const {
     data: meetings,
     isLoading: meetingsLoading,
     error: meetingsError,
+    refetch: refetchMeetings,
   } = useGoverningMeetings({ institution_id: institutionId })
 
   const {
     data: syllabi,
     isLoading: syllabiLoading,
     error: syllabiError,
+    refetch: refetchSyllabi,
   } = useCourseSyllabi({ institution_id: institutionId })
 
   const {
     data: peerVisitsResult,
     isLoading: visitsLoading,
     error: visitsError,
+    refetch: refetchVisits,
   } = usePeerVisits({ institution_id: institutionId })
 
   // Unwrap paginated results to flat arrays
