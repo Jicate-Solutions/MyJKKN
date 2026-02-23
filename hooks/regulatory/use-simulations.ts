@@ -293,11 +293,18 @@ export function useDeleteSimulation() {
       return { success: true }
     },
     onSuccess: () => {
+      toast.success('Simulation deleted')
       // Invalidate all simulation queries (including adapter keys like 'saved')
       queryClient.invalidateQueries({ queryKey: simulationKeys.all })
     },
     onError: (error: Error) => {
-      toast.error(error.message || 'Failed to delete simulation. Simulations may be read-only.')
+      const msg = error.message || ''
+      // RLS / permission errors from Supabase often contain 'policy' or are cryptic
+      if (msg.includes('policy') || msg.includes('permission') || msg.includes('violates')) {
+        toast.error('You do not have permission to delete this simulation')
+      } else {
+        toast.error('Failed to delete simulation')
+      }
     }
   })
 }
