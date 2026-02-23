@@ -217,7 +217,9 @@ export function useGoverningMeetings(
           query = query.eq('institution_id', institutionId)
         }
 
-        const { data, error } = await query.order('meeting_date', { ascending: false })
+        const { data, error } = await query
+          .order('meeting_date', { ascending: false })
+          .limit(200) // Safety cap: prevent unbounded fetches
 
         if (error) throw error
 
