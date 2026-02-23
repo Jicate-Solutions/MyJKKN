@@ -580,7 +580,7 @@ Each connector defines: **Source Module → Source Table(s) → Key Columns → 
 | DC-14 | Resources | `resources`, `resource_*` | NAAC, AICTE, NIRF | ⚠️ Partial |
 | DC-15 | Social/Perception | `sm_accounts`, `sm_post_metrics` | NIRF | ⚠️ Manual supplement |
 
-#### NEW DATA CONNECTORS (require new tables — see "Missing Data Source Tables" below)
+#### NEW DATA CONNECTORS (require new tables)
 
 | # | Module | New Table(s) Required | Regulatory Bodies Fed | Priority |
 |---|--------|----------------------|----------------------|----------|
