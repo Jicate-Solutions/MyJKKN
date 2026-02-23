@@ -211,9 +211,9 @@ export function BodyList({ bodies, institutionId }: BodyListProps) {
                         <div className="space-y-3">
                           <h4 className="text-sm font-medium">Members</h4>
                           <div className="grid gap-2 md:grid-cols-2">
-                            {body.members.map((member) => (
+                            {body.members.map((member, idx) => (
                               <div
-                                key={member.id}
+                                key={member.id || `member-${idx}`}
                                 className="flex items-center gap-3 p-3 border rounded-lg"
                               >
                                 <div className="p-2 rounded-full bg-muted shrink-0">
