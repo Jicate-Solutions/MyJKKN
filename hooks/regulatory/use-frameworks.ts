@@ -273,29 +273,22 @@ export function useUpcomingDeadlines(
 
         if (error) throw error
 
-        // Enrich with framework info
-        const enriched = await Promise.all(
-          (data || []).map(async (sub: any) => {
-            const { data: fw } = await (supabase as any)
-              .from('regulatory_frameworks')
-              .select('name, body')
-              .eq('id', sub.framework_id)
-              .maybeSingle()
+        // Enrich frameworks with deadline info
+        const enriched = (data || []).map((fw: any) => {
+          const dueDate = new Date(fw.submission_deadline)
+          const now = new Date()
+          const diffMs = dueDate.getTime() - now.getTime()
+          const daysRemaining = Math.ceil(diffMs / (1000 * 60 * 60 * 24))
 
-            const dueDate = new Date(sub.due_date)
-            const now = new Date()
-            const diffMs = dueDate.getTime() - now.getTime()
-            const daysRemaining = Math.ceil(diffMs / (1000 * 60 * 60 * 24))
-
-            return {
-              ...sub,
-              framework_name: fw?.name || 'Unknown',
-              body: fw?.body || 'Unknown',
-              submission_type: sub.academic_year || 'Annual',
-              days_remaining: daysRemaining
-            }
-          })
-        )
+          return {
+            id: fw.id,
+            framework_name: fw.name || 'Unknown',
+            body: fw.body || 'Unknown',
+            due_date: fw.submission_deadline,
+            submission_type: 'Annual',
+            days_remaining: daysRemaining
+          }
+        })
 
         return enriched
       } catch (error) {
