@@ -5,11 +5,22 @@
 
 import { createClientSupabaseClient } from '@/lib/supabase/client'
 
+/**
+ * DDL: regulatory_evidence columns:
+ *   id, metric_id, criteria_id, submission_id, institution_id, academic_year,
+ *   file_url, file_name, file_type, file_size_bytes (bigint),
+ *   description, evidence_type, uploaded_by, is_deleted, deleted_at,
+ *   created_at, updated_at, metadata
+ *   CHECK (metric_id IS NOT NULL OR criteria_id IS NOT NULL)
+ */
+
 export interface EvidenceFilters {
   metric_id?: string
   criteria_id?: string
+  submission_id?: string
   institution_id?: string
   academic_year?: string
+  evidence_type?: string
   is_deleted?: boolean
   page?: number
   limit?: number
@@ -18,24 +29,31 @@ export interface EvidenceFilters {
 export interface UploadEvidenceData {
   metric_id?: string
   criteria_id?: string
+  submission_id?: string
   institution_id: string
   academic_year: string
-  framework_id: string
   file_name: string
   file_url: string
   file_type?: string
-  file_size?: number
-  title: string
+  file_size_bytes?: number
   description?: string | null
+  evidence_type?: string   // supporting | primary | certificate | screenshot
+  metadata?: Record<string, any>
 }
 
+/**
+ * DDL: regulatory_evidence_versions columns:
+ *   id, evidence_id, version_number, file_url, file_name, file_type,
+ *   file_size_bytes, change_summary, uploaded_by, created_at
+ *   UNIQUE(evidence_id, version_number)
+ */
 export interface AddEvidenceVersionData {
   evidence_id: string
   file_name: string
   file_url: string
   file_type?: string
-  file_size?: number
-  change_notes?: string | null
+  file_size_bytes?: number
+  change_summary?: string | null
 }
 
 export class RegulatoryEvidenceService {
@@ -98,6 +116,9 @@ export class RegulatoryEvidenceService {
       if (filters.institution_id !== undefined) {
         this.validateId(filters.institution_id, 'institution_id filter')
       }
+      if (filters.submission_id !== undefined) {
+        this.validateId(filters.submission_id, 'submission_id filter')
+      }
 
       let query = (this.getSupabase() as any)
         .from('regulatory_evidence')
@@ -113,11 +134,17 @@ export class RegulatoryEvidenceService {
       if (filters.criteria_id) {
         query = query.eq('criteria_id', filters.criteria_id)
       }
+      if (filters.submission_id) {
+        query = query.eq('submission_id', filters.submission_id)
+      }
       if (filters.institution_id) {
         query = query.eq('institution_id', filters.institution_id)
       }
       if (filters.academic_year) {
         query = query.eq('academic_year', filters.academic_year)
+      }
+      if (filters.evidence_type) {
+        query = query.eq('evidence_type', filters.evidence_type)
       }
 
       // By default, exclude soft-deleted evidence
@@ -155,19 +182,80 @@ export class RegulatoryEvidenceService {
   }
 
   /**
+   * Search evidence using text matching on file_name and description.
+   * (DDL does not have search_vector/pg_trgm on evidence, so we use ilike.)
+   */
+  static async searchEvidence(
+    searchTerm: string,
+    institutionId?: string,
+    academicYear?: string,
+    limit: number = 20
+  ) {
+    try {
+      if (institutionId !== undefined) {
+        this.validateId(institutionId, 'institution ID')
+      }
+
+      if (!searchTerm || searchTerm.trim().length === 0) {
+        return []
+      }
+
+      let query = (this.getSupabase() as any)
+        .from('regulatory_evidence')
+        .select(`
+          *,
+          uploaded_by_profile:profiles!uploaded_by(id, full_name, email)
+        `)
+        .eq('is_deleted', false)
+        .or(
+          `file_name.ilike.%${searchTerm}%,description.ilike.%${searchTerm}%`
+        )
+
+      if (institutionId) {
+        query = query.eq('institution_id', institutionId)
+      }
+      if (academicYear) {
+        query = query.eq('academic_year', academicYear)
+      }
+
+      query = query
+        .limit(limit)
+        .order('created_at', { ascending: false })
+
+      const { data, error } = await query
+
+      if (error) throw error
+
+      return data || []
+    } catch (error) {
+      console.error('[RegulatoryEvidenceService] Error searching evidence:', this.formatError(error))
+      throw error
+    }
+  }
+
+  /**
    * Upload/create evidence record
    * Note: The actual file upload to Supabase Storage is handled separately.
    * This creates the database record pointing to the uploaded file.
+   *
+   * DDL constraint: CHECK (metric_id IS NOT NULL OR criteria_id IS NOT NULL)
    */
   static async uploadEvidence(data: UploadEvidenceData) {
     try {
       this.validateId(data.institution_id, 'institution ID')
-      this.validateId(data.framework_id, 'framework ID')
       if (data.metric_id) {
         this.validateId(data.metric_id, 'metric ID')
       }
       if (data.criteria_id) {
         this.validateId(data.criteria_id, 'criteria ID')
+      }
+      if (data.submission_id) {
+        this.validateId(data.submission_id, 'submission ID')
+      }
+
+      // Enforce DDL CHECK constraint client-side
+      if (!data.metric_id && !data.criteria_id) {
+        throw new Error('Evidence must be linked to at least a metric or a criteria.')
       }
 
       // Get current user
@@ -177,18 +265,18 @@ export class RegulatoryEvidenceService {
       const insertPayload = {
         metric_id: data.metric_id || null,
         criteria_id: data.criteria_id || null,
+        submission_id: data.submission_id || null,
         institution_id: data.institution_id,
         academic_year: data.academic_year,
-        framework_id: data.framework_id,
         file_name: data.file_name,
         file_url: data.file_url,
         file_type: data.file_type || null,
-        file_size: data.file_size || null,
-        title: data.title,
+        file_size_bytes: data.file_size_bytes || null,
         description: data.description || null,
+        evidence_type: data.evidence_type || 'supporting',
         uploaded_by: user.id,
         is_deleted: false,
-        version: 1
+        metadata: data.metadata || {}
       }
 
       const { data: result, error } = await (this.getSupabase() as any)
@@ -216,22 +304,17 @@ export class RegulatoryEvidenceService {
 
   /**
    * Soft delete evidence: sets is_deleted = true and deleted_at = now()
+   * DDL has no deleted_by column, so we only set is_deleted and deleted_at.
    */
   static async softDeleteEvidence(id: string) {
     try {
       this.validateId(id, 'evidence ID')
 
-      // Get current user
-      const { data: { user } } = await this.getSupabase().auth.getUser()
-      if (!user) throw new Error('User not authenticated')
-
       const { data, error } = await (this.getSupabase() as any)
         .from('regulatory_evidence')
         .update({
           is_deleted: true,
-          deleted_at: new Date().toISOString(),
-          deleted_by: user.id,
-          updated_at: new Date().toISOString()
+          deleted_at: new Date().toISOString()
         })
         .eq('id', id)
         .select()
@@ -248,6 +331,10 @@ export class RegulatoryEvidenceService {
 
   /**
    * Get version history for a specific evidence record
+   *
+   * DDL: regulatory_evidence_versions columns:
+   *   id, evidence_id, version_number, file_url, file_name, file_type,
+   *   file_size_bytes, change_summary, uploaded_by, created_at
    */
   static async getEvidenceVersions(evidenceId: string) {
     try {
@@ -260,7 +347,7 @@ export class RegulatoryEvidenceService {
           uploaded_by_profile:profiles!uploaded_by(id, full_name, email)
         `)
         .eq('evidence_id', evidenceId)
-        .order('version', { ascending: false })
+        .order('version_number', { ascending: false })
 
       if (error) throw error
 
@@ -273,7 +360,11 @@ export class RegulatoryEvidenceService {
 
   /**
    * Add a new version to an existing evidence record
-   * Increments the version number and stores the new file info
+   * Inserts a snapshot of the CURRENT file into evidence_versions,
+   * then updates the main evidence record with the new file info.
+   *
+   * NOTE: regulatory_evidence does NOT have a "version" column.
+   * Version tracking lives entirely in evidence_versions.
    */
   static async addEvidenceVersion(data: AddEvidenceVersionData) {
     try {
@@ -283,10 +374,10 @@ export class RegulatoryEvidenceService {
       const { data: { user } } = await this.getSupabase().auth.getUser()
       if (!user) throw new Error('User not authenticated')
 
-      // Get the current evidence to determine next version number
+      // Get the current evidence to snapshot the old file
       const { data: currentEvidence, error: fetchError } = await (this.getSupabase() as any)
         .from('regulatory_evidence')
-        .select('id, version, file_name, file_url')
+        .select('id, file_name, file_url, file_type, file_size_bytes')
         .eq('id', data.evidence_id)
         .maybeSingle()
 
@@ -295,16 +386,27 @@ export class RegulatoryEvidenceService {
         throw new Error('Evidence record not found.')
       }
 
-      const nextVersion = (currentEvidence.version || 1) + 1
+      // Determine the next version_number
+      const { data: latestVersion } = await (this.getSupabase() as any)
+        .from('regulatory_evidence_versions')
+        .select('version_number')
+        .eq('evidence_id', data.evidence_id)
+        .order('version_number', { ascending: false })
+        .limit(1)
+        .maybeSingle()
 
-      // Insert version record (stores the old version snapshot)
+      const nextVersionNumber = (latestVersion?.version_number || 0) + 1
+
+      // Insert version record (snapshot of the OLD file before updating)
       const versionPayload = {
         evidence_id: data.evidence_id,
-        version: currentEvidence.version || 1,
+        version_number: nextVersionNumber,
         file_name: currentEvidence.file_name,
         file_url: currentEvidence.file_url,
-        uploaded_by: user.id,
-        change_notes: data.change_notes || null
+        file_type: currentEvidence.file_type || null,
+        file_size_bytes: currentEvidence.file_size_bytes || null,
+        change_summary: data.change_summary || null,
+        uploaded_by: user.id
       }
 
       const { error: versionError } = await (this.getSupabase() as any)
@@ -313,15 +415,14 @@ export class RegulatoryEvidenceService {
 
       if (versionError) throw versionError
 
-      // Update the main evidence record with new file info
+      // Update the main evidence record with the new file info
       const { data: updatedEvidence, error: updateError } = await (this.getSupabase() as any)
         .from('regulatory_evidence')
         .update({
           file_name: data.file_name,
           file_url: data.file_url,
           file_type: data.file_type || null,
-          file_size: data.file_size || null,
-          version: nextVersion,
+          file_size_bytes: data.file_size_bytes || null,
           updated_at: new Date().toISOString()
         })
         .eq('id', data.evidence_id)
