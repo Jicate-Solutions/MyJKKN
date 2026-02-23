@@ -63,9 +63,10 @@ export function useFrameworks(
     }),
     [
       filters.institution_id,
-      filters.body_name,
+      filters.body,
       filters.status,
-      filters.version_year,
+      filters.version,
+      filters.framework_type,
       filters.search,
       filters.page,
       filters.limit,
