@@ -1290,7 +1290,7 @@ Attribute 10 (Sustain, 75):     ░░░░░░░░░░   0/75 =  0%  (ZE
 TOTAL AUTO-CALCULABLE:          ~275-295/900 = ~30-33%  (range depends on how "partial" metrics are counted)
 AFTER P0 TABLES (+4):           ~420/900 = ~47%
 AFTER P0+P1 TABLES (+12):       ~680/900 = ~76%
-AFTER ALL 20 TABLES:            ~780/900 = ~87% (remainder = binary checkbox evidence, manual)
+AFTER ALL 21 TABLES:            ~780/900 = ~87% (remainder = binary checkbox evidence, manual)
 ```
 
 #### Special Handling: Binary Checkbox Metrics
