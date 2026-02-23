@@ -864,63 +864,126 @@ ALTER TABLE regulatory_submissions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE regulatory_data_connectors ENABLE ROW LEVEL SECURITY;
 ALTER TABLE regulatory_simulations ENABLE ROW LEVEL SECURITY;
 
--- Standard pattern: institution_id match OR super_admin bypass
--- All institution-scoped tables use USING + WITH CHECK per CLAUDE.md template
+-- ═══════════════════════════════════════════════
+-- RLS POLICIES — Role-based, per T8 permission matrix
+-- ═══════════════════════════════════════════════
+-- Helper: auth_user_role() returns the user's role string (create alongside auth_institution_id())
+-- CREATE FUNCTION auth_user_role() RETURNS text AS $$
+--   SELECT role FROM profiles WHERE id = auth.uid() LIMIT 1
+-- $$ LANGUAGE sql STABLE SECURITY INVOKER;
 
--- Frameworks: global templates (institution_id IS NULL) visible to all, writable only by super_admin
+-- ─── Frameworks: super_admin only for write, all authenticated for read ───
 CREATE POLICY "frameworks_read" ON regulatory_frameworks FOR SELECT USING (
   institution_id IS NULL
   OR institution_id = auth_institution_id()
   OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
 );
 CREATE POLICY "frameworks_write" ON regulatory_frameworks FOR INSERT
+  WITH CHECK (EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'));
+CREATE POLICY "frameworks_modify" ON regulatory_frameworks FOR UPDATE
+  USING (EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'))
+  WITH CHECK (EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'));
+CREATE POLICY "frameworks_delete" ON regulatory_frameworks FOR DELETE
+  USING (EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'));
+
+-- ─── Metric values: role-differentiated per T8 ───
+-- T8: View = super_admin, institution_admin, iqac_coordinator, principal, hod
+-- T8: Enter = super_admin, institution_admin, iqac_coordinator, hod
+-- T8: Override = super_admin, institution_admin, iqac_coordinator (app-layer enforcement for override vs enter)
+-- T8: Delete = nobody (use soft-delete; RESTRICT on history FK prevents hard delete anyway)
+CREATE POLICY "metric_values_read" ON regulatory_metric_values FOR SELECT USING (
+  (institution_id = auth_institution_id()
+    OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'))
+  AND EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN
+    ('super_admin','institution_admin','iqac_coordinator','principal','hod'))
+);
+CREATE POLICY "metric_values_insert" ON regulatory_metric_values FOR INSERT
   WITH CHECK (
-    institution_id = auth_institution_id()
-    OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+    (institution_id = auth_institution_id()
+      OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'))
+    AND EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN
+      ('super_admin','institution_admin','iqac_coordinator','hod'))
   );
-CREATE POLICY "frameworks_modify" ON regulatory_frameworks FOR UPDATE USING (
-  institution_id = auth_institution_id()
-  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
-) WITH CHECK (
-  institution_id = auth_institution_id()
-  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
-);
-CREATE POLICY "frameworks_delete" ON regulatory_frameworks FOR DELETE USING (
-  EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
-);
+CREATE POLICY "metric_values_update" ON regulatory_metric_values FOR UPDATE
+  USING (
+    (institution_id = auth_institution_id()
+      OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'))
+    AND EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN
+      ('super_admin','institution_admin','iqac_coordinator','hod'))
+  )
+  WITH CHECK (
+    (institution_id = auth_institution_id()
+      OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'))
+    AND EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN
+      ('super_admin','institution_admin','iqac_coordinator','hod'))
+  );
+-- No DELETE policy on metric_values — soft-delete only. ON DELETE RESTRICT on history FK
+-- prevents accidental destruction of audit trail.
 
--- Metric values: standard institution scoping with WITH CHECK
-CREATE POLICY "metric_values_access" ON regulatory_metric_values FOR ALL USING (
-  institution_id = auth_institution_id()
-  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
-) WITH CHECK (
+-- ─── Evidence: upload by staff+, delete only via soft-delete ───
+-- T8: Upload = super_admin, institution_admin, iqac_coordinator, hod, staff
+-- Table has is_deleted + deleted_at for soft-delete — no hard DELETE policy
+CREATE POLICY "evidence_read" ON regulatory_evidence FOR SELECT USING (
   institution_id = auth_institution_id()
   OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
 );
+CREATE POLICY "evidence_insert" ON regulatory_evidence FOR INSERT
+  WITH CHECK (
+    (institution_id = auth_institution_id()
+      OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'))
+    AND EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN
+      ('super_admin','institution_admin','iqac_coordinator','hod','staff'))
+  );
+CREATE POLICY "evidence_update" ON regulatory_evidence FOR UPDATE
+  USING (
+    (institution_id = auth_institution_id()
+      OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'))
+    AND EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN
+      ('super_admin','institution_admin','iqac_coordinator'))
+  );
+-- No DELETE policy — use soft-delete (UPDATE is_deleted = true) instead
 
-CREATE POLICY "evidence_access" ON regulatory_evidence FOR ALL USING (
-  institution_id = auth_institution_id()
-  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
-) WITH CHECK (
-  institution_id = auth_institution_id()
-  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+-- ─── Submissions: controlled workflow, approval restricted ───
+-- T8: Generate reports = super_admin, institution_admin, iqac_coordinator
+-- T8: Approve submission = super_admin, institution_admin, principal
+CREATE POLICY "submissions_read" ON regulatory_submissions FOR SELECT USING (
+  (institution_id = auth_institution_id()
+    OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'))
+  AND EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN
+    ('super_admin','institution_admin','iqac_coordinator','principal'))
 );
+CREATE POLICY "submissions_insert" ON regulatory_submissions FOR INSERT
+  WITH CHECK (
+    (institution_id = auth_institution_id()
+      OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'))
+    AND EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN
+      ('super_admin','institution_admin','iqac_coordinator'))
+  );
+CREATE POLICY "submissions_update" ON regulatory_submissions FOR UPDATE
+  USING (
+    (institution_id = auth_institution_id()
+      OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'))
+    AND EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN
+      ('super_admin','institution_admin','principal'))
+  );
+-- No DELETE policy on submissions — submission records are permanent audit artifacts
 
-CREATE POLICY "submissions_access" ON regulatory_submissions FOR ALL USING (
-  institution_id = auth_institution_id()
-  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
-) WITH CHECK (
-  institution_id = auth_institution_id()
-  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+-- ─── Simulations: read and create by authorized roles ───
+-- T8: Run simulation = super_admin, institution_admin, iqac_coordinator, principal
+CREATE POLICY "simulations_read" ON regulatory_simulations FOR SELECT USING (
+  (institution_id = auth_institution_id()
+    OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'))
+  AND EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN
+    ('super_admin','institution_admin','iqac_coordinator','principal'))
 );
-
-CREATE POLICY "simulations_access" ON regulatory_simulations FOR ALL USING (
-  institution_id = auth_institution_id()
-  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
-) WITH CHECK (
-  institution_id = auth_institution_id()
-  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
-);
+CREATE POLICY "simulations_insert" ON regulatory_simulations FOR INSERT
+  WITH CHECK (
+    (institution_id = auth_institution_id()
+      OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'))
+    AND EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN
+      ('super_admin','institution_admin','iqac_coordinator','principal'))
+  );
+-- Simulations are append-only (no UPDATE or DELETE) — create new simulation for re-runs
 
 -- Criteria & metrics: readable by all, writable only by super_admin (framework definitions)
 CREATE POLICY "criteria_read" ON regulatory_criteria FOR SELECT USING (true);
