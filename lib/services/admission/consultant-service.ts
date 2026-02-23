@@ -194,7 +194,7 @@ export class ConsultantService {
 
     let query = (supabase as any)
       .from('education_consultants')
-      .select('*')
+      .select('*, institution:institutions(id, name)')
       .eq('id', id);
     if (institutionId) {
       query = query.eq('institution_id', institutionId);
@@ -519,6 +519,27 @@ export class ConsultantService {
     }
 
     return { data: data || [], total: count || 0 };
+  }
+
+  /**
+   * Batch-fetch primary attributions for a list of lead IDs.
+   * Used by the lead list to show "Referred By" without N+1 queries.
+   */
+  static async getAttributionsForLeadIds(
+    leadIds: string[]
+  ): Promise<Array<{ lead_id: string; consultant: { name: string } | null }>> {
+    if (!leadIds.length) return [];
+    const supabase = createClientSupabaseClient();
+    const { data, error } = await (supabase as any)
+      .from('consultant_lead_attributions')
+      .select('lead_id, consultant:education_consultants(name)')
+      .in('lead_id', leadIds)
+      .eq('attribution_type', 'primary');
+    if (error) {
+      console.error('[ConsultantService] getAttributionsForLeadIds:', error.message);
+      return [];
+    }
+    return data || [];
   }
 
   /**
