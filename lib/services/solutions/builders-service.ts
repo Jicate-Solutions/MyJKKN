@@ -277,6 +277,7 @@ export class BuildersService extends BaseService {
         learner_id: input.learner_id,
         staff_id: input.staff_id,
         department_id: input.department_id,
+        institution_id: input.institution_id,
         trained_date: input.trained_date || new Date().toISOString().split('T')[0],
         hourly_rate: input.hourly_rate,
         specialization: input.specialization,
