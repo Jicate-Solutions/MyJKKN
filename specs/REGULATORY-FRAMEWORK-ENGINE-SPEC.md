@@ -1036,7 +1036,7 @@ Ship with these frameworks pre-configured (seeded in migration):
 |--------|-----|------|--------|-------------|---------------------|
 | 3.1.1 | 3.1 Resource Mobilization (10) | QnM | 10 | Research grants from govt/non-govt agencies (INR Lakhs, 5 years) | DC-18: `research_projects` (NEW) |
 | 3.2.1 | 3.2 Innovation Ecosystem (15) | QlM | 10 | Innovation ecosystem: patents filed, incubation centres, knowledge transfer | DC-19: `patents_ipr` (NEW) + Manual |
-| 3.2.2 | 3.2 | QnM | 5 | Workshops/seminars on Research Methodology, IPR, entrepreneurship (5 years) | DC-13: `facilitator_development` |
+| 3.2.2 | 3.2 | QnM | 5 | Workshops/seminars on Research Methodology, IPR, entrepreneurship (5 years) | DC-02: `facilitator_development` ✅ |
 | 3.3.1 | 3.3 Research Publications (25) | QnM | 10 | Research papers per teacher in UGC CARE-listed journals (5 years) | DC-03: `sh_publications` ✅ |
 | 3.3.2 | 3.3 | QnM | 15 | Books/chapters/conference proceedings published per teacher (5 years) | DC-03: `sh_publications` ✅ |
 | 3.4.1 | 3.4 Extension Activities (40) | QlM | 15 | Extension activities in neighbourhood community for holistic development | Manual entry (qualitative) |
