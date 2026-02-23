@@ -268,7 +268,8 @@ CREATE TABLE regulatory_peer_visits (
   submission_id uuid NOT NULL REFERENCES regulatory_submissions(id) ON DELETE RESTRICT,
   institution_id uuid NOT NULL REFERENCES institutions(id),
   visit_type text NOT NULL,                          -- naac_peer_team | nba_evaluator | aicte_expert
-  status text NOT NULL DEFAULT 'scheduled',          -- scheduled | confirmed | in_progress | completed | postponed | cancelled
+  status text NOT NULL DEFAULT 'scheduled'
+    CHECK (status IN ('scheduled', 'confirmed', 'in_progress', 'completed', 'postponed', 'cancelled')),
   scheduled_date date,
   actual_start_date date,
   actual_end_date date,
