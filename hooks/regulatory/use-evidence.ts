@@ -18,6 +18,7 @@ import { useAuth } from '../use-auth'
 import { usePermissions } from '@/hooks/use-permissions'
 import { QUERY_CONFIG } from '@/lib/config/query-config'
 import toast from 'react-hot-toast'
+import { friendlyErrorMessage } from '@/lib/utils/toast-error'
 import { metricKeys } from './use-metrics'
 
 // ---------------------------------------------------------------------------
