@@ -749,7 +749,9 @@ CREATE TABLE regulatory_metric_values (
 -- 5. Metric Value History (audit trail — every change recorded)
 CREATE TABLE regulatory_metric_value_history (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  metric_value_id uuid NOT NULL REFERENCES regulatory_metric_values(id) ON DELETE CASCADE,
+  metric_value_id uuid NOT NULL REFERENCES regulatory_metric_values(id) ON DELETE RESTRICT,
+  -- RESTRICT prevents deleting a metric_value that has history records.
+  -- Use soft-delete (is_manually_overridden, etc.) on metric_values instead of hard delete.
   old_value text,
   new_value text,
   change_type text NOT NULL,                         -- auto_refresh | manual_entry | manual_override | verification
