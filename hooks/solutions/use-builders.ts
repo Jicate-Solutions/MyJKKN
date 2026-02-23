@@ -10,11 +10,13 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { solutionsHubKeys } from '@/lib/query-keys';
 import { QUERY_CONFIG } from '@/lib/config/query-config';
 import { buildersService } from '@/lib/services/solutions/builders-service';
+import type { CreateBuilderInput } from '@/lib/services/solutions/types';
 
 // ============================================
 // TYPES (Re-exported from service for convenience)
 // ============================================
 
+export type { CreateBuilderInput };
 export type BuilderRole = 'lead' | 'contributor';
 export type AssignmentStatus = 'requested' | 'approved' | 'active' | 'completed' | 'withdrawn';
 
@@ -26,21 +28,6 @@ export interface BuilderFilters {
   search?: string;
   page?: number;
   limit?: number;
-}
-
-export interface CreateBuilderInput {
-  user_id?: string;
-  learner_id?: string;
-  staff_id?: string;
-  name: string;
-  email?: string;
-  phone?: string;
-  department_id?: string;
-  trained_date?: string;
-  hourly_rate?: number;
-  specialization?: string;
-  availability_status?: string;
-  bio?: string;
 }
 
 export interface UpdateBuilderInput {
