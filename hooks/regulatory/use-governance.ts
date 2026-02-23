@@ -197,12 +197,10 @@ export function useUpdateMeeting() {
       const { id, ...data } = input
       return await RegulatoryGovernanceService.updateMeeting(id, data)
     },
-    onSuccess: (data) => {
+    onSuccess: () => {
       toast.success('Meeting updated')
-      queryClient.invalidateQueries({ queryKey: governanceKeys.meetings() })
-      queryClient.invalidateQueries({
-        queryKey: governanceKeys.meetingDetail(data.id)
-      })
+      // Invalidate all governance queries (including adapter key 'all-meetings')
+      queryClient.invalidateQueries({ queryKey: governanceKeys.all })
     },
     onError: (error: Error) => {
       toast.error(error.message || 'Failed to update meeting')
