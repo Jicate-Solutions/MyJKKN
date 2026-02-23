@@ -1057,8 +1057,6 @@ CREATE TRIGGER trg_submissions_updated_at BEFORE UPDATE ON regulatory_submission
   FOR EACH ROW EXECUTE FUNCTION moddatetime(updated_at);
 CREATE TRIGGER trg_connectors_updated_at BEFORE UPDATE ON regulatory_data_connectors
   FOR EACH ROW EXECUTE FUNCTION moddatetime(updated_at);
--- NOTE: submissions UNIQUE(framework_id, institution_id, academic_year) already creates an implicit index
-CREATE INDEX idx_reg_simulations_framework ON regulatory_simulations(framework_id, institution_id);
 ```
 
 ---
