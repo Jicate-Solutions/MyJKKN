@@ -183,10 +183,13 @@ const visitTypeLabels: Record<string, string> = {
   monitoring: 'Monitoring Visit',
 }
 
-export function PeerVisitTimeline({ visits, institutionId }: PeerVisitTimelineProps) {
+export function PeerVisitTimeline({ visits: rawVisits, institutionId }: PeerVisitTimelineProps) {
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [expandedVisit, setExpandedVisit] = useState<string | null>(null)
+
+  // Normalize raw DB rows to expected component shape
+  const visits = useMemo(() => rawVisits.map(normalizePeerVisit), [rawVisits])
 
   const filteredVisits = useMemo(() => {
     return visits
