@@ -104,8 +104,17 @@ export default function GovernancePage() {
           <Alert variant="destructive">
             <AlertCircle className="h-4 w-4" />
             <AlertTitle>Failed to load data</AlertTitle>
-            <AlertDescription>
-              {(currentError as Error).message || 'An unexpected error occurred.'}
+            <AlertDescription className="flex items-center justify-between">
+              <span>{(currentError as Error).message || 'An unexpected error occurred.'}</span>
+              <Button
+                variant="outline"
+                size="sm"
+                className="ml-4 shrink-0"
+                onClick={() => currentRefetch()}
+              >
+                <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
+                Retry
+              </Button>
             </AlertDescription>
           </Alert>
         )}
