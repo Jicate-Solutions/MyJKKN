@@ -52,7 +52,7 @@ Currently: **ALL done manually** — staff spends 3-6 months collecting data fro
 **Success Vision (6 months):**
 - NAAC AQAR generated from system data in < 1 week (vs 3 months today)
 - NIRF submission auto-populated with live score simulation
-- Every metric traceable to source records (DVV-ready audit trail)
+- Every metric traceable to source records (DVV-ready audit trail — DVV: Data Validation & Verification, NAAC's post-submission verification process)
 - New regulatory body added in days (admin config), not months (developer build)
 
 ---
