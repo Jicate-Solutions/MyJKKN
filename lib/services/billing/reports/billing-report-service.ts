@@ -740,7 +740,11 @@ export class BillingReportService {
       refundQuery = refundQuery.lte('receipt.receipt_date', dateTo);
     }
 
-    const { data: refundData } = await refundQuery;
+    const { data: refundData, error: refundError } = await refundQuery;
+    if (refundError) {
+      console.error('[billing/reports] Error in getTotalAmountCollected (refunds):', refundError.message);
+      throw refundError;
+    }
     const totalProcessedRefunds =
       refundData?.reduce(
         (sum, refund: any) => sum + (refund.refund_amount || 0),
