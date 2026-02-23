@@ -39,6 +39,11 @@ export { HousekeepingService } from './housekeeping-service';
 export { HealthService } from './health-service';
 export { DashboardService } from './dashboard-service';
 
+// ── Integration Layer (Phase 4) ───────────────────────────────────
+export { ActivityHubService } from './activity-hub-service';
+export { CalendarService } from './calendar-service';
+export { CommunityService } from './community-service';
+
 // ── Cross-Domain ────────────────────────────────────────────────────
 export { CampusLivingAnalytics } from './campus-living-analytics';
 export { CampusLivingDashboard } from './campus-living-dashboard';
