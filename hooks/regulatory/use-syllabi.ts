@@ -55,10 +55,11 @@ export function useSyllabi(
     }),
     [
       resolvedInstitutionId,
-      filters.department_id,
+      filters.department,
       filters.academic_year,
       filters.semester,
       filters.course_code,
+      filters.revision_status,
       filters.search,
       filters.page,
       filters.limit
