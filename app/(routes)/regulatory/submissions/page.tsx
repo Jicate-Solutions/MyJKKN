@@ -169,12 +169,12 @@ export default function SubmissionsPage() {
         institution_id: institutionId || profile?.institution_id || '',
         academic_year: newSubmissionYear,
       })
-      toast.success('Submission created successfully')
+      // Toast is handled by the useCreateSubmission hook's onSuccess
       setShowCreateDialog(false)
       setNewSubmissionFramework('')
       setNewSubmissionYear('')
     } catch {
-      toast.error('Failed to create submission')
+      // Error toast is handled by the useCreateSubmission hook's onError
     }
   }
 
