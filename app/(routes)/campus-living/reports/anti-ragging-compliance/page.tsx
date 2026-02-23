@@ -12,7 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Download, ArrowLeft, Shield, FileText, AlertTriangle, CheckCircle2, Clock, Loader2 } from 'lucide-react';
+import { Download, ArrowLeft, Shield, FileText, AlertTriangle, CheckCircle2, Loader2 } from 'lucide-react';
 import { useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { useAntiRaggingComplianceReport, useExportReport } from '@/hooks/campus-living/use-campus-living-reports';
