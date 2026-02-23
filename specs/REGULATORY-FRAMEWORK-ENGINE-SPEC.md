@@ -1549,8 +1549,8 @@ regulatory_metrics (per criterion per framework):
 - `FRU = 7.5×f(BC) + 22.5×f(BO)` — Capital + Operational expenditure per student (3-year avg). **Note:** Coefficients (7.5/22.5) shown for Engineering/Pharmacy/Colleges (FRU=30). For Overall (FRU=20), coefficients scale proportionally. For Dental (FRU=35), coefficients are 8.75/26.25.
 
 **RP:**
-- `PU = 35 × f(P/FRQ) - 5 × f(Pret)` — Publications per faculty, minus retraction penalty
-- `QP = {20 × f(CC/FRQ) + 20 × f(TOP25P/P)} - 5 × f(Cret)` — Citations + quality, minus retraction
+- `PU = PU_max × f(P/FRQ) - 5 × f(Pret)` — Publications per faculty, minus retraction penalty. PU_max = 35 (Overall/Engineering), 30 (Colleges/Pharmacy Cat B)
+- `QP = {(QP_max/2) × f(CC/FRQ) + (QP_max/2) × f(TOP25P/P)} - 5 × f(Cret)` — Citations + quality, minus retraction. QP_max = 35 (Overall), 40 (Engineering), 30 (Colleges)
 - `IPR = 10×f(PG) + 5×f(PP)` — Patents granted + published
 - `PSDGs` — NEW: SDG-aligned publications (bonus, marks TBD)
 
