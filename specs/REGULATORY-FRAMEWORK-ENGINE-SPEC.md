@@ -1629,9 +1629,9 @@ Part A: Extended Profile (auto-generated)
 Part B: Criterion-wise Analysis
   Criterion I–VII: Each contains:
     - Key Indicator sections with metric values (QnM → auto-populated)
-    - Qualitative descriptions (QlM → from manual entry fields)
+    - Qualitative descriptions (QlM → from `regulatory_metric_values` where `is_auto_calculated = false`)
     - Supporting data tables (auto-generated from connectors)
-    - Evidence links (from evidence_attachments table)
+    - Evidence links (from `regulatory_evidence` table)
 
 Part C: SWOC Analysis (manual)
 Part D: Declaration (template)
