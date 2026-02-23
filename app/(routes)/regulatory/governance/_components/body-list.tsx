@@ -32,7 +32,9 @@ interface GoverningBody {
   id: string
   name: string
   type?: string
+  body_type?: string
   description?: string
+  mandate?: string
   member_count?: number
   meeting_frequency?: string
   chairperson_name?: string
@@ -41,13 +43,17 @@ interface GoverningBody {
   created_at?: string
   last_meeting_date?: string
   members?: {
-    id: string
+    id?: string
     name: string
     role?: string
+    role_in_body?: string
     designation?: string
     email?: string
     phone?: string
     is_external?: boolean
+    member_type?: string
+    affiliation?: string
+    nominated_by?: string
   }[]
 }
 
