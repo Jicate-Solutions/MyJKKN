@@ -1065,7 +1065,7 @@ Ship with these frameworks pre-configured (seeded in migration):
 | 5.1.4 | 5.1 | QnM | 10 | Grievance redressal: sexual harassment, ragging mechanisms (A-E) | DC-09: `grievance_tickets` ✅ |
 | 5.2.1 | 5.2 Student Progression (35) | QnM | 25 | % outgoing students placed or progressing to higher education (5 years) | DC-04: `alumni_outcomes` ✅ |
 | 5.2.2 | 5.2 | QnM | 10 | % students qualifying in JAM/CLAT/GATE/GMAT/CAT/GRE/Civil Services | DC-17: `exam_results` (NEW — qualifying exams) |
-| 5.3.1 | 5.3 Student Activities (45) | QnM | 20 | Awards/medals for sports/cultural at university/state/national/international | DC-25: `student_activities`, `awards_recognitions` |
+| 5.3.1 | 5.3 Student Activities (45) | QnM | 20 | Awards/medals for sports/cultural at university/state/national/international | DC-25: `student_activities`, DC-23: `awards_recognitions` |
 | 5.3.2 | 5.3 | QnM | 25 | Average sports/cultural programs with student participation (5 years) | DC-25: `student_activities` |
 | 5.4.1 | 5.4 Alumni Engagement (10) | QlM | 10 | Registered Alumni Association contributions (financial/other) | DC-04: `alumni_outcomes` (partial) + Manual |
 
