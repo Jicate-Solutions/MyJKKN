@@ -192,11 +192,11 @@ export default function SimulationsPage() {
         total_original: totalOriginal,
         total_simulated: totalSimulated,
       })
-      toast.success('Simulation saved')
+      // Toast is handled by the useSaveSimulation hook's onSuccess
       setShowSaveDialog(false)
       setSimulationName('')
     } catch {
-      toast.error('Failed to save simulation')
+      // Error toast is handled by the useSaveSimulation hook's onError
     }
   }
 
