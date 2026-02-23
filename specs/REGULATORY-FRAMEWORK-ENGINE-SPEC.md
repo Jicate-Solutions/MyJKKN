@@ -1025,8 +1025,8 @@ Ship with these frameworks pre-configured (seeded in migration):
 | 2.4.1 | 2.4 Teacher Profile & Quality (40) | QnM | 20 | % full-time teachers against sanctioned posts (5 years) | DC-02: `staff` |
 | 2.4.2 | 2.4 | QnM | 20 | % full-time teachers with NET/SET/PhD/D.Sc./D.Litt. (5 years) | DC-16: `staff_qualifications` (NEW) |
 | 2.5.1 | 2.5 Evaluation Process (40) | QlM | 40 | Transparent internal/external assessment & grievance redressal | Manual entry (qualitative) |
-| 2.6.1 | 2.6 Student Performance (90) | QlM | 25 | Programme Outcomes (POs) & Course Outcomes (COs) stated, displayed, evaluated | DC-10: `competency_catalog`, `course_competency_mapping` |
-| 2.6.2 | 2.6 | QlM | 20 | Attainment of POs and COs evaluated with evidence | DC-10 |
+| 2.6.1 | 2.6 Student Performance (90) | QlM | 25 | Programme Outcomes (POs) & Course Outcomes (COs) stated, displayed, evaluated | DC-11: `competency_catalog`, `course_competency_mapping` |
+| 2.6.2 | 2.6 | QlM | 20 | Attainment of POs and COs evaluated with evidence | DC-11 |
 | 2.6.3 | 2.6 | QnM | 45 | Pass % of students (5-year data) | DC-17: `exam_results` (NEW) |
 | 2.7.1 | 2.7 Student Satisfaction Survey (60) | QnM | 60 | Online student satisfaction survey (NAAC-conducted) | DC-11: `nps_surveys` (partial) + external NAAC survey |
 
