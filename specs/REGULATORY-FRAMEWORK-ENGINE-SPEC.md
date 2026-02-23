@@ -1368,7 +1368,7 @@ The Dr. Radhakrishnan Committee Report (Nov 2023) recommends:
 | **Colleges** (Arts & Science) | 0.30 | 0.15 | 0.25 | 0.20 | 0.10 | JKKN College of Arts & Science |
 | **Dental** | 0.35 | 0.30 | 0.20 | 0.10 | **0.05** | JKKN Dental College and Hospital |
 | **Medical/Nursing** | 0.30 | 0.30 | 0.20 | 0.10 | 0.10 | JKKN College of Nursing / Allied Health Sciences |
-| **Education** | 0.30 | 0.25 | 0.25 | 0.10 | 0.10 | JKKN College of Education |
+| **Education** *(est.)* | 0.30 | 0.25 | 0.25 | 0.10 | 0.10 | JKKN College of Education |
 
 #### TLR Sub-Parameter Variations by Discipline
 
