@@ -324,7 +324,7 @@ export class ActivityHubService {
           description: `Learner: ${r.learner_id} | Status: ${r.status}`,
           timestamp: r.created_at,
           status: r.status,
-          link: '/campus-living/onboarding',
+          link: '/campus-living/allocations/onboarding',
           icon_color: ICON_COLORS.onboarding,
         }))
       } catch {
