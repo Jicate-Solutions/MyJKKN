@@ -190,7 +190,7 @@ export async function GET(
   if (errorResponse) return errorResponse;
 
   return NextResponse.json(
-    { success: true, data: { learner: record! } },
+    { success: true, data: record! },
     {
       status: 200,
       headers: {
