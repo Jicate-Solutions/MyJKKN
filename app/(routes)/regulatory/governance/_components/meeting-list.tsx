@@ -179,7 +179,10 @@ export function MeetingList({ meetings, institutionId }: MeetingListProps) {
                         {/* Main Row */}
                         <div
                           className="flex items-center justify-between cursor-pointer"
+                          role="button"
+                          tabIndex={0}
                           onClick={() => setExpandedMeeting(isExpanded ? null : meeting.id)}
+                          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpandedMeeting(isExpanded ? null : meeting.id) } }}
                         >
                           <div className="flex items-center gap-4 min-w-0">
                             {/* Date Badge */}
