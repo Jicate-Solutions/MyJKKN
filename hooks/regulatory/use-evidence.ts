@@ -306,7 +306,7 @@ export function useDeleteEvidence() {
 }
 
 // ---------------------------------------------------------------------------
-// useEvidenceSearch — search evidence by file name, title, or description
+// useEvidenceSearch — search evidence by file name, description, or evidence type
 // ---------------------------------------------------------------------------
 export function useEvidenceSearch(
   searchQuery: string,
