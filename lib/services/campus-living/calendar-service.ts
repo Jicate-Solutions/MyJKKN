@@ -16,7 +16,8 @@ export class CalendarService {
 
     // Calculate first and last day of the month (YYYY-MM-DD)
     const firstDay = `${year}-${String(month).padStart(2, '0')}-01`
-    const lastDay = new Date(year, month, 0).toISOString().split('T')[0]
+    const daysInMonth = new Date(year, month, 0).getDate()
+    const lastDay = `${year}-${String(month).padStart(2, '0')}-${String(daysInMonth).padStart(2, '0')}`
 
     const supabase = createClientSupabaseClient()
     const queries: Promise<CalendarEvent[]>[] = []
