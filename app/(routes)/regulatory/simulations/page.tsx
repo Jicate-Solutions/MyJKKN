@@ -211,9 +211,9 @@ export default function SimulationsPage() {
   const handleDeleteSimulation = async (simId: string) => {
     try {
       await deleteSimulationMutation.mutateAsync({ simulation_id: simId })
-      toast.success('Simulation deleted')
+      // Toast is handled by the useDeleteSimulation hook's onSuccess
     } catch {
-      toast.error('Failed to delete simulation')
+      // Error toast is handled by the useDeleteSimulation hook's onError
     }
   }
 
