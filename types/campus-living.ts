@@ -1681,7 +1681,7 @@ export interface CommunityFeed {
     title: string;
     content: string;
     type: string;
-    urgency: string;
+    urgency: string | null;
     published_at: string | null;
   }>;
   polls: Array<{
