@@ -144,9 +144,12 @@ export class RegulatoryMetricService {
         query = query.in('criteria_id', criteriaIdsForFramework)
       }
       if (filters.search) {
-        query = query.or(
-          `name.ilike.%${filters.search}%,code.ilike.%${filters.search}%,description.ilike.%${filters.search}%`
-        )
+        const safe = this.sanitizeSearch(filters.search)
+        if (safe) {
+          query = query.or(
+            `name.ilike.%${safe}%,code.ilike.%${safe}%,description.ilike.%${safe}%`
+          )
+        }
       }
 
       // Pagination
