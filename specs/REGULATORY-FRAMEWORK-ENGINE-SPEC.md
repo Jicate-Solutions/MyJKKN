@@ -1125,6 +1125,72 @@ CREATE TABLE regulatory_course_syllabi (
   UNIQUE(institution_id, course_code, academic_year, semester)
 );
 
+-- 14. Peer Institution Benchmarks (NAAC 6.5.3 peer comparison — manual data entry)
+CREATE TABLE regulatory_peer_benchmarks (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  institution_id uuid NOT NULL REFERENCES institutions(id),
+  framework_id uuid NOT NULL REFERENCES regulatory_frameworks(id),
+  academic_year text NOT NULL,
+  peer_institution_name text NOT NULL,
+  peer_institution_nirf_rank integer,
+  peer_institution_naac_grade text,
+  metric_code text NOT NULL,
+  our_value numeric,
+  peer_value numeric,
+  gap numeric GENERATED ALWAYS AS (our_value - peer_value) STORED,
+  data_source text,                              -- "NIRF portal", "peer website", "manual"
+  notes text,
+  created_by uuid REFERENCES profiles(id),
+  created_at timestamptz DEFAULT now(),
+  updated_at timestamptz DEFAULT now(),
+  UNIQUE(institution_id, framework_id, academic_year, peer_institution_name, metric_code)
+);
+
+-- ═══════════════════════════════════════════════
+-- EVIDENCE SEARCH SUPPORT (Full-text + fuzzy search)
+-- ═══════════════════════════════════════════════
+
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
+ALTER TABLE regulatory_evidence ADD COLUMN IF NOT EXISTS search_vector tsvector
+  GENERATED ALWAYS AS (
+    to_tsvector('english',
+      coalesce(file_name, '') || ' ' ||
+      coalesce(description, '') || ' ' ||
+      coalesce(evidence_type, '')
+    )
+  ) STORED;
+
+CREATE INDEX idx_reg_evidence_search ON regulatory_evidence USING GIN (search_vector);
+CREATE INDEX idx_reg_evidence_filename_trgm ON regulatory_evidence USING GIN (file_name gin_trgm_ops);
+
+-- ═══════════════════════════════════════════════
+-- OKR → REGULATORY INTEGRATION (Action Plan tracking)
+-- ═══════════════════════════════════════════════
+
+ALTER TABLE okr_objectives ADD COLUMN IF NOT EXISTS regulatory_metric_id uuid REFERENCES regulatory_metrics(id);
+ALTER TABLE okr_objectives ADD COLUMN IF NOT EXISTS regulatory_target_value numeric;
+
+-- ═══════════════════════════════════════════════
+-- COURSE COMPLETION MONITORING VIEW
+-- ═══════════════════════════════════════════════
+
+CREATE OR REPLACE VIEW regulatory_course_completion_dashboard AS
+SELECT
+  cs.institution_id,
+  cs.department,
+  cs.academic_year,
+  COUNT(*) as total_courses,
+  COUNT(CASE WHEN cs.completion_percentage >= 100 THEN 1 END) as completed_courses,
+  COUNT(CASE WHEN cs.completion_percentage >= 75 AND cs.completion_percentage < 100 THEN 1 END) as on_track_courses,
+  COUNT(CASE WHEN cs.completion_percentage < 75 THEN 1 END) as behind_courses,
+  ROUND(AVG(cs.completion_percentage), 1) as avg_completion_pct,
+  COUNT(CASE WHEN cs.syllabus_file_url IS NOT NULL THEN 1 END) as syllabi_uploaded,
+  COUNT(CASE WHEN cs.teaching_plan_file_url IS NOT NULL THEN 1 END) as plans_uploaded
+FROM regulatory_course_syllabi cs
+WHERE cs.revision_status = 'current'
+GROUP BY cs.institution_id, cs.department, cs.academic_year;
+
 -- ═══════════════════════════════════════════════
 -- RLS POLICIES
 -- ═══════════════════════════════════════════════
@@ -1140,6 +1206,7 @@ ALTER TABLE regulatory_data_connectors ENABLE ROW LEVEL SECURITY;
 ALTER TABLE regulatory_simulations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE regulatory_evidence_versions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE regulatory_peer_visits ENABLE ROW LEVEL SECURITY;
+ALTER TABLE regulatory_peer_benchmarks ENABLE ROW LEVEL SECURITY;
 ALTER TABLE regulatory_governing_bodies ENABLE ROW LEVEL SECURITY;
 ALTER TABLE regulatory_body_meetings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE regulatory_course_syllabi ENABLE ROW LEVEL SECURITY;
