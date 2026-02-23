@@ -275,7 +275,7 @@ export class ActivityHubService {
           .limit(PER_TABLE_LIMIT)
 
         q = scopeInstitution(q)
-        // laundry_orders may not have block_id — no block scoping
+        q = scopeBlock(q)
 
         const { data, error } = await q
         if (error) {
