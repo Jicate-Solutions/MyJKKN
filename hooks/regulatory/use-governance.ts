@@ -185,3 +185,56 @@ export function useUpdateMeeting() {
     }
   })
 }
+
+// ---------------------------------------------------------------------------
+// Adapter hooks (used by governance page with simpler signatures)
+// ---------------------------------------------------------------------------
+
+/**
+ * useGoverningMeetings — all meetings for an institution (across all bodies).
+ * Accepts { institution_id? }. Returns flat array.
+ */
+export function useGoverningMeetings(
+  opts: { institution_id?: string } = {}
+) {
+  const { profile, isLoading: authLoading } = useAuth()
+  const { isSuperAdmin } = usePermissions()
+
+  const institutionId = opts.institution_id ?? (isSuperAdmin ? undefined : profile?.institution_id)
+
+  return useQuery<any[], Error>({
+    queryKey: [...governanceKeys.all, 'all-meetings', institutionId] as const,
+    queryFn: async () => {
+      try {
+        const { createClientSupabaseClient } = await import('@/lib/supabase/client')
+        const supabase = createClientSupabaseClient()
+
+        let query = (supabase as any)
+          .from('regulatory_meetings')
+          .select('*, governing_body:regulatory_governing_bodies(id, name)')
+
+        if (institutionId) {
+          query = query.eq('institution_id', institutionId)
+        }
+
+        const { data, error } = await query.order('meeting_date', { ascending: false })
+
+        if (error) throw error
+
+        return (data || []).map((m: any) => ({
+          ...m,
+          body_name: m.governing_body?.name || '',
+          body_id: m.governing_body?.id || m.governing_body_id
+        }))
+      } catch (error) {
+        console.error('[useGoverningMeetings] Error:', error)
+        return []
+      }
+    },
+    enabled:
+      !authLoading &&
+      !!profile &&
+      (isSuperAdmin || !!institutionId),
+    ...QUERY_CONFIG.SEMI_STABLE_DATA
+  })
+}
