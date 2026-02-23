@@ -95,7 +95,10 @@ function getPriorityBadge(lead: AdmissionLead) {
   return <span className="text-sm text-muted-foreground">Cold</span>;
 }
 
-export const columns: ColumnDef<AdmissionLead>[] = [
+export function getLeadColumns(
+  attributionsMap: Map<string, string> = new Map()
+): ColumnDef<AdmissionLead>[] {
+  return [
   {
     id: 'select',
     header: ({ table }) => (
@@ -219,10 +222,29 @@ export const columns: ColumnDef<AdmissionLead>[] = [
     }
   },
   {
+    id: 'referred_by',
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Referred By" />
+    ),
+    cell: ({ row }) => {
+      const name = attributionsMap.get(row.original.id);
+      return name ? (
+        <span className="text-sm">{name}</span>
+      ) : (
+        <span className="text-sm text-muted-foreground">—</span>
+      );
+    },
+    enableSorting: false
+  },
+  {
     id: 'actions',
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Actions" />
     ),
     cell: ({ row }) => <DataTableRowActions row={row} />
   }
-];
+  ];
+}
+
+// Backward-compatible default export for any other imports
+export const columns = getLeadColumns();
