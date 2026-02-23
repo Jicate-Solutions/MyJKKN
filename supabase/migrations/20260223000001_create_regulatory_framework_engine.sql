@@ -64,11 +64,6 @@ CREATE TABLE regulatory_frameworks (
   created_at timestamptz DEFAULT now(),
   updated_at timestamptz DEFAULT now(),
   UNIQUE(institution_id, body, version, institution_type)
-  -- NOTE: institution_type is nullable (NULL = universal, applies to all types).
-  -- PostgreSQL treats NULL != NULL in UNIQUE constraints, so multiple (same body, version, NULL)
-  -- rows could exist. Mitigate with a partial unique index:
-  -- CREATE UNIQUE INDEX idx_frameworks_universal ON regulatory_frameworks
-  --   (institution_id, body, version) WHERE institution_type IS NULL;
 );
 
 -- 2. Criteria Tree (hierarchical — supports sub-criteria)
