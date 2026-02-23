@@ -1366,9 +1366,10 @@ Unlike the old NAAC system (which was heavily quantitative), the new Binary Fram
 
 | Evidence Type | Count | Engine Handling |
 |---------------|-------|-----------------|
-| Data (auto-calculated) | ~22 metrics | Data Connector pulls from DB → auto-populates |
-| Document + Data (mixed) | ~18 metrics | Partial auto-calc + evidence upload required |
-| Document only (binary proof) | ~20 metrics | Manual checklist + document upload (no formula) |
+| Data (auto-calculated) | ~25 metrics | Data Connector pulls from DB → auto-populates |
+| Document + Data (mixed) | ~19 metrics | Partial auto-calc + evidence upload required |
+| Document only (binary proof) | ~12 metrics | Manual checklist + document upload (no formula) |
+| N/A (institution-type dependent) | 4 metrics | Skipped for Autonomous (3.6, 7.4, 8.2b, 9.5) |
 
 **Engine design implication:** The `regulatory_metrics` table already supports `data_type` = 'boolean' for binary metrics and `requires_evidence` = true. For binary checkbox metrics, set:
 - `data_type = 'boolean'`
