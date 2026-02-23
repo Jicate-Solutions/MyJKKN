@@ -337,6 +337,26 @@ export default function SimulationsPage() {
           </div>
         )}
 
+        {/* Error State */}
+        {selectedFramework && !dataLoading && simulationError && (
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertTitle>Failed to load simulation data</AlertTitle>
+            <AlertDescription className="flex items-center justify-between">
+              <span>{(simulationError as Error).message || 'Could not load score data for this framework.'}</span>
+              <Button
+                variant="outline"
+                size="sm"
+                className="ml-4 shrink-0"
+                onClick={() => refetchSimulationData()}
+              >
+                <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
+                Retry
+              </Button>
+            </AlertDescription>
+          </Alert>
+        )}
+
         {/* Simulation Content */}
         {selectedFramework && !dataLoading && simulationData && (
           <>
