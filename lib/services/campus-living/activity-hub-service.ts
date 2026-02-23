@@ -268,7 +268,7 @@ export class ActivityHubService {
       try {
         let q = (supabase as any)
           .from('hostel_laundry_orders')
-          .select('id, status, created_at')
+          .select('id, status, created_at, block_id, hostel_blocks(name)')
           .gte('created_at', dateFrom)
           .lte('created_at', dateTo)
           .order('created_at', { ascending: false })
@@ -290,6 +290,7 @@ export class ActivityHubService {
           timestamp: r.created_at,
           status: r.status,
           link: '/campus-living/laundry',
+          block_name: r.hostel_blocks?.name ?? undefined,
           icon_color: ICON_COLORS.laundry,
         }))
       } catch {
