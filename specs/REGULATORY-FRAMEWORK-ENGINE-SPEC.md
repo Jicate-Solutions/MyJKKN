@@ -1299,7 +1299,7 @@ CREATE TRIGGER trg_syllabi_updated_at BEFORE UPDATE ON regulatory_course_syllabi
 
 ```
 Week 1: Database & Core API
-├── Day 1-2: Apply migration (9 new tables + RLS + indexes)
+├── Day 1-2: Apply migration (14 new tables + RLS + indexes)
 ├── Day 3-4: CRUD hooks for frameworks, criteria, metrics
 ├── Day 5: Seed frameworks: NAAC 2022 (7 criteria, 56 metrics), NIRF Overall + 6 discipline variants, NAAC Binary × 3 institution types
 
