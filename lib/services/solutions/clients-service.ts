@@ -185,6 +185,7 @@ export class ClientsService extends BaseService {
         source_type: input.source_type || 'direct',
         source_department_id: input.source_department_id,
         partner_status: input.partner_status || 'standard',
+        created_by: input.created_by,
         is_active: true,
         referral_count: 0,
       })
