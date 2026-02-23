@@ -108,7 +108,8 @@ export function useCreateSubmission() {
     },
     onSuccess: () => {
       toast.success('Submission created')
-      queryClient.invalidateQueries({ queryKey: submissionKeys.lists() })
+      // Invalidate all submission queries (including adapter keys like 'all-flat', 'framework')
+      queryClient.invalidateQueries({ queryKey: submissionKeys.all })
     },
     onError: (error: Error) => {
       toast.error(error.message || 'Failed to create submission')
@@ -142,8 +143,8 @@ export function useUpdateSubmissionStatus() {
           ? 'Reverted to draft'
           : 'Status updated'
       toast.success(statusLabel)
-      queryClient.invalidateQueries({ queryKey: submissionKeys.detail(data.id) })
-      queryClient.invalidateQueries({ queryKey: submissionKeys.lists() })
+      // Invalidate all submission queries (including adapter keys like 'all-flat', 'framework')
+      queryClient.invalidateQueries({ queryKey: submissionKeys.all })
     },
     onError: (error: Error) => {
       toast.error(error.message || 'Failed to update submission status')
