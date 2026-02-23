@@ -92,6 +92,8 @@ export default function SimulationsPage() {
   const {
     data: simulationData,
     isLoading: dataLoading,
+    error: simulationError,
+    refetch: refetchSimulationData,
   } = useSimulationData({
     framework_id: selectedFramework || undefined,
     institution_id: institutionId,
