@@ -354,7 +354,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/audit-trail': 'audit.view',
 
   // Admission CRM Module
-  '/admission/counselor-view': 'admission.dashboard.view',
+  '/admission/counselors/daily-view': 'admission.dashboard.view',
   '/admission/dashboard': 'admission.dashboard.view',
   '/admission/leads': 'admission.leads.view',
   '/admission/leads/new': 'admission.leads.create',
@@ -383,7 +383,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admission/documents': 'admission.documents.view',
   '/admission/hostels': 'admission.hostels.view',
   '/admission/feedback': 'admission.feedback.view',
-  '/admission/reminders': 'admission.reminders.view',
+  '/admission/counselors/reminders': 'admission.reminders.view',
   '/admission/screening-exam': 'admission.screening_exam.view',
   '/admission/lateral-entry': 'admission.lateral_entry.view',
   '/admission/re-engagement': 'admission.re_engagement.view',
@@ -397,7 +397,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admission/status': 'admission.status.view',
   '/admission/workflow-config': 'admission.settings.view',
   '/admission/group-dashboard': 'admission.dashboard.view',
-  '/admission/calls': 'admission.calls.view',
+  '/admission/counselors/calls': 'admission.calls.view',
   '/admission/campaigns': 'admission.campaigns.view',
   '/admission/campaigns/monitoring': 'admission.campaigns.view',
   '/admission/campaigns/roi': 'admission.campaigns.view',
@@ -408,8 +408,8 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admission/remarketing': 'admission.remarketing.view',
   '/admission/voice-agents': 'admission.voice_agents.view',
   '/admission/voice-broadcast': 'admission.voice_broadcast.view',
-  '/admission/briefing': 'admission.briefing.view',
-  '/admission/alerts': 'admission.alerts.view',
+  '/admission/counselors/briefing': 'admission.briefing.view',
+  '/admission/counselors/alerts': 'admission.alerts.view',
   '/admission/insights': 'admission.insights.view',
 
   // Consultant Portal (EC Self-Service)
@@ -658,9 +658,9 @@ export function GetPages(pathname: string): MenuGroup[] {
       groupLabel: 'Admission CRM',
       menus: [
         {
-          href: '/admission/counselor-view',
+          href: '/admission/counselors/daily-view',
           label: 'My Day',
-          active: pathname === '/admission/counselor-view',
+          active: pathname === '/admission/counselors/daily-view',
           icon: CalendarCheck,
           submenus: []
         },
@@ -830,14 +830,14 @@ export function GetPages(pathname: string): MenuGroup[] {
         {
           href: '/admission/counselors',
           label: 'Counselors & Teams',
-          active: pathname.startsWith('/admission/counselors') || pathname === '/admission/calls' || pathname === '/admission/briefing' || pathname === '/admission/reminders' || pathname === '/admission/alerts',
+          active: pathname.startsWith('/admission/counselors'),
           icon: UserCheck,
           submenus: [
-            { href: '/admission/counselors', label: 'Counselors', active: pathname.startsWith('/admission/counselors') },
-            { href: '/admission/calls', label: 'Calls', active: pathname === '/admission/calls' },
-            { href: '/admission/briefing', label: 'Briefing', active: pathname === '/admission/briefing' },
-            { href: '/admission/reminders', label: 'Reminders', active: pathname === '/admission/reminders' },
-            { href: '/admission/alerts', label: 'Alerts', active: pathname === '/admission/alerts' }
+            { href: '/admission/counselors', label: 'Counselors', active: pathname === '/admission/counselors' },
+            { href: '/admission/counselors/calls', label: 'Calls', active: pathname === '/admission/counselors/calls' },
+            { href: '/admission/counselors/briefing', label: 'Briefing', active: pathname === '/admission/counselors/briefing' },
+            { href: '/admission/counselors/reminders', label: 'Reminders', active: pathname === '/admission/counselors/reminders' },
+            { href: '/admission/counselors/alerts', label: 'Alerts', active: pathname === '/admission/counselors/alerts' }
           ]
         },
         {
