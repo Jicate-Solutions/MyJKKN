@@ -598,7 +598,7 @@ Each connector defines: **Source Module → Source Table(s) → Key Columns → 
 | DC-27 | Curriculum Tracking | **`curriculum_revisions`** | NAAC Cr I | 🟠 P2 |
 | DC-28 | ICT Infrastructure | **`ict_infrastructure`** | NAAC Cr II, IV / NIRF TLR | 🟠 P2 |
 | DC-29 | Online Education | **`online_education_tracking`** | NIRF TLR-OE / NAAC Cr II | 🟡 P1 |
-| DC-30 | NEP 2020 Compliance | **`nep_compliance_tracking`** | NIRF TLR-MIRS / NAAC Cr I | 🟡 P1 |
+| DC-30 | NEP 2020 Compliance | **`nep_compliance_tracking`** | NIRF TLR-MIR / NAAC Cr I | 🟡 P1 |
 | DC-31 | PhD Scholars | **`phd_scholars`** | NIRF GO-GPHD (8% of total!) / NAAC 9.4 | 🔴 P0 |
 | DC-32 | Environmental & Green | **`environmental_initiatives`** | NAAC Attr 10 (50 pts) | 🟡 P1 |
 | DC-33 | Financial Audits | **`financial_audits`** | NAAC 4.4 / NAAC Old Cr VI | 🟡 P1 |
