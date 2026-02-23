@@ -100,7 +100,8 @@ export function useCreateGoverningBody() {
     },
     onSuccess: () => {
       toast.success('Governing body created')
-      queryClient.invalidateQueries({ queryKey: governanceKeys.bodies() })
+      // Invalidate all governance queries (bodies + meetings may reference body data)
+      queryClient.invalidateQueries({ queryKey: governanceKeys.all })
     },
     onError: (error: Error) => {
       toast.error(error.message || 'Failed to create governing body')
