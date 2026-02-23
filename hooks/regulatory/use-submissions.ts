@@ -130,14 +130,16 @@ export function useUpdateSubmissionStatus() {
       const statusLabel =
         data.status === 'submitted'
           ? 'Submitted'
-          : data.status === 'graded'
-          ? 'Graded'
+          : data.status === 'accepted'
+          ? 'Accepted'
           : data.status === 'in_review'
           ? 'Sent for review'
-          : data.status === 'in_progress'
-          ? 'In progress'
-          : data.status === 'archived'
-          ? 'Archived'
+          : data.status === 'data_collection'
+          ? 'Data collection started'
+          : data.status === 'approved'
+          ? 'Approved'
+          : data.status === 'draft'
+          ? 'Reverted to draft'
           : 'Status updated'
       toast.success(statusLabel)
       queryClient.invalidateQueries({ queryKey: submissionKeys.detail(data.id) })
