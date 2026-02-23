@@ -117,11 +117,11 @@ export function MetricTable({ metrics, frameworkId, institutionId }: MetricTable
         institution_id: institutionId,
         value: editValue,
       })
-      toast.success(`Updated ${metric.metric_code}`)
+      // Toast is handled by the useUpdateMetricValue hook's onSuccess
       setEditingId(null)
       setEditValue('')
     } catch {
-      toast.error('Failed to update metric value')
+      // Error toast is handled by the useUpdateMetricValue hook's onError
     }
   }
 
