@@ -4,63 +4,27 @@ import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import { Download, ArrowLeft, IndianRupee, TrendingUp, AlertCircle, CheckCircle2, Search, Loader2 } from 'lucide-react';
+import { Download, ArrowLeft, IndianRupee, TrendingUp, AlertCircle, CheckCircle2, Loader2, AlertTriangle } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
-import { useExportReport } from '@/hooks/campus-living/use-campus-living-reports';
+import { useFeeCollectionReport, useExportReport } from '@/hooks/campus-living/use-campus-living-reports';
 
 export default function FeeCollectionReportPage() {
   const { profile } = useAuth();
+  const institutionId = profile?.institution_id ?? '';
+  const { data: report, isLoading, isError } = useFeeCollectionReport(institutionId);
   const exportReport = useExportReport();
+
   const formatCurrency = (amount: number) =>
     amount.toLocaleString('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 });
 
-  const summaryStats = [
-    { label: 'Total Billed', value: formatCurrency(1_28_40_000), icon: IndianRupee, color: 'text-blue-600' },
-    { label: 'Collected', value: formatCurrency(1_05_60_000), icon: CheckCircle2, color: 'text-green-600' },
-    { label: 'Outstanding', value: formatCurrency(22_80_000), icon: AlertCircle, color: 'text-red-600' },
-    { label: 'Collection Rate', value: '82.2%', icon: TrendingUp, color: 'text-primary' },
-  ];
+  const hostelFees = report?.hostel_fees;
+  const deposits = report?.deposits;
+  const messBilling = report?.mess_billing;
 
-  const studentData = [
-    { name: 'Arun Kumar', regNo: 'CSE21001', block: 'Block A', room: 'A-201', feeType: 'Hostel + Mess', billed: 121000, paid: 121000, balance: 0, status: 'Paid' },
-    { name: 'Neha Sharma', regNo: 'ECE21034', block: 'Block C', room: 'C-105', feeType: 'Hostel + Mess', billed: 106000, paid: 80000, balance: 26000, status: 'Partial' },
-    { name: 'Ravi Patel', regNo: 'MECH21015', block: 'Block B', room: 'B-312', feeType: 'Hostel + Mess', billed: 96000, paid: 96000, balance: 0, status: 'Paid' },
-    { name: 'Karthik R', regNo: 'IT21042', block: 'Block A', room: 'A-108', feeType: 'Hostel Only', billed: 45000, paid: 0, balance: 45000, status: 'Unpaid' },
-    { name: 'Fatima Khan', regNo: 'CSE22018', block: 'Block C', room: 'C-210', feeType: 'Hostel + Mess', billed: 106000, paid: 106000, balance: 0, status: 'Paid' },
-    { name: 'Divya R', regNo: 'ECE22009', block: 'Block C', room: 'C-303', feeType: 'Hostel + Mess', billed: 121000, paid: 60000, balance: 61000, status: 'Partial' },
-    { name: 'Sathish V', regNo: 'MECH22021', block: 'Block B', room: 'B-205', feeType: 'Mess Only', billed: 54000, paid: 54000, balance: 0, status: 'Paid' },
-    { name: 'Manoj M', regNo: 'IT22033', block: 'Block A', room: 'A-415', feeType: 'Hostel + Mess', billed: 96000, paid: 0, balance: 96000, status: 'Unpaid' },
-  ];
-
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case 'Paid':
-        return <Badge className="bg-green-100 text-green-800 hover:bg-green-100">Paid</Badge>;
-      case 'Partial':
-        return <Badge className="bg-yellow-100 text-yellow-800 hover:bg-yellow-100">Partial</Badge>;
-      case 'Unpaid':
-        return <Badge className="bg-red-100 text-red-800 hover:bg-red-100">Unpaid</Badge>;
-      default:
-        return <Badge variant="outline">{status}</Badge>;
-    }
-  };
+  const totalAllocations = hostelFees?.total_active_allocations ?? 0;
+  const paidCount = hostelFees?.paid ?? 0;
+  const collectionRate = totalAllocations > 0 ? Math.round((paidCount / totalAllocations) * 100) : 0;
 
   return (
     <ContentLayout title="Fee Collection Report">
@@ -72,13 +36,13 @@ export default function FeeCollectionReportPage() {
             </Link>
             <div>
               <h1 className="text-2xl font-bold">Fee Collection Report</h1>
-              <p className="text-muted-foreground">Hostel and mess fee collection summary with defaulter tracking</p>
+              <p className="text-muted-foreground">Hostel and mess fee collection summary</p>
             </div>
           </div>
           <Button
             disabled={exportReport.isPending}
             onClick={() => exportReport.mutate({
-              institutionId: profile?.institution_id ?? '',
+              institutionId,
               reportType: 'fee-collection',
               format: 'json',
             })}
@@ -88,119 +52,161 @@ export default function FeeCollectionReportPage() {
           </Button>
         </div>
 
-        {/* Summary Cards */}
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {summaryStats.map((stat) => (
-            <Card key={stat.label}>
-              <CardContent className="p-4 flex items-center gap-4">
-                <div className="rounded-lg bg-primary/10 p-2">
-                  <stat.icon className={`h-5 w-5 ${stat.color}`} />
+        {isLoading && (
+          <div className="flex items-center justify-center py-16">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          </div>
+        )}
+
+        {isError && (
+          <div className="flex flex-col items-center justify-center py-16 gap-2">
+            <AlertTriangle className="h-8 w-8 text-muted-foreground" />
+            <p className="text-muted-foreground">Failed to load fee collection data.</p>
+          </div>
+        )}
+
+        {!isLoading && !isError && report && (
+          <>
+            {/* Summary Cards */}
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <Card>
+                <CardContent className="p-4 flex items-center gap-4">
+                  <div className="rounded-lg bg-primary/10 p-2">
+                    <IndianRupee className="h-5 w-5 text-blue-600" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Active Allocations</p>
+                    <p className="text-2xl font-bold">{totalAllocations}</p>
+                  </div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-4 flex items-center gap-4">
+                  <div className="rounded-lg bg-primary/10 p-2">
+                    <CheckCircle2 className="h-5 w-5 text-green-600" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Fully Paid</p>
+                    <p className="text-2xl font-bold">{paidCount}</p>
+                  </div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-4 flex items-center gap-4">
+                  <div className="rounded-lg bg-primary/10 p-2">
+                    <AlertCircle className="h-5 w-5 text-red-600" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Pending / Partial</p>
+                    <p className="text-2xl font-bold">{(hostelFees?.pending ?? 0) + (hostelFees?.partial ?? 0)}</p>
+                  </div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-4 flex items-center gap-4">
+                  <div className="rounded-lg bg-primary/10 p-2">
+                    <TrendingUp className="h-5 w-5 text-primary" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Collection Rate</p>
+                    <p className="text-2xl font-bold">{collectionRate}%</p>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Hostel Fees Breakdown */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <IndianRupee className="h-5 w-5" />
+                  Hostel Fee Status
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                  <div className="p-3 bg-muted/50 rounded-lg text-center">
+                    <p className="text-xs text-muted-foreground">Paid</p>
+                    <p className="text-xl font-bold text-green-600">{hostelFees?.paid ?? 0}</p>
+                  </div>
+                  <div className="p-3 bg-muted/50 rounded-lg text-center">
+                    <p className="text-xs text-muted-foreground">Pending</p>
+                    <p className="text-xl font-bold text-yellow-600">{hostelFees?.pending ?? 0}</p>
+                  </div>
+                  <div className="p-3 bg-muted/50 rounded-lg text-center">
+                    <p className="text-xs text-muted-foreground">Partial</p>
+                    <p className="text-xl font-bold text-orange-600">{hostelFees?.partial ?? 0}</p>
+                  </div>
+                  <div className="p-3 bg-muted/50 rounded-lg text-center">
+                    <p className="text-xs text-muted-foreground">Waived</p>
+                    <p className="text-xl font-bold text-gray-600">{hostelFees?.waived ?? 0}</p>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">{stat.label}</p>
-                  <p className="text-2xl font-bold">{stat.value}</p>
+                <div className="mt-4 p-3 bg-muted/50 rounded-lg">
+                  <p className="text-xs text-muted-foreground">Total Deposits Collected</p>
+                  <p className="text-xl font-bold">{formatCurrency(hostelFees?.total_deposits_collected ?? 0)}</p>
                 </div>
               </CardContent>
             </Card>
-          ))}
-        </div>
 
-        {/* Filters */}
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex flex-col sm:flex-row gap-4">
-              <div className="flex-1">
-                <Input type="date" defaultValue="2026-01-01" />
-              </div>
-              <div className="flex-1">
-                <Input type="date" defaultValue="2026-02-21" />
-              </div>
-              <Select defaultValue="all-blocks">
-                <SelectTrigger className="w-full sm:w-[180px]">
-                  <SelectValue placeholder="Block" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all-blocks">All Blocks</SelectItem>
-                  <SelectItem value="block-a">Block A</SelectItem>
-                  <SelectItem value="block-b">Block B</SelectItem>
-                  <SelectItem value="block-c">Block C</SelectItem>
-                </SelectContent>
-              </Select>
-              <Select defaultValue="all-fees">
-                <SelectTrigger className="w-full sm:w-[180px]">
-                  <SelectValue placeholder="Fee Type" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all-fees">All Fees</SelectItem>
-                  <SelectItem value="hostel">Hostel Only</SelectItem>
-                  <SelectItem value="mess">Mess Only</SelectItem>
-                  <SelectItem value="both">Hostel + Mess</SelectItem>
-                </SelectContent>
-              </Select>
-              <Select defaultValue="all-status">
-                <SelectTrigger className="w-full sm:w-[180px]">
-                  <SelectValue placeholder="Status" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all-status">All Status</SelectItem>
-                  <SelectItem value="paid">Paid</SelectItem>
-                  <SelectItem value="partial">Partial</SelectItem>
-                  <SelectItem value="unpaid">Unpaid</SelectItem>
-                </SelectContent>
-              </Select>
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input placeholder="Search student..." className="pl-9" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+            {/* Deposits Breakdown */}
+            {deposits && Object.keys(deposits.by_type ?? {}).length > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Deposit Breakdown</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                    {Object.entries(deposits.by_type).map(([type, info]) => (
+                      <div key={type} className="p-3 bg-muted/50 rounded-lg">
+                        <p className="text-xs text-muted-foreground capitalize">{type.replace(/_/g, ' ')}</p>
+                        <p className="text-lg font-bold">{formatCurrency(info.amount)}</p>
+                        <p className="text-xs text-muted-foreground">{info.count} deposits</p>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex gap-4 mt-4">
+                    <Badge className="bg-green-100 text-green-800 hover:bg-green-100">
+                      Paid: {deposits.paid}
+                    </Badge>
+                    <Badge className="bg-blue-100 text-blue-800 hover:bg-blue-100">
+                      Refunded: {deposits.refunded}
+                    </Badge>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
 
-        {/* Student Fee Table */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <IndianRupee className="h-5 w-5" />
-              Student-wise Fee Details
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Student</TableHead>
-                  <TableHead>Reg No</TableHead>
-                  <TableHead>Block / Room</TableHead>
-                  <TableHead>Fee Type</TableHead>
-                  <TableHead className="text-right">Billed</TableHead>
-                  <TableHead className="text-right">Paid</TableHead>
-                  <TableHead className="text-right">Balance</TableHead>
-                  <TableHead className="text-center">Status</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {studentData.map((row) => (
-                  <TableRow key={row.regNo}>
-                    <TableCell className="font-medium">{row.name}</TableCell>
-                    <TableCell className="font-mono text-sm">{row.regNo}</TableCell>
-                    <TableCell>{row.block} / {row.room}</TableCell>
-                    <TableCell>{row.feeType}</TableCell>
-                    <TableCell className="text-right">{formatCurrency(row.billed)}</TableCell>
-                    <TableCell className="text-right">{formatCurrency(row.paid)}</TableCell>
-                    <TableCell className="text-right font-medium">
-                      {row.balance > 0 ? (
-                        <span className="text-red-600">{formatCurrency(row.balance)}</span>
-                      ) : (
-                        formatCurrency(0)
-                      )}
-                    </TableCell>
-                    <TableCell className="text-center">{getStatusBadge(row.status)}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
+            {/* Mess Billing */}
+            {messBilling && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Mess Billing</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                    <div className="p-3 bg-muted/50 rounded-lg text-center">
+                      <p className="text-xs text-muted-foreground">Total Billed</p>
+                      <p className="text-xl font-bold">{formatCurrency(messBilling.total_billed)}</p>
+                    </div>
+                    <div className="p-3 bg-muted/50 rounded-lg text-center">
+                      <p className="text-xs text-muted-foreground">Paid</p>
+                      <p className="text-xl font-bold text-green-600">{messBilling.paid}</p>
+                    </div>
+                    <div className="p-3 bg-muted/50 rounded-lg text-center">
+                      <p className="text-xs text-muted-foreground">Pending</p>
+                      <p className="text-xl font-bold text-yellow-600">{messBilling.pending}</p>
+                    </div>
+                    <div className="p-3 bg-muted/50 rounded-lg text-center">
+                      <p className="text-xs text-muted-foreground">Overdue</p>
+                      <p className="text-xl font-bold text-red-600">{messBilling.overdue}</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </>
+        )}
       </div>
     </ContentLayout>
   );
