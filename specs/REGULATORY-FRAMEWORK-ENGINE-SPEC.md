@@ -967,6 +967,29 @@ CREATE INDEX idx_reg_metrics_criteria ON regulatory_metrics(criteria_id);
 -- NOTE: metric_values UNIQUE(metric_id, institution_id, academic_year) already creates an implicit index
 CREATE INDEX idx_reg_metric_values_inst_year ON regulatory_metric_values(institution_id, academic_year);
 CREATE INDEX idx_reg_evidence_metric ON regulatory_evidence(metric_id, institution_id, academic_year);
+
+-- ═══════════════════════════════════════════════
+-- TRIGGERS
+-- ═══════════════════════════════════════════════
+
+-- Auto-update updated_at on all tables that have the column.
+-- Requires the moddatetime extension (already enabled in Supabase by default).
+CREATE EXTENSION IF NOT EXISTS moddatetime;
+
+CREATE TRIGGER trg_frameworks_updated_at BEFORE UPDATE ON regulatory_frameworks
+  FOR EACH ROW EXECUTE FUNCTION moddatetime(updated_at);
+CREATE TRIGGER trg_criteria_updated_at BEFORE UPDATE ON regulatory_criteria
+  FOR EACH ROW EXECUTE FUNCTION moddatetime(updated_at);
+CREATE TRIGGER trg_metrics_updated_at BEFORE UPDATE ON regulatory_metrics
+  FOR EACH ROW EXECUTE FUNCTION moddatetime(updated_at);
+CREATE TRIGGER trg_metric_values_updated_at BEFORE UPDATE ON regulatory_metric_values
+  FOR EACH ROW EXECUTE FUNCTION moddatetime(updated_at);
+CREATE TRIGGER trg_evidence_updated_at BEFORE UPDATE ON regulatory_evidence
+  FOR EACH ROW EXECUTE FUNCTION moddatetime(updated_at);
+CREATE TRIGGER trg_submissions_updated_at BEFORE UPDATE ON regulatory_submissions
+  FOR EACH ROW EXECUTE FUNCTION moddatetime(updated_at);
+CREATE TRIGGER trg_connectors_updated_at BEFORE UPDATE ON regulatory_data_connectors
+  FOR EACH ROW EXECUTE FUNCTION moddatetime(updated_at);
 -- NOTE: submissions UNIQUE(framework_id, institution_id, academic_year) already creates an implicit index
 CREATE INDEX idx_reg_simulations_framework ON regulatory_simulations(framework_id, institution_id);
 ```
