@@ -288,7 +288,7 @@ export function useCreatePeerBenchmark() {
       queryClient.invalidateQueries({ queryKey: benchmarkKeys.summaries() })
     },
     onError: (error: Error) => {
-      toast.error(error.message || 'Failed to add peer benchmark')
+      toast.error(friendlyErrorMessage(error, 'Failed to add peer benchmark'))
     }
   })
 }
