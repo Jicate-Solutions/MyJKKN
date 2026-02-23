@@ -216,10 +216,25 @@ export function useFrameworkEvidence(
         const metricMap = new Map((metrics || []).map((m: any) => [m.id, m]))
 
         // Get evidence linked to these criteria or metrics
+        const metricIds = (metrics || []).map((m: any) => m.id)
+
+        // Build safe OR filter — only include non-empty IN clauses
+        const orParts: string[] = []
+        if (criteriaIds.length > 0) {
+          orParts.push(`criteria_id.in.(${criteriaIds.join(',')})`)
+        }
+        if (metricIds.length > 0) {
+          orParts.push(`metric_id.in.(${metricIds.join(',')})`)
+        }
+
+        // If somehow both are empty (shouldn't happen since we checked criteriaIds above),
+        // return early to avoid a broken query
+        if (orParts.length === 0) return []
+
         let query = (supabase as any)
           .from('regulatory_evidence')
           .select('*')
-          .or(`criteria_id.in.(${criteriaIds.join(',')}),metric_id.in.(${(metrics || []).map((m: any) => m.id).join(',')})`)
+          .or(orParts.join(','))
 
         if (institutionId) {
           query = query.eq('institution_id', institutionId)
