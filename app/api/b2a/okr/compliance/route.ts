@@ -59,7 +59,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   }
 
   const year = parseInt(yearParam, 10);
-  if (isNaN(year) || year <= 0) {
+  if (isNaN(year) || year < 2000 || year > 2100) {
     logApiUsage({
       apiKeyId: context.keyId,
       endpoint: '/api/b2a/okr/compliance',
@@ -71,7 +71,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       userAgent,
     });
     return NextResponse.json(
-      { error: { code: 'INVALID_PARAM', message: 'year must be a positive integer.' } },
+      { error: { code: 'INVALID_PARAM', message: 'year must be an integer between 2000 and 2100.' } },
       { status: 400 }
     );
   }
