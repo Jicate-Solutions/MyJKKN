@@ -5,12 +5,33 @@
 
 import { createClientSupabaseClient } from '@/lib/supabase/client'
 
+/**
+ * DDL: regulatory_course_syllabi columns:
+ *   id, institution_id, program_id, department (text NOT NULL),
+ *   course_code, course_name, academic_year, semester,
+ *   syllabus_file_url, teaching_plan_file_url,
+ *   revision_status (current | under_revision | archived),
+ *   revision_date, bos_approval_date, bos_meeting_id,
+ *   total_hours (integer), completed_hours (integer),
+ *   completion_percentage (GENERATED ALWAYS AS ... STORED),
+ *   co_mapping (jsonb), po_mapping (jsonb),
+ *   innovative_methods (text), created_at, updated_at
+ *
+ * UNIQUE(institution_id, course_code, academic_year, semester)
+ *
+ * NOTE: Table name is regulatory_course_syllabi (NOT regulatory_syllabi)
+ * NOTE: department is TEXT (not UUID / department_id)
+ * NOTE: completion_percentage is a GENERATED column -- do not set it
+ * NOTE: No credits, units, course_outcomes, updated_by, syllabus_url columns
+ */
+
 export interface SyllabusFilters {
   institution_id?: string
-  department_id?: string
+  department?: string          // TEXT column, not UUID
   academic_year?: string
   semester?: number
   course_code?: string
+  revision_status?: string
   search?: string
   page?: number
   limit?: number
@@ -18,33 +39,34 @@ export interface SyllabusFilters {
 
 export interface UpsertSyllabusData {
   institution_id: string
-  department_id?: string
+  department: string           // TEXT, not UUID
+  program_id?: string | null
   course_code: string
   course_name: string
   academic_year: string
-  semester: number
-  total_hours: number
-  completed_hours?: number
-  credits?: number
-  syllabus_url?: string | null
-  co_po_mapping?: COPOMapping[] | null
-  course_outcomes?: CourseOutcome[] | null
-  units?: SyllabusUnit[] | null
+  semester?: number | null
+  total_hours?: number | null
+  completed_hours?: number | null
+  syllabus_file_url?: string | null
+  teaching_plan_file_url?: string | null
+  revision_status?: string     // current | under_revision | archived
+  revision_date?: string | null
+  bos_approval_date?: string | null
+  bos_meeting_id?: string | null
+  co_mapping?: Record<string, string> | null  // {CO1: "description", CO2: "description", ...}
+  po_mapping?: COPOMapping[] | null           // [{co: "CO1", po: "PO1", level: 3}, ...]
+  innovative_methods?: string | null
 }
 
 export interface COPOMapping {
-  co_code: string
-  co_description: string
-  po_mappings: {
-    po_code: string
-    correlation_level: number  // 1 = low, 2 = medium, 3 = high
-  }[]
+  co: string
+  po: string
+  level: number  // 1 = low, 2 = medium, 3 = high
 }
 
 export interface CourseOutcome {
-  code: string
+  code: string         // e.g., "CO1"
   description: string
-  bloom_level?: string
 }
 
 export interface SyllabusUnit {
@@ -102,30 +124,27 @@ export class RegulatorySyllabusService {
 
   /**
    * Get syllabi with filters and pagination
+   * CORRECT TABLE: regulatory_course_syllabi
    */
   static async getSyllabi(filters: SyllabusFilters = {}) {
     try {
       if (filters.institution_id !== undefined) {
         this.validateId(filters.institution_id, 'institution_id filter')
       }
-      if (filters.department_id !== undefined) {
-        this.validateId(filters.department_id, 'department_id filter')
-      }
 
       let query = (this.getSupabase() as any)
-        .from('regulatory_syllabi')
+        .from('regulatory_course_syllabi')
         .select(`
           *,
-          institution:institutions(id, name),
-          department:departments(id, department_name)
+          institution:institutions(id, name)
         `, { count: 'exact' })
 
       // Apply filters
       if (filters.institution_id) {
         query = query.eq('institution_id', filters.institution_id)
       }
-      if (filters.department_id) {
-        query = query.eq('department_id', filters.department_id)
+      if (filters.department) {
+        query = query.eq('department', filters.department)
       }
       if (filters.academic_year) {
         query = query.eq('academic_year', filters.academic_year)
@@ -135,6 +154,9 @@ export class RegulatorySyllabusService {
       }
       if (filters.course_code) {
         query = query.eq('course_code', filters.course_code)
+      }
+      if (filters.revision_status) {
+        query = query.eq('revision_status', filters.revision_status)
       }
       if (filters.search) {
         query = query.or(
@@ -172,19 +194,21 @@ export class RegulatorySyllabusService {
   }
 
   /**
-   * Get single syllabus by ID with CO-PO mapping details
+   * Get single syllabus by ID
+   * CORRECT TABLE: regulatory_course_syllabi
+   *
+   * NOTE: completion_percentage is a GENERATED column in the DDL --
+   * it's automatically calculated from total_hours and completed_hours.
    */
   static async getSyllabusById(id: string) {
     try {
       this.validateId(id, 'syllabus ID')
 
       const { data, error } = await (this.getSupabase() as any)
-        .from('regulatory_syllabi')
+        .from('regulatory_course_syllabi')
         .select(`
           *,
-          institution:institutions(id, name),
-          department:departments(id, department_name),
-          updated_by_profile:profiles!updated_by(id, full_name, email)
+          institution:institutions(id, name)
         `)
         .eq('id', id)
         .maybeSingle()
@@ -193,15 +217,6 @@ export class RegulatorySyllabusService {
 
       if (!data) {
         throw new Error('Syllabus not found or you do not have permission to view it.')
-      }
-
-      // Calculate completion percentage
-      if (data.total_hours && data.total_hours > 0) {
-        data._completion_percent = Math.round(
-          ((data.completed_hours || 0) / data.total_hours) * 100
-        )
-      } else {
-        data._completion_percent = 0
       }
 
       return data
@@ -214,38 +229,43 @@ export class RegulatorySyllabusService {
   /**
    * Upsert syllabus (insert or update)
    * Unique key: institution_id + course_code + academic_year + semester
+   * CORRECT TABLE: regulatory_course_syllabi
+   *
+   * NOTE: Do NOT set completion_percentage -- it's a GENERATED column.
    */
   static async upsertSyllabus(data: UpsertSyllabusData) {
     try {
       this.validateId(data.institution_id, 'institution ID')
-      if (data.department_id) {
-        this.validateId(data.department_id, 'department ID')
+      if (data.program_id) {
+        this.validateId(data.program_id, 'program ID')
+      }
+      if (data.bos_meeting_id) {
+        this.validateId(data.bos_meeting_id, 'BOS meeting ID')
       }
 
-      // Get current user
-      const { data: { user } } = await this.getSupabase().auth.getUser()
-      if (!user) throw new Error('User not authenticated')
-
-      const upsertPayload = {
+      const upsertPayload: Record<string, any> = {
         institution_id: data.institution_id,
-        department_id: data.department_id || null,
+        department: data.department,
+        program_id: data.program_id || null,
         course_code: data.course_code,
         course_name: data.course_name,
         academic_year: data.academic_year,
-        semester: data.semester,
-        total_hours: data.total_hours,
+        semester: data.semester ?? null,
+        total_hours: data.total_hours ?? null,
         completed_hours: data.completed_hours ?? 0,
-        credits: data.credits ?? null,
-        syllabus_url: data.syllabus_url || null,
-        co_po_mapping: data.co_po_mapping || null,
-        course_outcomes: data.course_outcomes || null,
-        units: data.units || null,
-        updated_by: user.id,
-        updated_at: new Date().toISOString()
+        syllabus_file_url: data.syllabus_file_url || null,
+        teaching_plan_file_url: data.teaching_plan_file_url || null,
+        revision_status: data.revision_status || 'current',
+        revision_date: data.revision_date || null,
+        bos_approval_date: data.bos_approval_date || null,
+        bos_meeting_id: data.bos_meeting_id || null,
+        co_mapping: data.co_mapping || {},
+        po_mapping: data.po_mapping || [],
+        innovative_methods: data.innovative_methods || null
       }
 
       const { data: result, error } = await (this.getSupabase() as any)
-        .from('regulatory_syllabi')
+        .from('regulatory_course_syllabi')
         .upsert(upsertPayload, {
           onConflict: 'institution_id,course_code,academic_year,semester'
         })
@@ -271,6 +291,10 @@ export class RegulatorySyllabusService {
 
   /**
    * Update syllabus completion hours (teaching progress tracking)
+   * CORRECT TABLE: regulatory_course_syllabi
+   *
+   * NOTE: completion_percentage is auto-computed by PostgreSQL GENERATED column.
+   * We only update completed_hours; the DB calculates the percentage.
    */
   static async updateCompletionHours(id: string, completedHours: number) {
     try {
@@ -280,29 +304,16 @@ export class RegulatorySyllabusService {
         throw new Error(`Invalid completed hours: ${completedHours}. Must be a non-negative number.`)
       }
 
-      // Get current user
-      const { data: { user } } = await this.getSupabase().auth.getUser()
-      if (!user) throw new Error('User not authenticated')
-
       const { data, error } = await (this.getSupabase() as any)
-        .from('regulatory_syllabi')
+        .from('regulatory_course_syllabi')
         .update({
-          completed_hours: completedHours,
-          updated_by: user.id,
-          updated_at: new Date().toISOString()
+          completed_hours: completedHours
         })
         .eq('id', id)
         .select()
         .single()
 
       if (error) throw error
-
-      // Calculate and attach completion percentage
-      if (data && data.total_hours && data.total_hours > 0) {
-        data._completion_percent = Math.round(
-          (completedHours / data.total_hours) * 100
-        )
-      }
 
       return data
     } catch (error) {
