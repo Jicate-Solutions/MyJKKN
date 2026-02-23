@@ -147,9 +147,9 @@ export function BodyList({ bodies, institutionId }: BodyListProps) {
                       <div className="min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
                           <h3 className="font-medium">{body.name}</h3>
-                          {body.type && (
+                          {(body.type || body.body_type) && (
                             <Badge variant="outline" className="text-xs capitalize">
-                              {body.type}
+                              {(body.type || body.body_type || '').replace(/_/g, ' ')}
                             </Badge>
                           )}
                           {body.is_active === false && (
