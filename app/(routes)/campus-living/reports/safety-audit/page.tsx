@@ -105,7 +105,7 @@ export default function SafetyAuditReportPage() {
                   <p className="text-sm text-muted-foreground">Incident Resolution</p>
                   <p className="text-3xl font-bold text-green-600">
                     {(incidents?.total ?? 0) > 0
-                      ? Math.round(((incidents?.resolved ?? 0) / incidents!.total) * 100)
+                      ? Math.round(((incidents?.resolved ?? 0) / (incidents?.total ?? 1)) * 100)
                       : 0}%
                   </p>
                 </CardContent>
