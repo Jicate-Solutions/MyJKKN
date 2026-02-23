@@ -677,13 +677,13 @@ CREATE POLICY "governing_bodies_update" ON regulatory_governing_bodies FOR UPDAT
     (institution_id = auth_institution_id()
       OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'))
     AND EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN
-      ('super_admin','institution_admin','principal'))
+      ('super_admin','institution_admin','principal','iqac_coordinator'))
   )
   WITH CHECK (
     (institution_id = auth_institution_id()
       OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'))
     AND EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN
-      ('super_admin','institution_admin','principal'))
+      ('super_admin','institution_admin','principal','iqac_coordinator'))
   );
 
 -- ─── Body Meetings: institution-scoped, writable by IQAC/admin ───
