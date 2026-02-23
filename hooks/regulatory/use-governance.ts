@@ -243,11 +243,34 @@ export function useGoverningMeetings(
 
         if (error) throw error
 
-        return (data || []).map((m: any) => ({
-          ...m,
-          body_name: m.body?.name || '',
-          body_id: m.body?.id || m.body_id
-        }))
+        // Map DB columns to component-expected fields
+        return (data || []).map((m: any) => {
+          // Extract key decisions from resolutions jsonb
+          const resolutions = Array.isArray(m.resolutions) ? m.resolutions : []
+          const keyDecisions = resolutions
+            .filter((r: any) => r.status === 'approved')
+            .map((r: any) => r.text || `Resolution ${r.resolution_number}`)
+
+          // Build title from meeting_number + body name
+          const bodyName = m.body?.name || ''
+          const title = bodyName
+            ? `${bodyName} Meeting #${m.meeting_number || ''}`
+            : `Meeting #${m.meeting_number || ''}`
+
+          return {
+            ...m,
+            title,
+            date: m.meeting_date,
+            body_name: bodyName,
+            body_id: m.body?.id || m.body_id,
+            status: m.approved_at ? 'completed' : 'scheduled',
+            minutes_url: m.minutes_file_url || null,
+            key_decisions: keyDecisions.length > 0 ? keyDecisions : undefined,
+            agenda: Array.isArray(m.agenda) && m.agenda.length > 0
+              ? m.agenda.map((a: any) => a.topic || a.item_number).join('; ')
+              : undefined,
+          }
+        })
       } catch (error) {
         console.error('[useGoverningMeetings] Error:', error)
         return []
