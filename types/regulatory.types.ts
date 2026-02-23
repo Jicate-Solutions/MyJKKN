@@ -1,8 +1,9 @@
 // ============================================================================
 // MyJKKN Regulatory Framework Engine - TypeScript Types
-// Version: 1.0
+// Version: 1.1
 // Created: 2026-02-23
-// Source: REGULATORY-FRAMEWORK-ENGINE-SPEC.md (14 tables)
+// Updated: 2026-02-23
+// Source: REGULATORY-FRAMEWORK-ENGINE-SPEC.md (15 tables + 1 view + OKR integration)
 // ============================================================================
 
 // ============================================================================
@@ -238,6 +239,7 @@ export interface RegulatoryFrameworkUpdate {
   submission_deadline?: string | null
   code?: string | null
   metadata?: Record<string, unknown>
+  created_by?: string | null
 }
 
 // ============================================================================
@@ -471,7 +473,7 @@ export interface RegulatoryMetricValueUpdate {
 
 /**
  * Database row for regulatory_metric_value_history.
- * Append-only table -- no Insert/Update DTOs needed beyond this row type.
+ * Append-only table -- no Update DTO needed.
  * Every change to a metric value is recorded here for DVV audit compliance.
  */
 export interface RegulatoryMetricValueHistoryRow {
@@ -486,6 +488,17 @@ export interface RegulatoryMetricValueHistoryRow {
   /** Snapshot of source data at time of change */
   source_snapshot: Record<string, unknown> | null
   created_at: string
+}
+
+/** Insert DTO for regulatory_metric_value_history (append-only, no updates) */
+export interface RegulatoryMetricValueHistoryInsert {
+  metric_value_id: string
+  old_value?: string | null
+  new_value?: string | null
+  change_type: MetricValueChangeType
+  changed_by?: string | null
+  change_reason?: string | null
+  source_snapshot?: Record<string, unknown> | null
 }
 
 // ============================================================================
@@ -517,6 +530,12 @@ export interface RegulatoryEvidenceRow {
   created_at: string
   updated_at: string
   metadata: Record<string, unknown>
+  /**
+   * Full-text search vector, GENERATED ALWAYS AS stored column.
+   * Combines file_name, description, evidence_type for tsvector search.
+   * READ-ONLY -- do not include in Insert or Update.
+   */
+  readonly search_vector: string | null
 }
 
 /** Insert DTO for regulatory_evidence */
@@ -545,6 +564,18 @@ export interface RegulatoryEvidenceUpdate {
   is_deleted?: boolean
   deleted_at?: string | null
   metadata?: Record<string, unknown>
+}
+
+/** Evidence full-text search result (includes relevance score from ts_rank) */
+export interface RegulatoryEvidenceSearchResult extends RegulatoryEvidenceRow {
+  /** ts_rank relevance score from full-text search */
+  relevance: number
+}
+
+/** Evidence fuzzy search result (includes trigram similarity score) */
+export interface RegulatoryEvidenceFuzzyResult extends RegulatoryEvidenceRow {
+  /** pg_trgm similarity score (0-1) */
+  similarity: number
 }
 
 // ============================================================================
@@ -642,6 +673,41 @@ export interface RegulatoryDataConnectorRow {
   version: number
   created_at: string
   updated_at: string
+}
+
+/** Insert DTO for regulatory_data_connectors (super_admin only) */
+export interface RegulatoryDataConnectorInsert {
+  /** Text primary key: "DC-01", "DC-02", etc. — must be provided */
+  id: string
+  name: string
+  description?: string | null
+  source_module: string
+  source_tables: string[]
+  query_template: string
+  output_type?: ConnectorOutputType
+  output_columns?: string[] | null
+  is_active?: boolean
+  last_tested_at?: string | null
+  last_test_status?: ConnectorTestStatus | null
+  test_error_message?: string | null
+  version?: number
+}
+
+/** Update DTO for regulatory_data_connectors (super_admin only) */
+export interface RegulatoryDataConnectorUpdate {
+  id: string
+  name?: string
+  description?: string | null
+  source_module?: string
+  source_tables?: string[]
+  query_template?: string
+  output_type?: ConnectorOutputType
+  output_columns?: string[] | null
+  is_active?: boolean
+  last_tested_at?: string | null
+  last_test_status?: ConnectorTestStatus | null
+  test_error_message?: string | null
+  version?: number
 }
 
 // ============================================================================
@@ -925,7 +991,7 @@ export interface RegulatoryCourseSyllabusRow {
   completed_hours: number | null
   /**
    * Auto-computed by PostgreSQL GENERATED ALWAYS AS stored column.
-   * Formula: (completed_hours / total_hours) * 100
+   * Formula: CASE WHEN total_hours > 0 THEN (completed_hours / total_hours) * 100 ELSE 0 END
    * READ-ONLY -- do not include in Insert or Update.
    */
   readonly completion_percentage: number
@@ -983,6 +1049,123 @@ export interface RegulatoryCourseSyllabusUpdate {
 }
 
 // ============================================================================
+// TABLE 15: regulatory_peer_benchmarks (NAAC 6.5.3 peer comparison)
+// ============================================================================
+
+/** Database row for regulatory_peer_benchmarks (peer institution comparison) */
+export interface RegulatoryPeerBenchmarkRow {
+  id: string
+  institution_id: string
+  framework_id: string
+  academic_year: string
+  /** Name of the peer institution: "PSG College of Technology" */
+  peer_institution_name: string
+  /** Peer's NIRF rank (if available) */
+  peer_institution_nirf_rank: number | null
+  /** Peer's NAAC grade (if available) */
+  peer_institution_naac_grade: string | null
+  /** Which metric is being compared */
+  metric_code: string
+  /** Our institution's value for this metric */
+  our_value: number | null
+  /** Peer institution's value for this metric */
+  peer_value: number | null
+  /**
+   * Auto-computed by PostgreSQL GENERATED ALWAYS AS (our_value - peer_value) STORED.
+   * Positive = we lead, negative = we lag.
+   * READ-ONLY -- do not include in Insert or Update.
+   */
+  readonly gap: number | null
+  /** Source of peer data: "NIRF portal", "peer website", "manual" */
+  data_source: string | null
+  notes: string | null
+  created_by: string | null
+  created_at: string
+  updated_at: string
+}
+
+/** Insert DTO for regulatory_peer_benchmarks */
+export interface RegulatoryPeerBenchmarkInsert {
+  institution_id: string
+  framework_id: string
+  academic_year: string
+  peer_institution_name: string
+  peer_institution_nirf_rank?: number | null
+  peer_institution_naac_grade?: string | null
+  metric_code: string
+  our_value?: number | null
+  peer_value?: number | null
+  data_source?: string | null
+  notes?: string | null
+  created_by?: string | null
+}
+
+/** Update DTO for regulatory_peer_benchmarks */
+export interface RegulatoryPeerBenchmarkUpdate {
+  id: string
+  peer_institution_name?: string
+  peer_institution_nirf_rank?: number | null
+  peer_institution_naac_grade?: string | null
+  metric_code?: string
+  our_value?: number | null
+  peer_value?: number | null
+  data_source?: string | null
+  notes?: string | null
+}
+
+// ============================================================================
+// VIEW: regulatory_course_completion_dashboard
+// ============================================================================
+
+/**
+ * Row type for the regulatory_course_completion_dashboard view.
+ * Aggregates course syllabus completion by institution, department, and academic year.
+ * READ-ONLY -- views do not have Insert/Update types.
+ */
+export interface RegulatoryCourseCompletionDashboardRow {
+  institution_id: string
+  department: string
+  academic_year: string
+  /** Total number of courses in this department/year */
+  total_courses: number
+  /** Courses with completion_percentage >= 100 */
+  completed_courses: number
+  /** Courses with completion_percentage >= 75 and < 100 */
+  on_track_courses: number
+  /** Courses with completion_percentage < 75 */
+  behind_courses: number
+  /** Average completion percentage across all courses, rounded to 1 decimal */
+  avg_completion_pct: number
+  /** Number of courses with syllabus file uploaded */
+  syllabi_uploaded: number
+  /** Number of courses with teaching plan uploaded */
+  plans_uploaded: number
+}
+
+// ============================================================================
+// OKR INTEGRATION TYPES (ALTER TABLE okr_objectives — new columns)
+// ============================================================================
+
+/**
+ * Additional columns added to okr_objectives for regulatory integration.
+ * These link an OKR objective to a regulatory metric it aims to improve.
+ * Use these when creating/reading OKR objectives with regulatory context.
+ */
+export interface OkrObjectiveRegulatoryFields {
+  /** FK to regulatory_metrics — which metric this objective aims to improve */
+  regulatory_metric_id: string | null
+  /** Target numeric value for the regulatory metric */
+  regulatory_target_value: number | null
+}
+
+/**
+ * OKR objective with regulatory integration fields.
+ * Extend your existing OKR objective type with these additional fields.
+ * Example: type OkrObjectiveWithRegulatory = OkrObjectiveRow & OkrObjectiveRegulatoryFields
+ */
+export type OkrObjectiveRegulatoryInsert = Partial<OkrObjectiveRegulatoryFields>
+
+// ============================================================================
 // FILTER INTERFACES
 // ============================================================================
 
@@ -1030,6 +1213,46 @@ export interface RegulatorySubmissionFilters {
   academic_year?: string
   /** Filter by workflow status */
   status?: SubmissionStatus
+  page?: number
+  limit?: number
+}
+
+/** Filters for querying regulatory peer benchmarks */
+export interface RegulatoryPeerBenchmarkFilters {
+  /** Filter by framework */
+  framework_id?: string
+  /** Filter by institution */
+  institution_id?: string
+  /** Filter by academic year */
+  academic_year?: string
+  /** Filter by peer institution name (partial match) */
+  peer_institution_name?: string
+  /** Filter by specific metric code */
+  metric_code?: string
+  page?: number
+  limit?: number
+}
+
+/** Filters for querying evidence documents */
+export interface RegulatoryEvidenceFilters {
+  /** Filter by metric */
+  metric_id?: string
+  /** Filter by criterion */
+  criteria_id?: string
+  /** Filter by submission */
+  submission_id?: string
+  /** Filter by institution */
+  institution_id?: string
+  /** Filter by academic year */
+  academic_year?: string
+  /** Filter by evidence type */
+  evidence_type?: EvidenceType
+  /** Full-text search query (uses tsvector search_vector) */
+  search?: string
+  /** Fuzzy file name search (uses pg_trgm similarity) */
+  fuzzy_filename?: string
+  /** Include soft-deleted evidence (default false) */
+  include_deleted?: boolean
   page?: number
   limit?: number
 }
@@ -1096,6 +1319,21 @@ export interface MetricWithValue {
   evidence_count: number
 }
 
+/** Peer benchmark gap analysis summary (aggregated per peer institution) */
+export interface PeerBenchmarkSummary {
+  peer_institution_name: string
+  peer_institution_nirf_rank: number | null
+  peer_institution_naac_grade: string | null
+  /** Number of metrics compared */
+  metrics_compared: number
+  /** Number of metrics where we lead (gap > 0) */
+  metrics_leading: number
+  /** Number of metrics where we lag (gap < 0) */
+  metrics_lagging: number
+  /** Average gap across all compared metrics */
+  avg_gap: number
+}
+
 // ============================================================================
 // RELATION / JOINED TYPES (for UI consumption)
 // ============================================================================
@@ -1133,4 +1371,10 @@ export interface RegulatoryGoverningBodyWithStats extends RegulatoryGoverningBod
 export interface RegulatoryEvidenceWithVersions extends RegulatoryEvidenceRow {
   version_count: number
   latest_version: RegulatoryEvidenceVersionRow | null
+}
+
+/** Peer benchmark with metric name resolved */
+export interface RegulatoryPeerBenchmarkWithMetric extends RegulatoryPeerBenchmarkRow {
+  metric_name: string | null
+  framework_name: string
 }
