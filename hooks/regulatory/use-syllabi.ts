@@ -254,6 +254,49 @@ export function useUpsertSyllabus() {
 }
 
 // ---------------------------------------------------------------------------
+// Adapter hooks (used by governance page)
+// ---------------------------------------------------------------------------
+
+/**
+ * useCourseSyllabi — flat list of syllabi for an institution.
+ * Accepts { institution_id? }. Returns flat array.
+ */
+export function useCourseSyllabi(
+  opts: { institution_id?: string } = {}
+) {
+  const { profile, isLoading: authLoading } = useAuth()
+  const { isSuperAdmin } = usePermissions()
+
+  const institutionId = opts.institution_id ?? (isSuperAdmin ? undefined : profile?.institution_id)
+
+  return useQuery<any[], Error>({
+    queryKey: [...syllabusKeys.all, 'flat-list', institutionId] as const,
+    queryFn: async () => {
+      try {
+        let query = (getSupabase() as any)
+          .from('regulatory_syllabi')
+          .select('*')
+
+        if (institutionId) {
+          query = query.eq('institution_id', institutionId)
+        }
+
+        const { data, error } = await query
+          .order('course_code', { ascending: true })
+
+        if (error) throw error
+        return data || []
+      } catch (error) {
+        console.error('[useCourseSyllabi] Error:', error)
+        return []
+      }
+    },
+    enabled: !authLoading && !!profile && (isSuperAdmin || !!institutionId),
+    ...QUERY_CONFIG.SEMI_STABLE_DATA
+  })
+}
+
+// ---------------------------------------------------------------------------
 // useUpdateCompletionHours — mutation for teaching progress tracking
 // ---------------------------------------------------------------------------
 export function useUpdateCompletionHours() {
