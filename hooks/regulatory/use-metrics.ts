@@ -137,11 +137,12 @@ export function useUpsertMetricValue() {
     },
     onSuccess: (_data, variables) => {
       toast.success('Metric value saved')
-      queryClient.invalidateQueries({
-        queryKey: metricKeys.valuesFor(variables.framework_id, variables.institution_id, variables.academic_year)
-      })
+      // UpsertMetricValueData has no framework_id, so invalidate all metric values broadly
+      queryClient.invalidateQueries({ queryKey: metricKeys.values() })
       queryClient.invalidateQueries({ queryKey: metricKeys.detail(variables.metric_id) })
       queryClient.invalidateQueries({ queryKey: frameworkKeys.completeness() })
+      // Also invalidate framework-metric-values adapter cache
+      queryClient.invalidateQueries({ queryKey: [...metricKeys.all, 'framework-metric-values'] })
       // Also invalidate history since a new value was recorded
       queryClient.invalidateQueries({
         queryKey: metricKeys.historyFor(variables.metric_id, variables.institution_id)
