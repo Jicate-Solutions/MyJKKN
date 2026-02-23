@@ -1321,3 +1321,254 @@ export interface LaundryConfigFilters {
   service_type?: LaundryServiceType;
   is_active?: boolean;
 }
+
+// ===================================================================
+// PHASE 3: AMC CONTRACTS, HOUSEKEEPING, HEALTH CASES
+// ===================================================================
+
+// ── AMC Contract Enums ──────────────────────────────────────────────
+export const AMC_STATUS = {
+  ACTIVE: 'active',
+  EXPIRING_SOON: 'expiring_soon',
+  EXPIRED: 'expired',
+  RENEWED: 'renewed',
+  CANCELLED: 'cancelled',
+} as const;
+export type AmcStatus = (typeof AMC_STATUS)[keyof typeof AMC_STATUS];
+
+// ── Cleaning/Housekeeping Enums ─────────────────────────────────────
+export const CLEANING_TYPE = {
+  DAILY_SWEEP: 'daily_sweep',
+  DAILY_MOP: 'daily_mop',
+  TOILET_CLEANING: 'toilet_cleaning',
+  COMMON_AREA: 'common_area',
+  DEEP_CLEANING: 'deep_cleaning',
+  WINDOW_CLEANING: 'window_cleaning',
+  WATER_TANK: 'water_tank',
+  DISINFECTION: 'disinfection',
+  OTHER: 'other',
+} as const;
+export type CleaningType = (typeof CLEANING_TYPE)[keyof typeof CLEANING_TYPE];
+
+export const CLEANING_TASK_STATUS = {
+  SCHEDULED: 'scheduled',
+  IN_PROGRESS: 'in_progress',
+  COMPLETED: 'completed',
+  MISSED: 'missed',
+  RESCHEDULED: 'rescheduled',
+} as const;
+export type CleaningTaskStatus = (typeof CLEANING_TASK_STATUS)[keyof typeof CLEANING_TASK_STATUS];
+
+// ── Health Case Enums ───────────────────────────────────────────────
+export const HEALTH_SEVERITY = {
+  MINOR: 'minor',
+  MODERATE: 'moderate',
+  SERIOUS: 'serious',
+  EMERGENCY: 'emergency',
+} as const;
+export type HealthSeverity = (typeof HEALTH_SEVERITY)[keyof typeof HEALTH_SEVERITY];
+
+export const HEALTH_CASE_STATUS = {
+  REPORTED: 'reported',
+  FIRST_AID: 'first_aid',
+  DOCTOR_REFERRED: 'doctor_referred',
+  HOSPITALIZED: 'hospitalized',
+  RECOVERING: 'recovering',
+  CLEARED: 'cleared',
+  CLOSED: 'closed',
+} as const;
+export type HealthCaseStatus = (typeof HEALTH_CASE_STATUS)[keyof typeof HEALTH_CASE_STATUS];
+
+// ── AMC Contract Interfaces ─────────────────────────────────────────
+export interface HostelAmcContract {
+  id: string;
+  institution_id: string;
+  block_id: string | null;
+  title: string;
+  vendor_name: string;
+  vendor_phone: string | null;
+  vendor_email: string | null;
+  category: MaintenanceCategory;
+  contract_number: string | null;
+  start_date: string;
+  end_date: string;
+  renewal_reminder_days: number;
+  annual_cost: number | null;
+  coverage_details: string | null;
+  document_urls: string[] | null;
+  status: AmcStatus;
+  last_service_date: string | null;
+  next_service_date: string | null;
+  service_frequency: PmFrequency | null;
+  notes: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+  // Joined fields
+  block_name?: string;
+}
+
+export interface CreateAmcContractDTO {
+  institution_id: string;
+  block_id?: string;
+  title: string;
+  vendor_name: string;
+  vendor_phone?: string;
+  vendor_email?: string;
+  category: MaintenanceCategory;
+  contract_number?: string;
+  start_date: string;
+  end_date: string;
+  renewal_reminder_days?: number;
+  annual_cost?: number;
+  coverage_details?: string;
+  service_frequency?: PmFrequency;
+  notes?: string;
+  created_by?: string;
+}
+
+export interface AmcContractFilters {
+  block_id?: string;
+  status?: AmcStatus;
+  category?: MaintenanceCategory;
+}
+
+// ── Cleaning/Housekeeping Interfaces ────────────────────────────────
+export interface HostelCleaningSchedule {
+  id: string;
+  institution_id: string;
+  block_id: string | null;
+  floor_number: number | null;
+  cleaning_type: CleaningType;
+  frequency: PmFrequency;
+  scheduled_time: string;
+  assigned_staff: string | null;
+  assigned_staff_phone: string | null;
+  checklist: Json;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+  // Joined
+  block_name?: string;
+}
+
+export interface HostelCleaningTask {
+  id: string;
+  institution_id: string;
+  schedule_id: string;
+  block_id: string | null;
+  floor_number: number | null;
+  date: string;
+  cleaning_type: CleaningType;
+  assigned_staff: string | null;
+  status: CleaningTaskStatus;
+  started_at: string | null;
+  completed_at: string | null;
+  completed_by: string | null;
+  quality_rating: number | null;
+  inspector_notes: string | null;
+  photo_urls: string[] | null;
+  created_at: string;
+  updated_at: string;
+  // Joined
+  block_name?: string;
+}
+
+export interface CreateCleaningScheduleDTO {
+  institution_id: string;
+  block_id?: string;
+  floor_number?: number;
+  cleaning_type: CleaningType;
+  frequency: PmFrequency;
+  scheduled_time?: string;
+  assigned_staff?: string;
+  assigned_staff_phone?: string;
+  checklist?: Json;
+}
+
+export interface CleaningScheduleFilters {
+  block_id?: string;
+  cleaning_type?: CleaningType;
+  is_active?: boolean;
+}
+
+export interface CleaningTaskFilters {
+  block_id?: string;
+  schedule_id?: string;
+  status?: CleaningTaskStatus;
+  date?: string;
+  date_from?: string;
+  date_to?: string;
+}
+
+// ── Health Case Interfaces ──────────────────────────────────────────
+export interface HostelHealthCase {
+  id: string;
+  institution_id: string;
+  learner_id: string;
+  block_id: string | null;
+  case_number: string;
+  symptoms: string;
+  severity: HealthSeverity;
+  temperature: number | null;
+  status: HealthCaseStatus;
+  first_aid_given: string | null;
+  first_aid_by: string | null;
+  first_aid_at: string | null;
+  doctor_name: string | null;
+  doctor_referral_at: string | null;
+  hospital_name: string | null;
+  diagnosis: string | null;
+  medication: string | null;
+  parent_notified: boolean;
+  parent_notified_at: string | null;
+  parent_notified_by: string | null;
+  recovery_notes: string | null;
+  cleared_by: string | null;
+  cleared_at: string | null;
+  follow_up_dates: string[] | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+  // Joined
+  learner_name?: string;
+  block_name?: string;
+}
+
+export interface CreateHealthCaseDTO {
+  institution_id: string;
+  learner_id: string;
+  block_id?: string;
+  symptoms: string;
+  severity?: HealthSeverity;
+  temperature?: number;
+  first_aid_given?: string;
+  first_aid_by?: string;
+  created_by?: string;
+}
+
+export interface HealthCaseFilters {
+  block_id?: string;
+  status?: HealthCaseStatus;
+  severity?: HealthSeverity;
+  learner_id?: string;
+  date_from?: string;
+  date_to?: string;
+}
+
+// ── Management Dashboard Types ──────────────────────────────────────
+export interface ManagementSummaryKPIs {
+  occupancy_rate: number;
+  total_beds: number;
+  occupied_beds: number;
+  today_attendance: number;
+  total_residents: number;
+  open_maintenance: number;
+  sla_compliance: number;
+  active_incidents: number;
+  pending_leave: number;
+  overdue_pm_tasks: number;
+  wellness_score: number | null;
+  active_health_cases: number;
+  expiring_contracts: number;
+}
