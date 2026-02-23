@@ -1307,7 +1307,7 @@ Unlike the old NAAC system (which was heavily quantitative), the new Binary Fram
 - `data_type = 'boolean'`
 - `formula = null` (no computation)
 - `evidence_required = true`
-- `metric_source = 'manual'`
+- `is_auto_calculable = false`
 - The IQAC coordinator marks Yes/No and uploads supporting documents
 
 #### New Metrics NOT in Old NAAC (7-Criteria) System
