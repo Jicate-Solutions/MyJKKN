@@ -127,7 +127,7 @@ export function useUpdateGoverningBody() {
       queryClient.invalidateQueries({ queryKey: governanceKeys.all })
     },
     onError: (error: Error) => {
-      toast.error(error.message || 'Failed to update governing body')
+      toast.error(friendlyErrorMessage(error, 'Failed to update governing body'))
     }
   })
 }
