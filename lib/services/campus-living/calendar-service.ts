@@ -48,7 +48,7 @@ export class CalendarService {
                 title: row.title,
                 date: row.due_date,
                 color: '#8b5cf6',
-                link: '/campus-living/maintenance/pm-tasks',
+                link: '/campus-living/maintenance/preventive/tasks',
               })
             )
           } catch {
@@ -214,7 +214,7 @@ export class CalendarService {
                 title: row.title,
                 date: row.due_date,
                 color: '#8b5cf6',
-                link: '/campus-living/maintenance/pm-tasks',
+                link: '/campus-living/maintenance/preventive/tasks',
               })
             )
           } catch {
