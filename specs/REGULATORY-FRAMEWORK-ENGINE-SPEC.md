@@ -1187,7 +1187,7 @@ Ship with these frameworks pre-configured (seeded in migration):
 | Metric | KI | Type | Weight | Description | Data Source (MyJKKN) |
 |--------|-----|------|--------|-------------|---------------------|
 | 2.1.1 | 2.1 Student Enrolment (40) | QnM | 20 | Enrolment % (admitted vs sanctioned seats, 5 years) | DC-01: `learners_profiles`, DC-05: `admissions`, `programs` |
-| 2.1.2 | 2.1 | QnM | 20 | % seats filled against reserved categories (SC/ST/OBC, 5 years) | DC-01: `learners_profiles` (community field), DC-09 |
+| 2.1.2 | 2.1 | QnM | 20 | % seats filled against reserved categories (SC/ST/OBC, 5 years) | DC-01: `learners_profiles` (community field), DC-05: `admissions` + `institution_seat_config` |
 | 2.2.1 | 2.2 Student-Teacher Ratio (40) | QnM | 40 | Student : Full-time teacher ratio (latest year) | DC-01 + DC-02: `staff` |
 | 2.3.1 | 2.3 Teaching-Learning Process (40) | QlM | 40 | Student-centric methods: experiential, participative, ICT-enabled | Manual entry (qualitative) |
 | 2.4.1 | 2.4 Teacher Profile & Quality (40) | QnM | 20 | % full-time teachers against sanctioned posts (5 years) | DC-02: `staff` |
