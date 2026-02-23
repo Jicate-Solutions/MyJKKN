@@ -5,6 +5,23 @@
 
 import { createClientSupabaseClient } from '@/lib/supabase/client'
 
+/**
+ * DDL: regulatory_peer_visits columns:
+ *   id, submission_id (NOT NULL), institution_id (NOT NULL),
+ *   visit_type (NOT NULL), status (NOT NULL DEFAULT 'scheduled'),
+ *   scheduled_date, actual_start_date, actual_end_date,
+ *   team_composition (jsonb), pre_visit_checklist (jsonb),
+ *   visit_itinerary (jsonb), findings (jsonb),
+ *   recommendations (text), action_items (jsonb),
+ *   grade_awarded, report_file_url, coordinator_id,
+ *   notes, created_at, updated_at
+ *
+ * NOTE: submission_id is NOT NULL (FK to regulatory_submissions)
+ * NOTE: No framework_id column -- framework is via submission
+ * NOTE: No created_by -- uses coordinator_id instead
+ * NOTE: scheduled_date is a single DATE, not start/end pair
+ */
+
 export interface PeerVisitFilters {
   institution_id?: string
   submission_id?: string
@@ -14,31 +31,31 @@ export interface PeerVisitFilters {
 }
 
 export interface CreatePeerVisitData {
+  submission_id: string       // REQUIRED per DDL
   institution_id: string
-  submission_id?: string
-  framework_id?: string
-  visit_type: string
-  scheduled_start_date: string
-  scheduled_end_date: string
-  team_lead_name?: string | null
-  team_members?: PeerTeamMember[]
+  visit_type: string          // naac_peer_team | nba_evaluator | aicte_expert
+  scheduled_date?: string | null
+  team_composition?: PeerTeamMember[]
+  pre_visit_checklist?: Record<string, boolean>
   notes?: string | null
+  coordinator_id?: string | null
 }
 
 export interface UpdatePeerVisitData {
   visit_type?: string
-  scheduled_start_date?: string
-  scheduled_end_date?: string
+  status?: string
+  scheduled_date?: string | null
   actual_start_date?: string | null
   actual_end_date?: string | null
-  team_lead_name?: string | null
-  team_members?: PeerTeamMember[]
-  status?: string
-  findings?: string | null
+  team_composition?: PeerTeamMember[]
+  pre_visit_checklist?: Record<string, boolean>
+  visit_itinerary?: PeerVisitItineraryItem[]
+  findings?: Record<string, any>
   recommendations?: string | null
   action_items?: PeerVisitActionItem[]
-  overall_score?: number | null
-  grade?: string | null
+  grade_awarded?: string | null
+  report_file_url?: string | null
+  coordinator_id?: string | null
   notes?: string | null
 }
 
@@ -46,16 +63,22 @@ export interface PeerTeamMember {
   name: string
   designation: string
   institution: string
-  specialization?: string | null
   role?: string
 }
 
+export interface PeerVisitItineraryItem {
+  day: number
+  time: string
+  activity: string
+  location?: string
+  responsible_person?: string
+}
+
 export interface PeerVisitActionItem {
-  description: string
-  responsible_person?: string | null
+  action: string
+  responsible?: string | null
   deadline?: string | null
   status?: string
-  priority?: string
 }
 
 export class RegulatoryPeerVisitService {
@@ -120,9 +143,8 @@ export class RegulatoryPeerVisitService {
         .select(`
           *,
           institution:institutions(id, name),
-          submission:regulatory_submissions(id, title, status, academic_year),
-          framework:regulatory_frameworks(id, body_name, version_year),
-          created_by_profile:profiles!created_by(id, full_name, email)
+          submission:regulatory_submissions(id, status, academic_year, framework_id),
+          coordinator:profiles!coordinator_id(id, full_name, email)
         `, { count: 'exact' })
 
       // Apply filters
@@ -142,7 +164,7 @@ export class RegulatoryPeerVisitService {
       const from = (page - 1) * limit
       query = query
         .range(from, from + limit - 1)
-        .order('scheduled_start_date', { ascending: false })
+        .order('scheduled_date', { ascending: false, nullsFirst: false })
 
       const { data, error, count } = await query
 
@@ -165,33 +187,26 @@ export class RegulatoryPeerVisitService {
 
   /**
    * Schedule a new peer visit
+   * NOTE: submission_id is NOT NULL per DDL
    */
   static async createPeerVisit(data: CreatePeerVisitData) {
     try {
+      this.validateId(data.submission_id, 'submission ID')
       this.validateId(data.institution_id, 'institution ID')
-      if (data.submission_id) {
-        this.validateId(data.submission_id, 'submission ID')
+      if (data.coordinator_id) {
+        this.validateId(data.coordinator_id, 'coordinator ID')
       }
-      if (data.framework_id) {
-        this.validateId(data.framework_id, 'framework ID')
-      }
-
-      // Get current user
-      const { data: { user } } = await this.getSupabase().auth.getUser()
-      if (!user) throw new Error('User not authenticated')
 
       const insertPayload = {
+        submission_id: data.submission_id,
         institution_id: data.institution_id,
-        submission_id: data.submission_id || null,
-        framework_id: data.framework_id || null,
         visit_type: data.visit_type,
-        scheduled_start_date: data.scheduled_start_date,
-        scheduled_end_date: data.scheduled_end_date,
-        team_lead_name: data.team_lead_name || null,
-        team_members: data.team_members || [],
-        notes: data.notes || null,
         status: 'scheduled',
-        created_by: user.id
+        scheduled_date: data.scheduled_date || null,
+        team_composition: data.team_composition || [],
+        pre_visit_checklist: data.pre_visit_checklist || {},
+        notes: data.notes || null,
+        coordinator_id: data.coordinator_id || null
       }
 
       const { data: result, error } = await (this.getSupabase() as any)
@@ -229,18 +244,19 @@ export class RegulatoryPeerVisitService {
       }
 
       if (data.visit_type !== undefined) updatePayload.visit_type = data.visit_type
-      if (data.scheduled_start_date !== undefined) updatePayload.scheduled_start_date = data.scheduled_start_date
-      if (data.scheduled_end_date !== undefined) updatePayload.scheduled_end_date = data.scheduled_end_date
+      if (data.status !== undefined) updatePayload.status = data.status
+      if (data.scheduled_date !== undefined) updatePayload.scheduled_date = data.scheduled_date
       if (data.actual_start_date !== undefined) updatePayload.actual_start_date = data.actual_start_date
       if (data.actual_end_date !== undefined) updatePayload.actual_end_date = data.actual_end_date
-      if (data.team_lead_name !== undefined) updatePayload.team_lead_name = data.team_lead_name
-      if (data.team_members !== undefined) updatePayload.team_members = data.team_members
-      if (data.status !== undefined) updatePayload.status = data.status
+      if (data.team_composition !== undefined) updatePayload.team_composition = data.team_composition
+      if (data.pre_visit_checklist !== undefined) updatePayload.pre_visit_checklist = data.pre_visit_checklist
+      if (data.visit_itinerary !== undefined) updatePayload.visit_itinerary = data.visit_itinerary
       if (data.findings !== undefined) updatePayload.findings = data.findings
       if (data.recommendations !== undefined) updatePayload.recommendations = data.recommendations
       if (data.action_items !== undefined) updatePayload.action_items = data.action_items
-      if (data.overall_score !== undefined) updatePayload.overall_score = data.overall_score
-      if (data.grade !== undefined) updatePayload.grade = data.grade
+      if (data.grade_awarded !== undefined) updatePayload.grade_awarded = data.grade_awarded
+      if (data.report_file_url !== undefined) updatePayload.report_file_url = data.report_file_url
+      if (data.coordinator_id !== undefined) updatePayload.coordinator_id = data.coordinator_id
       if (data.notes !== undefined) updatePayload.notes = data.notes
 
       const { data: result, error } = await (this.getSupabase() as any)
