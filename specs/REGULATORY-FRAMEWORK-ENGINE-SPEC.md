@@ -1167,7 +1167,7 @@ Ship with these frameworks pre-configured (seeded in migration):
 QnM metrics auto-calculable:     ~20/34 = 59%  (remaining need new tables or external data)
 QlM metrics with partial data:    ~8/22  = 36%  (rest purely qualitative)
 Overall data coverage:            ~28/56 = 50%  (existing tables + partial coverage)
-After all new tables built:       ~34/56 = 61%  (remaining 22 are qualitative narratives)
+After all new tables built:       ~33/56 = 59%  (remaining 23: 22 QlM narratives + 2.7.1 external NAAC survey)
 ```
 
 **Key data gaps for NAAC 2022 submission:**
