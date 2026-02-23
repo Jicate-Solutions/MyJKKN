@@ -586,7 +586,7 @@ Each connector defines: **Source Module → Source Table(s) → Key Columns → 
 |---|--------|----------------------|----------------------|----------|
 | DC-16 | Faculty Qualifications | **`staff_qualifications`** | NAAC Cr I, II / NIRF TLR (FQE) / NBA / AICTE | 🔴 P0 |
 | DC-17 | Examination Results | **`exam_results`** | NAAC Cr II / NIRF GO (GUE — 20% weight!) | 🔴 P0 |
-| DC-18 | Research Grants | **`research_projects`** | NAAC Cr III / NIRF RPC (FPPP — 30% weight!) | 🔴 P0 |
+| DC-18 | Research Grants | **`research_projects`** | NAAC Cr III / NIRF RP (FPPP — 4.5% of total NIRF) | 🔴 P0 |
 | DC-19 | Patents & IPR | **`patents_ipr`** | NAAC Cr III / NIRF RPC (IPR) | 🔴 P0 |
 | DC-20 | Library Resources | **`library_holdings`**, **`library_e_resources`** | NAAC Cr IV | 🟡 P1 |
 | DC-21 | Budget & Expenditure | **`institutional_budgets`** | NAAC Cr IV, VI / NIRF TLR (FRQ) | 🟡 P1 |
