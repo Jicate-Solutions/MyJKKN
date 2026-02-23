@@ -172,47 +172,40 @@ export function useFrameworkMetricValues(
   return useQuery<any[], Error>({
     queryKey: [...metricKeys.all, 'framework-metric-values', opts.framework_id, institutionId] as const,
     queryFn: async () => {
-      try {
-        const result = await RegulatoryMetricService.getMetricsWithValues(
-          opts.framework_id,
-          institutionId
-        )
-        return result || []
-      } catch {
-        // Fallback: get metrics and values separately
-        const metricsResult = await RegulatoryMetricService.getMetrics({
-          framework_id: opts.framework_id
-        })
-        const metrics = metricsResult?.data || []
-        const values = await RegulatoryMetricService.getMetricValues(
-          opts.framework_id,
-          institutionId
-        )
-        const valueMap = new Map((values || []).map((v: any) => [v.metric_id, v]))
+      // Get metrics and values separately, then merge
+      const metricsResult = await RegulatoryMetricService.getMetrics({
+        framework_id: opts.framework_id
+      })
+      const metrics = metricsResult?.data || []
+      const values = await RegulatoryMetricService.getMetricValues(
+        opts.framework_id,
+        institutionId
+      )
+      const valueMap = new Map((values || []).map((v: any) => [v.metric_id, v]))
 
-        return metrics.map((m: any) => {
-          const val = valueMap.get(m.id) || {}
-          return {
-            id: val.id || m.id,
-            metric_id: m.id,
-            metric_code: m.code || '',
-            metric_name: m.name || '',
-            criteria_id: m.criteria_id,
-            criteria_code: m.criteria_code || '',
-            criteria_name: m.criteria_name || '',
-            data_type: m.data_type || m.metric_type || 'text',
-            source_type: m.source_type || 'manual',
-            current_value: val.value ?? val.numeric_value ?? val.text_value ?? null,
-            previous_value: val.previous_value ?? null,
-            unit: m.unit || '',
-            weight: m.weightage || m.weight || 0,
-            max_score: m.max_score || 0,
-            score: val.score ?? null,
-            last_updated_at: val.updated_at || null,
-            last_updated_by: val.updated_by || null
-          }
-        })
-      }
+      return metrics.map((m: any) => {
+        const val = valueMap.get(m.id) || {} as any
+        const crit = m.criteria || {}
+        return {
+          id: val.id || m.id,
+          metric_id: m.id,
+          metric_code: m.code || '',
+          metric_name: m.name || '',
+          criteria_id: m.criteria_id,
+          criteria_code: crit.code || '',
+          criteria_name: crit.name || '',
+          data_type: m.data_type || m.metric_type || 'text',
+          source_type: m.source_type || 'manual',
+          current_value: val.value ?? val.numeric_value ?? null,
+          previous_value: val.previous_value ?? null,
+          unit: m.unit || '',
+          weight: m.weightage || m.weight || 0,
+          max_score: m.max_score || 0,
+          score: val.score ?? null,
+          last_updated_at: val.updated_at || null,
+          last_updated_by: val.entered_by || null
+        }
+      })
     },
     enabled:
       !authLoading &&
