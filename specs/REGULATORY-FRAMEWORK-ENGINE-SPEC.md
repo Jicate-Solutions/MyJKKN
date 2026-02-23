@@ -1565,7 +1565,7 @@ CREATE TRIGGER trg_benchmarks_updated_at BEFORE UPDATE ON regulatory_peer_benchm
 
 ```
 Week 1: Database & Core API
-├── Day 1-2: Apply migration (14 new tables + RLS + indexes)
+├── Day 1-2: Apply migration (15 new tables + 1 view + RLS + indexes + search extensions)
 ├── Day 3-4: CRUD hooks for frameworks, criteria, metrics
 ├── Day 5: Seed frameworks: NAAC 2022 (7 criteria, 56 metrics), NIRF Overall + 6 discipline variants, NAAC Binary × 3 institution types
 
