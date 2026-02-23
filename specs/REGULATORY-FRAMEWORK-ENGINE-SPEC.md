@@ -1134,6 +1134,110 @@ CREATE POLICY "value_history_insert" ON regulatory_metric_value_history FOR INSE
   ));
 -- No UPDATE or DELETE policies on history = immutable audit trail
 
+-- ─── Evidence Versions: append-only version history linked to parent evidence ───
+CREATE POLICY "evidence_versions_read" ON regulatory_evidence_versions FOR SELECT USING (
+  EXISTS (
+    SELECT 1 FROM regulatory_evidence e
+    WHERE e.id = evidence_id
+    AND (e.institution_id = auth_institution_id()
+         OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'))
+  )
+);
+CREATE POLICY "evidence_versions_insert" ON regulatory_evidence_versions FOR INSERT
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM regulatory_evidence e
+      WHERE e.id = evidence_id
+      AND (e.institution_id = auth_institution_id()
+           OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'))
+    )
+    AND EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN
+      ('super_admin','institution_admin','iqac_coordinator','hod','faculty'))
+  );
+-- No UPDATE or DELETE on evidence versions — immutable revision trail for DVV/PDV audit
+
+-- ─── Peer Visits: institution-scoped, writable by IQAC/admin roles ───
+CREATE POLICY "peer_visits_read" ON regulatory_peer_visits FOR SELECT USING (
+  institution_id = auth_institution_id()
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+);
+CREATE POLICY "peer_visits_insert" ON regulatory_peer_visits FOR INSERT
+  WITH CHECK (
+    (institution_id = auth_institution_id()
+      OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'))
+    AND EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN
+      ('super_admin','institution_admin','iqac_coordinator'))
+  );
+CREATE POLICY "peer_visits_update" ON regulatory_peer_visits FOR UPDATE
+  USING (
+    (institution_id = auth_institution_id()
+      OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'))
+    AND EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN
+      ('super_admin','institution_admin','iqac_coordinator'))
+  );
+-- No DELETE on peer visits — permanent record of accreditation visits
+
+-- ─── Governing Bodies: institution-scoped, writable by admin roles ───
+CREATE POLICY "governing_bodies_read" ON regulatory_governing_bodies FOR SELECT USING (
+  institution_id = auth_institution_id()
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+);
+CREATE POLICY "governing_bodies_insert" ON regulatory_governing_bodies FOR INSERT
+  WITH CHECK (
+    (institution_id = auth_institution_id()
+      OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'))
+    AND EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN
+      ('super_admin','institution_admin','principal'))
+  );
+CREATE POLICY "governing_bodies_update" ON regulatory_governing_bodies FOR UPDATE
+  USING (
+    (institution_id = auth_institution_id()
+      OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'))
+    AND EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN
+      ('super_admin','institution_admin','principal'))
+  );
+
+-- ─── Body Meetings: institution-scoped, writable by IQAC/admin ───
+CREATE POLICY "body_meetings_read" ON regulatory_body_meetings FOR SELECT USING (
+  institution_id = auth_institution_id()
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+);
+CREATE POLICY "body_meetings_insert" ON regulatory_body_meetings FOR INSERT
+  WITH CHECK (
+    (institution_id = auth_institution_id()
+      OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'))
+    AND EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN
+      ('super_admin','institution_admin','iqac_coordinator','principal'))
+  );
+CREATE POLICY "body_meetings_update" ON regulatory_body_meetings FOR UPDATE
+  USING (
+    (institution_id = auth_institution_id()
+      OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'))
+    AND EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN
+      ('super_admin','institution_admin','iqac_coordinator','principal'))
+  );
+-- No DELETE on meeting minutes — permanent governance record
+
+-- ─── Course Syllabi: institution-scoped, writable by academic roles ───
+CREATE POLICY "syllabi_read" ON regulatory_course_syllabi FOR SELECT USING (
+  institution_id = auth_institution_id()
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+);
+CREATE POLICY "syllabi_insert" ON regulatory_course_syllabi FOR INSERT
+  WITH CHECK (
+    (institution_id = auth_institution_id()
+      OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'))
+    AND EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN
+      ('super_admin','institution_admin','iqac_coordinator','hod','faculty'))
+  );
+CREATE POLICY "syllabi_update" ON regulatory_course_syllabi FOR UPDATE
+  USING (
+    (institution_id = auth_institution_id()
+      OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'))
+    AND EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN
+      ('super_admin','institution_admin','iqac_coordinator','hod','faculty'))
+  );
+
 -- ═══════════════════════════════════════════════
 -- INDEXES
 -- ═══════════════════════════════════════════════
