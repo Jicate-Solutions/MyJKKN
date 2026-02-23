@@ -708,7 +708,10 @@ CREATE TABLE regulatory_metrics (
   unit text,                                         -- "count", "%", "INR lakhs", "ratio", "years"
   formula text,                                      -- e.g., "(placed_count / eligible_count) * 100"
   formula_dependencies text[],                       -- metric codes this formula depends on
-  data_connector_id text,                         -- references DC-01, DC-02... (FK added after regulatory_data_connectors table exists)
+  data_connector_id text,                         -- primary DC reference (FK added after regulatory_data_connectors table exists)
+  -- For metrics needing multiple DCs, data_connector_id is the primary source.
+  -- Additional connectors stored in metadata: {"secondary_connectors": ["DC-29"]}
+  -- The data_connector_query can join across tables from multiple connectors.
   data_connector_query text,                         -- actual SQL or query config (JSON)
   is_auto_calculable boolean DEFAULT false,
   requires_evidence boolean DEFAULT true,
