@@ -608,7 +608,7 @@ Each connector defines: **Source Module → Source Table(s) → Key Columns → 
 
 **Updated total: 36 Data Connectors (15 existing + 21 new) covering ALL NAAC Binary metrics + ALL NIRF sub-parameters.**
 
-> **Key finding:** The 4 P0 tables (`staff_qualifications`, `exam_results`, `research_projects`, `patents_ipr`) alone unlock 80% of NIRF scoring. This is extreme Pareto — 4 tables out of 17 missing = 80% of the regulatory value. See `/Users/omm/Vaults/Claude Setup/Capture/MyJKKN/FST-Missing-Regulatory-Data-Sources.md` for the complete gap analysis with NAAC criterion-by-criterion and NIRF parameter-by-parameter breakdown.
+> **Key finding:** The 4 P0 tables (`staff_qualifications`, `exam_results`, `research_projects`, `patents_ipr`) alone unlock 80% of NIRF scoring. This is extreme Pareto — 4 tables out of 21 missing = 80% of the regulatory value. See `/Users/omm/Vaults/Claude Setup/Capture/MyJKKN/FST-Missing-Regulatory-Data-Sources.md` for the complete gap analysis with NAAC criterion-by-criterion and NIRF parameter-by-parameter breakdown.
 
 ---
 
