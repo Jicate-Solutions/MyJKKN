@@ -265,6 +265,19 @@ export class RegulatorySubmissionService {
   }
 
   /**
+   * Valid status transitions — enforced to prevent workflow bypass.
+   * A user cannot jump from 'draft' straight to 'accepted'.
+   */
+  private static readonly VALID_TRANSITIONS: Record<SubmissionStatus, SubmissionStatus[]> = {
+    draft: ['data_collection'],
+    data_collection: ['in_review', 'draft'],          // can revert to draft
+    in_review: ['approved', 'data_collection'],        // can send back for more data
+    approved: ['submitted', 'in_review'],              // can revert approval
+    submitted: ['accepted'],
+    accepted: []                                       // terminal state
+  }
+
+  /**
    * Update submission status with workflow transitions
    * Valid transitions: draft -> data_collection -> in_review -> approved -> submitted -> accepted
    */
@@ -272,9 +285,34 @@ export class RegulatorySubmissionService {
     try {
       this.validateId(id, 'submission ID')
 
+      // Validate that the target status is a known value
+      const validStatuses: SubmissionStatus[] = ['draft', 'data_collection', 'in_review', 'approved', 'submitted', 'accepted']
+      if (!validStatuses.includes(status)) {
+        throw new Error(`Invalid submission status: "${status}". Must be one of: ${validStatuses.join(', ')}`)
+      }
+
       // Get current user
       const { data: { user } } = await this.getSupabase().auth.getUser()
       if (!user) throw new Error('User not authenticated')
+
+      // Fetch current submission to validate state transition
+      const { data: current, error: fetchError } = await (this.getSupabase() as any)
+        .from('regulatory_submissions')
+        .select('status')
+        .eq('id', id)
+        .maybeSingle()
+
+      if (fetchError) throw fetchError
+      if (!current) throw new Error('Submission not found or you do not have permission to modify it.')
+
+      const currentStatus = current.status as SubmissionStatus
+      const allowedTransitions = this.VALID_TRANSITIONS[currentStatus] || []
+      if (!allowedTransitions.includes(status)) {
+        throw new Error(
+          `Cannot transition submission from "${currentStatus}" to "${status}". ` +
+          `Allowed transitions from "${currentStatus}": ${allowedTransitions.length > 0 ? allowedTransitions.join(', ') : 'none (terminal state)'}.`
+        )
+      }
 
       const updatePayload: Record<string, any> = {
         status,
