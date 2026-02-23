@@ -1308,7 +1308,7 @@ Unlike the old NAAC system (which was heavily quantitative), the new Binary Fram
 |---------------|-------|-----------------|
 | Data (auto-calculated) | ~22 metrics | Data Connector pulls from DB → auto-populates |
 | Document + Data (mixed) | ~18 metrics | Partial auto-calc + evidence upload required |
-| Document only (binary proof) | ~19 metrics | Manual checklist + document upload (no formula) |
+| Document only (binary proof) | ~20 metrics | Manual checklist + document upload (no formula) |
 
 **Engine design implication:** The `regulatory_metrics` table already supports `data_type` = 'boolean' for binary metrics and `requires_evidence` = true. For binary checkbox metrics, set:
 - `data_type = 'boolean'`
