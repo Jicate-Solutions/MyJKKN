@@ -1132,7 +1132,7 @@ After all new tables built:       ~35/56 = 63%  (remaining 21 are qualitative na
 - FQE = Faculty with PhD (or equivalent) and Experience (20 marks)
 - FRU = Financial Resources and their Utilisation (20 marks)
 - OE = Online Education: Online Completion of Syllabus & Exams and Swayam (10 marks) [NEP 2020]
-- MIRS = Multiple Entry/Exit, Indian Knowledge System, Regional Languages, Sustainable Living (5 marks) [NEP 2020]
+- MIR = Multiple Entry/exit, Indian Knowledge System, Regional Languages (5 marks) [NEP 2020] — also abbreviated MIRS in some documents
 
 **Footnotes from official document:**
 - For State Public Universities, FSR is 1:20
