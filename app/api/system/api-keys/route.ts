@@ -93,17 +93,11 @@ export async function POST(request: NextRequest) {
 
     const input: CreateApiKeyInput = await request.json();
 
-    // Add these debug logs
-    console.log('1. Request input:', input);
-
     // Check authentication
     const {
       data: { user },
       error: authError
     } = await supabase.auth.getUser();
-
-    console.log('2. Auth user:', user ? 'Found' : 'Not found');
-    console.log('Auth error:', authError);
 
     if (authError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -136,19 +130,6 @@ export async function POST(request: NextRequest) {
       .update(plainTextKey)
       .digest('hex');
 
-    console.log('3. Generated key details:', {
-      plainTextKey,
-      hashedKeyLength: hashedKey.length
-    });
-
-    // Log the insert attempt
-    console.log('4. Attempting to insert with data:', {
-      name: input.name,
-      keyLength: hashedKey.length,
-      expires_at: input.expires_at,
-      permissions: input.permissions
-    });
-
     // Create API key record
     const { data: key, error } = await supabase
       .from('api_keys')
@@ -164,12 +145,6 @@ export async function POST(request: NextRequest) {
       ])
       .select()
       .single();
-
-    console.log('5. Insert result:', {
-      success: !!key,
-      error: error?.message,
-      keyId: key?.id
-    });
 
     if (error) {
       console.error('Database error:', error);

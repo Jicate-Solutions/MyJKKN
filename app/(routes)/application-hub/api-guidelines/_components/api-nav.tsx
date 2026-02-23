@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
-import { BookOpen, FileJson } from 'lucide-react';
+import { BookOpen, FileJson, Zap } from 'lucide-react';
 
 const navItems = [
   {
@@ -16,6 +16,11 @@ const navItems = [
     title: 'Available Endpoints',
     href: '/application-hub/api-guidelines/endpoints',
     icon: FileJson
+  },
+  {
+    title: 'B2A API',
+    href: '/application-hub/api-guidelines/b2a',
+    icon: Zap
   }
 ];
 

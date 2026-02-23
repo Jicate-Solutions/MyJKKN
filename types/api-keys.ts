@@ -21,6 +21,8 @@ export interface ApiKey {
   is_active: boolean;
   permissions: ApiKeyPermissions;
   metadata?: ApiKeyMetadata;
+  institution_id: string | null;
+  organization_id?: string | null;
   created_at: string;
   updated_at: string;
 }
