@@ -124,20 +124,36 @@ export function useSimulationData(
 
       if (critError) throw critError
 
-      // Get metric values to compute current scores
-      let valQuery = (supabase as any)
-        .from('regulatory_metric_values')
-        .select('*')
-        .eq('framework_id', opts.framework_id)
+      const criteriaIds = (criteria || []).map((c: any) => c.id)
 
-      if (institutionId) {
-        valQuery = valQuery.eq('institution_id', institutionId)
-      }
-      if (opts.academic_year) {
-        valQuery = valQuery.eq('academic_year', opts.academic_year)
+      // Get metrics for these criteria (metric_values has no framework_id)
+      let metricIds: string[] = []
+      if (criteriaIds.length > 0) {
+        const { data: metrics } = await (supabase as any)
+          .from('regulatory_metrics')
+          .select('id, criteria_id, weight, max_score')
+          .in('criteria_id', criteriaIds)
+        metricIds = (metrics || []).map((m: any) => m.id)
       }
 
-      const { data: values } = await valQuery
+      // Get metric values for those metrics
+      let values: any[] = []
+      if (metricIds.length > 0) {
+        let valQuery = (supabase as any)
+          .from('regulatory_metric_values')
+          .select('*')
+          .in('metric_id', metricIds)
+
+        if (institutionId) {
+          valQuery = valQuery.eq('institution_id', institutionId)
+        }
+        if (opts.academic_year) {
+          valQuery = valQuery.eq('academic_year', opts.academic_year)
+        }
+
+        const { data: valData } = await valQuery
+        values = valData || []
+      }
 
       // Build criteria with score data
       const enrichedCriteria = (criteria || []).map((c: any) => ({
