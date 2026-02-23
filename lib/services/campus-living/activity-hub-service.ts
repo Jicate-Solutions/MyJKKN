@@ -239,8 +239,8 @@ export class ActivityHubService {
         let q = (supabase as any)
           .from('hostel_cleaning_tasks')
           .select('id, cleaning_type, status, date, block_id, hostel_blocks(name)')
-          .gte('date', dateFrom)
-          .lte('date', dateTo)
+          .gte('date', dateFromDate)
+          .lte('date', dateToDate)
           .order('date', { ascending: false })
           .limit(PER_TABLE_LIMIT)
 
