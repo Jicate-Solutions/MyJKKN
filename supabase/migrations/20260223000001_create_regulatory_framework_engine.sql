@@ -52,7 +52,8 @@ CREATE TABLE regulatory_frameworks (
   effective_from date,
   effective_to date,                                 -- NULL = currently active
   year_type text NOT NULL DEFAULT 'academic',        -- academic | calendar (NIRF=calendar, NAAC=academic)
-  status text NOT NULL DEFAULT 'active',             -- draft | active | archived
+  status text NOT NULL DEFAULT 'draft'
+    CHECK (status IN ('draft', 'active', 'archived')),  -- draft | active | archived
   total_max_score numeric,                           -- e.g., 1050 for NAAC Old, 900 for NAAC Binary, 100 for NIRF (normalized)
   description text,
   submission_portal_url text,                        -- e.g., https://nirfrankings.in
