@@ -1,23 +1,28 @@
 -- Migration: Create Regulatory Framework Engine
--- Description: 14 new tables for config-driven regulatory compliance reporting
+-- Description: 15 new tables + 1 view for config-driven regulatory compliance reporting
 -- Tables: regulatory_frameworks, regulatory_criteria, regulatory_metrics,
 --         regulatory_metric_values, regulatory_metric_value_history,
 --         regulatory_evidence, regulatory_submissions, regulatory_data_connectors,
 --         regulatory_simulations, regulatory_evidence_versions,
 --         regulatory_peer_visits, regulatory_governing_bodies,
---         regulatory_body_meetings, regulatory_course_syllabi
+--         regulatory_body_meetings, regulatory_course_syllabi,
+--         regulatory_peer_benchmarks
+-- View:   regulatory_course_completion_dashboard
+-- Also:   ALTER TABLE okr_objectives (2 new columns),
+--         pg_trgm extension, search_vector on evidence, 2 GIN indexes
 -- Date: 2026-02-23
 
 BEGIN;
 
 -- ═══════════════════════════════════════════════
--- HELPER FUNCTION (idempotent — safe to re-run)
+-- EXTENSIONS
 -- ═══════════════════════════════════════════════
 
-CREATE OR REPLACE FUNCTION auth_institution_id()
-RETURNS uuid LANGUAGE sql STABLE SECURITY INVOKER AS $$
-  SELECT institution_id FROM profiles WHERE id = auth.uid() LIMIT 1
-$$;
+-- moddatetime already exists in Supabase — safe to re-run
+CREATE EXTENSION IF NOT EXISTS moddatetime;
+
+-- pg_trgm needed for fuzzy filename search on evidence
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
 -- ═══════════════════════════════════════════════
 -- REGULATORY FRAMEWORK ENGINE — MIGRATION
@@ -337,6 +342,67 @@ CREATE TABLE regulatory_course_syllabi (
   UNIQUE(institution_id, course_code, academic_year, semester)
 );
 
+-- 14. Peer Institution Benchmarks (NAAC 6.5.3 peer comparison — manual data entry)
+CREATE TABLE regulatory_peer_benchmarks (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  institution_id uuid NOT NULL REFERENCES institutions(id),
+  framework_id uuid NOT NULL REFERENCES regulatory_frameworks(id),
+  academic_year text NOT NULL,
+  peer_institution_name text NOT NULL,
+  peer_institution_nirf_rank integer,
+  peer_institution_naac_grade text,
+  metric_code text NOT NULL,
+  our_value numeric,
+  peer_value numeric,
+  gap numeric GENERATED ALWAYS AS (our_value - peer_value) STORED,
+  data_source text,                              -- "NIRF portal", "peer website", "manual"
+  notes text,
+  created_by uuid REFERENCES profiles(id),
+  created_at timestamptz DEFAULT now(),
+  updated_at timestamptz DEFAULT now(),
+  UNIQUE(institution_id, framework_id, academic_year, peer_institution_name, metric_code)
+);
+
+-- ═══════════════════════════════════════════════
+-- EVIDENCE SEARCH SUPPORT (Full-text + fuzzy search)
+-- ═══════════════════════════════════════════════
+
+ALTER TABLE regulatory_evidence ADD COLUMN IF NOT EXISTS search_vector tsvector
+  GENERATED ALWAYS AS (
+    to_tsvector('english',
+      coalesce(file_name, '') || ' ' ||
+      coalesce(description, '') || ' ' ||
+      coalesce(evidence_type, '')
+    )
+  ) STORED;
+
+-- ═══════════════════════════════════════════════
+-- OKR → REGULATORY INTEGRATION (Action Plan tracking)
+-- ═══════════════════════════════════════════════
+
+ALTER TABLE okr_objectives ADD COLUMN IF NOT EXISTS regulatory_metric_id uuid REFERENCES regulatory_metrics(id);
+ALTER TABLE okr_objectives ADD COLUMN IF NOT EXISTS regulatory_target_value numeric;
+
+-- ═══════════════════════════════════════════════
+-- COURSE COMPLETION MONITORING VIEW
+-- ═══════════════════════════════════════════════
+
+CREATE OR REPLACE VIEW regulatory_course_completion_dashboard AS
+SELECT
+  cs.institution_id,
+  cs.department,
+  cs.academic_year,
+  COUNT(*) as total_courses,
+  COUNT(CASE WHEN cs.completion_percentage >= 100 THEN 1 END) as completed_courses,
+  COUNT(CASE WHEN cs.completion_percentage >= 75 AND cs.completion_percentage < 100 THEN 1 END) as on_track_courses,
+  COUNT(CASE WHEN cs.completion_percentage < 75 THEN 1 END) as behind_courses,
+  ROUND(AVG(cs.completion_percentage), 1) as avg_completion_pct,
+  COUNT(CASE WHEN cs.syllabus_file_url IS NOT NULL THEN 1 END) as syllabi_uploaded,
+  COUNT(CASE WHEN cs.teaching_plan_file_url IS NOT NULL THEN 1 END) as plans_uploaded
+FROM regulatory_course_syllabi cs
+WHERE cs.revision_status = 'current'
+GROUP BY cs.institution_id, cs.department, cs.academic_year;
+
 -- ═══════════════════════════════════════════════
 -- RLS POLICIES
 -- ═══════════════════════════════════════════════
@@ -352,6 +418,7 @@ ALTER TABLE regulatory_data_connectors ENABLE ROW LEVEL SECURITY;
 ALTER TABLE regulatory_simulations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE regulatory_evidence_versions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE regulatory_peer_visits ENABLE ROW LEVEL SECURITY;
+ALTER TABLE regulatory_peer_benchmarks ENABLE ROW LEVEL SECURITY;
 ALTER TABLE regulatory_governing_bodies ENABLE ROW LEVEL SECURITY;
 ALTER TABLE regulatory_body_meetings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE regulatory_course_syllabi ENABLE ROW LEVEL SECURITY;
@@ -618,6 +685,33 @@ CREATE POLICY "syllabi_update" ON regulatory_course_syllabi FOR UPDATE
       ('super_admin','institution_admin','iqac_coordinator','hod','faculty'))
   );
 
+-- ─── Peer Benchmarks: institution-scoped, writable by IQAC/admin roles ───
+CREATE POLICY "benchmarks_read" ON regulatory_peer_benchmarks FOR SELECT USING (
+  institution_id = auth_institution_id()
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+);
+CREATE POLICY "benchmarks_insert" ON regulatory_peer_benchmarks FOR INSERT
+  WITH CHECK (
+    (institution_id = auth_institution_id()
+      OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'))
+    AND EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN
+      ('super_admin','institution_admin','iqac_coordinator'))
+  );
+CREATE POLICY "benchmarks_update" ON regulatory_peer_benchmarks FOR UPDATE
+  USING (
+    (institution_id = auth_institution_id()
+      OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'))
+    AND EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN
+      ('super_admin','institution_admin','iqac_coordinator'))
+  );
+CREATE POLICY "benchmarks_delete" ON regulatory_peer_benchmarks FOR DELETE
+  USING (
+    (institution_id = auth_institution_id()
+      OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'))
+    AND EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN
+      ('super_admin','institution_admin','iqac_coordinator'))
+  );
+
 -- ═══════════════════════════════════════════════
 -- INDEXES
 -- ═══════════════════════════════════════════════
@@ -638,14 +732,19 @@ CREATE INDEX idx_reg_governing_bodies_inst ON regulatory_governing_bodies(instit
 CREATE INDEX idx_reg_body_meetings_inst_year ON regulatory_body_meetings(institution_id, academic_year);
 -- NOTE: course_syllabi UNIQUE(institution_id, course_code, academic_year, semester) already creates an implicit index
 CREATE INDEX idx_reg_syllabi_dept ON regulatory_course_syllabi(institution_id, department, academic_year);
+-- NOTE: peer_benchmarks UNIQUE(institution_id, framework_id, academic_year, peer_institution_name, metric_code) already creates an implicit index
+CREATE INDEX idx_reg_benchmarks_inst_framework ON regulatory_peer_benchmarks(institution_id, framework_id, academic_year);
+
+-- GIN indexes for evidence full-text and fuzzy search
+CREATE INDEX idx_reg_evidence_search ON regulatory_evidence USING GIN (search_vector);
+CREATE INDEX idx_reg_evidence_filename_trgm ON regulatory_evidence USING GIN (file_name gin_trgm_ops);
 
 -- ═══════════════════════════════════════════════
 -- TRIGGERS
 -- ═══════════════════════════════════════════════
 
 -- Auto-update updated_at on all tables that have the column.
--- Requires the moddatetime extension (already enabled in Supabase by default).
-CREATE EXTENSION IF NOT EXISTS moddatetime;
+-- Requires the moddatetime extension (already enabled above).
 
 CREATE TRIGGER trg_frameworks_updated_at BEFORE UPDATE ON regulatory_frameworks
   FOR EACH ROW EXECUTE FUNCTION moddatetime(updated_at);
@@ -668,6 +767,8 @@ CREATE TRIGGER trg_governing_bodies_updated_at BEFORE UPDATE ON regulatory_gover
 CREATE TRIGGER trg_body_meetings_updated_at BEFORE UPDATE ON regulatory_body_meetings
   FOR EACH ROW EXECUTE FUNCTION moddatetime(updated_at);
 CREATE TRIGGER trg_syllabi_updated_at BEFORE UPDATE ON regulatory_course_syllabi
+  FOR EACH ROW EXECUTE FUNCTION moddatetime(updated_at);
+CREATE TRIGGER trg_benchmarks_updated_at BEFORE UPDATE ON regulatory_peer_benchmarks
   FOR EACH ROW EXECUTE FUNCTION moddatetime(updated_at);
 
 COMMIT;
