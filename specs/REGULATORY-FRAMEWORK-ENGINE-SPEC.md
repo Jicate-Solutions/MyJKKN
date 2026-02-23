@@ -1006,7 +1006,7 @@ Ship with these frameworks pre-configured (seeded in migration):
 | V | Student Support & Progression | 140 | 4 | 9 | 1 | 8 |
 | VI | Governance, Leadership & Management | 100 | 5 | 9 | 5 | 4 |
 | VII | Institutional Values & Best Practices | 100 | 3 | 6 | 4 | 2 |
-| **TOTAL** | | **1050** | **32** | **56** | **21** | **35** |
+| **TOTAL** | | **1050** | **32** | **56** | **22** | **34** |
 
 #### Criterion I — Curricular Aspects (150 marks)
 
