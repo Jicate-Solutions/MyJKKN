@@ -71,7 +71,7 @@ export function BodyList({ bodies, institutionId }: BodyListProps) {
     return bodies.filter(
       (b) =>
         b.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (b.type && b.type.toLowerCase().includes(searchQuery.toLowerCase())) ||
+        ((b.type || b.body_type) && (b.type || b.body_type || '').toLowerCase().includes(searchQuery.toLowerCase())) ||
         (b.chairperson_name && b.chairperson_name.toLowerCase().includes(searchQuery.toLowerCase()))
     )
   }, [bodies, searchQuery])
