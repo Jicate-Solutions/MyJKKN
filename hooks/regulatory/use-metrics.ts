@@ -154,6 +154,159 @@ export function useUpsertMetricValue() {
 }
 
 // ---------------------------------------------------------------------------
+// Adapter hooks (used by page components with different signatures)
+// ---------------------------------------------------------------------------
+
+/**
+ * useFrameworkMetricValues — adapter that accepts { framework_id, institution_id? }.
+ * Returns metric values enriched with metric metadata (code, name, etc.).
+ */
+export function useFrameworkMetricValues(
+  opts: { framework_id: string; institution_id?: string }
+) {
+  const { profile, isLoading: authLoading } = useAuth()
+  const { isSuperAdmin } = usePermissions()
+
+  const institutionId = opts.institution_id ?? (isSuperAdmin ? undefined : profile?.institution_id)
+
+  return useQuery<any[], Error>({
+    queryKey: [...metricKeys.all, 'framework-metric-values', opts.framework_id, institutionId] as const,
+    queryFn: async () => {
+      try {
+        const result = await RegulatoryMetricService.getMetricsWithValues(
+          opts.framework_id,
+          institutionId
+        )
+        return result || []
+      } catch {
+        // Fallback: get metrics and values separately
+        const metricsResult = await RegulatoryMetricService.getMetrics({
+          framework_id: opts.framework_id
+        })
+        const metrics = metricsResult?.data || []
+        const values = await RegulatoryMetricService.getMetricValues(
+          opts.framework_id,
+          institutionId
+        )
+        const valueMap = new Map((values || []).map((v: any) => [v.metric_id, v]))
+
+        return metrics.map((m: any) => {
+          const val = valueMap.get(m.id) || {}
+          return {
+            id: val.id || m.id,
+            metric_id: m.id,
+            metric_code: m.code || '',
+            metric_name: m.name || '',
+            criteria_id: m.criteria_id,
+            criteria_code: m.criteria_code || '',
+            criteria_name: m.criteria_name || '',
+            data_type: m.data_type || m.metric_type || 'text',
+            source_type: m.source_type || 'manual',
+            current_value: val.value ?? val.numeric_value ?? val.text_value ?? null,
+            previous_value: val.previous_value ?? null,
+            unit: m.unit || '',
+            weight: m.weightage || m.weight || 0,
+            max_score: m.max_score || 0,
+            score: val.score ?? null,
+            last_updated_at: val.updated_at || null,
+            last_updated_by: val.updated_by || null
+          }
+        })
+      }
+    },
+    enabled:
+      !authLoading &&
+      !!profile &&
+      !!opts.framework_id &&
+      (isSuperAdmin || !!institutionId),
+    ...QUERY_CONFIG.SEMI_STABLE_DATA
+  })
+}
+
+/**
+ * useUpdateMetricValue — adapter that accepts { metric_id, framework_id, institution_id?, value }.
+ * Simpler API used by page components.
+ */
+export function useUpdateMetricValue() {
+  const queryClient = useQueryClient()
+  const { profile } = useAuth()
+
+  return useMutation({
+    mutationFn: async (input: {
+      metric_id: string
+      framework_id: string
+      institution_id?: string
+      value: any
+    }) => {
+      return await RegulatoryMetricService.upsertMetricValue({
+        metric_id: input.metric_id,
+        framework_id: input.framework_id,
+        institution_id: input.institution_id || profile?.institution_id || '',
+        value: input.value,
+        updated_by: profile?.id
+      })
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: [...metricKeys.all, 'framework-metric-values', variables.framework_id]
+      })
+      queryClient.invalidateQueries({
+        queryKey: metricKeys.valuesFor(variables.framework_id)
+      })
+    },
+    onError: (error: Error) => {
+      console.error('[useUpdateMetricValue] Error:', error)
+    }
+  })
+}
+
+/**
+ * useRefreshAutoMetric — refresh a single auto-calculated metric.
+ * Invalidates cache to trigger re-fetch of calculated values.
+ */
+export function useRefreshAutoMetric() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async (input: {
+      metric_id: string
+      framework_id: string
+      institution_id?: string
+    }) => {
+      queryClient.invalidateQueries({
+        queryKey: [...metricKeys.all, 'framework-metric-values', input.framework_id]
+      })
+      queryClient.invalidateQueries({
+        queryKey: metricKeys.valuesFor(input.framework_id)
+      })
+      return { success: true }
+    }
+  })
+}
+
+/**
+ * useBulkRefreshAutoMetrics — refresh all auto metrics for a framework.
+ */
+export function useBulkRefreshAutoMetrics() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async (input: {
+      framework_id: string
+      institution_id?: string
+    }) => {
+      queryClient.invalidateQueries({
+        queryKey: [...metricKeys.all, 'framework-metric-values', input.framework_id]
+      })
+      queryClient.invalidateQueries({
+        queryKey: metricKeys.valuesFor(input.framework_id)
+      })
+      return { success: true }
+    }
+  })
+}
+
+// ---------------------------------------------------------------------------
 // useMetricHistory — audit trail for a specific metric at an institution
 // Uses regulatory_metric_value_history table (populated by DB trigger)
 // ---------------------------------------------------------------------------
