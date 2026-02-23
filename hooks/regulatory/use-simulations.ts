@@ -258,6 +258,10 @@ export function useSavedSimulations(
 
 /**
  * useDeleteSimulation — delete a saved simulation by ID.
+ *
+ * NOTE: regulatory_simulations may be append-only (no DELETE RLS policy).
+ * If the DB does not have a DELETE policy, this will fail gracefully with an error toast.
+ * A super_admin bypass may be needed, or a soft-delete column should be added.
  */
 export function useDeleteSimulation() {
   const queryClient = useQueryClient()
@@ -279,7 +283,7 @@ export function useDeleteSimulation() {
       queryClient.invalidateQueries({ queryKey: simulationKeys.lists() })
     },
     onError: (error: Error) => {
-      toast.error(error.message || 'Failed to delete simulation')
+      toast.error(error.message || 'Failed to delete simulation. Simulations may be read-only.')
     }
   })
 }
