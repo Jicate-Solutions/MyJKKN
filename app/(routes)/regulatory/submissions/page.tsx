@@ -511,8 +511,55 @@ export default function SubmissionsPage() {
                           </div>
                         </div>
 
-                        {/* Actions */}
-                        <div className="flex items-center gap-2">
+                        {/* Status Transition + Actions */}
+                        <div className="flex flex-wrap items-center gap-2">
+                          {sub.status === 'draft' && (
+                            <Button
+                              size="sm"
+                              onClick={() => updateStatusMutation.mutate({ id: sub.id, status: 'data_collection' })}
+                              disabled={updateStatusMutation.isPending}
+                            >
+                              Start Data Collection
+                            </Button>
+                          )}
+                          {sub.status === 'data_collection' && (
+                            <Button
+                              size="sm"
+                              onClick={() => updateStatusMutation.mutate({ id: sub.id, status: 'in_review' })}
+                              disabled={updateStatusMutation.isPending}
+                            >
+                              Submit for Review
+                            </Button>
+                          )}
+                          {sub.status === 'in_review' && (
+                            <Button
+                              size="sm"
+                              onClick={() => updateStatusMutation.mutate({ id: sub.id, status: 'approved' })}
+                              disabled={updateStatusMutation.isPending}
+                            >
+                              Approve
+                            </Button>
+                          )}
+                          {sub.status === 'approved' && (
+                            <Button
+                              size="sm"
+                              onClick={() => updateStatusMutation.mutate({ id: sub.id, status: 'submitted' })}
+                              disabled={updateStatusMutation.isPending}
+                            >
+                              <Send className="h-4 w-4 mr-2" />
+                              Mark as Submitted
+                            </Button>
+                          )}
+                          {sub.status !== 'draft' && sub.status !== 'submitted' && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => updateStatusMutation.mutate({ id: sub.id, status: 'draft' })}
+                              disabled={updateStatusMutation.isPending}
+                            >
+                              Revert to Draft
+                            </Button>
+                          )}
                           <Button variant="outline" size="sm" asChild>
                             <Link href={`/regulatory/${sub.framework_id}`}>
                               <FileText className="h-4 w-4 mr-2" />
