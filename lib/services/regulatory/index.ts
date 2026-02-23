@@ -42,7 +42,9 @@ export type {
   MeetingFilters,
   CreateMeetingData,
   UpdateMeetingData,
-  MeetingResolution
+  MeetingResolution,
+  MeetingAgendaItem,
+  MeetingActionItem
 } from './regulatory-governance-service'
 
 export { RegulatoryPeerVisitService } from './regulatory-peer-visit-service'
@@ -51,7 +53,8 @@ export type {
   CreatePeerVisitData,
   UpdatePeerVisitData,
   PeerTeamMember,
-  PeerVisitActionItem
+  PeerVisitActionItem,
+  PeerVisitItineraryItem
 } from './regulatory-peer-visit-service'
 
 export { RegulatorySyllabusService } from './regulatory-syllabus-service'
@@ -62,3 +65,10 @@ export type {
   CourseOutcome,
   SyllabusUnit
 } from './regulatory-syllabus-service'
+
+export { RegulatoryBenchmarkService } from './regulatory-benchmark-service'
+export type {
+  BenchmarkFilters,
+  CreateBenchmarkData,
+  UpdateBenchmarkData
+} from './regulatory-benchmark-service'
