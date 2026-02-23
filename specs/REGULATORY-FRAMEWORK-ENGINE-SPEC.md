@@ -255,7 +255,175 @@ Regulatory Compliance/
 
 ---
 
-### T10: Connections — Module Integration Map
+### T10: IQAC Supporting Capabilities
+
+> **Context:** PRD Section 10 (IQAC Module) requires four capabilities beyond core framework metrics. These are spec'd here with schema, integration points, and user flows.
+
+#### 10.1 Performance Benchmarking (Peer Institution Comparison)
+
+**Purpose:** NAAC criterion 6.5.3 and NIRF require comparing institution performance against peer institutions. This is NOT automated (peer data is external and not in our database) — it uses manual peer data entry with structured storage.
+
+**New Table:** `regulatory_peer_benchmarks`
+
+```sql
+CREATE TABLE regulatory_peer_benchmarks (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  institution_id uuid NOT NULL REFERENCES institutions(id),
+  framework_id uuid NOT NULL REFERENCES regulatory_frameworks(id),
+  academic_year text NOT NULL,
+  peer_institution_name text NOT NULL,           -- "PSG College of Technology"
+  peer_institution_nirf_rank integer,            -- peer's NIRF rank (if available)
+  peer_institution_naac_grade text,              -- peer's NAAC grade (if available)
+  metric_code text NOT NULL,                     -- which metric is being compared
+  our_value numeric,                             -- our institution's value
+  peer_value numeric,                            -- peer institution's value
+  gap numeric GENERATED ALWAYS AS (our_value - peer_value) STORED,
+  data_source text,                              -- "NIRF portal", "peer website", "manual"
+  notes text,
+  created_by uuid REFERENCES profiles(id),
+  created_at timestamptz DEFAULT now(),
+  updated_at timestamptz DEFAULT now(),
+  UNIQUE(institution_id, framework_id, academic_year, peer_institution_name, metric_code)
+);
+```
+
+**User Flow:**
+1. IQAC coordinator selects framework (e.g., NIRF Engineering) and academic year
+2. Adds peer institutions (typically 5-10 institutions at similar rank band)
+3. Enters peer metric values from publicly available NIRF data or institutional websites
+4. Dashboard shows gap analysis: where we lead, where we lag, and the delta
+5. Feeds into NAAC SSR narrative for "best practices benchmarking"
+
+**Permissions:** Same as regulatory_submissions — super_admin, institution_admin, iqac_coordinator can write; principal can read.
+
+#### 10.2 Action Plan Management (IQAC → OKR Integration)
+
+**Purpose:** NAAC criterion 6.5.2 requires "institutional quality improvement driven by IQAC action plans." Rather than building a separate action plan system, this integrates with the existing OKR module.
+
+**Integration Design (NO new table — uses existing OKR):**
+
+```
+IQAC identifies gap     →  Creates OKR objective tagged with regulatory context
+  (e.g., "Improve FSR")      okr_objectives.metadata = { regulatory_framework_id, metric_code, target_value }
+
+OKR tracks progress     →  Key results measure improvement
+  (quarterly check-ins)       okr_key_results.current_value tracks metric progress
+
+Metric auto-refreshes   →  Regulatory engine picks up improved value
+  (via data connector)        regulatory_metric_values.current_value reflects change
+```
+
+**New Column on `okr_objectives`:** (ALTER TABLE, not new table)
+
+```sql
+-- Links an OKR objective to a regulatory metric it aims to improve
+ALTER TABLE okr_objectives ADD COLUMN IF NOT EXISTS regulatory_metric_id uuid REFERENCES regulatory_metrics(id);
+ALTER TABLE okr_objectives ADD COLUMN IF NOT EXISTS regulatory_target_value numeric;
+```
+
+**User Flow:**
+1. IQAC coordinator identifies a weak metric (e.g., "Faculty PhD % is 45%, need 60%")
+2. Clicks "Create Action Plan" → creates an OKR objective with `regulatory_metric_id` linked
+3. OKR module tracks the action plan (key results, check-ins, responsible person)
+4. When the metric is refreshed by data connector, IQAC dashboard shows progress vs target
+5. NAAC SSR narrative auto-generates: "IQAC identified FSR gap, created action plan, improved from 45% to 58%"
+
+**Permissions:** Uses existing OKR permissions. IQAC coordinator role already has OKR write access.
+
+#### 10.3 Document Repository Search (Evidence Full-Text Search)
+
+**Purpose:** NAAC DVV process requires quickly finding evidence documents across years and criteria. With potentially thousands of uploaded documents, full-text search is essential.
+
+**Implementation Design (Supabase pg_trgm + GIN index):**
+
+```sql
+-- Enable trigram extension for fuzzy text search
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
+-- Add search vector column to evidence table
+ALTER TABLE regulatory_evidence ADD COLUMN IF NOT EXISTS search_vector tsvector
+  GENERATED ALWAYS AS (
+    to_tsvector('english',
+      coalesce(file_name, '') || ' ' ||
+      coalesce(description, '') || ' ' ||
+      coalesce(evidence_type, '')
+    )
+  ) STORED;
+
+-- GIN index for fast full-text search
+CREATE INDEX idx_reg_evidence_search ON regulatory_evidence USING GIN (search_vector);
+
+-- Trigram index for fuzzy matching on file_name
+CREATE INDEX idx_reg_evidence_filename_trgm ON regulatory_evidence USING GIN (file_name gin_trgm_ops);
+```
+
+**Search API Pattern:**
+```sql
+-- Full-text search across evidence documents
+SELECT e.*, ts_rank(search_vector, query) AS relevance
+FROM regulatory_evidence e,
+     to_tsquery('english', 'placement & report') query
+WHERE search_vector @@ query
+  AND institution_id = auth_institution_id()
+  AND is_deleted = false
+ORDER BY relevance DESC;
+
+-- Fuzzy file name search (for partial/misspelled queries)
+SELECT * FROM regulatory_evidence
+WHERE file_name % 'palcement reprt'  -- trigram similarity handles typos
+  AND institution_id = auth_institution_id()
+  AND is_deleted = false
+ORDER BY similarity(file_name, 'palcement reprt') DESC;
+```
+
+**User Flow:**
+1. IQAC coordinator opens Evidence Repository (or uses global search)
+2. Types search query: "placement 2024" or "audit report"
+3. Results show matching documents with relevance ranking
+4. Filter by: framework, criteria, academic year, evidence type, uploader
+5. Click to preview/download
+
+#### 10.4 Course Completion Tracking
+
+**Purpose:** NAAC criterion 2.6 requires "process of monitoring and ensuring academic calendar compliance." The `regulatory_course_syllabi` table already has `total_hours` and `completed_hours` with a computed `completion_percentage`. This section spec's the monitoring workflow.
+
+**Already Covered (in `regulatory_course_syllabi`):**
+- `total_hours` — planned teaching hours for the course
+- `completed_hours` — actual hours delivered
+- `completion_percentage` — GENERATED ALWAYS AS computed column
+
+**Additional Monitoring Capability (new view, not table):**
+
+```sql
+-- Aggregated completion dashboard view
+CREATE OR REPLACE VIEW regulatory_course_completion_dashboard AS
+SELECT
+  cs.institution_id,
+  cs.department,
+  cs.academic_year,
+  COUNT(*) as total_courses,
+  COUNT(CASE WHEN cs.completion_percentage >= 100 THEN 1 END) as completed_courses,
+  COUNT(CASE WHEN cs.completion_percentage >= 75 AND cs.completion_percentage < 100 THEN 1 END) as on_track_courses,
+  COUNT(CASE WHEN cs.completion_percentage < 75 THEN 1 END) as behind_courses,
+  ROUND(AVG(cs.completion_percentage), 1) as avg_completion_pct,
+  COUNT(CASE WHEN cs.syllabus_file_url IS NOT NULL THEN 1 END) as syllabi_uploaded,
+  COUNT(CASE WHEN cs.teaching_plan_file_url IS NOT NULL THEN 1 END) as plans_uploaded
+FROM regulatory_course_syllabi cs
+WHERE cs.revision_status = 'current'
+GROUP BY cs.institution_id, cs.department, cs.academic_year;
+```
+
+**User Flow:**
+1. IQAC coordinator opens Governance → Course Syllabi tab
+2. Sees department-wise completion dashboard (heatmap: green ≥100%, yellow ≥75%, red <75%)
+3. Drill into department → see individual course progress
+4. HOD updates `completed_hours` periodically (or it feeds from Academic Operations timetable data)
+5. At year-end, generates NAAC-ready report on syllabus completion rate
+6. Feeds NAAC criterion 2.6 with quantitative data: "92% courses completed planned hours"
+
+---
+
+### T11: Connections — Module Integration Map
 
 This is the core of the spec. The Regulatory Framework Engine connects to **15 existing MyJKKN modules** (DC-01 through DC-15) via Data Connectors.
 
