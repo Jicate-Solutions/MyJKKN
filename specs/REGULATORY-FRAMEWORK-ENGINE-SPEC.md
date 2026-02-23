@@ -704,7 +704,7 @@ CREATE TABLE regulatory_metrics (
   unit text,                                         -- "count", "%", "INR lakhs", "ratio", "years"
   formula text,                                      -- e.g., "(placed_count / eligible_count) * 100"
   formula_dependencies text[],                       -- metric codes this formula depends on
-  data_connector_id text,                            -- references a named connector (DC-01, DC-02...)
+  data_connector_id text REFERENCES regulatory_data_connectors(id), -- references a named connector (DC-01, DC-02...)
   data_connector_query text,                         -- actual SQL or query config (JSON)
   is_auto_calculable boolean DEFAULT false,
   requires_evidence boolean DEFAULT true,
