@@ -151,7 +151,7 @@ export default function AttendanceRegisterPage() {
                   {learners.map((l, idx) => (
                     <TableRow key={l.learner_id}>
                       <TableCell>{idx + 1}</TableCell>
-                      <TableCell className="font-mono text-sm">{l.learner_id.slice(0, 8)}...</TableCell>
+                      <TableCell className="font-mono text-sm">{l.learner_id?.slice(0, 8) ?? '—'}...</TableCell>
                       <TableCell>{l.total_days}</TableCell>
                       <TableCell className="text-center">
                         <Badge variant="default">{l.present}</Badge>
