@@ -489,7 +489,7 @@ export class ConsultantService {
     }
 
     if (lead_id) {
-      query = query.eq('lead_id', lead_id);
+      query = query.eq('admission_id', lead_id);
     }
 
     if (attribution_type) {
@@ -527,13 +527,13 @@ export class ConsultantService {
    */
   static async getAttributionsForLeadIds(
     leadIds: string[]
-  ): Promise<Array<{ lead_id: string; consultant: { name: string } | null }>> {
+  ): Promise<Array<{ admission_id: string; consultant: { name: string } | null }>> {
     if (!leadIds.length) return [];
     const supabase = createClientSupabaseClient();
     const { data, error } = await (supabase as any)
       .from('consultant_lead_attributions')
-      .select('lead_id, consultant:education_consultants(name)')
-      .in('lead_id', leadIds)
+      .select('admission_id, consultant:education_consultants(name)')
+      .in('admission_id', leadIds)
       .eq('attribution_type', 'primary');
     if (error) {
       console.error('[ConsultantService] getAttributionsForLeadIds:', error.message);
@@ -550,9 +550,10 @@ export class ConsultantService {
   ): Promise<ConsultantLeadAttribution> {
     const supabase = createClientSupabaseClient();
 
+    const { lead_id, ...rest } = input;
     const { data, error } = await (supabase as any)
       .from('consultant_lead_attributions')
-      .insert(input as any)
+      .insert({ ...rest, admission_id: lead_id } as any)
       .select()
       .single();
 
@@ -2275,7 +2276,7 @@ export class ConsultantService {
       .from('consultant_lead_attributions')
       .insert({
         institution_id: input.institution_id,
-        lead_id: lead.id,
+        admission_id: lead.id,
         consultant_id: input.consultant_id,
         attribution_type: 'primary',
         attribution_percentage: 100,

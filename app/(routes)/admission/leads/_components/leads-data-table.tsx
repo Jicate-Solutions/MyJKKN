@@ -101,7 +101,7 @@ export function LeadsDataTable() {
           .then((attrs) => {
             const map = new Map<string, string>();
             attrs.forEach((a) => {
-              if (a.consultant?.name) map.set(a.lead_id, a.consultant.name);
+              if (a.consultant?.name) map.set(a.admission_id, a.consultant.name);
             });
             setAttributionsMap(map);
           })
