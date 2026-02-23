@@ -853,6 +853,110 @@ CREATE TABLE regulatory_simulations (
   created_at timestamptz DEFAULT now()
 );
 
+-- 10. Evidence Version History (tracks document revisions — DVV may request updated evidence)
+CREATE TABLE regulatory_evidence_versions (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  evidence_id uuid NOT NULL REFERENCES regulatory_evidence(id) ON DELETE CASCADE,
+  version_number integer NOT NULL DEFAULT 1,
+  file_url text NOT NULL,
+  file_name text NOT NULL,
+  file_type text,
+  file_size_bytes bigint,
+  change_summary text,                               -- "Updated placement data per DVV feedback"
+  uploaded_by uuid NOT NULL REFERENCES profiles(id),
+  created_at timestamptz DEFAULT now(),
+  UNIQUE(evidence_id, version_number)
+);
+
+-- 11. Peer Team Visits (NAAC/NBA visit coordination and post-visit tracking)
+CREATE TABLE regulatory_peer_visits (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  submission_id uuid NOT NULL REFERENCES regulatory_submissions(id) ON DELETE RESTRICT,
+  institution_id uuid NOT NULL REFERENCES institutions(id),
+  visit_type text NOT NULL,                          -- naac_peer_team | nba_evaluator | aicte_expert
+  status text NOT NULL DEFAULT 'scheduled',          -- scheduled | confirmed | in_progress | completed | postponed | cancelled
+  scheduled_date date,
+  actual_start_date date,
+  actual_end_date date,
+  team_composition jsonb DEFAULT '[]',               -- [{name, designation, institution, role}]
+  pre_visit_checklist jsonb DEFAULT '{}',             -- {item: boolean} — infrastructure, documents, labs ready
+  visit_itinerary jsonb DEFAULT '[]',                -- [{day, time, activity, location, responsible_person}]
+  findings jsonb DEFAULT '{}',                       -- peer team observations/remarks
+  recommendations text,                              -- post-visit improvement suggestions
+  action_items jsonb DEFAULT '[]',                   -- [{action, responsible, deadline, status}]
+  grade_awarded text,                                -- grade/score from peer team (if applicable)
+  report_file_url text,                              -- peer team report document
+  coordinator_id uuid REFERENCES profiles(id),       -- IQAC coordinator managing the visit
+  notes text,
+  created_at timestamptz DEFAULT now(),
+  updated_at timestamptz DEFAULT now()
+);
+
+-- 12. Governing Bodies & Committees (NAAC SSR requires composition + meeting minutes)
+CREATE TABLE regulatory_governing_bodies (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  institution_id uuid NOT NULL REFERENCES institutions(id),
+  body_type text NOT NULL,                           -- governing_body | academic_council | bos | iqac | finance_committee | exam_committee | anti_ragging | icc | grievance_cell
+  name text NOT NULL,                                -- "Board of Studies - Computer Science"
+  mandate text,                                      -- statutory purpose/responsibilities
+  formation_date date,
+  is_active boolean DEFAULT true,
+  meeting_frequency text,                            -- monthly | quarterly | biannual | annual | as_needed
+  members jsonb DEFAULT '[]',                        -- [{name, designation, role_in_body, affiliation, member_type, nominated_by, tenure_start, tenure_end}]
+  created_at timestamptz DEFAULT now(),
+  updated_at timestamptz DEFAULT now()
+);
+
+-- Meeting minutes for governing bodies (NAAC evidence requirement)
+CREATE TABLE regulatory_body_meetings (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  body_id uuid NOT NULL REFERENCES regulatory_governing_bodies(id) ON DELETE CASCADE,
+  institution_id uuid NOT NULL REFERENCES institutions(id),
+  meeting_number integer NOT NULL,                   -- sequential per body per academic year
+  academic_year text NOT NULL,
+  meeting_date date NOT NULL,
+  quorum_met boolean DEFAULT true,
+  attendees_count integer,
+  agenda jsonb DEFAULT '[]',                         -- [{item_number, topic, presented_by}]
+  resolutions jsonb DEFAULT '[]',                    -- [{resolution_number, text, status: approved|deferred|rejected}]
+  action_items jsonb DEFAULT '[]',                   -- [{action, responsible, deadline, status}]
+  minutes_file_url text,                             -- uploaded minutes PDF
+  approved_by uuid REFERENCES profiles(id),
+  approved_at timestamptz,
+  created_at timestamptz DEFAULT now(),
+  updated_at timestamptz DEFAULT now(),
+  UNIQUE(body_id, academic_year, meeting_number)
+);
+
+-- 13. Course Syllabi & Teaching Plans (NAAC Criterion 1 — Curricular Aspects)
+CREATE TABLE regulatory_course_syllabi (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  institution_id uuid NOT NULL REFERENCES institutions(id),
+  program_id uuid,                                   -- FK to programs table (verify column name)
+  department text NOT NULL,
+  course_code text NOT NULL,
+  course_name text NOT NULL,
+  academic_year text NOT NULL,
+  semester integer,
+  syllabus_file_url text,                            -- uploaded syllabus document
+  teaching_plan_file_url text,                       -- uploaded teaching plan
+  revision_status text DEFAULT 'current',            -- current | under_revision | archived
+  revision_date date,
+  bos_approval_date date,                            -- Board of Studies approval
+  bos_meeting_id uuid,                               -- FK to regulatory_body_meetings if tracked
+  total_hours integer,                               -- planned teaching hours
+  completed_hours integer,                            -- actual hours delivered
+  completion_percentage numeric GENERATED ALWAYS AS (
+    CASE WHEN total_hours > 0 THEN (completed_hours::numeric / total_hours) * 100 ELSE 0 END
+  ) STORED,
+  co_mapping jsonb DEFAULT '{}',                     -- {CO1: "description", CO2: "description", ...}
+  po_mapping jsonb DEFAULT '[]',                     -- [{co: "CO1", po: "PO1", level: 3}, ...] — NBA attainment
+  innovative_methods text,                           -- pedagogical innovations used
+  created_at timestamptz DEFAULT now(),
+  updated_at timestamptz DEFAULT now(),
+  UNIQUE(institution_id, course_code, academic_year, semester)
+);
+
 -- ═══════════════════════════════════════════════
 -- RLS POLICIES
 -- ═══════════════════════════════════════════════
@@ -866,6 +970,11 @@ ALTER TABLE regulatory_evidence ENABLE ROW LEVEL SECURITY;
 ALTER TABLE regulatory_submissions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE regulatory_data_connectors ENABLE ROW LEVEL SECURITY;
 ALTER TABLE regulatory_simulations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE regulatory_evidence_versions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE regulatory_peer_visits ENABLE ROW LEVEL SECURITY;
+ALTER TABLE regulatory_governing_bodies ENABLE ROW LEVEL SECURITY;
+ALTER TABLE regulatory_body_meetings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE regulatory_course_syllabi ENABLE ROW LEVEL SECURITY;
 
 -- ═══════════════════════════════════════════════
 -- RLS POLICIES — Role-based, per T8 permission matrix
