@@ -592,7 +592,11 @@ export class BillingReportService {
       query = query.eq('institution_id', institutionId);
     }
 
-    const { count } = await query;
+    const { count, error } = await query;
+    if (error) {
+      console.error('[billing/reports] Error in getTotalStudents:', error.message);
+      throw error;
+    }
     return count || 0;
   }
 
