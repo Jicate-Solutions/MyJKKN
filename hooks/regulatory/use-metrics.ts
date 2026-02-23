@@ -150,7 +150,7 @@ export function useUpsertMetricValue() {
       })
     },
     onError: (error: Error) => {
-      toast.error(error.message || 'Failed to save metric value')
+      toast.error(friendlyErrorMessage(error, 'Failed to save metric value'))
     }
   })
 }
