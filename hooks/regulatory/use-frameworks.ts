@@ -255,14 +255,14 @@ export function useUpcomingDeadlines(
         const thirtyDaysFromNow = new Date()
         thirtyDaysFromNow.setDate(thirtyDaysFromNow.getDate() + 30)
 
+        // Query frameworks with upcoming submission_deadline
         let query = (supabase as any)
-          .from('regulatory_submissions')
-          .select('id, framework_id, due_date, status, academic_year, updated_at')
-          .not('due_date', 'is', null)
-          .gte('due_date', new Date().toISOString())
-          .lte('due_date', thirtyDaysFromNow.toISOString())
-          .in('status', ['draft', 'data_collection', 'in_review'])
-          .order('due_date', { ascending: true })
+          .from('regulatory_frameworks')
+          .select('id, name, body, submission_deadline, status')
+          .not('submission_deadline', 'is', null)
+          .gte('submission_deadline', new Date().toISOString())
+          .lte('submission_deadline', thirtyDaysFromNow.toISOString())
+          .order('submission_deadline', { ascending: true })
           .limit(limit)
 
         if (institutionId) {
