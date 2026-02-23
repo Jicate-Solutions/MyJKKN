@@ -233,7 +233,7 @@ export function useFrameworkEvidence(
 
         let query = (supabase as any)
           .from('regulatory_evidence')
-          .select('*')
+          .select('*, uploaded_by_profile:profiles!uploaded_by(id, full_name, email)')
           .or(orParts.join(','))
 
         if (institutionId) {
