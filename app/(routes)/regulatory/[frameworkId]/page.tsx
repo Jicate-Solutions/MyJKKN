@@ -87,6 +87,7 @@ export default function FrameworkDetailPage() {
     data: framework,
     isLoading: frameworkLoading,
     error: frameworkError,
+    refetch: refetchFramework,
   } = useFrameworkDetail({ framework_id: frameworkId, institution_id: institutionId })
 
   const {
