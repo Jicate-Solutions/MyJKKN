@@ -1367,16 +1367,16 @@ The Dr. Radhakrishnan Committee Report (Nov 2023) recommends:
 
 #### TLR Sub-Parameter Variations by Discipline
 
-| Sub-Parameter | Overall | Engineering | Pharmacy | Colleges | Dental |
-|---------------|---------|-------------|----------|----------|--------|
-| SS (Student Strength) | 20 | 20 | 20 | 20 | 20 |
-| FSR (Faculty-Student Ratio) | 25 | **30** | **30** | 25 | **30** |
-| FQE (Faculty Quality & Exp) | 20 | 20 | 20 | 20 | 20 |
-| FRU (Financial Resources) | 20 | **30** | **30** | 20 | **30** |
-| OE (Online Education) | 10 | *NEW* | *NEW* | 10 | *NEW* |
-| MIRS (NEP 2020) | 5 | *NEW* | *NEW* | 5 | *NEW* |
+| Sub-Parameter | Overall | Engineering | Pharmacy | Colleges | Dental | Medical/Nursing |
+|---------------|---------|-------------|----------|----------|--------|----------------|
+| SS (Student Strength) | 20 | 20 | 20 | 20 | **15** | 20 |
+| FSR (Faculty-Student Ratio) | 25 | **30** | **30** | **30** | **25** | **30** |
+| FQE (Faculty Quality & Exp) | 20 | 20 | 20 | 20 | 20 | 20 |
+| FRU (Financial Resources) | 20 | **30** | **30** | **30** | **35** | **30** |
+| OE (Online Education) | 10 | *NEW* | *NEW* | 10 | *NEW* | *NEW* |
+| MIR (NEP 2020) | 5 | *NEW* | *NEW* | 5 | *NEW* | *NEW* |
 
-> Engineering, Pharmacy, and Dental allocate more marks to FSR (30) and FRU (30) vs Overall (25, 20). This reflects higher infrastructure requirements for technical/clinical programs.
+> **Dental** has the highest FRU (35 marks) — reflecting expensive clinical equipment needs — but lower SS (15) due to smaller programs. **Colleges and Medical/Nursing** also use FSR=30/FRU=30 (same as Engineering), departing from Overall's 25/20. "MIR" = Multiple Entry/exit, Indian Knowledge System, Regional languages (also abbreviated MIRS in some documents).
 
 #### GO Sub-Parameter Variations by Discipline
 
