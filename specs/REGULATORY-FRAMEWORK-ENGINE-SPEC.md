@@ -914,7 +914,7 @@ Week 4: Core UI
 ├── Day 1-2: Framework list page + criteria tree viewer
 ├── Day 3: Metric values page (auto/manual indicators, drill-down)
 ├── Day 4: Manual entry form + evidence upload
-├── Day 5: Integration testing, seed NIRF 2025 framework
+├── Day 5: Integration testing, seed NBA SAR + AICTE + UGC-AISHE frameworks
 ```
 
 ### Phase 2: Intelligence (Weeks 5-7) — P1
