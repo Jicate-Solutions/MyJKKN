@@ -304,7 +304,7 @@ export class ActivityHubService {
       try {
         let q = (supabase as any)
           .from('hostel_onboarding_checklists')
-          .select('id, learner_id, status, created_at, profiles!learner_id(full_name)')
+          .select('id, learner_id, status, created_at, profiles!hostel_onboarding_checklists_learner_id_fkey(full_name)')
           .gte('created_at', dateFrom)
           .lte('created_at', dateTo)
           .order('created_at', { ascending: false })
