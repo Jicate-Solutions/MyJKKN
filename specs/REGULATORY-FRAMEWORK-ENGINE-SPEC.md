@@ -1420,6 +1420,27 @@ The Dr. Radhakrishnan Committee Report (Nov 2023) recommends:
 
 > **Dental and Medical/Nursing** use the same OI distribution as Overall/Engineering (30/30/20/20). Only **Pharmacy and Colleges** use equal distribution (25 each). Education also uses 25/25/25/25.
 
+#### RP Sub-Parameter Variations (Colleges)
+
+Colleges introduces a 5th RP sub-parameter: PSDGs (SDG-aligned publications).
+
+| Sub-Parameter | Overall/Engineering | Colleges |
+|---------------|--------------------|---------|
+| PU (Publications) | 35 | **30** |
+| QP (Quality of Publications) | 35 | **30** |
+| IPR (Patents) | 15 | 15 |
+| FPPP (Funded Projects) | 15 | 15 |
+| PSDGs (SDG Publications) | — | **10** |
+
+> Colleges is the only category with PSDGs as a separate scored sub-parameter. Other categories may include SDG metrics in future NIRF revisions.
+
+#### Education Category (Estimated)
+
+> **Note:** Education may follow the Colleges framework if a separate Education framework is not published. The following is estimated from the `/Users/omm/Vaults/JKKNKB/NIRF/Education.md` vault strategy:
+> - RP replaces IPR with **AR (Action Research, 20 marks)** and adjusts PU/QP to 30/30
+> - GO has 3 unique sub-params: **GUE(50) + GTET(30) (Teacher Eligibility Test) + GPL(20) (Placements)**
+> - JKKN College of Education would use this framework
+
 #### Data Connector Mapping per Discipline
 
 All NIRF disciplines share the same data connectors since the underlying data sources are identical. The difference is purely in weights and sub-parameter selection. The engine handles this by:
@@ -1432,14 +1453,16 @@ regulatory_frameworks:
   { code: 'NIRF_2025_PHARMACY_B', institution_type: null }
   { code: 'NIRF_2025_COLLEGES', institution_type: null }
   { code: 'NIRF_2025_DENTAL', institution_type: null }
+  { code: 'NIRF_2025_MEDICAL', institution_type: null }
 
 regulatory_criteria (per framework):
   Same 5 parameters, different weights
 
 regulatory_metrics (per criterion per framework):
   Same sub-parameter codes but different max_score values
-  Pharmacy Cat B: GPHD replaced by GPH (different metric entirely)
-  Colleges: GPHD replaced by GPH
+  Pharmacy Cat B / Colleges: GPHD replaced by GPH (different metric entirely)
+  Dental / Medical: 3 GO sub-params (GUE + GPH + GPROF)
+  Colleges: 5 RP sub-params (adds PSDGs)
 ```
 
 #### Key Formulas (Common to All NIRF Disciplines)
