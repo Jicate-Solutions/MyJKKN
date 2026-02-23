@@ -29,6 +29,7 @@ export { MaintenanceService } from './maintenance-service';
 export { IncidentService } from './incident-service';
 export { AntiRaggingService } from './anti-ragging-service';
 export { InspectionService } from './inspection-service';
+export { PmScheduleService } from './pm-schedule-service';
 export { HostelAlertService } from './hostel-alert-service';
 
 // ── Cross-Domain ────────────────────────────────────────────────────
