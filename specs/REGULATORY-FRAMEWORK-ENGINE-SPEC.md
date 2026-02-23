@@ -188,7 +188,7 @@ Currently: **ALL done manually** — staff spends 3-6 months collecting data fro
 | Action | super_admin | institution_admin | iqac_coordinator | principal | hod | staff |
 |--------|:-----------:|:------------------:|:----------------:|:---------:|:---:|:-----:|
 | Create/edit framework definitions | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| Create/edit criteria & metrics | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ |
+| Create/edit criteria & metrics | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | Map data connectors | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | View metric values | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
 | Enter manual metric values | ✅ | ✅ | ✅ | ❌ | ✅ | ❌ |
