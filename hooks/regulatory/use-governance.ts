@@ -144,9 +144,8 @@ export function useMeetings(
     () => ({ ...filters }),
     [
       filters.body_id,
-      filters.status,
-      filters.from_date,
-      filters.to_date,
+      filters.institution_id,
+      filters.academic_year,
       filters.page,
       filters.limit
     ]
