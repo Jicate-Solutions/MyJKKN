@@ -139,7 +139,7 @@ export function MetricTable({ metrics, frameworkId, institutionId }: MetricTable
       })
       toast.success(`Refreshed ${metric.metric_code}`)
     } catch {
-      toast.error('Failed to refresh metric')
+      toast.error('Failed to refresh metric. Please try again.')
     }
   }
 
