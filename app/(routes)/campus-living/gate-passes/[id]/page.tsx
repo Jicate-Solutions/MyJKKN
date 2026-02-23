@@ -2,7 +2,7 @@
 
 import { use, useMemo } from 'react';
 import Link from 'next/link';
-import { format, formatDistanceToNow, isPast } from 'date-fns';
+import { format, isPast } from 'date-fns';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
