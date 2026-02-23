@@ -110,7 +110,9 @@ export class RegulatorySyllabusService {
    * Escapes commas and parentheses that could break the filter syntax.
    */
   private static sanitizeSearch(term: string): string {
-    return term.replace(/[,()]/g, ' ').trim()
+    // Strips: commas, parentheses, periods (PostgREST field separators),
+    // backslashes, and percent signs (ilike wildcards from user input)
+    return term.replace(/[,().\\%]/g, ' ').trim()
   }
 
   /**
