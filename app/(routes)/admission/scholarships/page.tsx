@@ -517,7 +517,7 @@ function ScholarshipsPageContent() {
                       className="h-2"
                     />
                     <div className="flex gap-2">
-                      <Button variant="outline" size="sm" className="flex-1" onClick={() => toast.success('Opening scholarship details')}>
+                      <Button variant="outline" size="sm" className="flex-1" onClick={() => router.push(`/admission/scholarships/${scholarship.id}`)}>
                         <Eye className="h-4 w-4 mr-1" />
                         View
                       </Button>

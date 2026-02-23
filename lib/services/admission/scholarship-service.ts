@@ -157,6 +157,18 @@ export class ScholarshipService {
     return data;
   }
 
+  static async getApplicationsByScholarshipId(scholarshipId: string): Promise<ScholarshipApplication[]> {
+    const supabase = createClientSupabaseClient();
+    const { data, error } = await (supabase as any)
+      .from('scholarship_applications')
+      .select('*')
+      .eq('scholarship_id', scholarshipId)
+      .order('applied_at', { ascending: false });
+
+    if (error) throw error;
+    return data || [];
+  }
+
   static async getScholarshipById(id: string): Promise<Scholarship | null> {
     const supabase = createClientSupabaseClient();
     const { data, error } = await (supabase as any)
