@@ -836,7 +836,7 @@ CREATE TABLE regulatory_data_connectors (
 
 -- Add deferred FK from regulatory_metrics → regulatory_data_connectors (now that both tables exist)
 ALTER TABLE regulatory_metrics ADD CONSTRAINT fk_metrics_data_connector
-  FOREIGN KEY (data_connector_id) REFERENCES regulatory_data_connectors(id);
+  FOREIGN KEY (data_connector_id) REFERENCES regulatory_data_connectors(id) ON DELETE RESTRICT;
 
 -- 9. Score Simulations (what-if scenarios)
 CREATE TABLE regulatory_simulations (
