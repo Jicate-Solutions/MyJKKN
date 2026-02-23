@@ -1264,7 +1264,7 @@ The `regulatory_frameworks` table now has `institution_type` column. Seed 3 vari
 |--------|-------|---------------|-------------|
 | 9.1 External Research Grants | 20 | Data | `research_projects` (NEW) |
 | 9.2 Research Publications | 25 | Data | `sh_publications` ✅ |
-| 9.3 Research Quality (h-index, citations) | 20 | Data | `sh_publications` (citation_count, h_index) ✅ |
+| 9.3 Research Quality (h-index, citations) | 20 | Data | `sh_publications` (citation_count, h_index_contribution) ✅ |
 | 9.4 PhDs Awarded | 20 | Data | DC-31: `phd_scholars` (NEW) |
 | 9.5 Research Fellowships (JRF/SRF) | NA | — | Not applicable for Autonomous |
 | 9.6 Intellectual Property | 5 | Data | `patents_ipr` (NEW) |
