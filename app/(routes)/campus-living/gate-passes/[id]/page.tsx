@@ -13,7 +13,6 @@ import { useGatePass } from '@/hooks/campus-living/use-gate-passes';
 import {
   ArrowLeft,
   User,
-  Calendar,
   MapPin,
   Phone,
   QrCode,
