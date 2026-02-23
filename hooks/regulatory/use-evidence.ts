@@ -1,5 +1,5 @@
 // hooks/regulatory/use-evidence.ts
-// React Query hooks for regulatory evidence (document uploads, versions)
+// React Query hooks for regulatory evidence (document uploads, versions, search)
 
 import {
   useQuery,
@@ -7,7 +7,13 @@ import {
   useQueryClient,
   UseQueryResult
 } from '@tanstack/react-query'
-import { createClientSupabaseClient } from '@/lib/supabase/client'
+import { useMemo, useCallback } from 'react'
+import {
+  RegulatoryEvidenceService,
+  type EvidenceFilters,
+  type UploadEvidenceData,
+  type AddEvidenceVersionData
+} from '@/lib/services/regulatory/regulatory-evidence-service'
 import { useAuth } from '../use-auth'
 import { usePermissions } from '@/hooks/use-permissions'
 import { QUERY_CONFIG } from '@/lib/config/query-config'
@@ -15,31 +21,9 @@ import toast from 'react-hot-toast'
 import { metricKeys } from './use-metrics'
 
 // ---------------------------------------------------------------------------
-// Types
+// Re-export service types for convenience
 // ---------------------------------------------------------------------------
-export interface UploadEvidenceInput {
-  metric_id?: string
-  criteria_id?: string
-  institution_id: string
-  academic_year: string
-  file_name: string
-  file_url: string
-  file_type?: string
-  file_size?: number
-  description?: string
-  uploaded_by: string
-  metadata?: Record<string, any>
-}
-
-export interface AddEvidenceVersionInput {
-  evidence_id: string
-  file_name: string
-  file_url: string
-  file_type?: string
-  file_size?: number
-  change_notes?: string
-  uploaded_by: string
-}
+export type { EvidenceFilters, UploadEvidenceData, AddEvidenceVersionData }
 
 // ---------------------------------------------------------------------------
 // Query key factory
@@ -47,73 +31,59 @@ export interface AddEvidenceVersionInput {
 export const evidenceKeys = {
   all: ['regulatory-evidence'] as const,
   lists: () => [...evidenceKeys.all, 'list'] as const,
-  listFor: (
-    metricId?: string,
-    criteriaId?: string,
-    institutionId?: string,
-    academicYear?: string
-  ) => [...evidenceKeys.lists(), metricId, criteriaId, institutionId, academicYear] as const,
+  listFor: (filters: EvidenceFilters) => [...evidenceKeys.lists(), filters] as const,
   details: () => [...evidenceKeys.all, 'detail'] as const,
   detail: (id: string) => [...evidenceKeys.details(), id] as const,
   versions: () => [...evidenceKeys.all, 'versions'] as const,
-  versionsFor: (evidenceId: string) => [...evidenceKeys.versions(), evidenceId] as const
-}
-
-// ---------------------------------------------------------------------------
-// Helper: get fresh Supabase client
-// ---------------------------------------------------------------------------
-function getSupabase() {
-  return createClientSupabaseClient()
+  versionsFor: (evidenceId: string) => [...evidenceKeys.versions(), evidenceId] as const,
+  search: () => [...evidenceKeys.all, 'search'] as const,
+  searchFor: (query: string, institutionId?: string) =>
+    [...evidenceKeys.search(), query, institutionId] as const
 }
 
 // ---------------------------------------------------------------------------
 // useEvidence — list evidence for a metric/criteria/institution/year
 // ---------------------------------------------------------------------------
 export function useEvidence(
-  metricId?: string,
-  criteriaId?: string,
-  institutionId?: string,
-  academicYear?: string
-): UseQueryResult<any[], Error> {
+  filters: EvidenceFilters = {}
+): UseQueryResult<{ data: any[]; metadata: any }, Error> {
   const { profile, isLoading: authLoading } = useAuth()
   const { isSuperAdmin } = usePermissions()
 
   const resolvedInstitutionId =
-    institutionId ?? (isSuperAdmin ? undefined : profile?.institution_id)
+    filters.institution_id ?? (isSuperAdmin ? undefined : profile?.institution_id)
+
+  const resolvedFilters = useMemo<EvidenceFilters>(
+    () => ({
+      ...filters,
+      institution_id: resolvedInstitutionId
+    }),
+    [
+      filters.metric_id,
+      filters.criteria_id,
+      filters.academic_year,
+      filters.is_deleted,
+      filters.page,
+      filters.limit,
+      resolvedInstitutionId
+    ]
+  )
+
+  const queryKey = useMemo(() => evidenceKeys.listFor(resolvedFilters), [resolvedFilters])
+
+  const queryFn = useCallback(async () => {
+    return await RegulatoryEvidenceService.getEvidence(resolvedFilters)
+  }, [resolvedFilters])
 
   return useQuery({
-    queryKey: evidenceKeys.listFor(metricId, criteriaId, resolvedInstitutionId, academicYear),
-    queryFn: async () => {
-      let query = (getSupabase() as any)
-        .from('regulatory_evidence')
-        .select('*')
-
-      if (metricId) {
-        query = query.eq('metric_id', metricId)
-      }
-      if (criteriaId) {
-        query = query.eq('criteria_id', criteriaId)
-      }
-      if (resolvedInstitutionId) {
-        query = query.eq('institution_id', resolvedInstitutionId)
-      }
-      if (academicYear) {
-        query = query.eq('academic_year', academicYear)
-      }
-
-      // Exclude soft-deleted
-      query = query.is('deleted_at', null)
-
-      const { data, error } = await query.order('created_at', { ascending: false })
-
-      if (error) throw error
-      return data || []
-    },
+    queryKey,
+    queryFn,
     enabled:
       !authLoading &&
       !!profile &&
-      (!!metricId || !!criteriaId) &&
+      (!!filters.metric_id || !!filters.criteria_id) &&
       (isSuperAdmin || !!resolvedInstitutionId),
+    placeholderData: (previousData) => previousData,
     ...QUERY_CONFIG.SEMI_STABLE_DATA
   })
 }
@@ -125,28 +95,8 @@ export function useUploadEvidence() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: async (input: UploadEvidenceInput) => {
-      const { data, error } = await (getSupabase() as any)
-        .from('regulatory_evidence')
-        .insert({
-          metric_id: input.metric_id,
-          criteria_id: input.criteria_id,
-          institution_id: input.institution_id,
-          academic_year: input.academic_year,
-          file_name: input.file_name,
-          file_url: input.file_url,
-          file_type: input.file_type,
-          file_size: input.file_size,
-          description: input.description,
-          uploaded_by: input.uploaded_by,
-          metadata: input.metadata || {},
-          version: 1
-        })
-        .select()
-        .single()
-
-      if (error) throw error
-      return data
+    mutationFn: async (input: UploadEvidenceData) => {
+      return await RegulatoryEvidenceService.uploadEvidence(input)
     },
     onSuccess: (_data, variables) => {
       toast.success('Evidence uploaded successfully')
@@ -169,15 +119,7 @@ export function useSoftDeleteEvidence() {
 
   return useMutation({
     mutationFn: async (evidenceId: string) => {
-      const { data, error } = await (getSupabase() as any)
-        .from('regulatory_evidence')
-        .update({ deleted_at: new Date().toISOString() })
-        .eq('id', evidenceId)
-        .select()
-        .single()
-
-      if (error) throw error
-      return data
+      return await RegulatoryEvidenceService.softDeleteEvidence(evidenceId)
     },
     onSuccess: () => {
       toast.success('Evidence removed')
@@ -198,16 +140,7 @@ export function useEvidenceVersions(evidenceId: string): UseQueryResult<any[], E
 
   return useQuery({
     queryKey: evidenceKeys.versionsFor(evidenceId),
-    queryFn: async () => {
-      const { data, error } = await (getSupabase() as any)
-        .from('regulatory_evidence_versions')
-        .select('*')
-        .eq('evidence_id', evidenceId)
-        .order('version_number', { ascending: false })
-
-      if (error) throw error
-      return data || []
-    },
+    queryFn: () => RegulatoryEvidenceService.getEvidenceVersions(evidenceId),
     enabled:
       !authLoading &&
       !!profile &&
@@ -224,50 +157,8 @@ export function useAddEvidenceVersion() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: async (input: AddEvidenceVersionInput) => {
-      // Get the latest version number
-      const { data: latestVersion } = await (getSupabase() as any)
-        .from('regulatory_evidence_versions')
-        .select('version_number')
-        .eq('evidence_id', input.evidence_id)
-        .order('version_number', { ascending: false })
-        .limit(1)
-        .maybeSingle()
-
-      const nextVersion = (latestVersion?.version_number || 0) + 1
-
-      // Insert new version
-      const { data, error } = await (getSupabase() as any)
-        .from('regulatory_evidence_versions')
-        .insert({
-          evidence_id: input.evidence_id,
-          version_number: nextVersion,
-          file_name: input.file_name,
-          file_url: input.file_url,
-          file_type: input.file_type,
-          file_size: input.file_size,
-          change_notes: input.change_notes,
-          uploaded_by: input.uploaded_by
-        })
-        .select()
-        .single()
-
-      if (error) throw error
-
-      // Also update the parent evidence record with the latest file info
-      await (getSupabase() as any)
-        .from('regulatory_evidence')
-        .update({
-          file_name: input.file_name,
-          file_url: input.file_url,
-          file_type: input.file_type,
-          file_size: input.file_size,
-          version: nextVersion,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', input.evidence_id)
-
-      return data
+    mutationFn: async (input: AddEvidenceVersionData) => {
+      return await RegulatoryEvidenceService.addEvidenceVersion(input)
     },
     onSuccess: (_data, variables) => {
       toast.success('New version uploaded')
@@ -279,5 +170,76 @@ export function useAddEvidenceVersion() {
     onError: (error: Error) => {
       toast.error(error.message || 'Failed to upload new version')
     }
+  })
+}
+
+// ---------------------------------------------------------------------------
+// useEvidenceSearch — search evidence by file name, title, or description
+// ---------------------------------------------------------------------------
+export function useEvidenceSearch(
+  searchQuery: string,
+  institutionId?: string
+): UseQueryResult<{ data: any[]; metadata: any }, Error> {
+  const { profile, isLoading: authLoading } = useAuth()
+  const { isSuperAdmin } = usePermissions()
+
+  const resolvedInstitutionId =
+    institutionId ?? (isSuperAdmin ? undefined : profile?.institution_id)
+
+  const filters = useMemo<EvidenceFilters>(
+    () => ({
+      institution_id: resolvedInstitutionId,
+      page: 1,
+      limit: 50
+    }),
+    [resolvedInstitutionId]
+  )
+
+  return useQuery({
+    queryKey: evidenceKeys.searchFor(searchQuery, resolvedInstitutionId),
+    queryFn: async () => {
+      // Use the service's getEvidence with text search via Supabase
+      // The service does not have a built-in search param, so we use
+      // a direct query with search applied as an ilike filter
+      const { createClientSupabaseClient } = await import('@/lib/supabase/client')
+      const supabase = createClientSupabaseClient()
+
+      let query = (supabase as any)
+        .from('regulatory_evidence')
+        .select('*, uploaded_by_profile:profiles!uploaded_by(id, full_name, email)', { count: 'exact' })
+        .eq('is_deleted', false)
+        .or(
+          `file_name.ilike.%${searchQuery}%,title.ilike.%${searchQuery}%,description.ilike.%${searchQuery}%`
+        )
+
+      if (resolvedInstitutionId) {
+        query = query.eq('institution_id', resolvedInstitutionId)
+      }
+
+      query = query
+        .range(0, 49)
+        .order('created_at', { ascending: false })
+
+      const { data, error, count } = await query
+
+      if (error) throw error
+
+      return {
+        data: data || [],
+        metadata: {
+          total: count || 0,
+          page: 1,
+          limit: 50,
+          totalPages: count ? Math.ceil(count / 50) : 0
+        }
+      }
+    },
+    enabled:
+      !authLoading &&
+      !!profile &&
+      !!searchQuery &&
+      searchQuery.length >= 2 &&
+      (isSuperAdmin || !!resolvedInstitutionId),
+    ...QUERY_CONFIG.SEARCH_DATA
   })
 }
