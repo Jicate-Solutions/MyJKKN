@@ -1041,7 +1041,7 @@ Ship with these frameworks pre-configured (seeded in migration):
 | 3.3.2 | 3.3 | QnM | 15 | Books/chapters/conference proceedings published per teacher (5 years) | DC-03: `sh_publications` ✅ |
 | 3.4.1 | 3.4 Extension Activities (40) | QlM | 15 | Extension activities in neighbourhood community for holistic development | Manual entry (qualitative) |
 | 3.4.2 | 3.4 | QlM | 5 | Awards/recognitions for extension from government bodies | Manual entry (qualitative) |
-| 3.4.3 | 3.4 | QnM | 20 | Extension/outreach programs via NSS/NCC/industry/NGO collaboration (5 years) | DC-25: `student_activities`, `institutional_events` |
+| 3.4.3 | 3.4 | QnM | 20 | Extension/outreach programs via NSS/NCC/industry/NGO collaboration (5 years) | DC-25: `student_activities`, DC-22: `institutional_events` |
 | 3.5.1 | 3.5 Collaboration (20) | QnM | 20 | MoUs/collaborations for exchange, internship, research, training (5 years) | DC-08: `industry_partners` ✅, DC-36: `collaboration_exchanges` |
 
 #### Criterion IV — Infrastructure & Learning Resources (100 marks)
