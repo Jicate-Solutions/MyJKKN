@@ -123,6 +123,7 @@ export function MeetingList({ meetings, institutionId }: MeetingListProps) {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="pl-9"
+              aria-label="Search meetings"
             />
           </div>
 
