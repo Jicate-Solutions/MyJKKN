@@ -34,6 +34,7 @@ import {
   useApplicationMutations,
   useCounselorProfiles
 } from '@/hooks/admission';
+import { ConsultantAttributionCard } from './_components/consultant-attribution-card';
 import { CounselorDailyViewService } from '@/lib/services/admission/counselor-daily-view-service';
 import type { TimelineEntry } from '@/lib/services/admission/activity-service';
 import {
@@ -1250,6 +1251,12 @@ function LeadDetailPageContent() {
 
             {/* Right Column - Tags & Quick Info */}
             <div className="space-y-6">
+              {/* Consultant Attribution */}
+              <ConsultantAttributionCard
+                leadId={leadId}
+                institutionId={lead.institution_id}
+              />
+
               {/* Tags */}
               <Card>
                 <CardHeader>
