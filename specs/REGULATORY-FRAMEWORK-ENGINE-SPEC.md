@@ -1895,7 +1895,13 @@ GROUP BY audit_type;
 
 **FINAL Updated totals: 36 Data Connectors (15 existing + 21 new)**
 
-> **Completeness audit (2026-02-23):** After adding DC-31 through DC-36, all 60 NAAC Binary metrics and all 16 NIRF sub-parameters now have at least one data connector assigned. See `/Users/omm/Vaults/Claude Setup/Capture/MyJKKN/FST-Regulatory-Engine-Completeness-Audit.md` for the full audit. Remaining gaps: old NAAC metric-level definitions, NBA/AICTE/UGC templates, report output formats, and NIRF discipline-specific rankings.
+> **Completeness audit (2026-02-23):** After adding DC-31 through DC-36, all 60 NAAC Binary metrics and all 16 NIRF sub-parameters now have at least one data connector assigned. See `/Users/omm/Vaults/Claude Setup/Capture/MyJKKN/FST-Regulatory-Engine-Completeness-Audit.md` for the full audit.
+>
+> **Spec completeness update (2026-02-23):** All 4 previously identified gaps have been addressed:
+> 1. ✅ Old NAAC 2022 — full 56-metric breakdown with KI groupings and data connector mappings
+> 2. ✅ NIRF discipline-specific — Engineering, Pharmacy (Cat A/B), Colleges, Dental with weight tables and formula variations
+> 3. ✅ NBA SAR + AICTE + UGC-AISHE — criteria structures, data mappings, and engine configuration
+> 4. ✅ Report output formats — PDF/CSV/JSON specifications per regulatory body with generation architecture
 
 ---
 
