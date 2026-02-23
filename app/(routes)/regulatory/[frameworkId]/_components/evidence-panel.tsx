@@ -166,10 +166,10 @@ export function EvidencePanel({ evidence, frameworkId, institutionId }: Evidence
         framework_id: frameworkId,
         institution_id: institutionId,
       })
-      toast.success('Evidence deleted')
+      // Toast is handled by the useDeleteEvidence hook's onSuccess
       setDeleteConfirmId(null)
     } catch {
-      toast.error('Failed to delete evidence')
+      // Error toast is handled by the useDeleteEvidence hook's onError
     }
   }
 
