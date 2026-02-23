@@ -174,6 +174,123 @@ export function useAddEvidenceVersion() {
 }
 
 // ---------------------------------------------------------------------------
+// Adapter hooks (used by page components with different signatures)
+// ---------------------------------------------------------------------------
+
+/**
+ * useFrameworkEvidence — get all evidence for a framework by { framework_id, institution_id? }.
+ * Returns a flat array of evidence items.
+ */
+export function useFrameworkEvidence(
+  opts: { framework_id: string; institution_id?: string }
+) {
+  const { profile, isLoading: authLoading } = useAuth()
+  const { isSuperAdmin } = usePermissions()
+
+  const institutionId = opts.institution_id ?? (isSuperAdmin ? undefined : profile?.institution_id)
+
+  return useQuery<any[], Error>({
+    queryKey: [...evidenceKeys.all, 'framework-evidence', opts.framework_id, institutionId] as const,
+    queryFn: async () => {
+      try {
+        const { createClientSupabaseClient } = await import('@/lib/supabase/client')
+        const supabase = createClientSupabaseClient()
+
+        // Get all criteria for this framework
+        const { data: criteria } = await (supabase as any)
+          .from('regulatory_criteria')
+          .select('id, code, name')
+          .eq('framework_id', opts.framework_id)
+
+        const criteriaIds = (criteria || []).map((c: any) => c.id)
+        const criteriaMap = new Map((criteria || []).map((c: any) => [c.id, c]))
+
+        if (criteriaIds.length === 0) return []
+
+        // Get metrics for these criteria
+        const { data: metrics } = await (supabase as any)
+          .from('regulatory_metrics')
+          .select('id, code, criteria_id')
+          .in('criteria_id', criteriaIds)
+
+        const metricMap = new Map((metrics || []).map((m: any) => [m.id, m]))
+
+        // Get evidence linked to these criteria or metrics
+        let query = (supabase as any)
+          .from('regulatory_evidence')
+          .select('*')
+          .or(`criteria_id.in.(${criteriaIds.join(',')}),metric_id.in.(${(metrics || []).map((m: any) => m.id).join(',')})`)
+
+        if (institutionId) {
+          query = query.eq('institution_id', institutionId)
+        }
+        query = query.is('deleted_at', null).order('created_at', { ascending: false })
+
+        const { data: evidence, error } = await query
+
+        if (error) {
+          // Fallback: just return empty if the OR query fails
+          console.warn('[useFrameworkEvidence] query error, returning empty:', error)
+          return []
+        }
+
+        // Enrich with criteria/metric names
+        return (evidence || []).map((e: any) => {
+          const crit = e.criteria_id ? criteriaMap.get(e.criteria_id) : null
+          const metric = e.metric_id ? metricMap.get(e.metric_id) : null
+          return {
+            ...e,
+            criteria_code: crit?.code || '',
+            criteria_name: crit?.name || '',
+            metric_code: metric?.code || '',
+            uploaded_by_name: e.uploaded_by_name || ''
+          }
+        })
+      } catch (error) {
+        console.error('[useFrameworkEvidence] Error:', error)
+        return []
+      }
+    },
+    enabled:
+      !authLoading &&
+      !!profile &&
+      !!opts.framework_id &&
+      (isSuperAdmin || !!institutionId),
+    ...QUERY_CONFIG.SEMI_STABLE_DATA
+  })
+}
+
+/**
+ * useDeleteEvidence — adapter for soft-delete that accepts
+ * { evidence_id, framework_id?, institution_id? }.
+ */
+export function useDeleteEvidence() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async (input: {
+      evidence_id: string
+      framework_id?: string
+      institution_id?: string
+    }) => {
+      return await RegulatoryEvidenceService.softDeleteEvidence(input.evidence_id)
+    },
+    onSuccess: (_data, variables) => {
+      toast.success('Evidence deleted')
+      queryClient.invalidateQueries({ queryKey: evidenceKeys.lists() })
+      if (variables.framework_id) {
+        queryClient.invalidateQueries({
+          queryKey: [...evidenceKeys.all, 'framework-evidence', variables.framework_id]
+        })
+      }
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to delete evidence')
+    }
+  })
+}
+
+// ---------------------------------------------------------------------------
 // useEvidenceSearch — search evidence by file name, title, or description
 // ---------------------------------------------------------------------------
 export function useEvidenceSearch(
