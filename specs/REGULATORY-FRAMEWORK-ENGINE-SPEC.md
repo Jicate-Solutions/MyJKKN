@@ -1308,10 +1308,10 @@ Unlike the old NAAC system (which was heavily quantitative), the new Binary Fram
 | Document + Data (mixed) | ~18 metrics | Partial auto-calc + evidence upload required |
 | Document only (binary proof) | ~19 metrics | Manual checklist + document upload (no formula) |
 
-**Engine design implication:** The `regulatory_metrics` table already supports `data_type` = 'boolean' for binary metrics and `evidence_required` = true. For binary checkbox metrics, set:
+**Engine design implication:** The `regulatory_metrics` table already supports `data_type` = 'boolean' for binary metrics and `requires_evidence` = true. For binary checkbox metrics, set:
 - `data_type = 'boolean'`
 - `formula = null` (no computation)
-- `evidence_required = true`
+- `requires_evidence = true`
 - `is_auto_calculable = false`
 - The IQAC coordinator marks Yes/No and uploads supporting documents
 
