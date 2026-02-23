@@ -1596,7 +1596,7 @@ The engine stores these as a separate framework:
 | 3 | Student Intake | Sanctioned intake vs admitted (programme-wise, gender-wise) | DC-05: `admissions` |
 | 4 | Examination Results | Students appeared vs passed (programme-wise, gender-wise) | DC-17: `exam_results` (NEW) |
 | 5 | Faculty Information | Full-time, part-time, contractual — by gender, category, qualification, designation | DC-02: `staff`, DC-16: `staff_qualifications` |
-| 6 | Infrastructure | Classrooms, labs, computers, internet bandwidth, library books, hostels | DC-20: `resources`, DC-28 |
+| 6 | Infrastructure | Classrooms, labs, computers, internet bandwidth, library books, hostels | DC-14: `resources`, DC-20: `library_holdings`, DC-28: `ict_infrastructure` |
 | 7 | Financial Information | Receipts (fees, grants, donations) + Expenditure (salary, infra, scholarships) | DC-21: `institutional_budgets` |
 | 8 | Scholarship Data | Students receiving scholarships by type, amount, gender, category | DC-09: `scholarships` ✅ |
 | 9 | Placement Data | Students placed, median salary, companies visiting campus | DC-04: `alumni_outcomes` ✅ |
