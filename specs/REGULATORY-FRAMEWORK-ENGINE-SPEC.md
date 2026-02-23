@@ -1004,7 +1004,7 @@ Ship with these frameworks pre-configured (seeded in migration):
 | III | Research, Innovations & Extension | 110 | 5 | 9 | 3 | 6 |
 | IV | Infrastructure & Learning Resources | 100 | 4 | 6 | 3 | 3 |
 | V | Student Support & Progression | 140 | 4 | 9 | 1 | 8 |
-| VI | Governance, Leadership & Management | 100 | 5 | 9 | 4 | 5 |
+| VI | Governance, Leadership & Management | 100 | 5 | 9 | 5 | 4 |
 | VII | Institutional Values & Best Practices | 100 | 3 | 6 | 4 | 2 |
 | **TOTAL** | | **1050** | **32** | **56** | **21** | **35** |
 
