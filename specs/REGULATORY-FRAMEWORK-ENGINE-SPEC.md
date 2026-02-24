@@ -2937,7 +2937,7 @@ The API route calculates `score_delta` and `rank_estimate` server-side before st
 
 | Method | Endpoint | Service Method | Roles (T8) | Description |
 |--------|----------|---------------|------------|-------------|
-| GET | `/api/regulatory/peer-visits` | `getPeerVisits(filters)` | all with institution access | List peer visits |
+| GET | `/api/regulatory/peer-visits` | `getPeerVisits(filters)` | all with institution access | List peer visits. **Query params:** `submission_id` (uuid), `visit_type` (text: naac_peer_team\|nba_evaluator\|aicte_expert), `status` (text: scheduled\|confirmed\|in_progress\|completed\|postponed\|cancelled). |
 | POST | `/api/regulatory/peer-visits` | `createPeerVisit(data)` | super_admin, institution_admin, iqac_coordinator | Schedule a peer visit |
 | PUT | `/api/regulatory/peer-visits/[id]` | `updatePeerVisit(id, data)` | super_admin, institution_admin, iqac_coordinator | Update visit details |
 
