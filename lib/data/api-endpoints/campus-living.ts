@@ -542,13 +542,13 @@ const roomsByIdEndpoint: ApiEndpoint = {
         block_id: 'b10e8400-e29b-41d4-a716-446655440001',
         floor: 1,
         room_type: 'double',
-        total_beds: 4,
-        occupied_beds: 3,
+        capacity: 4,
+        current_occupancy: 3,
         status: 'available',
         block: {
           id: 'b10e8400-e29b-41d4-a716-446655440001',
           name: 'Block A',
-          gender: 'male',
+          hostel_type: 'boys',
         },
         beds: [
           {
