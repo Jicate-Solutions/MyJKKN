@@ -1293,8 +1293,9 @@ CREATE POLICY "metric_values_update" ON regulatory_metric_values FOR UPDATE
 -- T8: Upload = super_admin, institution_admin, iqac_coordinator, hod, staff
 -- Table has is_deleted + deleted_at for soft-delete — no hard DELETE policy
 CREATE POLICY "evidence_read" ON regulatory_evidence FOR SELECT USING (
-  institution_id = auth_institution_id()
-  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+  (institution_id = auth_institution_id()
+    OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'))
+  AND (is_deleted = false)  -- soft-deleted records invisible at RLS level
 );
 CREATE POLICY "evidence_insert" ON regulatory_evidence FOR INSERT
   WITH CHECK (
