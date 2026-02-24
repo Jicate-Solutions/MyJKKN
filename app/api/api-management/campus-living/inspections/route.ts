@@ -12,9 +12,9 @@ export const GET = withApiKeyAuth(async (request, auth) => {
   const institutionId = auth.institutionId;
   if (!institutionId) return errorResponse('API key must be associated with an organization', 400);
 
-  const status = getStringParam(url, 'status');
   const inspectionType = getStringParam(url, 'inspection_type');
   const blockId = getUuidParam(url, 'block_id');
+  const followUpRequired = getStringParam(url, 'follow_up_required');
   const { dateFrom, dateTo } = getDateRangeParams(url);
 
   let query = (auth.supabase as any)
@@ -22,13 +22,13 @@ export const GET = withApiKeyAuth(async (request, auth) => {
     .select('*', { count: 'exact' })
     .eq('institution_id', institutionId);
 
-  if (status) query = query.eq('status', status);
   if (inspectionType) query = query.eq('inspection_type', inspectionType);
   if (blockId) query = query.eq('block_id', blockId);
-  if (dateFrom) query = query.gte('scheduled_date', dateFrom);
-  if (dateTo) query = query.lte('scheduled_date', dateTo);
+  if (followUpRequired) query = query.eq('follow_up_required', followUpRequired === 'true');
+  if (dateFrom) query = query.gte('inspection_date', dateFrom);
+  if (dateTo) query = query.lte('inspection_date', dateTo);
 
-  query = query.range(from, to).order('scheduled_date', { ascending: false });
+  query = query.range(from, to).order('inspection_date', { ascending: false });
   const { data, error, count } = await query;
   if (error) throw error;
   return paginatedResponse(data ?? [], count ?? 0, page, limit);
