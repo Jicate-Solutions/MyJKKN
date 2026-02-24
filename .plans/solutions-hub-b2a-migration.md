@@ -162,13 +162,15 @@ function withAuth(handler: AuthenticatedHandler, options?: AuthOptions)
 3. Pass to handler — RLS enforced via user's JWT
 
 **API key flow:**
-1. SHA256 hash the token, look up in `api_keys` table
+1. SHA256 hash the token, look up in `api_keys` table (using SERVICE_ROLE_KEY client)
 2. Verify: is_active, not expired, has required permission
 3. Get key owner's `created_by` user ID
-4. Create a server supabase client impersonating that user:
-   - Use `supabase.auth.admin.getUserById(created_by)` to verify user exists
-   - Set RLS context via PostgreSQL `set_config('request.jwt.claims', ...)`
-   - OR use `supabase.rpc('set_auth_context', { user_id })` custom function
+4. Create an impersonated Supabase client via JWT generation:
+   - Sign a JWT with `{ sub: created_by, role: 'authenticated' }` using `SUPABASE_JWT_SECRET`
+   - Create a standard Supabase client with this JWT as the Authorization header
+   - PostgREST automatically reads this JWT and sets `request.jwt.claims` per-request
+   - All RLS policies (`auth.uid()`, `sh_is_admin()`, etc.) evaluate correctly as the key owner
+   - **NOTE:** `set_config()` / `set_auth_context()` SQL approach does NOT work — PostgREST uses separate connections per query, so transaction-local config doesn't persist
 5. Update `last_used_at` (fire-and-forget)
 6. Pass to handler — RLS enforced as key owner
 
