@@ -70,16 +70,16 @@ export class RegulatoryEvidenceService {
   static async getEvidence(filters: EvidenceFilters = {}) {
     try {
       if (filters.metric_id !== undefined) {
-        this.validateId(filters.metric_id, 'metric_id filter')
+        validateId(filters.metric_id, 'metric_id filter')
       }
       if (filters.criteria_id !== undefined) {
-        this.validateId(filters.criteria_id, 'criteria_id filter')
+        validateId(filters.criteria_id, 'criteria_id filter')
       }
       if (filters.institution_id !== undefined) {
-        this.validateId(filters.institution_id, 'institution_id filter')
+        validateId(filters.institution_id, 'institution_id filter')
       }
       if (filters.submission_id !== undefined) {
-        this.validateId(filters.submission_id, 'submission_id filter')
+        validateId(filters.submission_id, 'submission_id filter')
       }
 
       let query = (this.getSupabase() as any)
@@ -159,7 +159,7 @@ export class RegulatoryEvidenceService {
   ) {
     try {
       if (institutionId !== undefined) {
-        this.validateId(institutionId, 'institution ID')
+        validateId(institutionId, 'institution ID')
       }
 
       if (!searchTerm || searchTerm.trim().length === 0) {
@@ -257,15 +257,15 @@ export class RegulatoryEvidenceService {
    */
   static async uploadEvidence(data: UploadEvidenceData) {
     try {
-      this.validateId(data.institution_id, 'institution ID')
+      validateId(data.institution_id, 'institution ID')
       if (data.metric_id) {
-        this.validateId(data.metric_id, 'metric ID')
+        validateId(data.metric_id, 'metric ID')
       }
       if (data.criteria_id) {
-        this.validateId(data.criteria_id, 'criteria ID')
+        validateId(data.criteria_id, 'criteria ID')
       }
       if (data.submission_id) {
-        this.validateId(data.submission_id, 'submission ID')
+        validateId(data.submission_id, 'submission ID')
       }
 
       // Enforce DDL CHECK constraint client-side
@@ -323,7 +323,7 @@ export class RegulatoryEvidenceService {
    */
   static async softDeleteEvidence(id: string) {
     try {
-      this.validateId(id, 'evidence ID')
+      validateId(id, 'evidence ID')
 
       // Verify user is authenticated (RLS will enforce role, but fail-fast here)
       const { data: { user } } = await this.getSupabase().auth.getUser()
@@ -357,7 +357,7 @@ export class RegulatoryEvidenceService {
    */
   static async getEvidenceVersions(evidenceId: string) {
     try {
-      this.validateId(evidenceId, 'evidence ID')
+      validateId(evidenceId, 'evidence ID')
 
       const { data, error } = await (this.getSupabase() as any)
         .from('regulatory_evidence_versions')
@@ -387,7 +387,7 @@ export class RegulatoryEvidenceService {
    */
   static async addEvidenceVersion(data: AddEvidenceVersionData) {
     try {
-      this.validateId(data.evidence_id, 'evidence ID')
+      validateId(data.evidence_id, 'evidence ID')
 
       // Get current user
       const { data: { user } } = await this.getSupabase().auth.getUser()
