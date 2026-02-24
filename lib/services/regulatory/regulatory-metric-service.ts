@@ -53,10 +53,10 @@ export class RegulatoryMetricService {
   static async getMetrics(filters: RegulatoryMetricFilters = {}) {
     try {
       if (filters.criteria_id !== undefined) {
-        this.validateId(filters.criteria_id, 'criteria_id filter')
+        validateId(filters.criteria_id, 'criteria_id filter')
       }
       if (filters.framework_id !== undefined) {
-        this.validateId(filters.framework_id, 'framework_id filter')
+        validateId(filters.framework_id, 'framework_id filter')
       }
 
       // If framework_id is provided, resolve to criteria_ids first
@@ -139,7 +139,7 @@ export class RegulatoryMetricService {
    */
   static async getMetricById(id: string) {
     try {
-      this.validateId(id, 'metric ID')
+      validateId(id, 'metric ID')
 
       const { data, error } = await (this.getSupabase() as any)
         .from('regulatory_metrics')
@@ -175,9 +175,9 @@ export class RegulatoryMetricService {
     academicYear?: string
   ) {
     try {
-      this.validateId(frameworkId, 'framework ID')
+      validateId(frameworkId, 'framework ID')
       if (institutionId !== undefined) {
-        this.validateId(institutionId, 'institution ID')
+        validateId(institutionId, 'institution ID')
       }
 
       // Step 1: Get all criteria for this framework
@@ -244,8 +244,8 @@ export class RegulatoryMetricService {
    */
   static async upsertMetricValue(data: UpsertMetricValueData) {
     try {
-      this.validateId(data.metric_id, 'metric ID')
-      this.validateId(data.institution_id, 'institution ID')
+      validateId(data.metric_id, 'metric ID')
+      validateId(data.institution_id, 'institution ID')
 
       // Get current user
       const { data: { user } } = await this.getSupabase().auth.getUser()
@@ -305,9 +305,9 @@ export class RegulatoryMetricService {
     academicYear?: string
   ) {
     try {
-      this.validateId(metricId, 'metric ID')
+      validateId(metricId, 'metric ID')
       if (institutionId !== undefined) {
-        this.validateId(institutionId, 'institution ID')
+        validateId(institutionId, 'institution ID')
       }
 
       // Step 1: Find the metric_value record(s) for this metric
