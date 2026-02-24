@@ -108,7 +108,8 @@ export const GET = withApiKeyAuth(async (request, auth) => {
       const { data, error: fbError } = await supabase
         .from('mess_feedback').select('overall_rating, taste_rating, hygiene_rating, quantity_rating, variety_rating, is_complaint')
         .eq('institution_id', institutionId)
-        .gte('date', dateFrom).lte('date', dateTo);
+        .gte('date', dateFrom).lte('date', dateTo)
+        .limit(10000);
       if (fbError) throw fbError;
 
       const items = data ?? [];
