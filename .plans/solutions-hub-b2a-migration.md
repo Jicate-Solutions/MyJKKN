@@ -157,9 +157,10 @@ function withAuth(handler: AuthenticatedHandler, options?: AuthOptions)
 3. Neither → 401
 
 **Session flow:**
-1. Call `getAuthSession()` (uses `supabase.auth.getUser()` under the hood)
-2. Create server supabase client with user's cookie context
-3. Pass to handler — RLS enforced via user's JWT
+1. Call `createServerSupabaseClient()` (uses `cookies()` from `next/headers`)
+2. Verify user via `supabase.auth.getUser()`
+3. Wrap handler in `BaseService.runWithClient(serverClient, () => handler(...))` so all service calls use this server client
+4. RLS enforced via user's JWT from cookies
 
 **API key flow:**
 1. SHA256 hash the token, look up in `api_keys` table (using SERVICE_ROLE_KEY client)
