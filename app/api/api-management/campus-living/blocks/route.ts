@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { corsHeaders } from '@/lib/api-keys/cors';
 import { withApiKeyAuth } from '@/lib/api-keys/with-api-key-auth';
 import { paginatedResponse, createdResponse, errorResponse } from '@/lib/api-keys/response-helpers';
-import { getPaginationParams, getStringParam, getUuidParam } from '@/lib/api-keys/query-helpers';
+import { getPaginationParams, getStringParam } from '@/lib/api-keys/query-helpers';
 
 export const OPTIONS = () => new NextResponse(null, { headers: corsHeaders });
 
