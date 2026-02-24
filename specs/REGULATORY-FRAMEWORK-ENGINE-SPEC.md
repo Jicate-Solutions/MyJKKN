@@ -1587,7 +1587,11 @@ CREATE INDEX idx_reg_peer_visits_status ON regulatory_peer_visits(institution_id
 CREATE INDEX idx_reg_governing_bodies_inst ON regulatory_governing_bodies(institution_id, body_type);
 -- NOTE: body_meetings UNIQUE(body_id, academic_year, meeting_number) already creates an implicit index
 CREATE INDEX idx_reg_body_meetings_inst_year ON regulatory_body_meetings(institution_id, academic_year);
--- NOTE: course_syllabi UNIQUE(institution_id, course_code, academic_year, semester) already creates an implicit index
+-- NOTE: course_syllabi UNIQUE(institution_id, course_code, academic_year, semester) already creates an implicit index.
+-- However, semester is nullable — PostgreSQL UNIQUE treats NULL != NULL, so add a partial index
+-- to prevent duplicate rows with NULL semester for the same (institution, course, year):
+CREATE UNIQUE INDEX idx_reg_syllabi_no_semester ON regulatory_course_syllabi
+  (institution_id, course_code, academic_year) WHERE semester IS NULL;
 CREATE INDEX idx_reg_syllabi_dept ON regulatory_course_syllabi(institution_id, department, academic_year);
 -- NOTE: peer_benchmarks UNIQUE(institution_id, framework_id, academic_year, peer_institution_name, metric_code) already creates an implicit index
 CREATE INDEX idx_reg_benchmarks_inst_framework ON regulatory_peer_benchmarks(institution_id, framework_id, academic_year);
