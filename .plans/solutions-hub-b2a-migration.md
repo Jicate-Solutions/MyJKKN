@@ -573,9 +573,15 @@ export const GET = withAuth(async (request, auth) => {
 | `/api/solutions/notifications/route.ts` | GET | NotificationsService |
 | `/api/solutions/notifications/[id]/read/route.ts` | PATCH | NotificationsService |
 
-#### 3.9 Departments (ALREADY DONE — keep existing 7 routes)
+#### 3.9 Departments (7 existing routes — NEED FIX)
 
-No changes needed. These routes already follow Pattern A with `getAuthSession()` + DepartmentTrackerService.
+**Pre-existing auth bug:** These routes call `getAuthSession()` for access control (correct), but then call `DepartmentTrackerService` methods which use `BaseService.supabase` → browser client singleton → no auth context on server → queries run as anonymous.
+
+**Fix:** After Phase 0.4 (AsyncLocalStorage injection), update these routes to use `withAuth` wrapper. The `withAuth` middleware injects the correct server client via `BaseService.runWithClient()`, which automatically fixes all `DepartmentTrackerService` calls. This is a thin refactor — replace manual `getAuthSession()` with `withAuth(handler)`.
+
+| Route | Current | After Fix |
+|-------|---------|-----------|
+| All 7 dept routes | `getAuthSession()` + bare service call | `withAuth(handler)` → service calls use injected client |
 
 ---
 
