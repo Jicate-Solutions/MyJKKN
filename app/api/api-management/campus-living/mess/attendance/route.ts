@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { corsHeaders } from '@/lib/api-keys/cors';
 import { withApiKeyAuth } from '@/lib/api-keys/with-api-key-auth';
 import { paginatedResponse, createdResponse, errorResponse } from '@/lib/api-keys/response-helpers';
-import { getPaginationParams, getStringParam, getUuidParam, getDateRangeParams } from '@/lib/api-keys/query-helpers';
+import { getPaginationParams, getStringParam, getUuidParam, getDateRangeParams , sanitizeBody } from '@/lib/api-keys/query-helpers';
 
 export const OPTIONS = () => new NextResponse(null, { headers: corsHeaders });
 
@@ -49,7 +49,7 @@ export const POST = withApiKeyAuth(async (request, auth) => {
   const body = await request.json();
   const { data, error } = await (auth.supabase as any)
     .from('mess_meal_records')
-    .insert({ ...body, institution_id: institutionId })
+    .insert({ ...sanitizeBody(body), institution_id: institutionId })
     .select().single();
   if (error) throw error;
   return createdResponse(data);

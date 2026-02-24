@@ -3873,12 +3873,14 @@ The `regulatory_metrics_safe` view is MANDATORY (not optional) for all non-super
 ```sql
 CREATE OR REPLACE VIEW regulatory_metrics_safe AS
 SELECT id, criteria_id, code, name, description, data_type,
-       is_auto_calculable, requires_evidence, validation_min, validation_max,
-       sort_order, formula, formula_dependencies,
+       unit, is_auto_calculable, requires_evidence,
+       validation_min, validation_max, validation_regex,
+       sort_order, data_window_years, formula, formula_dependencies,
        dvv_guidance, metadata, created_at, updated_at
        -- EXCLUDED: data_connector_id, data_connector_query (contain raw SQL / DB schema)
        -- NOTE: weight lives on regulatory_criteria, not regulatory_metrics
 FROM regulatory_metrics;
+-- IMPORTANT: This view MUST also be created in the canonical migration (after regulatory_metrics table).
 ```
 
 **API enforcement:** The metrics GET endpoints (`GET /metrics` and `GET /metrics/[id]`) MUST:

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { corsHeaders } from '@/lib/api-keys/cors';
 import { withApiKeyAuth } from '@/lib/api-keys/with-api-key-auth';
 import { paginatedResponse, createdResponse, errorResponse, noContentResponse } from '@/lib/api-keys/response-helpers';
-import { getPaginationParams, getUuidParam } from '@/lib/api-keys/query-helpers';
+import { getPaginationParams, getUuidParam , sanitizeBody } from '@/lib/api-keys/query-helpers';
 
 export const OPTIONS = () => new NextResponse(null, { headers: corsHeaders });
 
@@ -47,7 +47,7 @@ export const POST = withApiKeyAuth(async (request, auth) => {
 
   const { data, error } = await (auth.supabase as any)
     .from('hostel_emergency_contacts')
-    .insert({ ...body, institution_id: institutionId })
+    .insert({ ...sanitizeBody(body), institution_id: institutionId })
     .select()
     .single();
 
