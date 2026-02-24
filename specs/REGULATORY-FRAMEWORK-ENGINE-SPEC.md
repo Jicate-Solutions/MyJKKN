@@ -1,11 +1,11 @@
 # Regulatory Framework Engine — Complete Specification
 
 > **Status:** Ready for Implementation — B2A Architecture Compliant (Pattern A: Page → Hook → API Route → Service → DB)
-> **Created:** 2026-02-23  |  **Updated:** 2026-02-24 (B2A rewrite + 4 rounds of multi-agent review + schema/DDL fixes from consolidated review: iqac_coordinator role prerequisite, NIRF unique index fix, FK cascade chain corrections, optimistic locking, CHECK constraints on 10 text-enum columns, submission transitions audit table, cancelled/dvv_revision status, history immutability trigger, soft-delete trigger DDL, temporal/consistency CHECKs, criteria depth limit, evidence dedup index, simulation size guard)
+> **Created:** 2026-02-23  |  **Updated:** 2026-02-24 (B2A rewrite + 4 rounds of multi-agent review + Round 5: consolidated review fixes from 5-agent swarm addressing 108 findings — Schema DDL: iqac_coordinator role, NIRF unique index, FK cascade chain, optimistic locking, CHECK constraints, submission transitions audit table, cancelled/dvv_revision status; Regulatory: NAAC MBGL two-stage process, pass thresholds, NBA GAPC v4 11 POs, 3-year validity, IIQA/DVV/department workflows, multi-year aggregation; Security: framework version pinning, SECURITY DEFINER functions, formula engine limits, table allowlist, CTE-safe SQL validation; Performance: async report generation, JWT custom claims for RLS, N+1 prevention, dashboard materialization, score caching, concurrency control; Clarity: score calculation algorithms, formula variable resolution, academic year conversion, implementer guide with all 20 LOW findings)
 > **Based On:** FST Gap Analysis (SARAL ERP vs MyJKKN), Future-Proof Regulatory Architecture FST, Module Health Audit (8 review rounds, 301 bugs fixed)
 > **Total Effort Estimate:** 8-10 weeks
 > **Priority:** P0 (Critical — regulatory compliance)
-> **Architecture:** Pattern A mandatory — 66 API endpoints across 13 entity groups. Zero direct Supabase calls in hooks.
+> **Architecture:** Pattern A mandatory — 66 API endpoints across 13 entity groups, 17 tables + 1 view, 52 RLS policies. Zero direct Supabase calls in hooks.
 
 ---
 
@@ -3171,7 +3171,23 @@ Additional entity-specific filters are documented per endpoint where applicable.
 | GET | `/api/regulatory/frameworks/[id]/completeness` | `getFrameworkCompleteness(id, institutionId, year)` | super_admin, institution_admin, iqac_coordinator, principal, hod | Completeness % and metric breakdown |
 | POST | `/api/regulatory/frameworks` | `createFramework(data)` | super_admin | Create new framework definition |
 | PUT | `/api/regulatory/frameworks/[id]` | `updateFramework(id, data)` | super_admin | Update framework |
-| DELETE | `/api/regulatory/frameworks/[id]` | `deleteFramework(id)` | super_admin | Delete framework. **Guard:** Reject with 409 if any submissions exist for this framework (check `regulatory_submissions` count). Also reject if framework status='active' — must archive first. **FK cascade chain awareness:** Deletion cascades through criteria → metrics → metric_values. This cascade will be BLOCKED by: (1) `regulatory_evidence` FK RESTRICT on `criteria_id`/`metric_id` — any evidence linked to the framework's criteria/metrics prevents deletion; (2) `regulatory_metric_value_history` FK RESTRICT on `metric_value_id` — any audit trail entries prevent deletion; (3) `regulatory_simulations` FK on `framework_id` — any simulations referencing this framework prevent deletion; (4) `regulatory_peer_benchmarks` FK on `framework_id` — any benchmarks referencing this framework prevent deletion. The guard should pre-check ALL of these and return a descriptive 409 ("Cannot delete: X submissions, Y evidence documents, Z metric value history entries, W simulations, V benchmarks exist") rather than letting PostgreSQL throw a cryptic FK violation. |
+| DELETE | `/api/regulatory/frameworks/[id]` | `deleteFramework(id)` | super_admin | Delete framework. **Guard:** Reject with 409 if any submissions exist for this framework (check `regulatory_submissions` count). Also reject if framework status='active' — must archive first. **FK cascade chain awareness:** Deletion cascades through criteria → metrics → metric_values. This cascade will be BLOCKED by: (1) `regulatory_evidence` FK RESTRICT on `criteria_id`/`metric_id` — any evidence linked to the framework's criteria/metrics prevents deletion; (2) `regulatory_metric_value_history` FK RESTRICT on `metric_value_id` — any audit trail entries prevent deletion; (3) `regulatory_simulations` FK on `framework_id` — any simulations referencing this framework prevent deletion; (4) `regulatory_peer_benchmarks` FK on `framework_id` — any benchmarks referencing this framework prevent deletion. The guard MUST pre-check ALL of these and return a descriptive 409 with counts: "Cannot delete: X submissions, Y evidence documents, Z metric value history entries, W simulations, V benchmarks exist." Never let PostgreSQL throw a cryptic FK violation to the user. The guard query should be a single CTE that counts all dependent entities in one round-trip. |
+
+#### Framework Version Pinning (Immutability During Active Submissions)
+
+**Rule:** Frameworks with active non-terminal submissions (status NOT IN ('accepted','cancelled')) CANNOT have their criteria or metrics edited or deleted. This protects submission data integrity.
+
+**Enforcement:** The frameworks UPDATE, criteria UPDATE/DELETE, and metrics UPDATE/DELETE API routes MUST check:
+```sql
+-- Guard: reject edits if active submissions exist
+SELECT COUNT(*) FROM regulatory_submissions s
+JOIN regulatory_criteria c ON c.framework_id = s.framework_id
+WHERE s.framework_id = $1
+  AND s.status NOT IN ('accepted','cancelled')
+```
+If count > 0, return 409 Conflict: "Cannot modify framework structure while active submissions exist. Archive this framework and create a new version instead."
+
+**To make changes:** super_admin must (1) archive the current framework (`status = 'archived'`), (2) create a new framework version with the updated structure, (3) optionally migrate active submissions to the new framework (manual process).
 
 ### Criteria API
 
@@ -3192,6 +3208,25 @@ Additional entity-specific filters are documented per endpoint where applicable.
 | POST | `/api/regulatory/metrics` | `createMetric(data)` | super_admin | Add metric to criterion |
 | PUT | `/api/regulatory/metrics/[id]` | `updateMetric(id, data)` | super_admin | Update metric definition |
 
+#### Formula Engine Safety Limits (H7)
+
+| Limit | Value | Rationale |
+|-------|-------|-----------|
+| Max dependency chain depth | 10 levels | No regulatory framework needs > 5 levels; 10 is generous safety margin |
+| Max total formula dependencies per framework | 500 | Prevents combinatorial explosion in topological sort |
+| Formula evaluation timeout | 10 seconds per framework | Prevents long-running evaluation from blocking the request |
+| Max formulas evaluated per request | 200 | Caps the work per API call |
+
+**Validation timing:** Dependency depth and count limits are validated when a metric formula is SAVED (at definition time via `POST /metrics` or `PUT /metrics/[id]`), not at evaluation time. The API route for creating/updating metrics with formulas MUST:
+1. Parse `formula_dependencies` from the request
+2. Build the dependency graph for the entire framework (join all metrics via criteria)
+3. Run cycle detection (topological sort)
+4. Verify max depth <= 10
+5. Verify total dependencies across the entire framework <= 500
+6. Reject with 400 if any limit is exceeded, with a specific error: "Formula dependency chain exceeds max depth of 10" or "Framework exceeds max 500 total formula dependencies"
+
+**Evaluation:** Pre-compute and cache the topological order when a framework is saved. At evaluation time (during `calculate-score` or `refresh`), iterate the cached order (O(n)), resolve each metric's dependencies from an in-memory map, evaluate formulas purely in application code. Never go back to the database per-formula. If evaluation exceeds 10 seconds, abort and return 504.
+
 ### Metric Values API
 
 | Method | Endpoint | Service Method | Roles (T8) | Description |
@@ -3208,12 +3243,14 @@ Additional entity-specific filters are documented per endpoint where applicable.
 > **Mandatory security controls for DataConnectorEngine:**
 > 1. **Institution scoping:** Every connector query MUST inject `institution_id` as `$1` parameter. The engine must NEVER execute a connector query without binding the caller's institution_id (or the requested institution_id for super_admin). This prevents cross-institution data leakage even though RLS is bypassed.
 > 2. **Read-only transactions:** All connector queries MUST execute inside a `SET TRANSACTION READ ONLY` block. This prevents any INSERT/UPDATE/DELETE from being smuggled into a query_template.
-> 3. **SELECT-only enforcement:** The engine MUST validate that `query_template` starts with `SELECT` or `WITH` (after trimming whitespace/comments) — `WITH` is required for Common Table Expressions (CTEs) like `WITH cte AS (SELECT ...) SELECT ...`. The blocklist check MUST scan the ENTIRE query text (not just the leading keyword) using **SQL tokenization** (not substring matching) with a full-text regex: `/\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|TRUNCATE|GRANT|REVOKE|EXECUTE)\b/i`. **Important:** The tokenizer must first strip string literals and comments to avoid false positives on values like `'DELETE confirmation sent'`. This catches DML-in-subquery attacks like `SELECT * FROM (DELETE FROM x RETURNING *) y`.
+> 3. **SELECT-only enforcement (CTE-safe):** The engine MUST validate that `query_template`, after stripping leading whitespace and comments, starts with `SELECT` or `WITH` — `WITH` is required for Common Table Expressions (CTEs) like `WITH cte AS (SELECT ...) SELECT ...`. The blocklist check MUST scan the ENTIRE query text (not just the leading keyword) using **SQL tokenization** (not substring matching) with a case-insensitive full-text regex: `/\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|TRUNCATE|GRANT|REVOKE|EXECUTE|COPY)\b/i`. Additionally block `pg_` system functions: `/\bpg_(read_file|write_file|stat_activity|ls_dir|execute_server_program|sleep)\b/i`. **Important:** The tokenizer must first strip string literals and comments to avoid false positives on values like `'DELETE confirmation sent'`. This catches DML-in-subquery attacks like `SELECT * FROM (DELETE FROM x RETURNING *) y`.
 > 3b. **Single-statement enforcement:** The engine MUST reject any `query_template` containing semicolons (`;`) outside of string literals. This prevents multi-statement injection (e.g., `SELECT 1; DROP TABLE profiles`). Implementation: strip string literals first, then reject if `;` remains.
 > 4. **Parameterized execution:** All query_template SQL uses `$1`, `$2`, `$3` positional parameters — NEVER string interpolation. The engine binds parameters via `supabase.rpc()` or `pg` parameterized query.
 > 5. **Timeout:** Each connector query MUST have a `statement_timeout` (e.g., 30 seconds) to prevent long-running queries from degrading the database.
 > 6. **Rate limiting:** The refresh endpoint should be queued (max 1 concurrent refresh per institution) to prevent database overload during batch operations.
-> 7. **Table allowlist:** The DataConnectorEngine SHOULD maintain an allowlist of tables that connectors can query (the source tables documented in DC-01 through DC-36). The SQL validator should verify that all table references in `query_template` are in the allowlist. This prevents a compromised super_admin from reading sensitive tables (`profiles`, `auth.users`, etc.) via crafted connectors. The test endpoint (`POST /data-connectors/[id]/test`) should return only the first 5 rows and column metadata, not full result sets.
+> 7. **Table allowlist:** The DataConnectorEngine MUST (not SHOULD) maintain an allowlist of tables that connectors can query (the source tables documented in DC-01 through DC-36: `learners_profiles`, `staff`, `alumni_outcomes`, `sh_publications`, `student_attendance`, `admissions`, `billing_receipts`, `billing_student_bills`, `industry_partners`, `industry_mentors`, `industry_projects`, `facilitator_development`, `competency_catalog`, `course_competency_mapping`, `grievance_tickets`, `hostel_allocations`, `course_syllabi`, `program_outcomes`, `exam_results`, `placement_records`, `research_projects`, `patents`, `mous_agreements`, `institutional_facilities`, `library_resources`, `budget_allocations`, `departments`, `programs`, `sections`, `institutions`). The SQL validator MUST verify that ALL table references in `query_template` are in the allowlist. This prevents a compromised super_admin from reading sensitive tables (`profiles`, `auth.users`, `auth.sessions`, etc.) via crafted connectors.
+> 8. **Test endpoint data minimization:** The test endpoint (`POST /data-connectors/[id]/test`) MUST return only the first 5 rows and strip columns containing PII patterns (column names matching `email`, `phone`, `mobile`, `password`, `token`, `secret`). Column names and row count are always returned. This prevents using the test endpoint for data exfiltration.
+> 9. **Consolidated SQL safety summary:** Controls #3 (CTE-safe SELECT-only + blocklist + `pg_` function blocking) and #3b (single-statement enforcement via semicolon rejection) together form the complete SQL validation pipeline. The validation order is: (a) strip string literals and comments, (b) reject if semicolons remain, (c) verify leading keyword is SELECT or WITH, (d) scan entire text for blocklisted DML/DDL keywords and `pg_` system functions. All checks are case-insensitive.
 
 ### Evidence API
 
@@ -3229,12 +3266,75 @@ Additional entity-specific filters are documented per endpoint where applicable.
 | GET | `/api/regulatory/evidence/deleted` | `getDeletedEvidence(filters)` | super_admin, institution_admin, iqac_coordinator | List soft-deleted evidence (within 30-day recovery window). **Implementation:** Service uses service-role client to bypass the `is_deleted = false` RLS filter. **MANDATORY institution scoping:** The service MUST also filter by `institution_id = <caller_institution_id>` (omit institution filter only for super_admin). Filter: `is_deleted = true AND deleted_at > now() - interval '30 days' AND institution_id = <caller_institution_id>`. The service-role client bypasses ALL RLS (not just the soft-delete filter), so institution scoping MUST be applied manually. |
 | PUT | `/api/regulatory/evidence/[id]/restore` | `restoreEvidence(id)` | super_admin, institution_admin, iqac_coordinator | Restore soft-deleted evidence (set `is_deleted = false`, `deleted_at = null`). Fails with 410 Gone if `deleted_at` is older than 30 days. **Implementation:** Service uses service-role client to bypass RLS for the lookup, then updates via regular client. **MANDATORY:** The service-role lookup MUST include `AND institution_id = <caller_institution_id>` (or allow any institution only for super_admin). If the evidence's institution_id doesn't match, return 404 — never expose cross-institution evidence existence. |
 
+#### Evidence Restore: Defense-in-Depth via Database Function
+
+The restore endpoint (`PUT /evidence/[id]/restore`) uses service-role client which bypasses ALL RLS. To prevent cross-tenant access if the application layer has a bug, the restore operation MUST use a SECURITY DEFINER database function:
+
+```sql
+-- Defense-in-depth: DB function enforces institution isolation
+CREATE OR REPLACE FUNCTION restore_evidence(
+  p_evidence_id uuid,
+  p_caller_institution_id uuid
+) RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+  UPDATE regulatory_evidence
+  SET is_deleted = false, deleted_at = NULL
+  WHERE id = p_evidence_id
+    AND institution_id = p_caller_institution_id
+    AND is_deleted = true
+    AND deleted_at > now() - interval '30 days';
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Evidence not found, wrong institution, or recovery window expired';
+  END IF;
+END;
+$$;
+```
+
+The API route calls this function instead of doing a raw UPDATE. Even if the application layer fails to check institution_id, the DB function enforces it.
+
+Similarly, create `soft_delete_evidence(p_evidence_id uuid, p_caller_institution_id uuid)` for the soft-delete operation:
+
+```sql
+CREATE OR REPLACE FUNCTION soft_delete_evidence(
+  p_evidence_id uuid,
+  p_caller_institution_id uuid
+) RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+  UPDATE regulatory_evidence
+  SET is_deleted = true, deleted_at = now()
+  WHERE id = p_evidence_id
+    AND institution_id = p_caller_institution_id
+    AND is_deleted = false;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Evidence not found or wrong institution';
+  END IF;
+END;
+$$;
+```
+
 **Evidence Upload Security Requirements:**
 > - **File type allowlist:** Only accept `pdf`, `jpg`, `jpeg`, `png`, `xlsx`, `xls`, `doc`, `docx`. Reject all other MIME types. **Note:** `csv` is intentionally excluded — CSV files can contain formula injection payloads (`=CMD|'/C calc'!A0`) that execute when opened in Excel/Google Sheets. If CSV upload is later required, the download endpoint MUST prepend a BOM and escape any cell starting with `=`, `+`, `-`, `@`, `\t`, or `\r` by prefixing with a single quote.
 > - **File size limit:** 25 MB per file (configurable). Reject larger uploads before processing.
 > - **Content-Type validation:** Verify the actual file content matches the declared MIME type (magic bytes check). Do not trust the `Content-Type` header alone.
 > - **File name sanitization:** Strip path traversal characters (`../`, `..\\`), Unicode tricks, and null bytes from `file_name` before storing.
 > - **Storage:** Upload to Supabase Storage bucket `regulatory-evidence` with institution_id path prefix for isolation. Use presigned upload URLs to keep files out of API route memory.
+
+#### CRITICAL: Evidence Soft-Delete and Restore Both Require Service-Role Client
+
+Both `softDeleteEvidence()` and `restoreEvidence()` MUST use a service-role Supabase client. The evidence_update RLS policy has `WITH CHECK (is_deleted = false)` which blocks:
+- **Soft-delete** (setting is_deleted = true) — blocked by WITH CHECK on NEW row
+- **Restore** (updating a row where is_deleted = true) — blocked by USING clause on OLD row
+
+The API routes for `DELETE /evidence/[id]` and `PUT /evidence/[id]/restore` MUST:
+1. Use `createClient(url, SERVICE_ROLE_KEY)` — NOT the user's auth client
+2. MANUALLY enforce institution scoping: `AND institution_id = caller_institution_id`
+3. Use the SECURITY DEFINER database functions (see Security section) for defense-in-depth
+
+> **Why not just fix the RLS policy?** Because the WITH CHECK clause on UPDATE is intentional — it prevents regular users from toggling soft-delete flags directly. The service-role + manual scoping pattern is the correct architecture for this operation. See also the `trg_evidence_soft_delete_guard` trigger which provides additional protection.
 
 ### Submissions API
 
@@ -3244,7 +3344,7 @@ Additional entity-specific filters are documented per endpoint where applicable.
 | GET | `/api/regulatory/submissions/[id]` | `getSubmissionById(id)` | super_admin, institution_admin, iqac_coordinator, principal | Submission detail with scores |
 | POST | `/api/regulatory/submissions` | `createSubmission(data)` | super_admin, institution_admin, iqac_coordinator | Create new submission (status=draft) |
 | PUT | `/api/regulatory/submissions/[id]/status` | `updateSubmissionStatus(id, newStatus)` | super_admin, institution_admin, iqac_coordinator, principal | Transition status. **CONCURRENCY CONTROL (CRITICAL):** The service method MUST use `SELECT ... FOR UPDATE` on the submission row before reading current status. This prevents TOCTOU race conditions where two users simultaneously read `in_review` and both trigger different transitions (one `returned`, one `approved`), with last-writer-wins producing inconsistent state. Alternative: optimistic locking via `version` column — UPDATE with `WHERE version = $expected_version`, return 409 if 0 rows affected. **Per-transition role enforcement (app-layer):** The role check is NOT a flat list — each transition has its own allowed roles as documented in the State Machine table below. The API route must: (1) acquire row lock via SELECT FOR UPDATE, (2) validate the transition is valid from current status, (3) check the caller's role against the specific transition's allowed roles, (4) reject with 403 if the role is insufficient for that specific transition (e.g., iqac_coordinator cannot trigger `in_review → approved`). |
-| POST | `/api/regulatory/submissions/[id]/calculate-score` | `calculateSubmissionScore(id)` | super_admin, institution_admin, iqac_coordinator | Calculate and persist total score (MUTATION, not query!) |
+| POST | `/api/regulatory/submissions/[id]/calculate-score` | `calculateSubmissionScore(id)` | super_admin, institution_admin, iqac_coordinator | Calculate and persist total score (MUTATION, not query!). **Idempotency (M17):** Uses advisory lock key `hashtext('calc-score:' || submission_id::text)`. The calculation runs within a single transaction. Metric values are read with `SELECT ... FOR SHARE` to prevent concurrent writes from creating inconsistent reads. Updates `last_calculated_at timestamptz` on the submission row so the UI can display staleness. |
 | POST | `/api/regulatory/submissions/[id]/report` | `generateSubmissionReport(id, format)` | super_admin, institution_admin, iqac_coordinator | Generate report. `format` query param: `pdf` (NAAC SSR/AQAR) \| `xlsx` (NIRF DCS pre-fill data sheets — NIRF uses web-based DCS forms, not direct file upload; this export helps manual portal entry) \| `html` (AICTE mandatory disclosure) \| `json` (API export for ONOD integration) |
 
 **Submission Status State Machine (enforced at API route level):**
@@ -3303,11 +3403,15 @@ overrides: Record<string, number>  // metric_code → overridden_numeric_value
 The API route calculates `score_delta` and `rank_estimate` server-side before storing.
 
 **Simulation overrides validation (MANDATORY):**
-> The API route MUST validate overrides before score calculation:
-> 1. Every key in `overrides` must map to an existing `regulatory_metrics.code` within the simulation's framework (join metrics → criteria → framework).
-> 2. Every value must be a finite number within the metric's `validation_min`/`validation_max` range (if defined).
-> 3. Reject with 400 if any override references a non-existent metric or an out-of-range value.
-> This prevents injection of metric codes from other frameworks and misleading simulation results.
+> The `POST /api/regulatory/simulations` endpoint MUST validate the `overrides` JSON object:
+>
+> 1. **Metric code existence:** Every key in `overrides` must map to an existing `regulatory_metrics.code` within the simulation's framework (join metrics → criteria → framework). Return 400 with the specific invalid code(s).
+> 2. **Value range:** Every value must be a finite number within the metric's `validation_min`/`validation_max` range (if defined). Return 400 with specific error messages per failed override.
+> 3. **Size limit:** `pg_column_size(overrides) < 65536` (64KB max, enforced at DB via CHECK constraint on `regulatory_simulations.overrides`).
+> 4. **Max entries:** Maximum 500 metric overrides per simulation (matching the framework's max metric count from the formula engine safety limits).
+> 5. Reject with 400 if any validation fails. Return specific error messages identifying which override key(s) failed and why.
+>
+> This prevents injection of metric codes from other frameworks, oversized payloads, and misleading simulation results.
 
 ### Governance API
 
@@ -3325,9 +3429,11 @@ The API route calculates `score_delta` and `rank_estimate` server-side before st
 
 | Method | Endpoint | Service Method | Roles (T8) | Description |
 |--------|----------|---------------|------------|-------------|
-| GET | `/api/regulatory/peer-visits` | `getPeerVisits(filters)` | all with institution access | List peer visits. **Query params:** `submission_id` (uuid), `visit_type` (text: naac_peer_team\|nba_evaluator\|aicte_expert\|naac_dvv), `status` (text: scheduled\|confirmed\|in_progress\|completed\|postponed\|cancelled). |
+| GET | `/api/regulatory/peer-visits` | `getPeerVisits(filters)` | super_admin, institution_admin, iqac_coordinator, principal | List peer visits. **Query params:** `submission_id` (uuid), `visit_type` (text: naac_peer_team\|nba_evaluator\|aicte_expert\|naac_dvv), `status` (text: scheduled\|confirmed\|in_progress\|completed\|postponed\|cancelled). |
 | POST | `/api/regulatory/peer-visits` | `createPeerVisit(data)` | super_admin, institution_admin, iqac_coordinator | Schedule a peer visit |
 | PUT | `/api/regulatory/peer-visits/[id]` | `updatePeerVisit(id, data)` | super_admin, institution_admin, iqac_coordinator | Update visit details |
+
+> **Peer visits role restriction (M20):** The `peer_visits_read` RLS policy restricts READ access to: super_admin, institution_admin, iqac_coordinator, principal. Staff and HOD should NOT have access to peer visit data (contains evaluator names, findings, and recommendations that are sensitive during active visits). The API route enforces the same role set. This matches the RLS policy already defined in the migration.
 
 ### Syllabi API
 
@@ -3388,10 +3494,12 @@ Add to `sidebarMenuLink.ts` (or equivalent navigation config):
     { title: 'Governance', path: '/regulatory/governance' },
     { title: 'Benchmarks', path: '/regulatory/benchmarks' },
     { title: 'Evidence Repository', path: '/regulatory/evidence' },
-    { title: 'Data Sources', path: '/regulatory/data-connectors' },
+    { title: 'Data Sources', path: '/regulatory/data-connectors', roles: ['super_admin'] },
   ]
 }
 ```
+
+> **Data Sources page visibility (M21):** The 'Data Sources' page MUST only be visible to `super_admin`. Remove from sidebar for all other roles (including `institution_admin`). Data connectors contain raw SQL query_templates that expose database schema — this is a security-sensitive page. For non-admin roles, add a read-only 'Connector Status' widget on the Regulatory Dashboard showing: connector name, `last_test_status` (success/fail), and `last_tested_at` timestamp. This gives IQAC coordinators visibility into data freshness without exposing connector internals.
 
 **Bottom navigation (mobile):** Include "Regulatory" as a collapsible item if the user's role is in the allowed list.
 
@@ -3551,7 +3659,8 @@ lib/services/regulatory/             — Service layer (server-side only, Supaba
 │   -- Evaluation order: topological sort on dependency graph (detect cycles → error).
 │   -- Depth/scale limits: max dependency chain depth = 10 levels. Max total formula
 │   --   dependencies per framework = 500. Formula evaluation timeout = 10 seconds per
-│   --   framework. These limits prevent DoS via deep/wide dependency chains.
+│   --   framework. Max formulas evaluated per request = 200. These limits prevent
+│   --   DoS via deep/wide dependency chains.
 │   -- Security: formulas are admin-authored config (not user input), but still evaluated
 │   --   via a safe expression parser (e.g., mathjs) — NEVER eval() or Function().
 │   --
@@ -3610,6 +3719,62 @@ types/regulatory.types.ts            — TypeScript types (MUST align 1:1 with s
 
 The `regulatory_metrics` table has `data_connector_query` (SQL text) readable via `metrics_read` USING(true). To prevent leaking DB schema to non-admin roles, the **Metrics API GET endpoints** MUST strip `data_connector_query` and `data_connector_id` from responses unless the caller is `super_admin`. Implementation: `const { data_connector_query, data_connector_id, ...safeMetric } = metric` in the API route.
 
+#### Mandatory: `regulatory_metrics_safe` View (H9)
+
+The `regulatory_metrics_safe` view is MANDATORY (not optional) for all non-super_admin API queries. It strips sensitive data connector fields:
+
+```sql
+CREATE OR REPLACE VIEW regulatory_metrics_safe AS
+SELECT id, criteria_id, code, name, description, data_type,
+       is_auto_calculable, requires_evidence, validation_min, validation_max,
+       weight, display_order, formula, formula_dependencies,
+       dvv_guidance, metadata, created_at, updated_at
+       -- EXCLUDED: data_connector_id, data_connector_query, data_connector_mapping
+FROM regulatory_metrics;
+```
+
+**API enforcement:** The metrics GET endpoints (`GET /metrics` and `GET /metrics/[id]`) MUST:
+- Use `regulatory_metrics_safe` view for non-super_admin queries
+- Only return `data_connector_id`, `data_connector_query`, `data_connector_mapping` when caller is super_admin
+- The Data Sources page in the sidebar is already restricted to super_admin only (see Sidebar Navigation)
+
+#### Institution Scoping for Framework-Specific Criteria and Metrics (H9)
+
+For institution-specific frameworks (`regulatory_frameworks.institution_id IS NOT NULL`), criteria and metrics should only be readable by users from that institution. The `criteria_read` and `metrics_read` RLS policies should be enhanced:
+
+```sql
+-- Enhanced criteria_read with institution scoping for institution-specific frameworks
+CREATE POLICY "criteria_read" ON regulatory_criteria FOR SELECT USING (
+  EXISTS (
+    SELECT 1 FROM regulatory_frameworks f
+    WHERE f.id = framework_id
+    AND (f.institution_id IS NULL  -- global templates: readable by all authenticated
+         OR f.institution_id = auth_institution_id()
+         OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'))
+  )
+  AND EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid())
+);
+```
+
+Apply the same pattern to `metrics_read`:
+
+```sql
+-- Enhanced metrics_read with institution scoping for institution-specific frameworks
+CREATE POLICY "metrics_read" ON regulatory_metrics FOR SELECT USING (
+  EXISTS (
+    SELECT 1 FROM regulatory_criteria c
+    JOIN regulatory_frameworks f ON f.id = c.framework_id
+    WHERE c.id = criteria_id
+    AND (f.institution_id IS NULL
+         OR f.institution_id = auth_institution_id()
+         OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'))
+  )
+  AND EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid())
+);
+```
+
+> **Note:** This changes the existing `criteria_read` and `metrics_read` policies from simple `EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid())` to institution-aware policies. Global framework criteria (institution_id IS NULL) remain readable by all authenticated users. Institution-specific framework criteria are scoped to that institution + super_admin.
+
 ### Service Architecture Rules
 
 1. **Static class methods** — all services use the existing `ClassName.methodName()` pattern.
@@ -3664,6 +3829,248 @@ Fields referenced in page components that don't exist on DB rows. The Dashboard 
 
 **Problem:** `useSimulationData` reads `c.score` from criteria — criteria have no score column.
 **Fix:** The simulation API route must compute criteria scores from metric_values (aggregate numeric_value × weight through the criteria→metrics chain) before returning to the client.
+
+---
+
+## Performance Architecture
+
+> **Added 2026-02-24 after Performance Engineering review (100 institutions, 10K concurrent users, 1M metric values scale target).**
+> Each subsection addresses a specific finding from the review. All items are MANDATORY for implementation — they are NOT future optimizations.
+
+### Async Report Generation
+
+NAAC SSR is 200-300 pages. PDF generation WILL timeout on Vercel's 30-second serverless limit. Report generation MUST be asynchronous.
+
+**Architecture:**
+
+1. `POST /api/regulatory/submissions/[id]/report` returns immediately with:
+   ```json
+   { "status": "generating", "reportId": "uuid", "estimatedTime": "60-120s" }
+   ```
+   HTTP status: **202 Accepted**
+
+2. Actual generation runs in one of:
+   - **Option A (Recommended):** Supabase Edge Function (Deno, 150s timeout)
+   - **Option B:** Vercel Background Function (Pro/Enterprise, 300s timeout)
+   - **Option C:** External worker process triggered via webhook
+
+3. Polling endpoint: `GET /api/regulatory/submissions/[id]/report/status`
+   Returns: `{ status: 'pending'|'generating'|'complete'|'failed', progress: 0-100, reportUrl?: string, error?: string }`
+
+4. PDF Library: Use `@react-pdf/renderer` (serverless-compatible, no browser needed) instead of Puppeteer.
+   - Zero cold-start overhead (no headless browser)
+   - Runs in Node.js / Deno without system dependencies
+   - For 300-page SSR: generate sections in parallel, assemble final PDF from pre-rendered section PDFs
+
+5. Storage: Generated PDF saved to Supabase Storage bucket `regulatory-reports/{institution_id}/{submission_id}/`
+   - `report_file_url` on `regulatory_submissions` updated upon completion
+
+**Rate Limiting:** Max 1 concurrent report generation per institution (advisory lock: `hashtext('report:' || institution_id::text)`).
+
+---
+
+### RLS Performance: JWT Custom Claims
+
+**Problem:** Every query against hot-path tables (metric_values, evidence, submissions) runs 3 correlated subqueries against `profiles` for institution_id check, super_admin check, and role check. At 10,000 concurrent users, `profiles` becomes a contention hotspot.
+
+**Solution: Move role + institution_id into JWT custom claims at login.**
+
+1. At login/token refresh, set custom claims:
+   ```sql
+   -- Supabase auth hook or custom login function
+   SELECT auth.jwt() || jsonb_build_object(
+     'institution_id', p.institution_id::text,
+     'app_role', p.role
+   ) FROM profiles p WHERE p.id = auth.uid();
+   ```
+
+2. RLS policies read claims directly (no profiles subquery):
+   ```sql
+   -- BEFORE (3 subqueries):
+   USING (
+     institution_id = auth_institution_id()
+     AND EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN ('super_admin',...))
+   )
+
+   -- AFTER (zero subqueries):
+   USING (
+     institution_id = (auth.jwt()->>'institution_id')::uuid
+     OR (auth.jwt()->>'app_role') = 'super_admin'
+   )
+   ```
+
+3. **Estimated impact:** 3-5x query speedup on every authenticated request. This is foundational — affects every table in the system.
+
+4. **Implementation note:** This optimization should be applied system-wide (all MyJKKN modules), not just regulatory. Plan as a cross-cutting concern.
+
+**Fallback:** If JWT custom claims cannot be implemented immediately, create a combined helper function that returns both role and institution_id in one query:
+```sql
+CREATE OR REPLACE FUNCTION auth_user_context()
+RETURNS TABLE(user_role text, user_institution_id uuid)
+LANGUAGE sql STABLE SECURITY INVOKER AS $$
+  SELECT role, institution_id FROM profiles WHERE id = auth.uid() LIMIT 1
+$$;
+```
+
+---
+
+### N+1 Prevention: Framework Tree Endpoint
+
+The `GET /api/regulatory/frameworks/[id]/tree` endpoint MUST use exactly 2 queries, not N+1:
+
+```sql
+-- Query 1: All criteria for the framework
+SELECT * FROM regulatory_criteria WHERE framework_id = $1 ORDER BY display_order;
+
+-- Query 2: All metrics for all criteria in the framework (single JOIN)
+SELECT m.* FROM regulatory_metrics m
+JOIN regulatory_criteria c ON m.criteria_id = c.id
+WHERE c.framework_id = $1
+ORDER BY c.display_order, m.display_order;
+```
+
+Tree structure is assembled in application code from these two flat result sets. NEVER query metrics per-criterion in a loop.
+
+---
+
+### Dashboard Stats: Materialized Summaries
+
+**Problem:** Dashboard stats compute completeness across 100 institutions x 15 frameworks = 1,500 completeness calculations, each requiring multi-table JOINs.
+
+**Solution:** Use the pre-existing `completeness_percentage`, `auto_populated_count`, `manual_entry_count`, and `total_metrics_count` columns on `regulatory_submissions` as cached summaries.
+
+**Refresh strategy:**
+1. The metric-values UPSERT endpoint (`POST /metric-values`) MUST update the parent submission's counters:
+   ```sql
+   UPDATE regulatory_submissions
+   SET auto_populated_count = (SELECT COUNT(*) FROM regulatory_metric_values WHERE ... AND is_auto_calculated = true),
+       manual_entry_count = (SELECT COUNT(*) FROM regulatory_metric_values WHERE ... AND is_auto_calculated = false),
+       completeness_percentage = (auto_populated_count + manual_entry_count)::numeric / NULLIF(total_metrics_count, 0) * 100,
+       updated_at = now()
+   WHERE id = <submission_id>;
+   ```
+
+2. The dashboard stats endpoint reads ONLY from `regulatory_submissions` (no joins to metrics/values).
+
+3. For super_admin cross-institution view: add pagination (max 20 institutions per page).
+
+---
+
+### Score Calculation: In-Memory Evaluation
+
+**Problem:** Score calculation is O(n x m) with no caching. 50 simultaneous calculations saturate the database.
+
+**Solution:**
+1. **Cache the dependency graph:** Store the topological order in `regulatory_frameworks.metadata` under key `formula_order`. Recompute only when criteria/metrics are saved.
+
+2. **Batch-load then compute:** Load ALL metric values for the submission in a single query, build an in-memory Map<metric_code, numeric_value>, then evaluate formulas purely in application code:
+   ```typescript
+   const values = await getMetricValues(frameworkId, institutionId, year); // 1 query
+   const valueMap = new Map(values.map(v => [v.metric_code, v.numeric_value]));
+   const order = framework.metadata.formula_order; // cached
+   for (const code of order) {
+     const metric = metricMap.get(code);
+     if (metric.formula) {
+       valueMap.set(code, evaluateFormula(metric.formula, valueMap));
+     }
+   }
+   ```
+
+3. **Incremental computation (future):** When a single metric value changes, recompute only the affected criteria branch, not the entire tree.
+
+---
+
+### Data Connector Refresh: Global Concurrency Control
+
+**Problem:** 100 institutions refreshing simultaneously = 100 x 36 sequential connector queries = 3,600 queries in flight, exceeding Supabase's connection pool (60-100 connections).
+
+**Solution:**
+1. **Global semaphore:** Use a fixed set of 5 advisory lock hash values as a global semaphore:
+   ```sql
+   -- Try to acquire one of 5 global refresh slots
+   SELECT pg_try_advisory_xact_lock(hashtext('global-refresh-slot-' || (random() * 4)::int::text));
+   ```
+   If all 5 slots are occupied, return 429 Too Many Requests: "Maximum concurrent refreshes reached. Try again in a few minutes."
+
+2. **Sequential within a refresh:** Run connector queries sequentially within a single refresh operation (not parallel). Each connector has a 30-second timeout; 36 connectors x average 3s = ~2 minutes total.
+
+3. **Queue-based (Phase 2):** For production scale, implement a `regulatory_refresh_queue` table. A single worker process picks requests off the queue, ensuring controlled throughput.
+
+---
+
+### Evidence Storage: Archival & Lifecycle
+
+**Scale projection:** 100 institutions x 1,000 files/year x 25MB average = 2.5TB/year.
+
+**Storage path partitioning:**
+```
+regulatory-evidence/{institution_id}/{academic_year}/{filename}
+```
+Partitioning by academic_year keeps per-directory listings manageable. NEVER list all files in a flat bucket.
+
+**Lifecycle rules:**
+1. **Active (0-3 years):** Standard Supabase Storage (hot tier)
+2. **Archived (3-7 years):** Move to separate `regulatory-evidence-archive` bucket after submission is accepted + 3 years
+3. **Expired (7+ years):** Purge based on retention policy (configurable per institution)
+
+**Soft-delete cleanup job:** A scheduled function (Supabase cron or Edge Function) runs daily:
+1. Find evidence where `is_deleted = true AND deleted_at < now() - interval '30 days'`
+2. Delete physical file from Supabase Storage
+3. Hard-delete the `regulatory_evidence` DB row (service-role, bypassing RLS)
+4. Cascade deletes `regulatory_evidence_versions` rows via FK
+
+**Evidence listing:** The evidence API MUST always filter by `institution_id + academic_year` at minimum. Full-text search MUST include `LIMIT 100` in the SQL query (not just API pagination).
+
+---
+
+### Metric Value History: Pagination & Partitioning
+
+The history endpoint MUST return paginated results (default 50, max 200 per page). The index `idx_reg_value_history_metric_value` should be composite: `(metric_value_id, created_at DESC)` for optimal query performance.
+
+For long-term scale (60M rows after 5 years), consider range-partitioning `regulatory_metric_value_history` by `created_at` (yearly partitions). This keeps individual partition sizes manageable and allows archival of old partitions.
+
+---
+
+### Evidence Full-Text Search: Hard SQL LIMIT
+
+The evidence search query MUST include a hard `LIMIT` in the SQL (not just API-level pagination):
+- Full-text search: `LIMIT 100` with `ts_rank` ordering
+- Trigram fuzzy search: `LIMIT 20` with `similarity() > 0.3` threshold
+- Always pre-filter by `institution_id AND academic_year` before full-text ranking
+
+Without SQL-level LIMIT, PostgreSQL fetches and ranks ALL matching rows before truncating.
+
+---
+
+### Criteria Tree: Depth Limit
+
+The `regulatory_criteria` self-referential FK allows unlimited nesting. Add safety limits:
+- `depth integer NOT NULL DEFAULT 1 CHECK (depth <= 5)` column on criteria table
+- Tree-building queries use `WITH RECURSIVE ... WHERE depth < 10` as safety valve
+- No regulatory framework needs more than 5 levels (Parameter -> Sub-parameter -> Metric -> Sub-metric = 4 levels max)
+
+---
+
+### Supporting Indexes for Views
+
+The `regulatory_course_completion_dashboard` view groups by `institution_id, department, academic_year` filtered by `revision_status = 'current'`. Add:
+```sql
+CREATE INDEX idx_reg_syllabi_current ON regulatory_course_syllabi(institution_id, academic_year) WHERE revision_status = 'current';
+```
+
+---
+
+### Trigger Performance: WHEN Clause Optimization
+
+The evidence soft-delete trigger uses a `WHEN` clause to only fire when soft-delete columns change:
+```sql
+CREATE TRIGGER trg_evidence_soft_delete_guard
+  BEFORE UPDATE ON regulatory_evidence
+  FOR EACH ROW
+  WHEN (OLD.is_deleted IS DISTINCT FROM NEW.is_deleted OR OLD.deleted_at IS DISTINCT FROM NEW.deleted_at)
+  EXECUTE FUNCTION protect_evidence_soft_delete();
+```
+This avoids executing the trigger function for benign metadata updates (description changes, type changes).
 
 ---
 
@@ -3866,3 +4273,229 @@ GROUP BY audit_type;
 - `/Users/omm/Vaults/Claude Setup/Capture/MyJKKN/FST-Regulatory-Engine-Completeness-Audit.md` — FST audit of connector completeness across all frameworks (found 6 gaps, added DC-31 through DC-36)
 - `/Users/omm/Vaults/JKKNKB/MyJKKN/Gaps-Analysis/SARAL-ERP-Complete-Offerings.md` — SARAL ERP feature catalog (Section 10: IQAC/Quality)
 - `/Users/omm/PROJECTS/MyJKKN/specs/MYJKKN-ENHANCEMENT-SPEC.md` — Existing spec format reference
+
+---
+
+## Implementer Guide: Common Pitfalls & Clarifications
+
+> This section was added based on the Round 5 multi-agent review (108 findings across 6 expert perspectives). See `specs/REGULATORY-FRAMEWORK-ENGINE-REVIEW.md` for the full audit report.
+
+### Formula Variable Resolution
+
+Formula variables use metric codes wrapped in curly braces: `{metric_code}`.
+
+**Examples:**
+- Formula: `({1.1.1} / {EP.1}) * 100` means: divide metric 1.1.1's value by Extended Profile metric EP.1's value, multiply by 100
+- Formula: `({placed_count} / {eligible_count}) * 100` — this format is ILLUSTRATIVE ONLY in the spec. Actual stored formulas use metric codes from the framework.
+
+**Resolution algorithm:**
+1. Parse formula string, extract all `{...}` tokens as metric codes
+2. For each code, query `regulatory_metric_values` WHERE metric_id IN (SELECT id FROM regulatory_metrics WHERE code = [code] AND criteria_id IN (SELECT id FROM regulatory_criteria WHERE framework_id = [framework_id])) AND institution_id = [institution_id] AND academic_year = [year]
+3. Substitute numeric_value into the formula string
+4. Evaluate using safe expression parser (e.g., mathjs)
+5. If any dependency is NULL, the formula result is NULL (with warning in notes)
+
+**NEVER use eval() or Function().** Use mathjs or a similar sandboxed math expression library.
+
+**Resolution scope:** Formula variables are scoped to the SAME framework. Cross-framework references are NOT supported.
+
+### Score Calculation Algorithms by Framework Type
+
+The `score-calculator.ts` MUST implement framework-specific calculation strategies. The framework's `metadata.scoring_methodology` field determines which algorithm to use.
+
+**NAAC 2022 (Old Grading):**
+```json
+{ "method": "naac_gpa", "metric_scale": [0, 4], "aggregation": "two_level_gpa" }
+```
+Algorithm:
+1. Each QnM metric scored on 0-4 scale (predefined thresholds in metric metadata)
+2. Key Indicator GPA = AVERAGE of its QnM metric scores
+3. Criterion GPA = WEIGHTED AVERAGE of its Key Indicator GPAs (weights from criteria)
+4. Overall CGPA = WEIGHTED AVERAGE of 7 Criterion GPAs
+5. Final grade: A++ (3.51-4.0), A+ (3.26-3.50), A (3.01-3.25), B++ (2.76-3.00), B+ (2.51-2.75), B (2.01-2.50), C (1.51-2.00)
+
+**NAAC Binary 2024:**
+```json
+{ "method": "naac_binary", "max_points": 900, "aggregation": "weighted_sum" }
+```
+Algorithm:
+1. Each attribute scored as raw points (0 to max per attribute)
+2. Total = SUM of all attribute scores
+3. Compare total against `pass_threshold` for PASS/FAIL
+4. For MBGL: map total to maturity level ranges
+
+**NIRF:**
+```json
+{ "method": "nirf_ranking", "aggregation": "weighted_parameter_scores" }
+```
+Algorithm:
+1. Each sub-parameter value normalized using `f(x)` scaling function (sigmoid/logarithmic)
+2. Parameter score = SUM of normalized sub-parameter scores x sub-parameter marks
+3. Overall score = SUM of parameter scores x parameter weights (TLR 0.30, RPC 0.30, GO 0.20, OI 0.10, PR 0.10)
+4. Exact `f(x)` cutoff values must be extracted from NIRF methodology PDF during implementation
+
+**NBA:**
+```json
+{ "method": "nba_sar", "aggregation": "criterion_percentage" }
+```
+Algorithm:
+1. Each criterion scored as percentage (0-100%)
+2. Total = SUM of (criterion score x criterion weight / 100)
+3. Minimum 60% required for accreditation
+
+### Academic Year to Date Range Conversion
+
+Data connectors use `$2=start_date` and `$3=end_date` parameters. The DataConnectorEngine resolves these from the `academic_year` string and the framework's `year_type`:
+
+```typescript
+function resolveYearRange(
+  academicYear: string,
+  yearType: 'academic' | 'calendar',
+  startMonth = 6
+): { start: Date, end: Date } {
+  if (yearType === 'calendar') {
+    // "2025" -> Jan 1 to Dec 31
+    const year = parseInt(academicYear);
+    return { start: new Date(year, 0, 1), end: new Date(year, 11, 31) };
+  }
+  // "2025-26" -> June 1 to May 31 (default, configurable via startMonth)
+  const [startYear] = academicYear.split('-').map(Number);
+  return {
+    start: new Date(startYear, startMonth - 1, 1),
+    end: new Date(startYear + 1, startMonth - 1, 0) // last day of month before start
+  };
+}
+```
+
+The `startMonth` should come from institution configuration (default: 6 for June). Different universities start in different months (June, July, or August).
+
+**API validation:** The metric-values upsert endpoint MUST validate that `academic_year` format matches the parent framework's `year_type`:
+- `year_type = 'calendar'` -> accept only `\d{4}` (four digits)
+- `year_type = 'academic'` -> accept only `\d{4}-\d{2}` (YYYY-YY)
+
+Return 400 if format mismatch.
+
+---
+
+## Implementer Guide: Known Decisions & Clarifications
+
+> This section documents intentional design decisions, known limitations, and clarifications that prevent implementer confusion. Each item corresponds to a Low-priority finding from the Round 5 review.
+
+### L1. T10 Preview DDL is Illustrative Only
+
+The T10 section contains illustrative DDL for `regulatory_peer_benchmarks`, evidence search indexes, and the course completion view. These are PREVIEWS — the canonical DDL is in the Database Schema / Migration section. Do NOT execute T10 code blocks as separate migrations.
+
+### L2. Immutable Tables Have No UPDATE Triggers (Intentional)
+
+`regulatory_metric_value_history`, `regulatory_evidence_versions`, and `regulatory_simulations` are append-only by design. They have no `updated_at` column and no moddatetime trigger. This is intentional — they should never be updated after creation. The history immutability trigger (trg_history_immutable) enforces this at the DB level.
+
+### L3. auth_user_role() Helper (Not Used)
+
+The `auth_user_role()` function shown commented out in the migration is a REFERENCE ONLY. RLS policies use inline EXISTS subqueries instead. When JWT custom claims are implemented (see Performance Architecture section), both `auth_user_role()` and `auth_institution_id()` will be replaced with JWT claim reads.
+
+### L4. Simulation Overrides Size Limit
+
+`regulatory_simulations.overrides` JSONB has a CHECK constraint limiting to 64KB. Additionally, the API limits to 500 metric overrides per simulation and 50 simulations per institution per framework.
+
+### L5. Evidence Soft-Delete Trigger Uses WHEN Clause
+
+The `trg_evidence_soft_delete_guard` trigger includes a `WHEN` clause that short-circuits when `is_deleted` and `deleted_at` are not changing. This avoids overhead on routine evidence metadata updates.
+
+### L6. CTE Queries in Data Connectors
+
+Data connector SQL validation accepts queries starting with `WITH` (for CTEs) in addition to `SELECT`. Validation is case-insensitive and strips leading whitespace/comments before checking.
+
+### L7. Value History Growth
+
+At 100 institutions x 100 metrics x 12 refreshes/year = ~120K history rows/year. PostgreSQL handles this without issues. No automatic purging needed. History older than 7 years can be archived to cold storage if desired.
+
+### L8. File-Type Metrics
+
+For metrics with `data_type = 'file'`: the `value` column stores a URL to the uploaded file (same as evidence file_url). `numeric_value` is NULL. These metrics are always `is_auto_calculable = false` and `requires_evidence = true`.
+
+### L9. Year Format Transition
+
+Year format changes are handled by creating a new framework version. The old framework retains its year_type; the new framework uses the new year_type. Historical metric_values remain linked to the old framework's metrics.
+
+### L10. HOD Dashboard Access
+
+The submissions_read RLS policy includes `hod` for SELECT. This gives HODs access to full submission data, not just dashboard indicators. This is intentional — HODs need to see submission progress and completeness to prioritize their department's data collection. However, sensitive fields (portal_reference, report_file_url) are stripped by the API for hod role.
+
+### L11. Framework Copy Endpoint (Not in Phase 1)
+
+There is no `POST /frameworks/[id]/copy` endpoint in Phase 1. Institutions use global templates directly — metric_values reference metrics from frameworks with `institution_id IS NULL`. This is the intended pattern. Framework copying (for institutional customization) is deferred to Phase 3.
+
+### L12. Staff and Evidence Repository
+
+Staff CAN search and upload evidence (per T8 permissions) but CANNOT navigate to the standalone Evidence Repository page (excluded from sidebar). Staff access evidence through inline upload forms on their assigned metric data entry pages. The sidebar roles for Evidence Repository are: super_admin, institution_admin, iqac_coordinator, principal, hod.
+
+### L13. Criteria/Metrics UPDATE Policies
+
+The criteria_modify and metrics_modify UPDATE policies intentionally lack WITH CHECK clauses. These are super_admin-only operations. Framework version pinning (see Security section) prevents edits during active submissions. At the API layer, validate that framework_id (criteria) and criteria_id (metrics) are not changed.
+
+### L14. Course Completion Dashboard View
+
+The `regulatory_course_completion_dashboard` view is used by the `getDataCompleteness` Dashboard API endpoint. The view is automatically institution-scoped via RLS on the underlying `regulatory_course_syllabi` table. No explicit mention in the API section is needed — the service layer queries the view directly.
+
+### L15. Pharmacy PhO Definitions (TODO)
+
+NBA Pharmacy Programme Outcomes (PhO) definitions are pending PCI's GAPC v4 alignment confirmation. The NBA Pharmacy framework is seeded with placeholder PhOs. Update with actual definitions before pharmacy program accreditation visits.
+
+### L16. Framework Configuration Audit Log (Phase 2)
+
+Changes to framework/criteria/metrics configuration are not tracked in Phase 1. Phase 2 adds a `regulatory_config_audit_log` table with trigger-based change capture. For Phase 1, rely on the git-managed migration files as the configuration audit trail.
+
+### L17. AISHE Portal Template Compatibility
+
+AISHE data submission uses annually updated portal forms. The export format mapping is stored in framework metadata as `portal_template_version`. Update this mapping each year when MHRD/UGC releases the new AISHE form. The system generates CSV; manual verification against the portal is required.
+
+### L18. Consolidated Multi-Institution NIRF (Phase 3)
+
+NIRF Overall ranking can consider the entire JKKN group. This requires aggregating metrics across 9 institutions. Deferred to Phase 3. The schema supports it via a `is_consolidated boolean DEFAULT false` flag on submissions and super_admin-only cross-institution dashboard endpoint.
+
+### L19. Report Draft/Preview
+
+The report generation endpoint always produces a full report. For draft/preview, the UI can render metric data directly without generating a PDF. Add a `draft` query parameter in Phase 2 that produces a watermarked, lower-fidelity version.
+
+### L20. NAAC A-E Scale Metrics
+
+Several NAAC metrics use an A-E scale (e.g., 1.4.1 Feedback System). Use `data_type = 'scale'`. Store scale definitions in metric metadata:
+```json
+{
+  "scale": {
+    "A": { "score": 4, "criteria": "Feedback collected, analysed, action taken, communicated" },
+    "B": { "score": 3, "criteria": "Feedback collected, analysed, action taken" },
+    "C": { "score": 2, "criteria": "Feedback collected and analysed" },
+    "D": { "score": 1, "criteria": "Feedback collected" },
+    "E": { "score": 0, "criteria": "No feedback mechanism" }
+  }
+}
+```
+The UI renders a dropdown with criteria descriptions. The score calculator reads the numeric score from the scale mapping.
+
+### Meetings API Pattern (Mixed Nesting)
+
+Meeting list/create are nested under governing bodies (`/governing-bodies/{bodyId}/meetings`) because they require the body context. Update/approve use flat paths (`/meetings/{meetingId}`) because they operate on a specific meeting by ID. Hooks use different base URLs: `/governing-bodies/${bodyId}/meetings` for list/create, `/meetings/${meetingId}` for update/approve.
+
+### Submissions RLS is Intentionally Broad
+
+The submissions_update RLS policy is intentionally permissive at the DB level. Fine-grained state transition enforcement is app-layer only. RLS prevents cross-institution mutation; app layer prevents invalid state transitions. This is a deliberate trade-off for simplicity.
+
+### Data Connectors RLS vs Metrics API
+
+The `regulatory_data_connectors` table has super_admin-only RLS. The `regulatory_metrics` table has a FK to `data_connector_id`. The metrics GET API MUST NOT join to data_connectors — it returns `data_connector_id` as a string for super_admin context only, using the `regulatory_metrics_safe` view for non-admin queries.
+
+### auth_institution_id() Dependency
+
+The migration MUST verify that `auth_institution_id()` exists before creating RLS policies:
+```sql
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'auth_institution_id') THEN
+    RAISE EXCEPTION 'auth_institution_id() function must exist. Run the profiles migration first.';
+  END IF;
+END $$;
+```
+
+### Staff Evidence Access
+
+Staff can upload evidence documents for assigned metrics but cannot see metric values or scores. The evidence upload form for staff role shows only: file upload, evidence_type selector, and description field. Metric name and code are displayed but not the current value. This is intentional — staff provide supporting documentation without seeing institutional performance data.
