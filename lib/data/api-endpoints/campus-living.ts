@@ -4138,10 +4138,10 @@ const dashboardEndpoint: ApiEndpoint = {
       example: {
         occupancy: {
           total_blocks: 8,
-          total_beds: 1600,
-          occupied_beds: 1420,
-          occupancy_rate: 88.75,
-          vacant_beds: 180,
+          total_capacity: 1600,
+          occupied: 1420,
+          vacant: 180,
+          rate_percent: 89,
         },
         pending_actions: {
           leave_requests: 12,
