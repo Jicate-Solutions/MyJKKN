@@ -3,14 +3,14 @@
 /**
  * Solutions Hub - MOU Hooks
  * Purpose: React Query hooks for MOU (Memorandum of Understanding) management
- * Connected to: mou-service.ts
+ * Connected to: /api/solutions/mous routes
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { solutionsHubKeys } from '@/lib/query-keys';
 import { QUERY_CONFIG } from '@/lib/config/query-config';
+import { apiClient } from '@/lib/api/client';
 import {
-  mouService,
   MOU_STATUS_LABELS,
   type MouFilters,
   type MouWithSolution,
@@ -45,7 +45,7 @@ export { MOU_STATUS_LABELS };
 export function useMous(filters?: MouFilters) {
   return useQuery({
     queryKey: solutionsHubKeys.mous.list(filters),
-    queryFn: () => mouService.list(filters),
+    queryFn: () => apiClient.get('/api/solutions/mous', { params: filters as Record<string, any> }),
     ...QUERY_CONFIG.DYNAMIC_DATA,
   });
 }
@@ -56,7 +56,7 @@ export function useMous(filters?: MouFilters) {
 export function useMou(id: string) {
   return useQuery({
     queryKey: solutionsHubKeys.mous.detail(id),
-    queryFn: () => mouService.getById(id),
+    queryFn: () => apiClient.get(`/api/solutions/mous/${id}`),
     enabled: !!id,
     ...QUERY_CONFIG.SEMI_STABLE_DATA,
   });
@@ -68,7 +68,7 @@ export function useMou(id: string) {
 export function useMouBySolution(solutionId: string) {
   return useQuery({
     queryKey: solutionsHubKeys.mous.bySolution(solutionId),
-    queryFn: () => mouService.getBySolutionId(solutionId),
+    queryFn: () => apiClient.get('/api/solutions/mous', { params: { solution_id: solutionId } }),
     enabled: !!solutionId,
     ...QUERY_CONFIG.SEMI_STABLE_DATA,
   });
@@ -86,7 +86,7 @@ export function useCreateMou() {
 
   return useMutation({
     mutationFn: (input: CreateMouInput) =>
-      mouService.create(input),
+      apiClient.post('/api/solutions/mous', input),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.mous.all });
     },
@@ -101,7 +101,7 @@ export function useUpdateMou() {
 
   return useMutation({
     mutationFn: ({ id, input }: { id: string; input: UpdateMouInput }) =>
-      mouService.update(id, input),
+      apiClient.patch<{ id?: string }>(`/api/solutions/mous/${id}`, input),
     onSuccess: (data: { id?: string }) => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.mous.all });
       if (data?.id) {
@@ -118,7 +118,7 @@ export function useDeleteMou() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (id: string) => mouService.delete(id),
+    mutationFn: (id: string) => apiClient.delete(`/api/solutions/mous/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.mous.all });
     },
@@ -133,7 +133,7 @@ export function useUpdateMouStatus() {
 
   return useMutation({
     mutationFn: ({ id, status }: { id: string; status: MouStatus }) =>
-      mouService.updateStatus(id, status),
+      apiClient.patch<{ id?: string }>(`/api/solutions/mous/${id}/status`, { status }),
     onSuccess: (data: { id?: string }) => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.mous.all });
       if (data?.id) {
