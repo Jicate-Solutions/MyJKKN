@@ -56,7 +56,7 @@ export const GET = withApiKeyAuth(async (request, auth) => {
           .eq('institution_id', institutionId)
           .gte('date', dateFrom).lte('date', dateTo),
         supabase.from('hostel_attendance').select('*', { count: 'exact', head: true })
-          .eq('institution_id', institutionId).eq('status', 'present')
+          .eq('institution_id', institutionId).eq('evening_status', 'present')
           .gte('date', dateFrom).lte('date', dateTo),
       ]);
       if (totalResult.error) throw totalResult.error;
