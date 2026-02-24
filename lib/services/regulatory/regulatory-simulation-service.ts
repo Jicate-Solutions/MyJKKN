@@ -92,7 +92,7 @@ export class RegulatorySimulationService {
         }
       }
     } catch (error) {
-      console.error('[RegulatorySimulationService] Error fetching simulations:', this.formatError(error))
+      console.error('[RegulatorySimulationService] Error fetching simulations:', formatError(error))
       throw error
     }
   }
@@ -241,7 +241,7 @@ export class RegulatorySimulationService {
 
       return result
     } catch (error) {
-      console.error('[RegulatorySimulationService] Error creating simulation:', this.formatError(error))
+      console.error('[RegulatorySimulationService] Error creating simulation:', formatError(error))
       throw error
     }
   }
