@@ -19,7 +19,7 @@
 - [x] Zero external API routes for core CRUD (only dept tracker has 7 routes)
 - [x] Upload route has NO auth — anyone can upload files
 - [x] BaseService uses `createClientSupabaseClient()` which calls `createBrowserClient()` from `@supabase/ssr` — this ONLY works in browser context (reads `document.cookie`). In API routes, `document` is undefined, so the client has NO auth context — queries execute as anonymous/anon-key-only
-- [x] **PRE-EXISTING BUG:** All 7 existing dept tracker API routes call `DepartmentTrackerService` → `BaseService.supabase` → browser client singleton → no user JWT on server → RLS evaluates `auth.uid()` as NULL. These routes may silently return empty results or fail depending on table RLS policies
+- [x] **PRE-EXISTING BUG (CONFIRMED):** All 7 existing dept tracker API routes call `DepartmentTrackerService` → `BaseService.supabase` → browser client singleton → anon key on server (role: "anon") → ALL dept tracker RLS policies are `TO authenticated USING (true)` with NO `TO anon` policies → **queries WILL return zero rows**. This is not "may fail" — it IS broken. The routes return empty arrays silently (HTTP 200, `data: []`)
 
 **What are we ASSUMING (unverified)?**
 - ⚠️ Every service method needs an API route — Confidence: Low
