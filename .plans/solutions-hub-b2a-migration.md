@@ -881,6 +881,13 @@ Phase 6 ─── Documentation (after Phases 1-5)
 - [ ] **RLS preserved for API keys**: API key queries are scoped to key owner's permissions
 - [ ] **Service role not used in routes**: `SUPABASE_SERVICE_ROLE_KEY` only in withAuth (for API key lookup) and upload (for storage)
 - [ ] **JWT impersonation works**: API key auth creates a valid JWT via `SUPABASE_JWT_SECRET`, and `auth.uid()` returns the key owner's ID
+- [ ] **JWT expiry is 60s**: Disposable per-request token, NOT 3600s
+- [ ] **SUPABASE_JWT_SECRET configured**: Env var added to `.env.local` (from Supabase Dashboard → Project Settings → API → JWT Secret)
+- [ ] **Cookies-first auth detection**: `withAuth` checks session cookie presence BEFORE checking Bearer header
+- [ ] **Cookie presence check is lightweight**: No `getUser()` HTTP call for API key requests — check `sb-*-auth-token` cookie existence only
+- [ ] **Profile lookup error handling**: API key flow returns 401 `"API key owner account not found"` if `profiles` row missing for `created_by`
+- [ ] **AsyncLocalStorage conditional require**: `base-service.ts` uses `import type` (compile-time erased) + `typeof window === 'undefined'` guard + `require()` — NOT a top-level value import
+- [ ] **Portal routes session-only**: All portal routes (3.1–3.4) use `allowApiKey: false`
 - [ ] **Dept tracker routes fixed**: All 7 existing routes migrated from bare `getAuthSession()` to `withAuth()` wrapper
 - [ ] **No browser client in API routes**: `createBrowserClient()` only used in browser context, never in API route server code
 - [ ] **OPTIONS on all routes**: Every route file exports an `OPTIONS` handler for CORS preflight
