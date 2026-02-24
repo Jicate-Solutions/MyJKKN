@@ -9,7 +9,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { solutionsHubKeys } from '@/lib/query-keys';
 import { QUERY_CONFIG } from '@/lib/config/query-config';
-import { builderPortalService } from '@/lib/services/solutions/builder-portal-service';
+import { apiClient } from '@/lib/api/client';
 import type { AssignmentStatus, BuilderRole } from './use-builders';
 
 // ============================================
@@ -22,7 +22,7 @@ import type { AssignmentStatus, BuilderRole } from './use-builders';
 export function useBuilderProfile(userId: string) {
   return useQuery({
     queryKey: solutionsHubKeys.builderPortal.profile(userId),
-    queryFn: () => builderPortalService.getBuilderByUserId(userId),
+    queryFn: () => apiClient.get('/api/solutions/builder-portal/profile', { params: { userId } }),
     enabled: !!userId,
     ...QUERY_CONFIG.USER_SESSION_DATA,
   });
@@ -34,7 +34,7 @@ export function useBuilderProfile(userId: string) {
 export function usePortalOverview(builderId: string) {
   return useQuery({
     queryKey: solutionsHubKeys.builderPortal.overview(builderId),
-    queryFn: () => builderPortalService.getPortalOverview(builderId),
+    queryFn: () => apiClient.get('/api/solutions/builder-portal/overview', { params: { builderId } }),
     enabled: !!builderId,
     ...QUERY_CONFIG.DASHBOARD_DATA,
   });
@@ -50,7 +50,7 @@ export function usePortalOverview(builderId: string) {
 export function useMyAssignments(builderId: string, statusFilter?: AssignmentStatus) {
   return useQuery({
     queryKey: solutionsHubKeys.builderPortal.assignments(builderId, statusFilter),
-    queryFn: () => builderPortalService.getMyAssignments(builderId, statusFilter),
+    queryFn: () => apiClient.get('/api/solutions/builder-portal/assignments', { params: { builderId, status: statusFilter } }),
     enabled: !!builderId,
     ...QUERY_CONFIG.DYNAMIC_DATA,
   });
@@ -62,7 +62,7 @@ export function useMyAssignments(builderId: string, statusFilter?: AssignmentSta
 export function useAvailablePhases(builderId: string) {
   return useQuery({
     queryKey: solutionsHubKeys.builderPortal.availablePhases(builderId),
-    queryFn: () => builderPortalService.getAvailablePhases(builderId),
+    queryFn: () => apiClient.get('/api/solutions/builder-portal/available-phases', { params: { builderId } }),
     enabled: !!builderId,
     ...QUERY_CONFIG.DYNAMIC_DATA,
   });
@@ -78,7 +78,7 @@ export function useAvailablePhases(builderId: string) {
 export function useMySkills(builderId: string) {
   return useQuery({
     queryKey: solutionsHubKeys.builderPortal.skills(builderId),
-    queryFn: () => builderPortalService.getMySkills(builderId),
+    queryFn: () => apiClient.get(`/api/solutions/builders/${builderId}/skills`),
     enabled: !!builderId,
     ...QUERY_CONFIG.SEMI_STABLE_DATA,
   });
@@ -94,7 +94,7 @@ export function useMySkills(builderId: string) {
 export function useMyBuilderEarnings(builderId: string) {
   return useQuery({
     queryKey: solutionsHubKeys.builderPortal.earnings(builderId),
-    queryFn: () => builderPortalService.getMyEarnings(builderId),
+    queryFn: () => apiClient.get('/api/solutions/builder-portal/earnings', { params: { builderId } }),
     enabled: !!builderId,
     ...QUERY_CONFIG.SEMI_STABLE_DATA,
   });
@@ -119,7 +119,7 @@ export function useClaimPhase() {
       phaseId: string;
       builderId: string;
       role?: BuilderRole;
-    }) => builderPortalService.claimPhase(phaseId, builderId, role),
+    }) => apiClient.post('/api/solutions/builder-portal/claim', { phaseId, builderId, role }),
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({
         queryKey: solutionsHubKeys.builderPortal.assignments(variables.builderId),
@@ -147,7 +147,7 @@ export function useStartPhaseWork() {
     }: {
       assignmentId: string;
       builderId: string;
-    }) => builderPortalService.startPhaseWork(assignmentId),
+    }) => apiClient.patch('/api/solutions/builder-portal/assignments', { assignmentId, _action: 'start' }),
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({
         queryKey: solutionsHubKeys.builderPortal.assignments(variables.builderId),
@@ -172,7 +172,7 @@ export function useCompletePhaseWork() {
     }: {
       assignmentId: string;
       builderId: string;
-    }) => builderPortalService.completePhaseWork(assignmentId),
+    }) => apiClient.patch('/api/solutions/builder-portal/assignments', { assignmentId, _action: 'complete' }),
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({
         queryKey: solutionsHubKeys.builderPortal.assignments(variables.builderId),
@@ -197,7 +197,7 @@ export function useWithdrawFromPhase() {
     }: {
       assignmentId: string;
       builderId: string;
-    }) => builderPortalService.withdrawFromPhase(assignmentId),
+    }) => apiClient.patch('/api/solutions/builder-portal/assignments', { assignmentId, _action: 'withdraw' }),
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({
         queryKey: solutionsHubKeys.builderPortal.assignments(variables.builderId),
@@ -231,7 +231,7 @@ export function useAddMySkill() {
       builderId: string;
       skillName: string;
       proficiencyLevel?: number;
-    }) => builderPortalService.addMySkill(builderId, skillName, proficiencyLevel),
+    }) => apiClient.post(`/api/solutions/builders/${builderId}/skills`, { skill_name: skillName, proficiency_level: proficiencyLevel }),
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({
         queryKey: solutionsHubKeys.builderPortal.skills(variables.builderId),
@@ -258,7 +258,7 @@ export function useUpdateMySkillProficiency() {
       skillId: string;
       proficiencyLevel: number;
       builderId: string;
-    }) => builderPortalService.updateMySkillProficiency(skillId, proficiencyLevel),
+    }) => apiClient.patch(`/api/solutions/builders/${builderId}/skills/${skillId}`, { proficiency_level: proficiencyLevel }),
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({
         queryKey: solutionsHubKeys.builderPortal.skills(variables.builderId),
@@ -275,7 +275,7 @@ export function useRemoveMySkill() {
 
   return useMutation({
     mutationFn: ({ skillId, builderId }: { skillId: string; builderId: string }) =>
-      builderPortalService.removeMySkill(skillId),
+      apiClient.delete(`/api/solutions/builders/${builderId}/skills/${skillId}`),
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({
         queryKey: solutionsHubKeys.builderPortal.skills(variables.builderId),
