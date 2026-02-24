@@ -355,6 +355,7 @@ export abstract class BaseService {
    *
    * @example
    * // In withAuth middleware — note the `await`:
+   * // eslint-disable-next-line no-return-await — INTENTIONAL, errors escape try/catch without await
    * return await BaseService.runWithClient(auth.supabase, async () => {
    *   return handler(request, auth, context);
    * });
@@ -365,6 +366,8 @@ export abstract class BaseService {
   }
 }
 ```
+
+**ESLint guard:** The `no-return-await` rule flags `return await` as unnecessary. In `withAuth`'s try/catch, it IS necessary — without `await`, rejected promises from the async handler escape the catch block entirely. Add `// eslint-disable-next-line no-return-await` at the `return await runWithClient(...)` line. Alternatively, configure `@typescript-eslint/return-await` with the `in-try-catch` option in `.eslintrc` to allow `return await` only inside try/catch.
 
 **How this works with existing code:**
 
