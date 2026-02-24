@@ -276,12 +276,14 @@ Without this, browsers will block cross-origin API key requests at the preflight
 **Why not `set_auth_context()` SQL function?**
 > Supabase uses PostgREST as its API layer. Each `.from().select()` or `.rpc()` call is a separate HTTP request to PostgREST, which gets its own database connection from the pool. `set_config('request.jwt.claims', ..., true)` is transaction-local — it sets the config for the current transaction only. The next PostgREST request gets a different connection where those configs don't exist. This means calling `supabase.rpc('set_auth_context')` followed by `supabase.from('sh_solutions').select()` would NOT work — the second call wouldn't see the auth context.
 
-**Correct approach: JWT impersonation**
+**Correct approach: JWT impersonation (using `jose` — already installed)**
+
+The project already has `jose` (v6.0.12) installed and used in 4+ files (`lib/services/lti/lti-jwt-service.ts`, LTI routes). Using the already-installed `jose` avoids adding a second JWT library (`jsonwebtoken`). The function is async because `jose` uses Web Crypto APIs:
 
 ```typescript
 // lib/auth/impersonate.ts
 import { createClient } from '@supabase/supabase-js';
-import jwt from 'jsonwebtoken';
+import { SignJWT } from 'jose';
 
 /**
  * Create a Supabase client that impersonates a specific user.
@@ -291,23 +293,25 @@ import jwt from 'jsonwebtoken';
  *
  * All RLS policies (auth.uid(), sh_is_admin(), auth_institution_id())
  * evaluate correctly as the impersonated user.
+ *
+ * ASYNC because jose uses Web Crypto for signing.
+ * In withAuth: `const client = await createImpersonatedClient(created_by)`
  */
-export function createImpersonatedClient(userId: string) {
+export async function createImpersonatedClient(userId: string) {
   const jwtSecret = process.env.SUPABASE_JWT_SECRET;
   if (!jwtSecret) {
     throw new Error('SUPABASE_JWT_SECRET is required for API key impersonation');
   }
 
-  const token = jwt.sign(
-    {
-      sub: userId,
-      role: 'authenticated',
-      iss: 'supabase',
-      iat: Math.floor(Date.now() / 1000),
-      exp: Math.floor(Date.now() / 1000) + 60, // 60 seconds — disposable per-request token, no reason for long expiry
-    },
-    jwtSecret
-  );
+  const token = await new SignJWT({
+    sub: userId,
+    role: 'authenticated',
+    iss: 'supabase',
+  })
+    .setProtectedHeader({ alg: 'HS256' })
+    .setIssuedAt()
+    .setExpirationTime('60s') // Disposable per-request token — no reason for long expiry
+    .sign(new TextEncoder().encode(jwtSecret));
 
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -325,34 +329,7 @@ export function createImpersonatedClient(userId: string) {
 }
 ```
 
-**Dependencies — PREFER `jose` over `jsonwebtoken`:**
-The project already has `jose` (v6.0.12) installed and used in 4+ files (`lib/services/lti/lti-jwt-service.ts`, etc.). Using `jsonwebtoken` would add a SECOND JWT library. **Recommended:** use `jose` instead. This makes `createImpersonatedClient` async:
-
-```typescript
-import { SignJWT } from 'jose';
-
-export async function createImpersonatedClient(userId: string) {
-  const jwtSecret = process.env.SUPABASE_JWT_SECRET;
-  if (!jwtSecret) throw new Error('SUPABASE_JWT_SECRET is required');
-
-  const token = await new SignJWT({ sub: userId, role: 'authenticated', iss: 'supabase' })
-    .setProtectedHeader({ alg: 'HS256' })
-    .setIssuedAt()
-    .setExpirationTime('60s')
-    .sign(new TextEncoder().encode(jwtSecret));
-
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    { global: { headers: { Authorization: `Bearer ${token}` } }, auth: { autoRefreshToken: false, persistSession: false } }
-  );
-}
-```
-
-`withAuth` API key flow becomes: `const impersonatedClient = await createImpersonatedClient(created_by)` — a trivial change since withAuth is already async.
-
-**Fallback (if `jose` API is problematic):**
-- `bun add jsonwebtoken && bun add -d @types/jsonwebtoken`
+**Dependencies:** None — `jose` is already installed. No `bun add` needed.
 
 **Environment variable (CRITICAL PREREQUISITE):**
 - `SUPABASE_JWT_SECRET` — **Currently MISSING from `.env.local`**. Must be added before Phase 0.3 can work.
