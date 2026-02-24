@@ -238,54 +238,83 @@ export function createImpersonatedClient(userId: string) {
 
 This approach is reliable because PostgREST reads the JWT from the `Authorization` header on EVERY request, so `auth.uid()` and all derived RLS functions work correctly across all queries made by the impersonated client.
 
-#### 0.4 BaseService Client Injection
+#### 0.4 BaseService Client Injection via AsyncLocalStorage
 
 **File:** `lib/services/base-service.ts`
 
-**Current:** Module-level singleton client, no way to inject a different client
-**Change:** Add static `withClient()` factory method
+**Current problem (TWO bugs, one fix):**
+
+1. **Browser-client-on-server bug:** BaseService uses `createClientSupabaseClient()` which calls `createBrowserClient()` from `@supabase/ssr`. This client reads `document.cookie` for auth tokens. In API routes (server-side), `document` is undefined → the client has NO auth context → `auth.uid()` returns NULL → RLS policies deny all access. **This means any API route calling a service method currently runs queries as anonymous.**
+
+2. **No API key client injection:** For B2A, API key auth needs to inject an impersonated client (from Phase 0.3) into services. Currently there's no way to override the module-level singleton.
+
+**AsyncLocalStorage solves BOTH problems with ONE change:**
 
 ```typescript
-abstract class BaseService {
-  // Keep existing singleton for backward compatibility (hooks still calling directly)
-  protected static get supabase(): any {
-    return supabase;
-  }
-
-  // NEW: Create a service instance bound to a specific client
-  // Used by API routes that pass the auth-context-aware client
-  static withClient<T extends typeof BaseService>(
-    this: T,
-    client: SupabaseClient
-  ): InstanceType<T> {
-    // Return a proxy or subclass that overrides supabase getter
-    // Implementation: create a thin wrapper that delegates all static methods
-    // but uses the injected client instead of the singleton
-  }
-}
-```
-
-**Alternative (simpler, recommended):** Since all services use static methods calling `this.supabase`, and `this.supabase` is a getter returning the module-level singleton, we can use a **request-scoped override** pattern:
-
-```typescript
-// lib/services/base-service.ts additions
+// lib/services/base-service.ts — additions to existing file
 import { AsyncLocalStorage } from 'node:async_hooks';
 
-const clientOverride = new AsyncLocalStorage<SupabaseClient>();
+// Request-scoped Supabase client override.
+// - Session auth: withAuth stores a createServerClient (with cookies) here
+// - API key auth: withAuth stores a createImpersonatedClient (with JWT) here
+// - Browser hooks: No override set → falls back to browser client singleton (correct)
+const clientOverride = new AsyncLocalStorage<any>();
 
 export abstract class BaseService {
   protected static get supabase(): any {
-    return clientOverride.getStore() ?? supabase; // Override if set, else singleton
+    // If running inside withAuth (API route), use the injected client
+    // Otherwise fall back to browser client singleton (hooks calling from browser)
+    return clientOverride.getStore() ?? supabase;
   }
 
-  // Run a callback with a specific supabase client
-  static runWithClient<T>(client: SupabaseClient, fn: () => T): T {
+  /**
+   * Run a callback with a specific Supabase client injected into all service calls.
+   * Used by withAuth middleware to provide the correct auth-context client.
+   *
+   * For session auth: passes createServerClient (reads cookies from request)
+   * For API key auth: passes createImpersonatedClient (JWT for key owner)
+   *
+   * @example
+   * // In withAuth middleware:
+   * return BaseService.runWithClient(auth.supabase, async () => {
+   *   return handler(request, auth, context);
+   * });
+   */
+  static runWithClient<T>(client: any, fn: () => T): T {
     return clientOverride.run(client, fn);
   }
 }
 ```
 
-This is the **highest-leverage change in the entire migration.** One addition to BaseService, and ALL 24 services automatically work with injected clients. No service refactoring needed.
+**How this works with existing code:**
+
+All 24 SH services use static methods that access `this.supabase` via the getter. The getter returns `clientOverride.getStore() ?? supabase`. Since `.bind(ClassName)` preserves `this` as the class, and the class resolves `this.supabase` through the prototype chain to `BaseService.supabase`, the override is transparent to all services. No service refactoring needed.
+
+**Flow for session auth (API route):**
+```
+withAuth → createServerClient(cookies) → BaseService.runWithClient(serverClient, () => {
+  handler calls SomeService.list() → this.supabase → clientOverride.getStore() → serverClient
+  // RLS enforced via user's JWT from cookies ✓
+})
+```
+
+**Flow for API key auth (API route):**
+```
+withAuth → createImpersonatedClient(keyOwnerId) → BaseService.runWithClient(impersonatedClient, () => {
+  handler calls SomeService.list() → this.supabase → clientOverride.getStore() → impersonatedClient
+  // RLS enforced via key owner's JWT ✓
+})
+```
+
+**Flow for browser hooks (no API route):**
+```
+Hook calls solutionsService.list() → this.supabase → clientOverride.getStore() → null → fallback to browser singleton
+// RLS enforced via browser cookies ✓
+```
+
+This is the **highest-leverage change in the entire migration.** One addition to BaseService, and ALL 24 services automatically work with injected clients. No service refactoring needed. It simultaneously fixes the pre-existing browser-client-on-server bug in the dept tracker routes.
+
+**Important:** `AsyncLocalStorage` from `node:async_hooks` is safe here because no API routes use Edge Runtime (verified). All routes run on Node.js.
 
 #### 0.5 Unified Response Envelope
 
