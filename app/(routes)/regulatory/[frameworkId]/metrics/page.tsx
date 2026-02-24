@@ -515,15 +515,6 @@ export default function MetricEntryPage() {
                               <RefreshCw className={`h-3.5 w-3.5 ${refreshAutoMutation.isPending ? 'animate-spin' : ''}`} />
                             </Button>
                           )}
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 w-7 p-0"
-                            onClick={() => setUploadDialogMetricId(metric.id)}
-                            title="Upload evidence"
-                          >
-                            <Upload className="h-3.5 w-3.5" />
-                          </Button>
                         </div>
                       </TableCell>
                     </TableRow>
