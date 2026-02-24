@@ -2771,6 +2771,19 @@ lib/utils/
 > Route naming: `/api/regulatory/{entity}` for collections, `/api/regulatory/{entity}/[id]` for single items.
 > All routes follow the auth + role + envelope pattern above.
 
+### Standard Query Parameters for List Endpoints
+
+All `GET` list endpoints accept these standard query parameters:
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `page` | integer | 1 | Page number (1-based) |
+| `limit` | integer | 20 | Items per page (max 100) |
+| `search` | string | — | Full-text search (where applicable) |
+| `institution_id` | uuid | — | Filter by institution (super_admin only; others auto-scoped) |
+
+Additional entity-specific filters are documented per endpoint where applicable.
+
 ### Frameworks API
 
 | Method | Endpoint | Service Method | Roles (T8) | Description |
