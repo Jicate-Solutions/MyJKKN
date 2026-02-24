@@ -1011,6 +1011,7 @@ CREATE TABLE regulatory_metrics (
   validation_max numeric,
   validation_regex text,
   sort_order integer DEFAULT 0,
+  data_window_years integer NOT NULL DEFAULT 1,      -- multi-year aggregation: NAAC=5, NIRF=3, default=1 (current year only)
   dvv_guidance text,                                 -- NAAC DVV specific clarification text
   metadata jsonb DEFAULT '{}',
   created_at timestamptz DEFAULT now(),
