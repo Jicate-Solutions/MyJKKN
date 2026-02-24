@@ -14,6 +14,11 @@ import {
   type PaginationMetadata,
 } from '@/lib/config/pagination';
 
+// CRITICAL: base-service.ts is imported by 24 services, which are imported by
+// browser-side hooks. A top-level `import { AsyncLocalStorage } from 'node:async_hooks'`
+// would crash the browser bundle. Use type-only import + conditional require.
+import type { AsyncLocalStorage as ALS } from 'node:async_hooks'; // type-only — erased at compile time
+
 /**
  * Standard filters for list queries
  */
@@ -39,14 +44,48 @@ export interface BaseListResponse<T> {
 // and handles auth state changes automatically via cookies
 const supabase = createClientSupabaseClient();
 
+// Request-scoped Supabase client override via AsyncLocalStorage.
+// - Session auth: withAuth stores a server client (with cookies) here
+// - API key auth: withAuth stores an impersonated client (with JWT) here
+// - Browser hooks: No override set → falls back to browser client singleton
+// - On browser: clientOverride is null → getter always returns browser singleton
+let clientOverride: ALS<any> | null = null;
+if (typeof window === 'undefined') {
+  // Server-only: dynamically require node:async_hooks
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { AsyncLocalStorage } = require('node:async_hooks');
+  clientOverride = new AsyncLocalStorage();
+}
+
 /**
  * Base service class with performance-optimized query patterns
  * Extend this class to get automatic pagination, timeouts, and validation
  */
 export abstract class BaseService {
-  // Use module-level singleton for consistent auth state
+  // Use AsyncLocalStorage override if available, otherwise browser singleton
   protected static get supabase(): any {
-    return supabase;
+    if (clientOverride) {
+      // SERVER: ALS exists
+      const store = clientOverride.getStore();
+      if (store) return store; // Inside runWithClient — correct
+      // ALS exists but no store → server-side call OUTSIDE runWithClient.
+      // Browser singleton has NO auth context on server — warn.
+      console.warn('[BaseService] Server-side service call without client injection — falling back to browser singleton (likely no auth context). Wrap the route handler with withAuth().');
+    }
+    return supabase; // Browser fallback (correct) or server fallback (warned above)
+  }
+
+  /**
+   * Run a callback with a specific Supabase client injected into all service calls.
+   * Used by withAuth middleware to provide the correct auth-context client.
+   *
+   * CRITICAL: When using in a try/catch with async callbacks, the caller MUST
+   * use `return await runWithClient(...)` not `return runWithClient(...)`.
+   * Without `await`, errors from the async callback escape the try/catch entirely.
+   */
+  static runWithClient<T>(client: any, fn: () => T): T {
+    if (!clientOverride) return fn(); // Browser — no AsyncLocalStorage, just run directly
+    return clientOverride.run(client, fn);
   }
 
   /**
