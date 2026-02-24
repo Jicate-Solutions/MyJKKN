@@ -214,7 +214,7 @@ export function createImpersonatedClient(userId: string) {
       role: 'authenticated',
       iss: 'supabase',
       iat: Math.floor(Date.now() / 1000),
-      exp: Math.floor(Date.now() / 1000) + 3600, // 1 hour
+      exp: Math.floor(Date.now() / 1000) + 60, // 60 seconds — disposable per-request token, no reason for long expiry
     },
     jwtSecret
   );
