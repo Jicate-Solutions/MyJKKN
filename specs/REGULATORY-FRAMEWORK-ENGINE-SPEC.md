@@ -4036,13 +4036,13 @@ The `GET /api/regulatory/frameworks/[id]/tree` endpoint MUST use exactly 2 queri
 
 ```sql
 -- Query 1: All criteria for the framework
-SELECT * FROM regulatory_criteria WHERE framework_id = $1 ORDER BY display_order;
+SELECT * FROM regulatory_criteria WHERE framework_id = $1 ORDER BY sort_order;
 
 -- Query 2: All metrics for all criteria in the framework (single JOIN)
 SELECT m.* FROM regulatory_metrics m
 JOIN regulatory_criteria c ON m.criteria_id = c.id
 WHERE c.framework_id = $1
-ORDER BY c.display_order, m.display_order;
+ORDER BY c.sort_order, m.sort_order;
 ```
 
 Tree structure is assembled in application code from these two flat result sets. NEVER query metrics per-criterion in a loop.
