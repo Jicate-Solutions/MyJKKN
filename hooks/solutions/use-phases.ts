@@ -8,18 +8,17 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { solutionsHubKeys } from '@/lib/query-keys';
 import { QUERY_CONFIG } from '@/lib/config/query-config';
+import { apiClient } from '@/lib/api/client';
 import {
-  phasesService,
   PHASE_STATUSES,
-  iterationsService,
-  bugsService,
-  deploymentsService,
-  type PhaseFilters as ServicePhaseFilters,
-  type PhaseWithDetails,
-  type UpdatePhaseInput as ServiceUpdatePhaseInput,
-  type CreateIterationInput as ServiceCreateIterationInput,
-  type CreateBugReportInput as ServiceCreateBugReportInput,
-  type CreateDeploymentInput as ServiceCreateDeploymentInput,
+} from '@/lib/services/solutions';
+import type {
+  PhaseFilters as ServicePhaseFilters,
+  PhaseWithDetails,
+  UpdatePhaseInput as ServiceUpdatePhaseInput,
+  CreateIterationInput as ServiceCreateIterationInput,
+  CreateBugReportInput as ServiceCreateBugReportInput,
+  CreateDeploymentInput as ServiceCreateDeploymentInput,
 } from '@/lib/services/solutions';
 import type {
   PhaseStatus,
@@ -91,7 +90,7 @@ export interface CreateDeploymentInput {
 export function usePhases(filters?: PhaseFilters) {
   return useQuery({
     queryKey: solutionsHubKeys.phases.list(filters),
-    queryFn: () => phasesService.getPhases(filters),
+    queryFn: () => apiClient.get('/api/solutions/phases', { params: filters as Record<string, any> }),
     ...QUERY_CONFIG.DYNAMIC_DATA,
   });
 }
@@ -102,7 +101,7 @@ export function usePhases(filters?: PhaseFilters) {
 export function usePhase(id: string) {
   return useQuery({
     queryKey: solutionsHubKeys.phases.detail(id),
-    queryFn: () => phasesService.getPhaseById(id),
+    queryFn: () => apiClient.get(`/api/solutions/phases/${id}`),
     enabled: !!id,
     ...QUERY_CONFIG.SEMI_STABLE_DATA,
   });
@@ -114,7 +113,7 @@ export function usePhase(id: string) {
 export function useSolutionPhases(solutionId: string) {
   return useQuery({
     queryKey: solutionsHubKeys.phases.bySolution(solutionId),
-    queryFn: () => phasesService.getPhasesBySolutionId(solutionId),
+    queryFn: () => apiClient.get('/api/solutions/phases', { params: { solution_id: solutionId } }),
     enabled: !!solutionId,
     ...QUERY_CONFIG.SEMI_STABLE_DATA,
   });
@@ -126,7 +125,7 @@ export function useSolutionPhases(solutionId: string) {
 export function usePhaseStats() {
   return useQuery({
     queryKey: solutionsHubKeys.phases.stats(),
-    queryFn: () => phasesService.getPhaseStats(),
+    queryFn: () => apiClient.get('/api/solutions/phases/stats'),
     ...QUERY_CONFIG.DASHBOARD_DATA,
   });
 }
@@ -137,7 +136,7 @@ export function usePhaseStats() {
 export function useNextPhaseNumber(solutionId: string) {
   return useQuery({
     queryKey: solutionsHubKeys.phases.nextNumber(solutionId),
-    queryFn: () => phasesService.getNextPhaseNumber(solutionId),
+    queryFn: () => apiClient.get('/api/solutions/phases', { params: { solution_id: solutionId, next_number: 'true' } }),
     enabled: !!solutionId,
     staleTime: 0, // Always fetch fresh
   });
@@ -162,10 +161,10 @@ export function useActivePhases() {
         'training',
       ];
       // Fetch phases that are not completed, on_hold, cancelled, live, or in_amc
-      const result = await phasesService.getPhases({ limit: 100 });
+      const result = await apiClient.get<{ data: any[]; [key: string]: any }>('/api/solutions/phases', { params: { limit: 100 } });
       return {
         ...result,
-        data: result.data.filter(phase => activeStatuses.includes(phase.status as PhaseStatus)),
+        data: result.data.filter((phase: any) => activeStatuses.includes(phase.status as PhaseStatus)),
       };
     },
     ...QUERY_CONFIG.DYNAMIC_DATA,
@@ -184,7 +183,7 @@ export function useCreatePhase() {
 
   return useMutation({
     mutationFn: (input: CreatePhaseInput) =>
-      phasesService.createPhase(input as ServiceCreatePhaseInput),
+      apiClient.post<SolutionPhase>('/api/solutions/phases', input),
     onSuccess: (data: SolutionPhase) => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.phases.all });
       if (data?.solution_id) {
@@ -207,7 +206,7 @@ export function useUpdatePhase() {
 
   return useMutation({
     mutationFn: ({ id, input }: { id: string; input: UpdatePhaseInput }) =>
-      phasesService.updatePhase(id, input),
+      apiClient.patch<SolutionPhase>(`/api/solutions/phases/${id}`, input),
     onSuccess: (data: SolutionPhase) => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.phases.all });
       if (data?.id) {
@@ -225,7 +224,7 @@ export function useUpdatePhaseStatus() {
 
   return useMutation({
     mutationFn: ({ id, status }: { id: string; status: PhaseStatus }) =>
-      phasesService.updatePhaseStatus(id, status),
+      apiClient.patch<SolutionPhase>(`/api/solutions/phases/${id}/status`, { status }),
     onSuccess: (data: SolutionPhase) => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.phases.all });
       if (data?.id) {
@@ -242,7 +241,7 @@ export function useDeletePhase() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (id: string) => phasesService.deletePhase(id),
+    mutationFn: (id: string) => apiClient.delete(`/api/solutions/phases/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.phases.all });
     },
@@ -261,7 +260,7 @@ export function useCreateIteration() {
 
   return useMutation({
     mutationFn: (input: CreateIterationInput) =>
-      iterationsService.createIteration(input as ServiceCreateIterationInput),
+      apiClient.post<PrototypeIteration>('/api/solutions/iterations', input),
     onSuccess: (data: PrototypeIteration) => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.iterations.all });
       if (data?.phase_id) {
@@ -289,7 +288,7 @@ export function useUpdateIteration() {
     }: {
       id: string;
       input: { feedback?: string; client_approved?: boolean };
-    }) => iterationsService.updateIteration(id, input),
+    }) => apiClient.patch<PrototypeIteration>(`/api/solutions/iterations/${id}`, input),
     onSuccess: (data: PrototypeIteration) => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.iterations.all });
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.phases.all });
@@ -314,7 +313,7 @@ export function useCreateBugReport() {
 
   return useMutation({
     mutationFn: (input: CreateBugReportInput) =>
-      bugsService.createBug(input as ServiceCreateBugReportInput),
+      apiClient.post<BugReport>('/api/solutions/bugs', input),
     onSuccess: (data: BugReport) => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.bugs.all });
       if (data?.iteration_id) {
@@ -343,7 +342,7 @@ export function useUpdateBugReport() {
       id: string;
       input: { status?: string; resolved_by?: string; resolution_notes?: string };
     }) =>
-      bugsService.updateBug(id, {
+      apiClient.patch<BugReport>(`/api/solutions/bugs/${id}`, {
         status: input.status as 'open' | 'in_progress' | 'resolved' | 'closed' | undefined,
         resolved_by: input.resolved_by,
         resolution_notes: input.resolution_notes,
@@ -371,7 +370,7 @@ export function useCreateDeployment() {
 
   return useMutation({
     mutationFn: (input: CreateDeploymentInput) =>
-      deploymentsService.createDeployment(input as ServiceCreateDeploymentInput),
+      apiClient.post<PhaseDeployment>('/api/solutions/deployments', input),
     onSuccess: (data: PhaseDeployment) => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.deployments.all });
       if (data?.phase_id) {
