@@ -177,6 +177,7 @@ This avoids any server-side HTTP call for API key requests.
 1. SHA256 hash the token, look up in `api_keys` table (using SERVICE_ROLE_KEY client)
 2. Verify: is_active, not expired, has required permission
 3. Get key owner's `created_by` user ID → use this as `auth.user.id`. For the full `auth.user` object, fetch the profile from the `profiles` table using the SERVICE_ROLE_KEY client: `await serviceClient.from('profiles').select('*').eq('id', created_by).single()`. This gives `id`, `email`, `role`, `institution_id`, etc. Cache this per-request (it's already fetched once).
+   - **Error handling:** If the profile lookup returns no row (user deleted, orphaned API key), return 401 with `"API key owner account not found"`. Do NOT fall back to a minimal user object — RLS policies depend on `institution_id` from profiles, and a missing profile means the key owner can't be properly scoped.
 4. Create an impersonated Supabase client via JWT generation:
    - Sign a JWT with `{ sub: created_by, role: 'authenticated' }` using `SUPABASE_JWT_SECRET`
    - Create a standard Supabase client with this JWT as the Authorization header
