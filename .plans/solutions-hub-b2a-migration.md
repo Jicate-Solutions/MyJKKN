@@ -308,6 +308,7 @@ export abstract class BaseService {
    * });
    */
   static runWithClient<T>(client: any, fn: () => T): T {
+    if (!clientOverride) return fn(); // Browser — no AsyncLocalStorage, just run directly
     return clientOverride.run(client, fn);
   }
 }
