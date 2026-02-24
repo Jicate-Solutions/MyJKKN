@@ -163,7 +163,7 @@ export class RegulatoryGovernanceService {
         }
       }
     } catch (error) {
-      console.error('[RegulatoryGovernanceService] Error fetching governing bodies:', this.formatError(error))
+      console.error('[RegulatoryGovernanceService] Error fetching governing bodies:', formatError(error))
       throw error
     }
   }
@@ -209,7 +209,7 @@ export class RegulatoryGovernanceService {
 
       return result
     } catch (error) {
-      console.error('[RegulatoryGovernanceService] Error creating governing body:', this.formatError(error))
+      console.error('[RegulatoryGovernanceService] Error creating governing body:', formatError(error))
       throw error
     }
   }
@@ -247,7 +247,7 @@ export class RegulatoryGovernanceService {
 
       return result
     } catch (error) {
-      console.error('[RegulatoryGovernanceService] Error updating governing body:', this.formatError(error))
+      console.error('[RegulatoryGovernanceService] Error updating governing body:', formatError(error))
       throw error
     }
   }
@@ -309,7 +309,7 @@ export class RegulatoryGovernanceService {
         }
       }
     } catch (error) {
-      console.error('[RegulatoryGovernanceService] Error fetching meetings:', this.formatError(error))
+      console.error('[RegulatoryGovernanceService] Error fetching meetings:', formatError(error))
       throw error
     }
   }
@@ -359,7 +359,7 @@ export class RegulatoryGovernanceService {
 
       return result
     } catch (error) {
-      console.error('[RegulatoryGovernanceService] Error creating meeting:', this.formatError(error))
+      console.error('[RegulatoryGovernanceService] Error creating meeting:', formatError(error))
       throw error
     }
   }
@@ -399,7 +399,7 @@ export class RegulatoryGovernanceService {
 
       return result
     } catch (error) {
-      console.error('[RegulatoryGovernanceService] Error updating meeting:', this.formatError(error))
+      console.error('[RegulatoryGovernanceService] Error updating meeting:', formatError(error))
       throw error
     }
   }
@@ -431,7 +431,7 @@ export class RegulatoryGovernanceService {
 
       return result
     } catch (error) {
-      console.error('[RegulatoryGovernanceService] Error approving meeting:', this.formatError(error))
+      console.error('[RegulatoryGovernanceService] Error approving meeting:', formatError(error))
       throw error
     }
   }
