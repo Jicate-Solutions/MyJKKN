@@ -1477,14 +1477,14 @@ CREATE POLICY "syllabi_insert" ON regulatory_course_syllabi FOR INSERT
     (institution_id = auth_institution_id()
       OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'))
     AND EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN
-      ('super_admin','institution_admin','iqac_coordinator','hod','faculty'))
+      ('super_admin','institution_admin','iqac_coordinator','hod','staff'))
   );
 CREATE POLICY "syllabi_update" ON regulatory_course_syllabi FOR UPDATE
   USING (
     (institution_id = auth_institution_id()
       OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'))
     AND EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN
-      ('super_admin','institution_admin','iqac_coordinator','hod','faculty'))
+      ('super_admin','institution_admin','iqac_coordinator','hod','staff'))
   );
 
 -- ─── Peer Benchmarks: institution-scoped, writable by IQAC/admin roles ───
