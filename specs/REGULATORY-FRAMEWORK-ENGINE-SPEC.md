@@ -1344,7 +1344,14 @@ CREATE POLICY "simulations_insert" ON regulatory_simulations FOR INSERT
     AND EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN
       ('super_admin','institution_admin','iqac_coordinator','principal'))
   );
--- Simulations are append-only (no UPDATE or DELETE) — create new simulation for re-runs
+-- Simulations: no UPDATE (create new for re-runs), DELETE allowed for cleanup
+CREATE POLICY "simulations_delete" ON regulatory_simulations FOR DELETE
+  USING (
+    (institution_id = auth_institution_id()
+      OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'))
+    AND EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN
+      ('super_admin','institution_admin','iqac_coordinator'))
+  );
 
 -- Criteria & metrics: readable by all, writable only by super_admin (framework definitions)
 CREATE POLICY "criteria_read" ON regulatory_criteria FOR SELECT USING (true);
