@@ -2849,7 +2849,7 @@ lib/utils/
 | POST | `/api/regulatory/submissions` | `createSubmission(data)` | super_admin, institution_admin, iqac_coordinator | Create new submission (status=draft) |
 | PUT | `/api/regulatory/submissions/[id]/status` | `updateSubmissionStatus(id, newStatus)` | super_admin, institution_admin, iqac_coordinator, principal | Transition status (enforces valid state machine; `approved` transition requires principal or above) |
 | POST | `/api/regulatory/submissions/[id]/calculate-score` | `calculateSubmissionScore(id)` | super_admin, institution_admin, iqac_coordinator | Calculate and persist total score (MUTATION, not query!) |
-| POST | `/api/regulatory/submissions/[id]/report` | `generateSubmissionReport(id, format)` | super_admin, institution_admin, iqac_coordinator | Generate report (PDF for NAAC SSR/AQAR, CSV/JSON for NIRF, HTML for AICTE). `format` query param: `pdf` \| `csv` \| `json` \| `html` |
+| POST | `/api/regulatory/submissions/[id]/report` | `generateSubmissionReport(id, format)` | super_admin, institution_admin, iqac_coordinator | Generate report. `format` query param: `pdf` (NAAC SSR/AQAR) \| `xlsx` (NIRF DCS pre-fill data sheets — NIRF uses web-based DCS forms, not direct file upload; this export helps manual portal entry) \| `html` (AICTE mandatory disclosure) \| `json` (API export for ONOD integration) |
 
 **Submission Status State Machine (enforced at API route level):**
 
