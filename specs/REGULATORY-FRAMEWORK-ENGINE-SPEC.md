@@ -1106,7 +1106,7 @@ CREATE TABLE regulatory_body_meetings (
   -- To remove a body, first archive/reassign its meetings.
   institution_id uuid NOT NULL REFERENCES institutions(id),
   meeting_number integer NOT NULL,                   -- sequential per body per academic year
-  academic_year text NOT NULL,
+  academic_year text NOT NULL CHECK (academic_year ~ '^\d{4}(-\d{2})?$'),
   meeting_date date NOT NULL,
   quorum_met boolean DEFAULT true,
   attendees_count integer,
