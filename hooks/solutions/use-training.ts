@@ -525,7 +525,7 @@ export function useAvailableSessionsForMember(memberId: string) {
 export function useCohortMemberAssignments(memberId: string) {
   return useQuery({
     queryKey: [...solutionsHubKeys.cohortMembers.detail(memberId), 'assignments'],
-    queryFn: () => cohortService.getAssignmentsByMemberId(memberId),
+    queryFn: () => apiClient.get<CohortAssignment[]>(`/api/solutions/training/cohort/${memberId}/assignments`),
     enabled: !!memberId,
     ...QUERY_CONFIG.SEMI_STABLE_DATA,
   });
