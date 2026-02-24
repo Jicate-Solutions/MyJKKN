@@ -4648,7 +4648,7 @@ AISHE data submission uses annually updated portal forms. The export format mapp
 
 ### L18. Consolidated Multi-Institution NIRF (Phase 3)
 
-NIRF Overall ranking can consider the entire JKKN group. This requires aggregating metrics across 9 institutions. Deferred to Phase 3. The schema supports it via a `is_consolidated boolean DEFAULT false` flag on submissions and super_admin-only cross-institution dashboard endpoint.
+NIRF Overall ranking can consider the entire JKKN group. This requires aggregating metrics across 9 institutions. Deferred to Phase 3. Implementation requires adding `is_consolidated boolean DEFAULT false` to `regulatory_submissions` and a super_admin-only cross-institution dashboard endpoint.
 
 ### L19. Report Draft/Preview
 
