@@ -633,7 +633,7 @@ export function useUpdateCohortAssignment() {
     }: {
       id: string;
       input: { earnings?: number; rating?: number; feedback?: string };
-    }) => cohortService.updateAssignment(id, input),
+    }) => apiClient.patch<CohortAssignment>(`/api/solutions/training/assignments/${id}`, input),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.trainingSessions.all });
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.cohortMembers.all });
