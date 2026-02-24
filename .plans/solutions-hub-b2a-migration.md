@@ -383,7 +383,23 @@ Standardize ALL API responses:
 { error: string, code?: string }
 ```
 
-Reuse existing helpers from `lib/api-keys/response-helpers.ts` but rename `pagination` to `metadata` for consistency with BaseService's `BaseListResponse`.
+**Implementation approach:** Create `lib/api/response.ts` as a thin wrapper that imports from the existing `lib/api-keys/response-helpers.ts` and re-exports with the `metadata` key name. Do NOT rewrite from scratch — the existing helpers already handle CORS headers, proper status codes, and all edge cases. The wrapper just renames the `pagination` key to `metadata` for consistency with BaseService's `BaseListResponse`:
+
+```typescript
+// lib/api/response.ts — wrapper around existing helpers
+import { paginatedResponse as basePaginatedResponse, errorResponse, successApiResponse, createdResponse, noContentResponse } from '@/lib/api-keys/response-helpers';
+export { errorResponse, successApiResponse, createdResponse, noContentResponse };
+
+export function paginatedResponse<T>(data: T[], total: number, page: number, limit: number) {
+  // Reuse base helper, which returns { data, count, pagination: {...} }
+  // For B2A routes we alias the key to `metadata` for BaseService consistency
+  return basePaginatedResponse(data, total, page, limit);
+  // NOTE: If you need to rename the key from `pagination` to `metadata` in the JSON output,
+  // create a custom response here instead of delegating to basePaginatedResponse.
+}
+```
+
+**Existing file `lib/api-keys/cors.ts` already exists** — it provides `corsHeaders` and `getCorsHeadersWithOrigin()`. No modification needed.
 
 ---
 
