@@ -10,7 +10,7 @@ export const OPTIONS = () => new NextResponse(null, { headers: corsHeaders });
  * GET /api/api-management/campus-living/blocks
  * List hostel blocks with optional filters and occupancy data.
  *
- * Query params: page, limit, hostel_type, status, gender_type
+ * Query params: page, limit, hostel_type, status
  */
 export const GET = withApiKeyAuth(async (request, auth) => {
   const url = new URL(request.url);
