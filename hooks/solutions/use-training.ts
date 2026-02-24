@@ -609,7 +609,7 @@ export function useAddCohortMemberEarnings() {
 
   return useMutation({
     mutationFn: ({ id, amount }: { id: string; amount: number }) =>
-      cohortService.addEarnings(id, amount),
+      apiClient.post<CohortMember>(`/api/solutions/training/cohort/${id}/earnings`, { amount }),
     onSuccess: (data: CohortMember) => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.cohortMembers.all });
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.earnings.all });
