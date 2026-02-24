@@ -2788,7 +2788,7 @@ Additional entity-specific filters are documented per endpoint where applicable.
 
 | Method | Endpoint | Service Method | Roles (T8) | Description |
 |--------|----------|---------------|------------|-------------|
-| GET | `/api/regulatory/frameworks` | `getFrameworks(filters)` | all authenticated | List frameworks with pagination/filters |
+| GET | `/api/regulatory/frameworks` | `getFrameworks(filters)` | all authenticated | List frameworks. Extra filters: `body` (NAAC\|NIRF\|NBA\|AICTE\|UGC), `status` (draft\|active\|archived), `institution_type` |
 | GET | `/api/regulatory/frameworks/[id]` | `getFrameworkById(id)` | all authenticated | Single framework with criteria count |
 | GET | `/api/regulatory/frameworks/[id]/tree` | `getFrameworkTree(id)` | all authenticated | Full criteria→metrics hierarchy |
 | GET | `/api/regulatory/frameworks/[id]/completeness` | `getFrameworkCompleteness(id, institutionId, year)` | super_admin, institution_admin, iqac_coordinator, principal, hod | Completeness % and metric breakdown |
