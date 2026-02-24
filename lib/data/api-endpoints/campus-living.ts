@@ -489,7 +489,7 @@ print(data["pagination"])  # Pagination info`,
       prompt:
         'Using the MyJKKN Campus Living API, find all available rooms in a specific hostel block that have vacant beds.',
       expectedOutput:
-        'A list of rooms with status "available" showing room_number, room_type, total_beds, and occupied_beds.',
+        'A list of rooms with status "available" showing room_number, room_type, capacity, and current_occupancy.',
       tags: ['rooms', 'availability', 'filtering'],
     },
     {
