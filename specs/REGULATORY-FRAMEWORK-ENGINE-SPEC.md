@@ -5,7 +5,7 @@
 > **Based On:** FST Gap Analysis (SARAL ERP vs MyJKKN), Future-Proof Regulatory Architecture FST, Module Health Audit (8 review rounds, 301 bugs fixed)
 > **Total Effort Estimate:** 8-10 weeks
 > **Priority:** P0 (Critical — regulatory compliance)
-> **Architecture:** Pattern A mandatory — 66 API endpoints across 13 entity groups, 17 tables + 1 view, 52 RLS policies. Zero direct Supabase calls in hooks.
+> **Architecture:** Pattern A mandatory — 66 API endpoints across 13 entity groups, 18 tables + 1 view, 58 RLS policies. Zero direct Supabase calls in hooks.
 
 ---
 
@@ -18,7 +18,7 @@ MyJKKN has 39 modules and 300+ tables but **zero automated regulatory reporting*
 3. Generates submission-ready reports in required formats (PDF for NAAC SSR/AQAR, pre-filled data sheets for NIRF DCS portal entry, HTML for AICTE disclosure)
 4. Survives regulatory changes without code rewrites — admin reconfigures, not developer
 
-**Pre-configured Frameworks (21 total):**
+**Pre-configured Frameworks (20 total):**
 - NAAC 2022 Revised (7 criteria, 56 metrics)
 - NAAC Binary 2024 × 3 institution types (10 attributes, 60 metrics each) — with pass thresholds: University 540/900, Autonomous 450/900, Affiliated 360/900
 - NAAC MBGL 2024 × 3 institution types (post-Binary maturity grading, 5 levels: Basic → Global Excellence)
@@ -29,7 +29,7 @@ MyJKKN has 39 modules and 300+ tables but **zero automated regulatory reporting*
 
 **NAAC Two-Stage Process:** Under the 2024 reforms, NAAC accreditation is a two-stage process — (1) Binary threshold pass/fail, then (2) MBGL maturity grading for institutions that pass. Accreditation validity is 3 years (not 5 years as under the legacy system). The engine models each stage as a separate framework variant, with MBGL submissions requiring a prerequisite Binary submission in 'accepted' status.
 
-**Key Architectural Decision:** ONE engine, MANY frameworks. All 21 pre-configured frameworks (1 NAAC Old + 3 NAAC Binary + 3 NAAC MBGL + 7 NIRF + 2 NBA + 1 AICTE + 1 AISHE + 1 NAAC IIQA + 1 NAAC AQAR) are database configurations, not separate modules. When rules change, change the config — not the code. The NAAC Binary Framework (2024) has institution-type-specific scoring — handled by creating 3 framework variants (University, Autonomous, Affiliated), each summing to 900 points but with different weight distributions. NIRF discipline rankings share the same 5 parameters but with different weights and sub-parameter selections — the engine handles this via per-framework metric configuration.
+**Key Architectural Decision:** ONE engine, MANY frameworks. All 20 pre-configured frameworks (1 NAAC Old + 3 NAAC Binary + 3 NAAC MBGL + 7 NIRF + 2 NBA + 1 AICTE + 1 AISHE + 1 NAAC IIQA + 1 NAAC AQAR) are database configurations, not separate modules. When rules change, change the config — not the code. The NAAC Binary Framework (2024) has institution-type-specific scoring — handled by creating 3 framework variants (University, Autonomous, Affiliated), each summing to 900 points but with different weight distributions. NIRF discipline rankings share the same 5 parameters but with different weights and sub-parameter selections — the engine handles this via per-framework metric configuration.
 
 ---
 
@@ -106,7 +106,7 @@ Currently: **ALL done manually** — staff spends 3-6 months collecting data fro
 - ❌ No framework definition tables (criteria, weights, metrics configuration)
 - ❌ No data connector layer (SQL queries that aggregate existing data into metric values)
 - ❌ No metric value storage with audit trail and versioning
-- ❌ No submission tracking workflow (draft → review → submitted)
+- ❌ No submission tracking workflow (draft → data_collection → in_review → approved → submitted → accepted, with returned/cancelled/dvv_revision states)
 - ❌ No evidence attachment system (DVV requires documents per metric)
 - ❌ No report template engine (PDF/Excel generation per body)
 - ❌ No score simulation / gap analysis dashboard
@@ -329,6 +329,8 @@ Regulatory Compliance/
 **Purpose:** NAAC criterion 6.5.3 and NIRF require comparing institution performance against peer institutions. This is NOT automated (peer data is external and not in our database) — it uses manual peer data entry with structured storage.
 
 **New Table:** `regulatory_peer_benchmarks`
+
+> **Note:** This is an illustrative preview. The canonical DDL is in the Database Schema section below (Table 14).
 
 ```sql
 -- NOTE: This is an illustrative preview. The canonical DDL is in the Migration section (Table 14).
@@ -886,7 +888,7 @@ Each connector defines: **Source Module → Source Table(s) → Key Columns → 
 
 ## Database Schema — New Tables
 
-> **Schema Summary:** 16 tables + 1 view, 50 RLS policies, 14 triggers, 28+ indexes.
+> **Schema Summary:** 18 tables + 1 view, 58 RLS policies, 14 triggers, 32+ indexes.
 
 ```sql
 -- ═══════════════════════════════════════════════
@@ -898,7 +900,7 @@ Each connector defines: **Source Module → Source Table(s) → Key Columns → 
 -- ═══════════════════════════════════════════════
 -- The Regulatory Framework Engine requires the `iqac_coordinator` role to exist.
 -- This role is the PRIMARY user of the entire module (IQAC = Internal Quality Assurance Cell).
--- Without this role, all 50 RLS policies and all API route role checks will silently fail
+-- Without this role, all 58 RLS policies and all API route role checks will silently fail
 -- for the module's primary user.
 
 -- PREREQUISITE: Add iqac_coordinator role to the system
@@ -1040,6 +1042,20 @@ CREATE TABLE regulatory_metric_values (
 -- framework/criteria/metric deletion guard prevents deletion when active submissions exist.
 -- (4) For wrong-year or wrong-metric entries, UPDATE the value rather than deleting the row.
 
+-- NOTE (M5 — metric value interpretation): Distinguish "0" from "no data" from "calculation error":
+--   | numeric_value | value (text)     | Meaning                                               |
+--   |---------------|------------------|-------------------------------------------------------|
+--   | 0             | '0'              | Actual zero (e.g., zero publications this year)       |
+--   | NULL          | NULL             | No data available — metric not yet populated          |
+--   | NULL          | 'ERROR:timeout'  | Calculation/connector error — prefix with 'ERROR:'    |
+--   | NULL          | 'N/A'            | Metric not applicable to this institution type        |
+-- The GET /metric-values API endpoint MUST return a derived `status` field:
+--   'populated'      → numeric_value IS NOT NULL OR (value IS NOT NULL AND value NOT LIKE 'ERROR:%' AND value != 'N/A')
+--   'empty'          → numeric_value IS NULL AND value IS NULL
+--   'error'          → value LIKE 'ERROR:%'
+--   'not_applicable' → value = 'N/A'
+-- This enables the UI to render distinct states (checkmark, dash, warning icon, grey-out).
+
 -- 5. Metric Value History (audit trail — every change recorded)
 CREATE TABLE regulatory_metric_value_history (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -1089,7 +1105,7 @@ CREATE TABLE regulatory_evidence (
   -- Consistency: is_deleted flag and deleted_at timestamp must agree
 );
 
--- 7. Submissions (workflow: draft → review → approved → submitted)
+-- 7. Submissions (workflow: draft → data_collection → in_review → approved → submitted → accepted; 9 states total)
 CREATE TABLE regulatory_submissions (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   framework_id uuid NOT NULL REFERENCES regulatory_frameworks(id),
@@ -1161,6 +1177,78 @@ CREATE POLICY "transitions_insert" ON regulatory_submission_transitions FOR INSE
 );
 
 CREATE INDEX idx_reg_transitions_submission ON regulatory_submission_transitions(submission_id, created_at DESC);
+
+-- 7c. DVV (Data Validation & Verification) Query Tracking
+-- NAAC sends DVV queries after submission; institution must respond with evidence.
+CREATE TABLE regulatory_dvv_queries (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  submission_id uuid NOT NULL REFERENCES regulatory_submissions(id) ON DELETE CASCADE,
+  metric_id uuid NOT NULL REFERENCES regulatory_metrics(id) ON DELETE CASCADE,
+  institution_id uuid NOT NULL REFERENCES institutions(id),
+  query_round integer NOT NULL DEFAULT 1,
+  naac_query_text text NOT NULL,
+  institution_response text,
+  response_evidence_ids uuid[] DEFAULT '{}',
+  status text NOT NULL DEFAULT 'open' CHECK (status IN ('open','responded','resolved','escalated')),
+  queried_at timestamptz NOT NULL DEFAULT now(),
+  responded_at timestamptz,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+ALTER TABLE regulatory_dvv_queries ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "dvv_queries_read" ON regulatory_dvv_queries FOR SELECT USING (
+  institution_id = auth_institution_id()
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN ('super_admin','iqac_coordinator','institution_admin'))
+);
+
+CREATE POLICY "dvv_queries_insert" ON regulatory_dvv_queries FOR INSERT WITH CHECK (
+  EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+);
+
+CREATE POLICY "dvv_queries_update" ON regulatory_dvv_queries FOR UPDATE USING (
+  institution_id = auth_institution_id()
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN ('super_admin','iqac_coordinator','institution_admin'))
+);
+
+CREATE INDEX idx_reg_dvv_queries_submission_round ON regulatory_dvv_queries(submission_id, query_round);
+
+-- 7d. Metric Assignments (department-level data collection delegation)
+-- IQAC coordinator assigns metrics to department HODs with deadlines.
+CREATE TABLE regulatory_metric_assignments (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  metric_value_id uuid NOT NULL REFERENCES regulatory_metric_values(id) ON DELETE CASCADE,
+  submission_id uuid NOT NULL REFERENCES regulatory_submissions(id) ON DELETE CASCADE,
+  institution_id uuid NOT NULL REFERENCES institutions(id),
+  assigned_to uuid NOT NULL REFERENCES auth.users(id),
+  assigned_to_department text,
+  assigned_by uuid NOT NULL REFERENCES auth.users(id),
+  assigned_at timestamptz NOT NULL DEFAULT now(),
+  due_date date,
+  status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','in_progress','submitted','approved','rejected')),
+  reviewer_notes text,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+ALTER TABLE regulatory_metric_assignments ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "metric_assignments_read" ON regulatory_metric_assignments FOR SELECT USING (
+  assigned_to = auth.uid()
+  OR institution_id = auth_institution_id()
+     AND EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN ('super_admin','iqac_coordinator','institution_admin'))
+);
+
+CREATE POLICY "metric_assignments_insert" ON regulatory_metric_assignments FOR INSERT WITH CHECK (
+  EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN ('super_admin','iqac_coordinator','institution_admin'))
+);
+
+CREATE POLICY "metric_assignments_update" ON regulatory_metric_assignments FOR UPDATE USING (
+  assigned_to = auth.uid()
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN ('super_admin','iqac_coordinator','institution_admin'))
+);
+
+CREATE INDEX idx_reg_metric_assignments_submission_status ON regulatory_metric_assignments(submission_id, status);
+CREATE INDEX idx_reg_metric_assignments_assignee_status ON regulatory_metric_assignments(assigned_to, status);
 
 -- 8. Data Connector Registry (named, reusable query definitions)
 CREATE TABLE regulatory_data_connectors (
@@ -1930,7 +2018,7 @@ Week 1: Database + API Layer Foundation
 │           + Service: RegulatoryMetricService
 │           + Hooks: useMetrics, useMetricValues, useUpsertMetricValue
 │           + Seed frameworks: NAAC 2022, NIRF Overall + 6 discipline, NAAC Binary × 3,
-│             NAAC MBGL × 3, NAAC IIQA, NAAC AQAR (21 total pre-configured frameworks)
+│             NAAC MBGL × 3, NAAC IIQA, NAAC AQAR (20 total pre-configured frameworks)
 
 Week 2: Data Connectors + Evidence API
 ├── Day 1: API routes for data-connectors (GET, POST test, POST refresh)
@@ -2035,7 +2123,7 @@ Week 10: Polish & Handoff
 
 ## Pre-Built Framework Templates
 
-Ship with these 21 frameworks pre-configured (seeded in migration):
+Ship with these 20 frameworks pre-configured (seeded in migration):
 
 ### NAAC 2022 Revised — Full Metric-Level Breakdown (7 Criteria, 56 Metrics)
 
@@ -2935,7 +3023,7 @@ report-generator.ts
 │  Supabase Client (server-side) → PostgreSQL                            │
 │       │ RLS policies enforce institution_id scoping                     │
 │       ▼                                                                 │
-│  Database (16 tables + 1 view + 50 RLS policies)                       │
+│  Database (18 tables + 1 view + 58 RLS policies)                       │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -3266,6 +3354,13 @@ If count > 0, return 409 Conflict: "Cannot modify framework structure while acti
 | GET | `/api/regulatory/evidence/deleted` | `getDeletedEvidence(filters)` | super_admin, institution_admin, iqac_coordinator | List soft-deleted evidence (within 30-day recovery window). **Implementation:** Service uses service-role client to bypass the `is_deleted = false` RLS filter. **MANDATORY institution scoping:** The service MUST also filter by `institution_id = <caller_institution_id>` (omit institution filter only for super_admin). Filter: `is_deleted = true AND deleted_at > now() - interval '30 days' AND institution_id = <caller_institution_id>`. The service-role client bypasses ALL RLS (not just the soft-delete filter), so institution scoping MUST be applied manually. |
 | PUT | `/api/regulatory/evidence/[id]/restore` | `restoreEvidence(id)` | super_admin, institution_admin, iqac_coordinator | Restore soft-deleted evidence (set `is_deleted = false`, `deleted_at = null`). Fails with 410 Gone if `deleted_at` is older than 30 days. **Implementation:** Service uses service-role client to bypass RLS for the lookup, then updates via regular client. **MANDATORY:** The service-role lookup MUST include `AND institution_id = <caller_institution_id>` (or allow any institution only for super_admin). If the evidence's institution_id doesn't match, return 404 — never expose cross-institution evidence existence. |
 
+> **Cross-framework consistency validation (M9):** The evidence `POST` endpoint MUST validate that:
+> 1. If `metric_id` is provided, it belongs to a metric within the submission's framework (join `regulatory_metrics` → `regulatory_criteria` → verify `framework_id` = `submission.framework_id`)
+> 2. If `criteria_id` is provided, it belongs to the submission's framework (join `regulatory_criteria` → verify `framework_id` = `submission.framework_id`)
+> 3. Return **400 Bad Request** with message `"Evidence references a metric/criterion from a different framework than the submission"` if the framework IDs do not match.
+>
+> This prevents orphaned evidence that links to metrics in Framework A while attached to a submission for Framework B. The validation is app-layer only (not enforced by FK constraints) because evidence can optionally omit both metric_id and criteria_id for general submission-level documents.
+
 #### Evidence Restore: Defense-in-Depth via Database Function
 
 The restore endpoint (`PUT /evidence/[id]/restore`) uses service-role client which bypasses ALL RLS. To prevent cross-tenant access if the application layer has a bug, the restore operation MUST use a SECURITY DEFINER database function:
@@ -3456,6 +3551,9 @@ The API route calculates `score_delta` and `rank_estimate` server-side before st
 | DELETE | `/api/regulatory/benchmarks/[id]` | `deleteBenchmark(id)` | super_admin, institution_admin, iqac_coordinator | Delete benchmark |
 | GET | `/api/regulatory/benchmarks/comparison` | `getBenchmarkComparison(frameworkId, year)` | super_admin, institution_admin, iqac_coordinator, principal | Gap analysis across peer institutions. **Note:** principal has READ access to comparison data (per T8 "View dashboard" which includes benchmark insights) but CANNOT create/edit/delete benchmark entries (T8 "Manage peer benchmarks" excludes principal). **Required query params:** `framework_id` (uuid), `academic_year` (text). Optional: `peer_institution_name` (text filter). |
 
+
+> **Metric code validation (M13):** The benchmarks `POST` and `PUT` endpoints MUST validate that `metric_code` exists in the specified framework's metrics. Validation query: join `regulatory_metrics` via `regulatory_criteria` where `regulatory_criteria.framework_id` matches the benchmark's `framework_id` and `regulatory_metrics.code` matches the provided `metric_code`. Return **400 Bad Request** with message `"metric_code '{code}' not found in framework {framework_id}"` if no matching metric exists. This prevents benchmarks from referencing non-existent or mismatched metric codes.
+
 ### Dashboard API
 
 | Method | Endpoint | Service Method | Roles (T8) | Description |
@@ -3472,6 +3570,8 @@ The API route calculates `score_delta` and `rank_estimate` server-side before st
 | GET | `/api/regulatory/data-connectors/[id]` | `getDataConnectorById(id)` | super_admin | Connector detail with last test result |
 | POST | `/api/regulatory/data-connectors/[id]/test` | `testDataConnector(id, institutionId)` | super_admin | Execute connector query and return sample results |
 | POST | `/api/regulatory/data-connectors/[id]/refresh` | `refreshConnectorMetrics(id, institutionId, year)` | super_admin | Run connector and update all linked metric_values |
+
+> **UI Visibility Note (M21):** The Data Sources page is visible ONLY to `super_admin` in the sidebar (see sidebar config: `roles: ['super_admin']`). Non-admin users (staff, hod, iqac_coordinator, etc.) who somehow navigate to `/regulatory/data-connectors` see a read-only info card: *"Data is automatically populated from institutional systems. Contact your administrator for data source configuration."* The sidebar configuration MUST exclude this page for all non-super_admin roles. This is enforced both in the sidebar filter AND in the page component (show info card if role !== super_admin).
 
 **Total API Surface: 66 endpoints across 13 entity groups** (Frameworks, Criteria, Metrics, Metric Values, Evidence, Submissions, Simulations, Governance, Peer Visits, Syllabi, Benchmarks, Dashboard, Data Connectors).
 
@@ -3996,6 +4096,12 @@ Tree structure is assembled in application code from these two flat result sets.
 
 3. **Queue-based (Phase 2):** For production scale, implement a `regulatory_refresh_queue` table. A single worker process picks requests off the queue, ensuring controlled throughput.
 
+4. **Partial success handling (M3):** When a batch refresh runs multiple connectors, each connector runs independently. If connector C fails (timeout/error), its metric values are NOT updated — previous values are preserved. The refresh response returns per-connector status:
+   ```json
+   { "total": 15, "succeeded": 13, "failed": 2, "failures": [{"connector": "DC-14", "error": "timeout after 30s"}, {"connector": "DC-22", "error": "query returned no rows"}] }
+   ```
+   Failed connectors can be individually retried via `POST /data-connectors/[id]/refresh`. The batch refresh endpoint MUST NOT roll back successful connectors when others fail — each connector's result is committed independently.
+
 ---
 
 ### Evidence Storage: Archival & Lifecycle
@@ -4407,7 +4513,7 @@ Data connector SQL validation accepts queries starting with `WITH` (for CTEs) in
 
 ### L7. Value History Growth
 
-At 100 institutions x 100 metrics x 12 refreshes/year = ~120K history rows/year. PostgreSQL handles this without issues. No automatic purging needed. History older than 7 years can be archived to cold storage if desired.
+At 100 institutions x 100 metrics x 4 quarterly refreshes + ~3.3 manual edits/metric/year = ~131K history rows/year. PostgreSQL handles this without issues. No automatic purging needed. **Retention policy:** History rows are retained indefinitely for audit compliance. For institutions exceeding 500K history rows, implement yearly table partitioning on `created_at`. After 7 years, archive partitions to cold storage (matching evidence archival lifecycle).
 
 ### L8. File-Type Metrics
 
@@ -4476,6 +4582,8 @@ The UI renders a dropdown with criteria descriptions. The score calculator reads
 ### Meetings API Pattern (Mixed Nesting)
 
 Meeting list/create are nested under governing bodies (`/governing-bodies/{bodyId}/meetings`) because they require the body context. Update/approve use flat paths (`/meetings/{meetingId}`) because they operate on a specific meeting by ID. Hooks use different base URLs: `/governing-bodies/${bodyId}/meetings` for list/create, `/meetings/${meetingId}` for update/approve.
+
+> **API Pattern Note (M31):** Body meetings use a MIXED API pattern: listing and creation are NESTED under the governing body (`/api/regulatory/governing-bodies/[id]/meetings`) because `body_id` is required context for those operations. However, update and approve operations use a FLAT pattern (`/api/regulatory/meetings/[id]`) because they operate on a specific meeting by its own ID. This differs from entity-group patterns like benchmarks or evidence which are fully flat. The mixed pattern is intentional — creating a meeting without a body context is nonsensical, but updating a meeting by ID does not need the body prefix. Hooks must handle both base URLs accordingly.
 
 ### Submissions RLS is Intentionally Broad
 
