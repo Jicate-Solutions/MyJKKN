@@ -227,7 +227,7 @@ print(data["pagination"])  # Pagination info`,
   tags: ['blocks', 'pagination', 'filtering', 'hostel'],
   notes: [
     'Blocks represent physical hostel buildings or wings',
-    'Each block is designated for a specific gender',
+    'Each block is designated for a specific hostel type (boys, girls, or mixed)',
     'Occupancy counts (occupied_beds) are updated in near real-time',
     'Results are ordered by name in ascending order',
   ],
