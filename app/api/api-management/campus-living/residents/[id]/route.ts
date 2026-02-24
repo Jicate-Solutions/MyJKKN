@@ -16,7 +16,7 @@ export const GET = withApiKeyAuth(async (request, auth, context) => {
     .from('hostel_allocations')
     .select(`
       id, learner_id, block_id, room_id, bed_id, status,
-      check_in_date, check_out_date, academic_year, created_at,
+      allocation_date, expected_vacate_date, actual_vacate_date, academic_year_id, created_at,
       hostel_blocks(id, name, code),
       hostel_rooms(id, room_number),
       hostel_beds(id, bed_number)
