@@ -2791,6 +2791,13 @@ All `GET` list endpoints accept these standard query parameters:
 
 Additional entity-specific filters are documented per endpoint where applicable.
 
+### Role Shorthand Definitions
+
+| Shorthand | Meaning (roles) |
+|-----------|-----------------|
+| `all authenticated` | Any user with a valid session (frameworks/criteria/metrics are readable by design) |
+| `all with institution access` | super_admin, institution_admin, iqac_coordinator, principal, hod, staff — i.e., any authenticated user whose profile has an institution_id matching the resource (or super_admin). This maps to the broadest non-public access tier. |
+
 ### Frameworks API
 
 | Method | Endpoint | Service Method | Roles (T8) | Description |
