@@ -8,16 +8,18 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { solutionsHubKeys } from '@/lib/query-keys';
 import { QUERY_CONFIG } from '@/lib/config/query-config';
+import { apiClient } from '@/lib/api/client';
 import {
-  deploymentsService,
   DEPLOYMENT_ENVIRONMENTS,
   DEPLOYMENT_STATUS_LABELS,
-  type DeploymentFilters,
-  type DeploymentWithPhase,
-  type DeploymentEnvironment,
-  type DeploymentStatus,
-  type CreateDeploymentServiceInput,
-  type UpdateDeploymentServiceInput,
+} from '@/lib/services/solutions';
+import type {
+  DeploymentFilters,
+  DeploymentWithPhase,
+  DeploymentEnvironment,
+  DeploymentStatus,
+  CreateDeploymentServiceInput,
+  UpdateDeploymentServiceInput,
 } from '@/lib/services/solutions';
 import type { PhaseDeployment } from '@/lib/services/solutions/types';
 
@@ -45,7 +47,7 @@ export { DEPLOYMENT_ENVIRONMENTS, DEPLOYMENT_STATUS_LABELS };
 export function useDeployments(filters?: DeploymentFilters) {
   return useQuery({
     queryKey: solutionsHubKeys.deployments.list(filters),
-    queryFn: () => deploymentsService.getDeployments(filters),
+    queryFn: () => apiClient.get('/api/solutions/deployments', { params: filters as Record<string, any> }),
     ...QUERY_CONFIG.DYNAMIC_DATA,
   });
 }
@@ -56,7 +58,7 @@ export function useDeployments(filters?: DeploymentFilters) {
 export function useDeployment(id: string) {
   return useQuery({
     queryKey: solutionsHubKeys.deployments.detail(id),
-    queryFn: () => deploymentsService.getDeploymentById(id),
+    queryFn: () => apiClient.get(`/api/solutions/deployments/${id}`),
     enabled: !!id,
     ...QUERY_CONFIG.SEMI_STABLE_DATA,
   });
@@ -68,7 +70,7 @@ export function useDeployment(id: string) {
 export function usePhaseDeployments(phaseId: string) {
   return useQuery({
     queryKey: solutionsHubKeys.deployments.byPhase(phaseId),
-    queryFn: () => deploymentsService.getDeploymentsByPhase(phaseId),
+    queryFn: () => apiClient.get('/api/solutions/deployments', { params: { phase_id: phaseId } }),
     enabled: !!phaseId,
     ...QUERY_CONFIG.SEMI_STABLE_DATA,
   });
@@ -80,7 +82,7 @@ export function usePhaseDeployments(phaseId: string) {
 export function useLatestDeployment(phaseId: string, environment: DeploymentEnvironment) {
   return useQuery({
     queryKey: solutionsHubKeys.deployments.latest(phaseId, environment),
-    queryFn: () => deploymentsService.getLatestDeployment(phaseId, environment),
+    queryFn: () => apiClient.get('/api/solutions/deployments', { params: { phase_id: phaseId, environment, latest: 'true' } }),
     enabled: !!phaseId && !!environment,
     ...QUERY_CONFIG.SEMI_STABLE_DATA,
   });
@@ -92,7 +94,7 @@ export function useLatestDeployment(phaseId: string, environment: DeploymentEnvi
 export function useDeploymentStats() {
   return useQuery({
     queryKey: solutionsHubKeys.deployments.stats(),
-    queryFn: () => deploymentsService.getDeploymentStats(),
+    queryFn: () => apiClient.get('/api/solutions/deployments', { params: { stats: 'true' } }),
     ...QUERY_CONFIG.DASHBOARD_DATA,
   });
 }
@@ -103,7 +105,7 @@ export function useDeploymentStats() {
 export function useActiveDeploymentUrl(phaseId: string, environment: DeploymentEnvironment) {
   return useQuery({
     queryKey: solutionsHubKeys.deployments.activeUrl(phaseId, environment),
-    queryFn: () => deploymentsService.getActiveDeploymentUrl(phaseId, environment),
+    queryFn: () => apiClient.get('/api/solutions/deployments', { params: { phase_id: phaseId, environment, active_url: 'true' } }),
     enabled: !!phaseId && !!environment,
     ...QUERY_CONFIG.SEMI_STABLE_DATA,
   });
@@ -115,7 +117,7 @@ export function useActiveDeploymentUrl(phaseId: string, environment: DeploymentE
 export function useHasActiveDeployments(phaseId: string) {
   return useQuery({
     queryKey: [...solutionsHubKeys.deployments.byPhase(phaseId), 'has-active'],
-    queryFn: () => deploymentsService.hasActiveDeployments(phaseId),
+    queryFn: () => apiClient.get('/api/solutions/deployments', { params: { phase_id: phaseId, has_active: 'true' } }),
     enabled: !!phaseId,
     ...QUERY_CONFIG.SEMI_STABLE_DATA,
   });
@@ -132,7 +134,7 @@ export function useCreateDeployment() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (input: CreateDeploymentInput) => deploymentsService.createDeployment(input),
+    mutationFn: (input: CreateDeploymentInput) => apiClient.post<PhaseDeployment>('/api/solutions/deployments', input),
     onSuccess: (data: PhaseDeployment) => {
       // Invalidate deployment lists
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.deployments.all });
@@ -160,7 +162,7 @@ export function useUpdateDeployment() {
 
   return useMutation({
     mutationFn: ({ id, input }: { id: string; input: UpdateDeploymentInput }) =>
-      deploymentsService.updateDeployment(id, input),
+      apiClient.patch<PhaseDeployment>(`/api/solutions/deployments/${id}`, input),
     onSuccess: (data: PhaseDeployment) => {
       // Invalidate lists
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.deployments.all });
@@ -187,7 +189,7 @@ export function useDeactivateDeployment() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (id: string) => deploymentsService.deactivateDeployment(id),
+    mutationFn: (id: string) => apiClient.patch<PhaseDeployment>(`/api/solutions/deployments/${id}`, { is_active: false }),
     onSuccess: (data: PhaseDeployment) => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.deployments.all });
 
@@ -219,7 +221,7 @@ export function useRollbackDeployment() {
       phaseId: string;
       environment: DeploymentEnvironment;
       targetDeploymentId: string;
-    }) => deploymentsService.rollbackDeployment(phaseId, environment, targetDeploymentId),
+    }) => apiClient.post<PhaseDeployment>('/api/solutions/deployments', { phase_id: phaseId, environment, rollback_from: targetDeploymentId, _action: 'rollback' }),
     onSuccess: (data: PhaseDeployment) => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.deployments.all });
 
@@ -243,7 +245,7 @@ export function useDeleteDeployment() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (id: string) => deploymentsService.deleteDeployment(id),
+    mutationFn: (id: string) => apiClient.delete(`/api/solutions/deployments/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.deployments.all });
     },
@@ -258,7 +260,7 @@ export function useDeployToStaging() {
 
   return useMutation({
     mutationFn: (input: Omit<CreateDeploymentInput, 'environment'>) =>
-      deploymentsService.createDeployment({ ...input, environment: 'staging' }),
+      apiClient.post<PhaseDeployment>('/api/solutions/deployments', { ...input, environment: 'staging' }),
     onSuccess: (data: PhaseDeployment) => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.deployments.all });
 
@@ -282,7 +284,7 @@ export function useDeployToProduction() {
 
   return useMutation({
     mutationFn: (input: Omit<CreateDeploymentInput, 'environment'>) =>
-      deploymentsService.createDeployment({ ...input, environment: 'production' }),
+      apiClient.post<PhaseDeployment>('/api/solutions/deployments', { ...input, environment: 'production' }),
     onSuccess: (data: PhaseDeployment) => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.deployments.all });
 
