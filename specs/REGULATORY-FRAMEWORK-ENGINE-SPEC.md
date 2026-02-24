@@ -1208,6 +1208,9 @@ ALTER TABLE okr_objectives ADD COLUMN IF NOT EXISTS regulatory_target_value nume
 -- ═══════════════════════════════════════════════
 -- COURSE COMPLETION MONITORING VIEW
 -- ═══════════════════════════════════════════════
+-- SECURITY NOTE: This view inherits RLS from regulatory_course_syllabi for non-service-role queries.
+-- Any API endpoint serving this data MUST filter by institution_id at the application layer
+-- (especially if using service-role client, which bypasses RLS on the underlying table).
 
 CREATE OR REPLACE VIEW regulatory_course_completion_dashboard AS
 SELECT
