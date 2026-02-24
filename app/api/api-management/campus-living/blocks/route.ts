@@ -20,7 +20,6 @@ export const GET = withApiKeyAuth(async (request, auth) => {
 
   const hostelType = getStringParam(url, 'hostel_type');
   const status = getStringParam(url, 'status');
-  const genderType = getStringParam(url, 'gender_type');
 
   let query = (auth.supabase as any)
     .from('hostel_blocks')
@@ -29,7 +28,6 @@ export const GET = withApiKeyAuth(async (request, auth) => {
 
   if (hostelType) query = query.eq('hostel_type', hostelType);
   if (status) query = query.eq('status', status);
-  if (genderType) query = query.eq('gender_type', genderType);
 
   query = query.range(from, to).order('name', { ascending: true });
 
