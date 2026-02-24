@@ -3126,6 +3126,10 @@ types/regulatory.types.ts            — TypeScript types (MUST align 1:1 with s
 5. **Cache invalidation** — after mutation success, invalidate the broad entity key (e.g., `['regulatory-frameworks']`), not narrow sub-keys.
 6. **Error handling** — mutations catch errors and pass to `friendlyErrorMessage()` for toast display. No raw Supabase error strings.
 
+### Data Connector Query Security Note
+
+The `regulatory_metrics` table has `data_connector_query` (SQL text) readable via `metrics_read` USING(true). To prevent leaking DB schema to non-admin roles, the **Metrics API GET endpoints** MUST strip `data_connector_query` and `data_connector_id` from responses unless the caller is `super_admin`. Implementation: `const { data_connector_query, data_connector_id, ...safeMetric } = metric` in the API route.
+
 ### Service Architecture Rules
 
 1. **Static class methods** — all services use the existing `ClassName.methodName()` pattern.
