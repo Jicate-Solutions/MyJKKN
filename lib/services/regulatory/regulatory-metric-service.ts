@@ -129,7 +129,7 @@ export class RegulatoryMetricService {
         }
       }
     } catch (error) {
-      console.error('[RegulatoryMetricService] Error fetching metrics:', this.formatError(error))
+      console.error('[RegulatoryMetricService] Error fetching metrics:', formatError(error))
       throw error
     }
   }
@@ -158,7 +158,7 @@ export class RegulatoryMetricService {
 
       return data
     } catch (error) {
-      console.error('[RegulatoryMetricService] Error fetching metric:', this.formatError(error))
+      console.error('[RegulatoryMetricService] Error fetching metric:', formatError(error))
       throw error
     }
   }
@@ -228,7 +228,7 @@ export class RegulatoryMetricService {
 
       return data || []
     } catch (error) {
-      console.error('[RegulatoryMetricService] Error fetching metric values:', this.formatError(error))
+      console.error('[RegulatoryMetricService] Error fetching metric values:', formatError(error))
       throw error
     }
   }
@@ -284,7 +284,7 @@ export class RegulatoryMetricService {
 
       return result
     } catch (error) {
-      console.error('[RegulatoryMetricService] Error upserting metric value:', this.formatError(error))
+      console.error('[RegulatoryMetricService] Error upserting metric value:', formatError(error))
       throw error
     }
   }
@@ -344,7 +344,7 @@ export class RegulatoryMetricService {
 
       return data || []
     } catch (error) {
-      console.error('[RegulatoryMetricService] Error fetching metric history:', this.formatError(error))
+      console.error('[RegulatoryMetricService] Error fetching metric history:', formatError(error))
       throw error
     }
   }
