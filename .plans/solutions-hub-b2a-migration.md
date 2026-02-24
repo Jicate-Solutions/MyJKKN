@@ -178,6 +178,16 @@ The existing `lib/api-keys/with-api-key-auth.ts` handles API-key-only auth for `
 - `api/solutions/*` routes → use new `withAuth`
 - Future: existing api-management routes CAN be migrated to `withAuth` for RLS benefit, but this is NOT part of the current spec
 
+**Required imports for `lib/auth/with-auth.ts`:**
+```typescript
+import { cookies } from 'next/headers';           // Cookie presence check
+import { NextRequest, NextResponse } from 'next/server';
+import { createServerSupabaseClient } from '@/lib/supabase/server'; // Session flow
+import { createImpersonatedClient } from '@/lib/auth/impersonate';  // API key flow
+import { BaseService } from '@/lib/services/base-service';          // runWithClient
+import { corsHeaders } from '@/lib/api-keys/cors';                  // CORS on all responses
+```
+
 **Auth detection order (CRITICAL — cookies first, not Bearer first):**
 1. Check cookies (via `next/headers`) → Session flow (browser users always send cookies)
 2. If no session cookie, check `Authorization: Bearer <token>` header → API key flow
