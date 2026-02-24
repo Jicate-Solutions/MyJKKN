@@ -1,25 +1,15 @@
-// app/api/solutions/departments/eligible/route.ts
-// API route to get departments eligible for Solutions Hub
+import { NextResponse } from 'next/server'
+import { withAuth } from '@/lib/auth/with-auth'
+import { DepartmentTrackerService } from '@/lib/services/solutions/department-tracker-service'
+import { successApiResponse } from '@/lib/api/response'
+import { corsHeaders } from '@/lib/api-keys/cors'
 
-import { NextResponse } from 'next/server';
-import { getAuthSession } from '@/lib/supabase/server';
-import { DepartmentTrackerService } from '@/lib/services/solutions/department-tracker-service';
-
-export async function GET() {
-  try {
-    const { session, error: sessionError } = await getAuthSession();
-    if (sessionError || !session) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    const eligible = await DepartmentTrackerService.getEligibleDepartments();
-
-    return NextResponse.json(eligible);
-  } catch (error) {
-    console.error('[API] Error in GET /api/solutions/departments/eligible:', error);
-    return NextResponse.json(
-      { error: 'Internal Server Error' },
-      { status: 500 }
-    );
-  }
+export async function OPTIONS() {
+  return NextResponse.json({}, { headers: corsHeaders })
 }
+
+export const GET = withAuth(async () => {
+  const eligible = await DepartmentTrackerService.getEligibleDepartments()
+
+  return successApiResponse(eligible)
+}, { requiredPermission: 'read' })
