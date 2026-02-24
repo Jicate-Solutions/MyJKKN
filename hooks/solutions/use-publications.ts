@@ -3,22 +3,22 @@
 /**
  * Solutions Hub - Publications Hooks
  * Purpose: React Query hooks for publications and accreditation metrics
- * Connected to: lib/services/solutions/publications-service.ts
+ * Connected to: /api/solutions/publications/* routes
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { solutionsHubKeys } from '@/lib/query-keys';
 import { QUERY_CONFIG } from '@/lib/config/query-config';
-import {
-  publicationsService,
-  type PublicationFilters,
-  type CreatePublicationInput,
-  type UpdatePublicationInput,
-  type AddContributorInput,
-  type PublicationStats,
-  type NIRFMetrics,
-  type NAACCriteria,
-  type PublicationWithSolution,
+import { apiClient } from '@/lib/api/client';
+import type {
+  PublicationFilters,
+  CreatePublicationInput,
+  UpdatePublicationInput,
+  AddContributorInput,
+  PublicationStats,
+  NIRFMetrics,
+  NAACCriteria,
+  PublicationWithSolution,
 } from '@/lib/services/solutions/publications-service';
 import type {
   Publication,
@@ -68,7 +68,7 @@ export interface AccreditationMetricFilters {
 export function usePublications(filters?: PublicationFilters) {
   return useQuery({
     queryKey: solutionsHubKeys.publications.list(filters),
-    queryFn: () => publicationsService.getPublications(filters),
+    queryFn: () => apiClient.get<PublicationWithSolution[]>('/api/solutions/publications', { params: filters as Record<string, any> }),
     ...QUERY_CONFIG.SEMI_STABLE_DATA,
   });
 }
@@ -79,7 +79,7 @@ export function usePublications(filters?: PublicationFilters) {
 export function usePublication(id: string) {
   return useQuery({
     queryKey: solutionsHubKeys.publications.detail(id),
-    queryFn: () => publicationsService.getPublicationById(id),
+    queryFn: () => apiClient.get<Publication>(`/api/solutions/publications/${id}`),
     enabled: !!id,
     ...QUERY_CONFIG.SEMI_STABLE_DATA,
   });
@@ -91,7 +91,7 @@ export function usePublication(id: string) {
 export function usePublicationsBySolution(solutionId: string) {
   return useQuery({
     queryKey: [...solutionsHubKeys.publications.all, 'solution', solutionId],
-    queryFn: () => publicationsService.getPublicationsBySolution(solutionId),
+    queryFn: () => apiClient.get<PublicationWithSolution[]>('/api/solutions/publications', { params: { solution_id: solutionId } }),
     enabled: !!solutionId,
     ...QUERY_CONFIG.SEMI_STABLE_DATA,
   });
@@ -103,7 +103,7 @@ export function usePublicationsBySolution(solutionId: string) {
 export function usePublicationStats() {
   return useQuery({
     queryKey: solutionsHubKeys.publications.stats(),
-    queryFn: () => publicationsService.getPublicationStats(),
+    queryFn: () => apiClient.get<PublicationStats>('/api/solutions/publications', { params: { stats: 'true' } }),
     ...QUERY_CONFIG.DASHBOARD_DATA,
   });
 }
@@ -114,7 +114,7 @@ export function usePublicationStats() {
 export function useContributors(publicationId: string) {
   return useQuery({
     queryKey: solutionsHubKeys.publications.contributors(publicationId),
-    queryFn: () => publicationsService.getContributors(publicationId),
+    queryFn: () => apiClient.get<PublicationContributor[]>(`/api/solutions/publications/${publicationId}/contributors`),
     enabled: !!publicationId,
     ...QUERY_CONFIG.SEMI_STABLE_DATA,
   });
@@ -132,7 +132,7 @@ export function useCreatePublication() {
 
   return useMutation({
     mutationFn: (input: CreatePublicationInput) =>
-      publicationsService.createPublication(input),
+      apiClient.post<Publication>('/api/solutions/publications', input),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.publications.all });
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.accreditation.all });
@@ -148,7 +148,7 @@ export function useUpdatePublication() {
 
   return useMutation({
     mutationFn: ({ id, input }: { id: string; input: UpdatePublicationInput }) =>
-      publicationsService.updatePublication(id, input),
+      apiClient.patch<Publication>(`/api/solutions/publications/${id}`, input),
     onSuccess: (data: Publication) => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.publications.all });
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.accreditation.all });
@@ -166,7 +166,7 @@ export function useDeletePublication() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (id: string) => publicationsService.deletePublication(id),
+    mutationFn: (id: string) => apiClient.delete(`/api/solutions/publications/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.publications.all });
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.accreditation.all });
@@ -186,7 +186,7 @@ export function useAddContributor() {
 
   return useMutation({
     mutationFn: (input: AddContributorInput) =>
-      publicationsService.addContributor(input),
+      apiClient.post<PublicationContributor>(`/api/solutions/publications/${input.publication_id}/contributors`, input),
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({
         queryKey: solutionsHubKeys.publications.contributors(variables.publication_id),
@@ -202,7 +202,8 @@ export function useRemoveContributor() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (id: string) => publicationsService.removeContributor(id),
+    mutationFn: ({ contributorId, publicationId }: { contributorId: string; publicationId: string }) =>
+      apiClient.delete(`/api/solutions/publications/${publicationId}/contributors?contributor_id=${contributorId}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.publications.all });
     },
@@ -219,7 +220,7 @@ export function useRemoveContributor() {
 export function useAccreditationMetrics(filters?: AccreditationMetricFilters) {
   return useQuery({
     queryKey: solutionsHubKeys.accreditation.metrics(filters),
-    queryFn: () => publicationsService.getAccreditationMetrics(filters?.metric_type),
+    queryFn: () => apiClient.get<AccreditationMetric[]>('/api/solutions/publications/accreditation', { params: { type: filters?.metric_type } }),
     ...QUERY_CONFIG.STABLE_DATA,
   });
 }
@@ -230,7 +231,7 @@ export function useAccreditationMetrics(filters?: AccreditationMetricFilters) {
 export function useNIRFMetrics() {
   return useQuery({
     queryKey: [...solutionsHubKeys.accreditation.all, 'nirf-calculated'],
-    queryFn: () => publicationsService.calculateNIRFMetrics(),
+    queryFn: () => apiClient.get<NIRFMetrics>('/api/solutions/publications/accreditation/nirf'),
     ...QUERY_CONFIG.DASHBOARD_DATA,
   });
 }
@@ -241,7 +242,7 @@ export function useNIRFMetrics() {
 export function useNAACCriteria() {
   return useQuery({
     queryKey: [...solutionsHubKeys.accreditation.all, 'naac-calculated'],
-    queryFn: () => publicationsService.calculateNAACCriteria(),
+    queryFn: () => apiClient.get<NAACCriteria>('/api/solutions/publications/accreditation/naac'),
     ...QUERY_CONFIG.DASHBOARD_DATA,
   });
 }
