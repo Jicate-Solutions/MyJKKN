@@ -65,56 +65,8 @@ import {
 } from '@/lib/services/solutions/prospects-service';
 
 // ============================================
-// LOCAL HOOKS (until another agent adds to use-prospects.ts)
+// LOCAL HOOK — stage update with reopen date support
 // ============================================
-
-function useReadyToReengage() {
-  return useQuery({
-    queryKey: ['prospects-reengage'],
-    queryFn: async () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const supabase: any = createClientSupabaseClient();
-      const today = new Date().toISOString().split('T')[0];
-      const { data, error } = await supabase
-        .from('sh_prospects')
-        .select('*, assigned_user:profiles!assigned_to(id, full_name, avatar_url)')
-        .lte('reopen_date', today)
-        .in('pipeline_stage', ['dormant', 'lost'])
-        .eq('is_active', true)
-        .order('reopen_date', { ascending: true });
-      if (error) throw error;
-      return (data || []) as Prospect[];
-    },
-  });
-}
-
-function useReactivateProspect() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async (id: string) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const supabase: any = createClientSupabaseClient();
-      const { data, error } = await supabase
-        .from('sh_prospects')
-        .update({
-          pipeline_stage: 'lead',
-          lost_reason: null,
-          reopen_date: null,
-          is_active: true,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', id)
-        .select('*')
-        .single();
-      if (error) throw error;
-      return data;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['prospects-reengage'] });
-      queryClient.invalidateQueries({ queryKey: solutionsHubKeys.prospects.all });
-    },
-  });
-}
 
 function useUpdateStageWithReopen() {
   const queryClient = useQueryClient();
@@ -130,8 +82,11 @@ function useUpdateStageWithReopen() {
       lostReason?: string;
       reopenDate?: string;
     }) => {
-      const { prospectsService } = await import('@/lib/services/solutions/prospects-service');
-      return prospectsService.updatePipelineStage(id, stage, lostReason, reopenDate);
+      return apiClient.patch<Prospect>(`/api/solutions/prospects/${id}/stage`, {
+        stage,
+        lostReason,
+        reopenDate,
+      });
     },
     onSuccess: (data: Prospect) => {
       if (data?.id) {
