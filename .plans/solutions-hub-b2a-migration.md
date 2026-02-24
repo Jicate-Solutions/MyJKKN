@@ -181,6 +181,15 @@ function withAuth(handler: AuthenticatedHandler, options?: AuthOptions)
 
 **CORS:** `withAuth` must include CORS headers on all responses (including 401/403 errors) so that browser-based API key consumers and external tools get proper CORS. Reuse `corsHeaders` from `lib/api-keys/cors.ts`. The error responses inside `withAuth` (invalid key, expired, missing permission) must all include these headers.
 
+**OPTIONS handler (CRITICAL for CORS preflight):** There is NO global CORS middleware in this project — no `middleware.ts` at project root. Every existing `api-management` route exports its own OPTIONS handler. All new route files MUST also export OPTIONS:
+```typescript
+import { corsHeaders } from '@/lib/api-keys/cors';
+export async function OPTIONS() {
+  return NextResponse.json({}, { headers: corsHeaders });
+}
+```
+Without this, browsers will block cross-origin API key requests at the preflight stage.
+
 #### 0.3 Create JWT Impersonation Helper (Application Code)
 
 **File:** `lib/auth/impersonate.ts` (new)
