@@ -1129,7 +1129,7 @@ CREATE TABLE regulatory_course_syllabi (
   department text NOT NULL,
   course_code text NOT NULL,
   course_name text NOT NULL,
-  academic_year text NOT NULL,
+  academic_year text NOT NULL CHECK (academic_year ~ '^\d{4}(-\d{2})?$'),
   semester integer,
   syllabus_file_url text,                            -- uploaded syllabus document
   teaching_plan_file_url text,                       -- uploaded teaching plan
