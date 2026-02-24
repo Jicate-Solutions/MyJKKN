@@ -739,17 +739,21 @@ Add rate limiting to `withAuth`:
 
 ## Route Count Summary
 
-| Phase | New Route Files | Endpoints |
-|-------|----------------:|----------:|
-| Phase 0 | 4 (withAuth, impersonate, response, upload fix) | — |
-| Phase 1 | 9 | ~20 |
-| Phase 2 | 25 | ~52 |
-| Phase 3 | 23 | ~40 |
-| Phase 4 | 1 (api client) | — |
+Counted from the phase-by-phase tables above:
+
+| Phase | New Route Files | Endpoints (approx) |
+|-------|----------------:|--------------------:|
+| Phase 0 | 3 new files (withAuth, impersonate, response) + 1 modified (upload fix) | — |
+| Phase 1 | 16 (solutions 3, clients 2, prospects 7, phases 4) | ~29 |
+| Phase 2 | 44 (software 13, training 8, content 7, financial 13, mous 3) | ~87 |
+| Phase 3 | 44 (portals 22, discovery 4, publications 6, products 9, compliance 3) | ~53 |
+| Phase 4 | 1 (api client helper) | — |
 | Phase 5 | 1 (client-portal-service) | — |
 | Phase 6 | 0 (docs only) | — |
-| **Existing** | **8** (dept tracker + upload) | **~12** |
-| **Total** | **~70** | **~124** |
+| **Existing** | **8** (dept tracker 7 + upload 1) — to be refactored | **~12** |
+| **Total** | **~109 route files** | **~181 endpoints** |
+
+**Note:** This is a large surface area. Consider implementing in priority order and gating external API access behind feature flags initially.
 
 ---
 
