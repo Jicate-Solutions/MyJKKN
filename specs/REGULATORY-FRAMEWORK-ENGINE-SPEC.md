@@ -1554,8 +1554,9 @@ CREATE POLICY "metric_values_update" ON regulatory_metric_values FOR UPDATE
     AND EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN
       ('super_admin','institution_admin','iqac_coordinator','hod'))
   );
--- No DELETE policy on metric_values — soft-delete only. ON DELETE RESTRICT on history FK
--- prevents accidental destruction of audit trail.
+-- No DELETE policy on metric_values — soft-delete only. ON DELETE CASCADE on history FK
+-- means framework deletion will cascade through metric_values to history. The framework
+-- deletion guard (API layer) must prevent deletion when active submissions exist.
 
 -- ─── Evidence: upload by staff+, delete only via soft-delete ───
 -- T8: Upload = super_admin, institution_admin, iqac_coordinator, hod, staff
