@@ -560,7 +560,7 @@ export const GET = withAuth(async (request, auth) => {
 | `/api/solutions/builder-portal/claim/route.ts` | POST | BuilderPortalService |
 | `/api/solutions/builder-portal/earnings/route.ts` | GET | BuilderPortalService |
 
-#### 3.2 Cohort Portal (session-only initially)
+#### 3.2 Cohort Portal (session-only initially, `allowApiKey: false`)
 
 | Route | Methods | Service |
 |-------|---------|---------|
