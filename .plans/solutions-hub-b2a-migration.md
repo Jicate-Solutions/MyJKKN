@@ -796,13 +796,13 @@ Phase 0 ─── Foundation (MUST complete first)
   └── 0.5 Response helpers (standalone)
 
 Phase 1 ─── Core routes (depends on Phase 0)
-  └── 9 route files, can be done in parallel
+  └── 16 route files (~29 endpoints), can be done in parallel
 
 Phase 2 ─── Sub-module routes (depends on Phase 0)
-  └── 25 route files, can be done in parallel with Phase 1
+  └── 44 route files (~87 endpoints), can be done in parallel with Phase 1
 
 Phase 3 ─── Portal routes (depends on Phase 0 + Phase 5.1)
-  └── 23 route files, Phase 3.3 depends on 5.1 (ClientPortalService)
+  └── 44 route files (~53 endpoints), Phase 3.3 depends on 5.1 (ClientPortalService)
 
 Phase 4 ─── Hook migration (depends on Phases 1-3)
   ├── 4.1 API client helper (standalone)
