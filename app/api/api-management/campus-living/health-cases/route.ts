@@ -25,10 +25,10 @@ export const GET = withApiKeyAuth(async (request, auth) => {
   if (status) query = query.eq('status', status);
   if (severity) query = query.eq('severity', severity);
   if (blockId) query = query.eq('block_id', blockId);
-  if (dateFrom) query = query.gte('reported_at', dateFrom);
-  if (dateTo) query = query.lte('reported_at', dateTo);
+  if (dateFrom) query = query.gte('created_at', dateFrom);
+  if (dateTo) query = query.lte('created_at', dateTo);
 
-  query = query.range(from, to).order('reported_at', { ascending: false });
+  query = query.range(from, to).order('created_at', { ascending: false });
   const { data, error, count } = await query;
   if (error) throw error;
   return paginatedResponse(data ?? [], count ?? 0, page, limit);
