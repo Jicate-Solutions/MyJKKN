@@ -113,8 +113,8 @@ export function useUpdateProspect() {
 export function useUpdatePipelineStage() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, stage, lostReason }: { id: string; stage: PipelineStage; lostReason?: string }) =>
-      apiClient.patch<Prospect>(`/api/solutions/prospects/${id}/stage`, { stage, lostReason }),
+    mutationFn: ({ id, stage, lostReason, reopenDate }: { id: string; stage: PipelineStage; lostReason?: string; reopenDate?: string }) =>
+      apiClient.patch<Prospect>(`/api/solutions/prospects/${id}/stage`, { stage, lostReason, reopenDate }),
     onSuccess: (data: Prospect) => {
       if (data?.id) {
         queryClient.setQueryData(solutionsHubKeys.prospects.detail(data.id), data);
