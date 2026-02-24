@@ -1492,6 +1492,7 @@ CREATE POLICY "evidence_versions_insert" ON regulatory_evidence_versions FOR INS
     EXISTS (
       SELECT 1 FROM regulatory_evidence e
       WHERE e.id = evidence_id
+      AND e.is_deleted = false  -- block adding versions to soft-deleted evidence
       AND (e.institution_id = auth_institution_id()
            OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'))
     )
