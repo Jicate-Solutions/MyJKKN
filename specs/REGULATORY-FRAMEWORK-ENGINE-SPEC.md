@@ -2771,6 +2771,7 @@ lib/utils/
 | POST | `/api/regulatory/submissions` | `createSubmission(data)` | super_admin, institution_admin, iqac_coordinator | Create new submission (status=draft) |
 | PUT | `/api/regulatory/submissions/[id]/status` | `updateSubmissionStatus(id, newStatus)` | super_admin, institution_admin, principal | Transition status (enforces valid state machine) |
 | POST | `/api/regulatory/submissions/[id]/calculate-score` | `calculateSubmissionScore(id)` | super_admin, institution_admin, iqac_coordinator | Calculate and persist total score (MUTATION, not query!) |
+| POST | `/api/regulatory/submissions/[id]/report` | `generateSubmissionReport(id, format)` | super_admin, institution_admin, iqac_coordinator | Generate report (PDF for NAAC SSR/AQAR, CSV/JSON for NIRF, HTML for AICTE). `format` query param: `pdf` \| `csv` \| `json` \| `html` |
 
 **Submission Status State Machine (enforced at API route level):**
 ```
