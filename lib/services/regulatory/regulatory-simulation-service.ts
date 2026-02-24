@@ -4,6 +4,7 @@
 // ============================================================================
 
 import { createClientSupabaseClient } from '@/lib/supabase/client'
+import { isValidUUID, validateId, formatError } from './utils'
 
 /**
  * DDL: regulatory_simulations columns:
