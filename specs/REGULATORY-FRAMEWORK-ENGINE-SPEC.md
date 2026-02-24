@@ -279,11 +279,12 @@ Regulatory Compliance/
 **New Table:** `regulatory_peer_benchmarks`
 
 ```sql
+-- NOTE: This is an illustrative preview. The canonical DDL is in the Migration section (Table 14).
 CREATE TABLE regulatory_peer_benchmarks (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   institution_id uuid NOT NULL REFERENCES institutions(id),
   framework_id uuid NOT NULL REFERENCES regulatory_frameworks(id),
-  academic_year text NOT NULL,
+  academic_year text NOT NULL CHECK (academic_year ~ '^\d{4}(-\d{2})?$'),
   peer_institution_name text NOT NULL,           -- "PSG College of Technology"
   peer_institution_nirf_rank integer,            -- peer's NIRF rank (if available)
   peer_institution_naac_grade text,              -- peer's NAAC grade (if available)
