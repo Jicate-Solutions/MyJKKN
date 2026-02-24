@@ -31,7 +31,7 @@ export class SamlIdpService {
   private static idpInstance: ReturnType<typeof samlify.IdentityProvider> | null = null;
   // Bump this string whenever getIdPConfig() logic changes so the cached
   // idpInstance is invalidated on the next request without requiring a cold start.
-  private static readonly IDP_CACHE_VERSION = 'v2-decode-base64-pem';
+  private static readonly IDP_CACHE_VERSION = 'v3-universal-pem-detect';
   private static idpCacheKey: string | null = null;
 
   /**
@@ -136,17 +136,22 @@ export class SamlIdpService {
   /**
    * Format private key for samlify
    *
-   * Supports both PKCS#8 ("BEGIN PRIVATE KEY") and PKCS#1/RSA
-   * ("BEGIN RSA PRIVATE KEY") PEM formats. Both are valid for Node.js crypto
-   * and samlify. If neither header is present the value is a raw base64 key
-   * body — wrap it with PKCS#8 headers.
+   * If the key already contains any PEM block (-----BEGIN ... / -----END ...)
+   * return it untouched — this covers PKCS#8 ("BEGIN PRIVATE KEY"), PKCS#1
+   * ("BEGIN RSA PRIVATE KEY"), EC ("BEGIN EC PRIVATE KEY"), and any other
+   * standard PEM type without needing to enumerate them all.
    *
-   * NOTE: do NOT check only for "BEGIN PRIVATE KEY" — that substring is absent
-   * from "BEGIN RSA PRIVATE KEY", so PKCS#1 keys would be double-wrapped and
-   * OpenSSL would throw "DECODER routines::unsupported".
+   * Only when the value has no PEM headers (raw base64 DER body) do we wrap
+   * it — and only with PKCS#8 headers, which is what Node.js crypto expects
+   * for an unwrapped key body.
+   *
+   * IMPORTANT: do NOT check for a specific type name (e.g. "BEGIN PRIVATE KEY"
+   * alone). That substring is absent from "BEGIN RSA PRIVATE KEY", so PKCS#1
+   * keys would be double-wrapped and OpenSSL would throw
+   * "DECODER routines::unsupported".
    */
   private static formatPrivateKey(key: string): string {
-    if (key.includes('BEGIN PRIVATE KEY') || key.includes('BEGIN RSA PRIVATE KEY')) {
+    if (key.includes('-----BEGIN ') && key.includes('-----END ')) {
       return key;
     }
     return `-----BEGIN PRIVATE KEY-----\n${key}\n-----END PRIVATE KEY-----`;
