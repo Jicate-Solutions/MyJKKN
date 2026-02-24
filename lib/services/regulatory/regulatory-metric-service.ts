@@ -4,6 +4,7 @@
 // ============================================================================
 
 import { createClientSupabaseClient } from '@/lib/supabase/client'
+import { isValidUUID, validateId, sanitizeSearch, formatError } from './utils'
 
 export interface RegulatoryMetricFilters {
   criteria_id?: string
