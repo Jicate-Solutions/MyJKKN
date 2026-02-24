@@ -28,7 +28,7 @@ import {
 import { Plus, Search, Building2, Mail, Phone, ArrowRight, AlertCircle, Download } from 'lucide-react';
 import { useClients, type PartnerStatus, type SourceType } from '@/hooks/solutions/use-clients';
 import { useDebounceValue } from '@/hooks/use-debounce-value';
-import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { apiClient } from '@/lib/api/client';
 import { downloadCsv, formatDateForCsv, formatArrayForCsv, type CsvColumn } from '@/lib/utils/csv-export';
 
 const partnerConfig: Record<PartnerStatus, { label: string; color: string }> = {
