@@ -172,12 +172,25 @@ type AuthenticatedHandler = (
 ) => Promise<NextResponse>;
 
 interface AuthOptions {
-  requiredPermission?: 'read' | 'write';
+  /**
+   * REQUIRED — permission level needed for this route.
+   * Use 'read' for GET endpoints, 'write' for POST/PATCH/DELETE.
+   * Defaults to 'write' (safe-by-default — forgetting to set this
+   * blocks read-only API keys from mutation endpoints).
+   *
+   * SECURITY: This was originally optional with no default.
+   * Changed to required-with-safe-default because: if a dev forgets
+   * the option, an API key with only 'read' permission could call
+   * a POST/DELETE endpoint. Better to fail-safe.
+   */
+  requiredPermission?: 'read' | 'write'; // Defaults to 'write' if omitted
   allowApiKey?: boolean;   // default: true — set false for portal routes
   requireRole?: string[];  // optional role check (e.g., ['admin', 'super_admin'])
 }
 
 function withAuth(handler: AuthenticatedHandler, options?: AuthOptions)
+// NOTE: If options.requiredPermission is not provided, withAuth defaults to 'write'.
+// This means GET handlers MUST explicitly pass { requiredPermission: 'read' }.
 ```
 
 **Relationship to existing `withApiKeyAuth`:**
