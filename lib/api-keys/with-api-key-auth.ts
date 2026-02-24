@@ -153,12 +153,13 @@ export function withApiKeyAuth(
         );
       }
 
-      // 5. Update last_used_at (fire-and-forget)
+      // 5. Update last_used_at (fire-and-forget, errors suppressed)
       (supabase as any)
         .from('api_keys')
         .update({ last_used_at: new Date().toISOString() })
         .eq('id', keyData.id)
-        .then(() => {});
+        .then(() => {})
+        .catch(() => {});
 
       // 6. Call handler with auth context
       const auth: AuthResult = {
