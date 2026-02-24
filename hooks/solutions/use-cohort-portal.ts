@@ -339,7 +339,7 @@ export function useRequestLevelUp() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (memberId: string) => cohortService.levelUpCohortMember(memberId),
+    mutationFn: (memberId: string) => apiClient.post(`/api/solutions/training/cohort/${memberId}/level-up`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.cohortPortal.all });
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.cohortMembers.all });
