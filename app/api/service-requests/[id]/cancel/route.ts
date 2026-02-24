@@ -13,15 +13,10 @@ export async function POST(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const json = await request.json();
-    const reason = json.reason;
-
-    if (!reason || typeof reason !== 'string') {
-      return NextResponse.json(
-        { error: 'Cancellation reason is required' },
-        { status: 400 }
-      );
-    }
+    const json = await request.json().catch(() => ({}));
+    const reason: string = (typeof json.reason === 'string' && json.reason.trim())
+      ? json.reason.trim()
+      : 'Cancelled by requester';
 
     const result = await ServiceRequestService.cancelRequest(
       id,

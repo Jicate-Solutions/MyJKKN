@@ -1,6 +1,6 @@
 'use client';
 
-import { use, useMemo } from 'react';
+import { use, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -13,6 +13,9 @@ import {
   BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Textarea } from '@/components/ui/textarea';
+import { Separator } from '@/components/ui/separator';
 import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
 import {
@@ -25,10 +28,10 @@ import {
   useAddComment,
 } from '@/hooks/service-requests/use-service-requests';
 import { RequestDetailView } from '../_components/request-detail-view';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Textarea } from '@/components/ui/textarea';
+import { RequestStatusBadge } from '../_components/request-status-badge';
+import { PriorityBadge } from '../_components/priority-badge';
 import { Edit, Send, XCircle, PackageCheck, Archive } from 'lucide-react';
-import { useState } from 'react';
+import { format } from 'date-fns';
 import type { ProcessApprovalDto, ServiceRequestApprovalStep } from '@/types/service-request';
 
 export default function ServiceRequestDetailPage({
@@ -50,7 +53,6 @@ export default function ServiceRequestDetailPage({
 
   const [commentText, setCommentText] = useState('');
 
-  // Determine if the current user can approve this request
   const canApprove = useMemo(() => {
     if (!request || !profile) return false;
     if (request.status !== 'in_review' && request.status !== 'submitted') return false;
@@ -58,7 +60,6 @@ export default function ServiceRequestDetailPage({
     return can('service_requests.approve');
   }, [request, profile, isSuperAdmin, can]);
 
-  // Find current approval step
   const currentApprovalStep: ServiceRequestApprovalStep | null = useMemo(() => {
     if (!request?.service_type?.approval_steps) return null;
     return (
@@ -73,6 +74,7 @@ export default function ServiceRequestDetailPage({
   const isReturned = request?.status === 'returned';
   const isApproved = request?.status === 'approved';
   const isFulfilled = request?.status === 'fulfilled';
+  const isCancellable = ['draft', 'returned', 'submitted'].includes(request?.status || '');
 
   const handleProcessApproval = (data: ProcessApprovalDto) => {
     processApproval.mutate({ id, data });
@@ -130,72 +132,121 @@ export default function ServiceRequestDetailPage({
         </BreadcrumbList>
       </Breadcrumb>
 
-      <div className="space-y-6 mt-4">
-        {/* Action bar for requester */}
-        {isRequester && (
-          <div className="flex flex-wrap gap-2">
-            {(isDraft || isReturned) && (
-              <>
-                <Button
-                  variant="outline"
-                  onClick={() => router.push(`/service-requests/${id}/edit`)}
-                  className="gap-2"
-                >
-                  <Edit className="h-4 w-4" />
-                  Edit
-                </Button>
-                <Button
-                  onClick={() => submitRequest.mutate(id)}
-                  disabled={submitRequest.isPending}
-                  className="gap-2"
-                >
-                  <Send className="h-4 w-4" />
-                  {submitRequest.isPending ? 'Submitting...' : 'Submit'}
-                </Button>
-              </>
-            )}
-            {(isDraft || isReturned || request.status === 'submitted') && (
-              <Button
-                variant="destructive"
-                onClick={() => cancelRequest.mutate({ id })}
-                disabled={cancelRequest.isPending}
-                className="gap-2"
-              >
-                <XCircle className="h-4 w-4" />
-                Cancel
-              </Button>
-            )}
-          </div>
-        )}
+      <div className="space-y-5 mt-4">
+        {/* ── Hero Header Card ─────────────────────── */}
+        <Card>
+          <CardContent className="p-5 sm:p-6">
+            <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
 
-        {/* Action bar for admin/staff */}
-        {(isSuperAdmin || can('service_requests.manage')) && (
-          <div className="flex flex-wrap gap-2">
-            {isApproved && (
-              <Button
-                onClick={() => markFulfilled.mutate(id)}
-                disabled={markFulfilled.isPending}
-                className="gap-2"
-              >
-                <PackageCheck className="h-4 w-4" />
-                Mark Fulfilled
-              </Button>
-            )}
-            {(isApproved || isFulfilled) && (
-              <Button
-                variant="outline"
-                onClick={() => closeRequest.mutate(id)}
-                disabled={closeRequest.isPending}
-                className="gap-2"
-              >
-                <Archive className="h-4 w-4" />
-                Close
-              </Button>
-            )}
-          </div>
-        )}
+              {/* Left: service name + meta */}
+              <div className="min-w-0">
+                {/* Request number + badges row */}
+                <div className="flex flex-wrap items-center gap-2 mb-2">
+                  <span className="font-mono text-xs text-muted-foreground bg-muted px-2 py-1 rounded">
+                    {request.request_number}
+                  </span>
+                  <RequestStatusBadge status={request.status} />
+                  {request.priority && <PriorityBadge priority={request.priority} />}
+                </div>
 
-        {/* Request Detail View */}
+                {/* Service type name */}
+                <h1 className="text-xl sm:text-2xl font-bold leading-tight truncate">
+                  {request.service_type?.name || 'Service Request'}
+                </h1>
+
+                {/* Submission date */}
+                {request.submitted_at && (
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Submitted on{' '}
+                    {format(new Date(request.submitted_at), 'MMMM dd, yyyy')}
+                  </p>
+                )}
+              </div>
+
+              {/* Right: action buttons */}
+              <div className="flex flex-wrap gap-2 sm:shrink-0">
+                {/* Requester actions */}
+                {isRequester && (
+                  <>
+                    {(isDraft || isReturned) && (
+                      <>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => router.push(`/service-requests/${id}/edit`)}
+                          className="gap-2"
+                        >
+                          <Edit className="h-4 w-4" />
+                          Edit
+                        </Button>
+                        <Button
+                          size="sm"
+                          onClick={() => submitRequest.mutate(id)}
+                          disabled={submitRequest.isPending}
+                          className="gap-2"
+                        >
+                          <Send className="h-4 w-4" />
+                          {submitRequest.isPending ? 'Submitting…' : 'Submit'}
+                        </Button>
+                      </>
+                    )}
+                    {isCancellable && (
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        onClick={() =>
+                          cancelRequest.mutate(
+                            { id },
+                            {
+                              onSuccess: () =>
+                                router.push('/service-requests?tab=my-requests'),
+                            }
+                          )
+                        }
+                        disabled={cancelRequest.isPending}
+                        className="gap-2"
+                      >
+                        <XCircle className="h-4 w-4" />
+                        {cancelRequest.isPending ? 'Cancelling…' : 'Cancel'}
+                      </Button>
+                    )}
+                  </>
+                )}
+
+                {/* Admin / staff actions */}
+                {(isSuperAdmin || can('service_requests.manage')) && (
+                  <>
+                    {isApproved && (
+                      <Button
+                        size="sm"
+                        onClick={() => markFulfilled.mutate(id)}
+                        disabled={markFulfilled.isPending}
+                        className="gap-2"
+                      >
+                        <PackageCheck className="h-4 w-4" />
+                        Mark Fulfilled
+                      </Button>
+                    )}
+                    {(isApproved || isFulfilled) && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => closeRequest.mutate(id)}
+                        disabled={closeRequest.isPending}
+                        className="gap-2"
+                      >
+                        <Archive className="h-4 w-4" />
+                        Close
+                      </Button>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* ── Main Detail View ─────────────────────── */}
         <RequestDetailView
           request={request}
           canApprove={canApprove}
@@ -204,17 +255,19 @@ export default function ServiceRequestDetailPage({
           isProcessing={processApproval.isPending}
         />
 
-        {/* Comment Box */}
+        {/* ── Add Comment ──────────────────────────── */}
         <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Add Comment</CardTitle>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+              Add Comment
+            </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
             <Textarea
-              placeholder="Write a comment..."
+              placeholder="Write a comment…"
               value={commentText}
               onChange={(e) => setCommentText(e.target.value)}
-              className="min-h-[80px]"
+              className="min-h-[80px] resize-none"
             />
             <div className="flex justify-end">
               <Button
@@ -222,7 +275,7 @@ export default function ServiceRequestDetailPage({
                 disabled={!commentText.trim() || addComment.isPending}
                 size="sm"
               >
-                {addComment.isPending ? 'Posting...' : 'Post Comment'}
+                {addComment.isPending ? 'Posting…' : 'Post Comment'}
               </Button>
             </div>
           </CardContent>

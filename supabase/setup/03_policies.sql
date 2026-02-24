@@ -2249,9 +2249,14 @@ CREATE POLICY "Users can create service requests"
     ON service_requests FOR INSERT
     WITH CHECK (requester_id = auth.uid());
 
-CREATE POLICY "Users can update own draft or returned requests"
+-- Updated: 2026-02-24 - Added WITH CHECK so status transitions (draft/returned → submitted/cancelled)
+-- are permitted. Without an explicit WITH CHECK, Postgres reuses the USING expression on the
+-- *new* row, which blocks submit (status becomes 'submitted') and cancel (status becomes 'cancelled').
+-- USING checks the existing row; WITH CHECK checks the row *after* the update.
+CREATE POLICY "Users can update own service requests"
     ON service_requests FOR UPDATE
-    USING (requester_id = auth.uid() AND status IN ('draft', 'returned'));
+    USING (requester_id = auth.uid() AND status IN ('draft', 'returned', 'submitted'))
+    WITH CHECK (requester_id = auth.uid() AND status IN ('draft', 'returned', 'submitted', 'cancelled'));
 
 CREATE POLICY "Approvers can update request status"
     ON service_requests FOR UPDATE

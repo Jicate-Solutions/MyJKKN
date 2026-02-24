@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -123,9 +123,18 @@ export function DynamicRequestForm({
 
   const allValues = watch();
 
+  // Track whether the component has finished its initial mount so the cascade
+  // reset effect does NOT fire on first render (which would clear pre-populated
+  // defaultValues for cascading child fields in the edit flow).
+  const hasMounted = useRef(false);
+
   // When a parent field changes, reset any cascading child fields that
   // were filtering based on that parent's value.
   useEffect(() => {
+    if (!hasMounted.current) {
+      hasMounted.current = true;
+      return;
+    }
     sortedFields.forEach((field) => {
       if (field.field_options?.some((o) => o.value.includes('||'))) {
         setValue(field.field_key, '');
