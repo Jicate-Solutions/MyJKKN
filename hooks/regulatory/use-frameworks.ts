@@ -134,6 +134,7 @@ export function useFrameworkTree(id: string): UseQueryResult<any, Error> {
 /**
  * useRegulatoryFrameworks — alias expected by the dashboard page.
  * Accepts an object { institution_id? } and returns just the data array.
+ * Enriches each framework with computed fields: metric_count, criteria_count, score, cycle.
  */
 export function useRegulatoryFrameworks(
   opts: { institution_id?: string } = {}
@@ -150,7 +151,60 @@ export function useRegulatoryFrameworks(
         const result = await RegulatoryFrameworkService.getFrameworks({
           institution_id: institutionId
         })
-        return result?.data || []
+        const frameworks = result?.data || []
+        if (frameworks.length === 0) return []
+
+        const supabase = (await import('@/lib/supabase/client')).createClientSupabaseClient()
+        const frameworkIds = frameworks.map((fw: any) => fw.id)
+
+        // Fetch metric counts, criteria counts, and latest submission scores in parallel
+        const [metricsRes, criteriaRes, submissionsRes] = await Promise.all([
+          (supabase as any)
+            .from('regulatory_metrics')
+            .select('framework_id')
+            .in('framework_id', frameworkIds),
+          (supabase as any)
+            .from('regulatory_criteria')
+            .select('framework_id')
+            .in('framework_id', frameworkIds),
+          (supabase as any)
+            .from('regulatory_submissions')
+            .select('framework_id, overall_score, academic_year')
+            .in('framework_id', frameworkIds)
+            .order('created_at', { ascending: false }),
+        ])
+
+        // Build metric counts by framework_id
+        const metricCounts: Record<string, number> = {}
+        ;(metricsRes.data || []).forEach((m: any) => {
+          metricCounts[m.framework_id] = (metricCounts[m.framework_id] || 0) + 1
+        })
+
+        // Build criteria counts by framework_id
+        const criteriaCounts: Record<string, number> = {}
+        ;(criteriaRes.data || []).forEach((c: any) => {
+          criteriaCounts[c.framework_id] = (criteriaCounts[c.framework_id] || 0) + 1
+        })
+
+        // Build latest submission score + cycle per framework (first match = most recent)
+        const latestSubmission: Record<string, { score: number | null; cycle: string | null }> = {}
+        ;(submissionsRes.data || []).forEach((s: any) => {
+          if (!latestSubmission[s.framework_id]) {
+            latestSubmission[s.framework_id] = {
+              score: s.overall_score ?? null,
+              cycle: s.academic_year ?? null,
+            }
+          }
+        })
+
+        // Enrich each framework with computed fields
+        return frameworks.map((fw: any) => ({
+          ...fw,
+          metric_count: metricCounts[fw.id] || 0,
+          criteria_count: criteriaCounts[fw.id] || 0,
+          score: latestSubmission[fw.id]?.score ?? null,
+          cycle: latestSubmission[fw.id]?.cycle ?? fw.year_type ?? null,
+        }))
       } catch (error) {
         console.error('[useRegulatoryFrameworks] Fetch Error:', error)
         throw new Error('Failed to fetch regulatory frameworks')
