@@ -731,7 +731,7 @@ Add rate limiting to `withAuth`:
 
 | Phase | New Route Files | Endpoints |
 |-------|----------------:|----------:|
-| Phase 0 | 3 (withAuth, response, upload fix) | — |
+| Phase 0 | 4 (withAuth, impersonate, response, upload fix) | — |
 | Phase 1 | 9 | ~20 |
 | Phase 2 | 25 | ~52 |
 | Phase 3 | 23 | ~40 |
