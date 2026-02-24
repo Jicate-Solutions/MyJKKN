@@ -1,8 +1,6 @@
 'use client';
 
-import { usePipelineAnalytics, useProspectStats } from '@/hooks/solutions';
-import { useQuery } from '@tanstack/react-query';
-import { createClientSupabaseClient as createClient } from '@/lib/supabase/client';
+import { usePipelineAnalytics, useProspectStats, useSourceConversionAnalytics } from '@/hooks/solutions';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { SourceSuccessChart } from '@/components/solutions/pipeline/source-success-chart';
