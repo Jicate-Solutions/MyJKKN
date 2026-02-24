@@ -4,6 +4,7 @@
 // ============================================================================
 
 import { createClientSupabaseClient } from '@/lib/supabase/client'
+import { isValidUUID, validateId, sanitizeSearch, formatError } from './utils'
 
 export interface RegulatoryFrameworkFilters {
   institution_id?: string
