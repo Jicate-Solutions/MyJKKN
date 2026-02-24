@@ -169,7 +169,35 @@ export function withApiKeyAuth(
       };
 
       return await handler(request, auth, context);
-    } catch (error) {
+    } catch (error: any) {
+      // Classify errors: client mistakes get 4xx, server failures get 500.
+      // SECURITY: never expose raw Postgres messages (may contain schema details).
+
+      // JSON parse failure (bad request body)
+      if (error instanceof SyntaxError) {
+        return NextResponse.json(
+          { error: 'Invalid JSON in request body' },
+          { status: 400, headers: corsHeaders }
+        );
+      }
+
+      // Postgres constraint violations (client sent invalid data)
+      const pgCode = typeof error?.code === 'string' ? error.code : '';
+      if (/^23\d{3}$/.test(pgCode)) {
+        const mapping: Record<string, { status: number; message: string }> = {
+          '23505': { status: 409, message: 'A record with this identifier already exists' },
+          '23502': { status: 400, message: 'A required field is missing or null' },
+          '23503': { status: 422, message: 'A referenced resource does not exist' },
+          '23514': { status: 422, message: 'Value violates a check constraint' },
+        };
+        const mapped = mapping[pgCode] ?? { status: 422, message: 'Data validation failed' };
+        return NextResponse.json(
+          { error: mapped.message },
+          { status: mapped.status, headers: corsHeaders }
+        );
+      }
+
+      // Everything else is a genuine server error
       console.error('[withApiKeyAuth] Error:', error);
       return NextResponse.json(
         { error: 'Internal server error' },
