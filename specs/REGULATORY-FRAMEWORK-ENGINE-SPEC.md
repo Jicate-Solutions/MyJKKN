@@ -1483,6 +1483,10 @@ CREATE POLICY "peer_visits_update" ON regulatory_peer_visits FOR UPDATE
       OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'))
     AND EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN
       ('super_admin','institution_admin','iqac_coordinator'))
+  )
+  WITH CHECK (
+    (institution_id = auth_institution_id()
+      OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'))
   );
 -- No DELETE on peer visits — permanent record of accreditation visits
 
