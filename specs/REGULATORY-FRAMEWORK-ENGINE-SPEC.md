@@ -931,6 +931,9 @@ CREATE TABLE regulatory_frameworks (
   submission_portal_url text,                        -- e.g., https://nirfrankings.in
   submission_deadline date,
   code text NOT NULL,                                    -- short code: 'NIRF_2025_OVERALL', 'NAAC_BINARY_2024', 'NBA_SAR_ENGINEERING'
+  pass_threshold numeric,                             -- NAAC Binary: 540 (Uni), 450 (Auto), 360 (Affil); NBA: 60%; NULL for ranking/reporting
+  assessment_phase text DEFAULT 'primary' CHECK (assessment_phase IN ('primary','mbgl')), -- NAAC: 'primary' for Binary, 'mbgl' for Maturity-Based Grading
+  validity_period_years integer,                      -- accreditation validity: NAAC=3, NBA=3 or 6; NULL for NIRF/AICTE
   metadata jsonb DEFAULT '{}',                       -- body-specific config (includes program_type for NBA: {"program_type":"B.Tech"})
   created_by uuid REFERENCES profiles(id),
   created_at timestamptz DEFAULT now(),
