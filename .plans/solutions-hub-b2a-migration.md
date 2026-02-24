@@ -176,34 +176,67 @@ function withAuth(handler: AuthenticatedHandler, options?: AuthOptions)
 
 **Key principle:** The handler never knows or cares which auth method was used. It gets `auth.user` and `auth.supabase` and works identically.
 
-#### 0.3 Create RLS Impersonation Helper Function (DB)
+#### 0.3 Create JWT Impersonation Helper (Application Code)
 
-**Migration:** `supabase/migrations/XXXXXX_auth_impersonation.sql`
+**File:** `lib/auth/impersonate.ts` (new)
 
-```sql
--- Function to set auth context for API key impersonation
--- Called by withAuth middleware when API key auth is detected
-CREATE OR REPLACE FUNCTION set_auth_context(user_id uuid)
-RETURNS void
-LANGUAGE plpgsql
-SECURITY DEFINER
-AS $$
-BEGIN
-  PERFORM set_config('request.jwt.claims', json_build_object(
-    'sub', user_id::text,
-    'role', 'authenticated'
-  )::text, true);
-  PERFORM set_config('request.jwt.claim_sub', user_id::text, true);
-  PERFORM set_config('role', 'authenticated', true);
-END;
-$$;
+**Why not `set_auth_context()` SQL function?**
+> Supabase uses PostgREST as its API layer. Each `.from().select()` or `.rpc()` call is a separate HTTP request to PostgREST, which gets its own database connection from the pool. `set_config('request.jwt.claims', ..., true)` is transaction-local — it sets the config for the current transaction only. The next PostgREST request gets a different connection where those configs don't exist. This means calling `supabase.rpc('set_auth_context')` followed by `supabase.from('sh_solutions').select()` would NOT work — the second call wouldn't see the auth context.
 
--- Only callable by service role
-REVOKE ALL ON FUNCTION set_auth_context(uuid) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION set_auth_context(uuid) TO service_role;
+**Correct approach: JWT impersonation**
+
+```typescript
+// lib/auth/impersonate.ts
+import { createClient } from '@supabase/supabase-js';
+import jwt from 'jsonwebtoken';
+
+/**
+ * Create a Supabase client that impersonates a specific user.
+ * Used by withAuth when API key auth is detected — the client
+ * carries a JWT for the key owner, so PostgREST sets
+ * request.jwt.claims automatically on every request.
+ *
+ * All RLS policies (auth.uid(), sh_is_admin(), auth_institution_id())
+ * evaluate correctly as the impersonated user.
+ */
+export function createImpersonatedClient(userId: string) {
+  const jwtSecret = process.env.SUPABASE_JWT_SECRET;
+  if (!jwtSecret) {
+    throw new Error('SUPABASE_JWT_SECRET is required for API key impersonation');
+  }
+
+  const token = jwt.sign(
+    {
+      sub: userId,
+      role: 'authenticated',
+      iss: 'supabase',
+      iat: Math.floor(Date.now() / 1000),
+      exp: Math.floor(Date.now() / 1000) + 3600, // 1 hour
+    },
+    jwtSecret
+  );
+
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      global: {
+        headers: { Authorization: `Bearer ${token}` },
+      },
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false,
+      },
+    }
+  );
+}
 ```
 
-This lets API key auth set the RLS context so all existing policies (`auth.uid()`, `auth_institution_id()`, `sh_is_admin()`, etc.) evaluate correctly as the key owner.
+**Dependency:** `bun add jsonwebtoken && bun add -d @types/jsonwebtoken`
+
+**Environment variable:** `SUPABASE_JWT_SECRET` — already available in Supabase project settings (Settings → API → JWT Secret). Must be added to `.env.local` if not present.
+
+This approach is reliable because PostgREST reads the JWT from the `Authorization` header on EVERY request, so `auth.uid()` and all derived RLS functions work correctly across all queries made by the impersonated client.
 
 #### 0.4 BaseService Client Injection
 
