@@ -2977,7 +2977,7 @@ Invalid transitions return `409 Conflict`.
 > - `POST /metric-values/refresh` — max 1 concurrent per institution (queued, not rejected)
 > - `POST /submissions/[id]/calculate-score` — max 1 concurrent per submission
 > - `POST /submissions/[id]/report` — max 1 concurrent per submission (report generation can take 10-30s)
-> Implementation: Use a simple in-memory lock keyed on `institutionId:endpoint` or `submissionId:endpoint`. If already in progress, return `{ success: false, error: 'RATE_LIMITED', message: 'Operation already in progress' }` with HTTP 429.
+> Implementation: **Do NOT use in-memory locks** — Vercel serverless functions run in isolated instances with no shared memory, so in-memory Maps/Sets are useless for rate limiting. Instead, use **database advisory locks** (`SELECT pg_try_advisory_xact_lock(hashtext('metric-refresh:' || $1))`) keyed on `institutionId:endpoint` or `submissionId:endpoint`. If the lock is already held, return `{ success: false, error: 'RATE_LIMITED', message: 'Operation already in progress' }` with HTTP 429. Alternative: use Vercel KV (Redis) or Upstash for distributed rate limiting with TTL-based keys.
 >
 > **Additional rate limits for abuse prevention:**
 > - `POST /evidence` (file upload) — max 10 uploads per minute per user (prevents storage abuse)
