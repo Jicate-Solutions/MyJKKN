@@ -3,19 +3,19 @@
 /**
  * Solutions Hub - Unified Earnings Hooks
  * Purpose: React Query hooks for unified earnings view across all talent types
- * Connected to: unified-earnings-service.ts
+ * Connected to: /api/solutions/unified-earnings routes
  */
 
 import { useQuery } from '@tanstack/react-query';
 import { solutionsHubKeys } from '@/lib/query-keys';
 import { QUERY_CONFIG } from '@/lib/config/query-config';
-import {
-  unifiedEarningsService,
-  type UnifiedEarningsFilters,
-  type TalentType,
-  type UnifiedEarningsEntry,
-  type EarningsSummary,
-  type PayoutHistoryEntry,
+import { apiClient } from '@/lib/api/client';
+import type {
+  UnifiedEarningsFilters,
+  TalentType,
+  UnifiedEarningsEntry,
+  EarningsSummary,
+  PayoutHistoryEntry,
 } from '@/lib/services/solutions/unified-earnings-service';
 import type { BaseListResponse } from '@/lib/services/base-service';
 
@@ -57,7 +57,7 @@ export function useUnifiedEarnings(
 ) {
   return useQuery<BaseListResponse<UnifiedEarningsEntry>>({
     queryKey: unifiedEarningsKeys.list(userId || '', filters),
-    queryFn: () => unifiedEarningsService.getUnifiedEarnings(userId!, filters),
+    queryFn: () => apiClient.get('/api/solutions/unified-earnings', { params: { userId: userId!, ...filters } as Record<string, any> }),
     enabled: !!userId,
     ...QUERY_CONFIG.SEMI_STABLE_DATA,
   });
@@ -70,7 +70,7 @@ export function useUnifiedEarnings(
 export function useEarningsSummary(userId: string | undefined) {
   return useQuery<EarningsSummary>({
     queryKey: unifiedEarningsKeys.summary(userId || ''),
-    queryFn: () => unifiedEarningsService.getEarningsSummary(userId!),
+    queryFn: () => apiClient.get('/api/solutions/unified-earnings/summary', { params: { userId: userId! } }),
     enabled: !!userId,
     ...QUERY_CONFIG.DASHBOARD_DATA,
   });
@@ -85,7 +85,7 @@ export function usePayoutHistory(
 ) {
   return useQuery<BaseListResponse<PayoutHistoryEntry>>({
     queryKey: unifiedEarningsKeys.payouts(userId || '', filters),
-    queryFn: () => unifiedEarningsService.getPayoutHistory(userId!, filters),
+    queryFn: () => apiClient.get('/api/solutions/unified-earnings/payouts', { params: { userId: userId!, ...filters } as Record<string, any> }),
     enabled: !!userId,
     ...QUERY_CONFIG.SEMI_STABLE_DATA,
   });
