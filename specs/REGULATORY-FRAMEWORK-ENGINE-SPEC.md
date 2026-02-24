@@ -3359,7 +3359,7 @@ If count > 0, return 409 Conflict: "Cannot modify framework structure while acti
 
 | Method | Endpoint | Service Method | Roles (T8) | Description |
 |--------|----------|---------------|------------|-------------|
-| GET | `/api/regulatory/evidence` | `getEvidence(filters)` | all with institution access | List evidence. **Query params:** `academic_year` (text), `metric_id` (uuid), `criteria_id` (uuid), `submission_id` (uuid), `evidence_type` (text: supporting\|primary\|certificate\|screenshot), `uploaded_by` (uuid). At least one filter besides pagination is required. |
+| GET | `/api/regulatory/evidence` | `getEvidence(filters)` | all with institution access | List evidence. **Query params:** `academic_year` (text), `metric_id` (uuid), `criteria_id` (uuid), `submission_id` (uuid), `evidence_type` (text: supporting\|primary\|certificate\|screenshot\|geo_tagged_photo), `uploaded_by` (uuid). At least one filter besides pagination is required. |
 | GET | `/api/regulatory/evidence/search` | `searchEvidence(query, filters)` | all with institution access | Full-text search across evidence documents |
 | POST | `/api/regulatory/evidence` | `uploadEvidence(data)` | super_admin, institution_admin, iqac_coordinator, hod, staff | Upload evidence document |
 | PUT | `/api/regulatory/evidence/[id]` | `updateEvidence(id, data)` | super_admin, institution_admin, iqac_coordinator | Update evidence metadata |
