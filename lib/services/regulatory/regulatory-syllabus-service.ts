@@ -91,7 +91,7 @@ export class RegulatorySyllabusService {
   static async getSyllabi(filters: SyllabusFilters = {}) {
     try {
       if (filters.institution_id !== undefined) {
-        this.validateId(filters.institution_id, 'institution_id filter')
+        validateId(filters.institution_id, 'institution_id filter')
       }
 
       let query = (this.getSupabase() as any)
@@ -167,7 +167,7 @@ export class RegulatorySyllabusService {
    */
   static async getSyllabusById(id: string) {
     try {
-      this.validateId(id, 'syllabus ID')
+      validateId(id, 'syllabus ID')
 
       const { data, error } = await (this.getSupabase() as any)
         .from('regulatory_course_syllabi')
@@ -200,12 +200,12 @@ export class RegulatorySyllabusService {
    */
   static async upsertSyllabus(data: UpsertSyllabusData) {
     try {
-      this.validateId(data.institution_id, 'institution ID')
+      validateId(data.institution_id, 'institution ID')
       if (data.program_id) {
-        this.validateId(data.program_id, 'program ID')
+        validateId(data.program_id, 'program ID')
       }
       if (data.bos_meeting_id) {
-        this.validateId(data.bos_meeting_id, 'BOS meeting ID')
+        validateId(data.bos_meeting_id, 'BOS meeting ID')
       }
 
       // Verify user is authenticated
@@ -267,7 +267,7 @@ export class RegulatorySyllabusService {
    */
   static async updateCompletionHours(id: string, completedHours: number) {
     try {
-      this.validateId(id, 'syllabus ID')
+      validateId(id, 'syllabus ID')
 
       // Verify user is authenticated
       const { data: { user } } = await this.getSupabase().auth.getUser()
