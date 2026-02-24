@@ -1252,9 +1252,10 @@ CREATE TABLE regulatory_metric_assignments (
 ALTER TABLE regulatory_metric_assignments ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "metric_assignments_read" ON regulatory_metric_assignments FOR SELECT USING (
-  assigned_to = auth.uid()
-  OR institution_id = auth_institution_id()
-     AND EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN ('super_admin','iqac_coordinator','institution_admin'))
+  (assigned_to = auth.uid()
+    AND EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN ('super_admin','iqac_coordinator','institution_admin','hod')))
+  OR (institution_id = auth_institution_id()
+    AND EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN ('super_admin','iqac_coordinator','institution_admin')))
 );
 
 CREATE POLICY "metric_assignments_insert" ON regulatory_metric_assignments FOR INSERT WITH CHECK (
