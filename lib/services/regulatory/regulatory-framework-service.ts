@@ -24,56 +24,6 @@ export class RegulatoryFrameworkService {
   }
 
   /**
-   * Validate UUID format to prevent "invalid input syntax for type uuid" errors
-   */
-  private static isValidUUID(id: string | undefined | null): boolean {
-    if (!id || typeof id !== 'string' || id === 'undefined' || id === 'null' || id.trim() === '') {
-      return false
-    }
-    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-    return uuidRegex.test(id)
-  }
-
-  /**
-   * Validate ID and throw descriptive error if invalid
-   */
-  private static validateId(id: string | undefined | null, fieldName: string = 'ID'): void {
-    if (!this.isValidUUID(id)) {
-      const actualValue = id === undefined ? 'undefined' : id === null ? 'null' : `"${id}"`
-      console.error(`[RegulatoryFrameworkService] Invalid ${fieldName}: ${actualValue}`)
-      throw new Error(`Invalid ${fieldName}: ${actualValue}. Expected a valid UUID.`)
-    }
-  }
-
-  /**
-   * Sanitize a search term for safe use in PostgREST .or() filter strings.
-   * Escapes commas and parentheses that could break the filter syntax.
-   */
-  private static sanitizeSearch(term: string): string {
-    // Remove characters that could break PostgREST .or() filter parsing
-    // Strips: commas, parentheses, periods (PostgREST field separators),
-    // backslashes, and percent signs (ilike wildcards from user input)
-    return term.replace(/[,().\\%]/g, ' ').trim()
-  }
-
-  /**
-   * Format error for logging (handles Supabase PostgrestError which doesn't serialize properly)
-   */
-  private static formatError(error: unknown): string {
-    if (error instanceof Error) {
-      return error.message
-    }
-    if (typeof error === 'object' && error !== null) {
-      const e = error as Record<string, unknown>
-      if (e.message) return String(e.message)
-      if (e.details) return String(e.details)
-      if (e.hint) return String(e.hint)
-      return JSON.stringify(error)
-    }
-    return String(error)
-  }
-
-  /**
    * Get all frameworks with filters and pagination
    *
    * DDL columns: id, institution_id, name, body, framework_type, institution_type,
