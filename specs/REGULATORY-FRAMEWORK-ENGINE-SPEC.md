@@ -2967,6 +2967,12 @@ Invalid transitions return `409 Conflict`.
 > - `POST /submissions/[id]/calculate-score` — max 1 concurrent per submission
 > - `POST /submissions/[id]/report` — max 1 concurrent per submission (report generation can take 10-30s)
 > Implementation: Use a simple in-memory lock keyed on `institutionId:endpoint` or `submissionId:endpoint`. If already in progress, return `{ success: false, error: 'RATE_LIMITED', message: 'Operation already in progress' }` with HTTP 429.
+>
+> **Additional rate limits for abuse prevention:**
+> - `POST /evidence` (file upload) — max 10 uploads per minute per user (prevents storage abuse)
+> - `POST /data-connectors/[id]/test` — max 5 tests per minute per user (each executes SQL against the database)
+> - `POST /simulations` — max 5 per minute per user (involves server-side score computation)
+> - All other mutation endpoints — standard 60 requests/minute per user (configurable)
 
 ### Simulations API
 
