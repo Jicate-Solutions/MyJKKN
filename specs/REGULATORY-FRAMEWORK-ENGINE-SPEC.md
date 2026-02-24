@@ -2873,7 +2873,7 @@ Add to `sidebarMenuLink.ts` (or equivalent navigation config):
     { title: 'Governance', path: '/regulatory/governance' },
     { title: 'Benchmarks', path: '/regulatory/benchmarks' },
     { title: 'Evidence Repository', path: '/regulatory/evidence' },
-    { title: 'Data Sources', path: '/regulatory/data-sources' },
+    { title: 'Data Sources', path: '/regulatory/data-connectors' },
   ]
 }
 ```
