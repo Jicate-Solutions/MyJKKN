@@ -371,20 +371,25 @@ app/api/solutions/[resource]/stats/route.ts     → Aggregated stats
 Every route follows this template:
 ```typescript
 import { withAuth } from '@/lib/auth/with-auth';
-import { SomeService } from '@/lib/services/solutions';
-import { listResponse, itemResponse, errorResponse } from '@/lib/api/response';
+import { SolutionsService } from '@/lib/services/solutions/solutions-service';
+import { paginatedResponse, errorResponse } from '@/lib/api/response';
+import { getPaginationParams, getSortParams, getStringParam } from '@/lib/api-keys/query-helpers';
 
 export const GET = withAuth(async (request, auth) => {
   const url = new URL(request.url);
-  const filters = extractFilters(url); // pagination, search, sort
+  const { page, limit } = getPaginationParams(url);
+  const search = getStringParam(url, 'search');
+  const status = getStringParam(url, 'status');
 
   // auth.supabase is already injected via BaseService.runWithClient() inside withAuth
   // All service calls automatically use the correct client (session or impersonated)
-  const result = await SomeService.list(filters);
+  const result = await SolutionsService.getSolutions({ page, limit, search, status });
 
-  return listResponse(result.data, result.metadata);
+  return paginatedResponse(result.data, result.metadata.total, page, limit);
 }, { requiredPermission: 'read' });
 ```
+
+**NOTE:** Use the query helpers from `lib/api-keys/query-helpers.ts` (already exist) to extract pagination, date ranges, sort, and string/UUID params. Do NOT create a new `extractFilters()` function — the existing helpers are well-tested and cover all cases.
 
 **NOTE:** The handler does NOT need to call `BaseService.runWithClient()` — `withAuth` already wraps the entire handler execution in `runWithClient`. Service calls inside the handler transparently use the correct auth-context client.
 
