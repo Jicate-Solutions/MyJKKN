@@ -389,6 +389,11 @@ export {
   useUpdatePipelineStage,
   useDeleteProspect,
   useLogProspectActivity,
+  useProspectByClientId,
+  useProspectsByClientId,
+  useReadyToReengage,
+  useReactivateProspect,
+  useSourceConversionAnalytics,
   type ProspectFilters,
   type UpdateProspectInput,
 } from './use-prospects';
