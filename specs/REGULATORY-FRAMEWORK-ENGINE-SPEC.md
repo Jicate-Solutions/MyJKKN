@@ -2869,6 +2869,13 @@ lib/utils/
 **Terminal state:** `accepted` — no outgoing transitions.
 Invalid transitions return `409 Conflict`.
 
+**Rate limiting for expensive endpoints:**
+> The following endpoints are computationally expensive and MUST be rate-limited at the API route level:
+> - `POST /metric-values/refresh` — max 1 concurrent per institution (queued, not rejected)
+> - `POST /submissions/[id]/calculate-score` — max 1 concurrent per submission
+> - `POST /submissions/[id]/report` — max 1 concurrent per submission (report generation can take 10-30s)
+> Implementation: Use a simple in-memory lock keyed on `institutionId:endpoint` or `submissionId:endpoint`. If already in progress, return `{ success: false, error: 'RATE_LIMITED', message: 'Operation already in progress' }` with HTTP 429.
+
 ### Simulations API
 
 | Method | Endpoint | Service Method | Roles (T8) | Description |
