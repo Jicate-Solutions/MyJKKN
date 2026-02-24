@@ -176,18 +176,6 @@ export default function MetricEntryPage() {
     }
   }
 
-  const handleBulkRefresh = async () => {
-    try {
-      await bulkRefreshMutation.mutateAsync({
-        framework_id: frameworkId,
-        institution_id: institutionId,
-      })
-      toast.success('All auto metrics refreshed')
-    } catch {
-      toast.error('Failed to refresh auto metrics. Please try again.')
-    }
-  }
-
   const formatValue = (value: any, dataType: string, unit?: string) => {
     if (value == null || value === '') return '--'
     if (dataType === 'percentage') return `${value}%`
