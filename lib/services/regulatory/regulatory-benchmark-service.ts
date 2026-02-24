@@ -4,7 +4,7 @@
 // ============================================================================
 
 import { createClientSupabaseClient } from '@/lib/supabase/client'
-import { isValidUUID, validateId, sanitizeSearch, formatError } from './utils'
+import { validateId, sanitizeSearch, formatError } from './utils'
 
 /**
  * DDL: regulatory_peer_benchmarks columns:
