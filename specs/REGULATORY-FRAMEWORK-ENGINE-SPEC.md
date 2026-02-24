@@ -2877,7 +2877,7 @@ Additional entity-specific filters are documented per endpoint where applicable.
 
 | Method | Endpoint | Service Method | Roles (T8) | Description |
 |--------|----------|---------------|------------|-------------|
-| GET | `/api/regulatory/submissions` | `getSubmissions(filters)` | super_admin, institution_admin, iqac_coordinator, principal | List submissions |
+| GET | `/api/regulatory/submissions` | `getSubmissions(filters)` | super_admin, institution_admin, iqac_coordinator, principal, hod | List submissions. **Query params:** `framework_id` (uuid), `academic_year` (text), `status` (text: draft\|data_collection\|in_review\|approved\|submitted\|accepted\|returned). hod has read-only access per R4-Fix 5. |
 | GET | `/api/regulatory/submissions/[id]` | `getSubmissionById(id)` | super_admin, institution_admin, iqac_coordinator, principal | Submission detail with scores |
 | POST | `/api/regulatory/submissions` | `createSubmission(data)` | super_admin, institution_admin, iqac_coordinator | Create new submission (status=draft) |
 | PUT | `/api/regulatory/submissions/[id]/status` | `updateSubmissionStatus(id, newStatus)` | super_admin, institution_admin, iqac_coordinator, principal | Transition status. **Per-transition role enforcement (app-layer):** The role check is NOT a flat list — each transition has its own allowed roles as documented in the State Machine table below. The API route must: (1) load current status, (2) validate the transition is valid, (3) check the caller's role against the specific transition's allowed roles, (4) reject with 403 if the role is insufficient for that specific transition (e.g., iqac_coordinator cannot trigger `in_review → approved`). |
