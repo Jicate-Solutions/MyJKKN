@@ -2020,17 +2020,20 @@ CREATE TRIGGER trg_history_immutable
 -- Only the soft-delete endpoint (DELETE /evidence/[id]) and restore endpoint
 -- (PUT /evidence/[id]/restore) — both using service-role client — should toggle these fields.
 CREATE OR REPLACE FUNCTION protect_evidence_soft_delete()
-RETURNS trigger AS $$
+RETURNS trigger
+LANGUAGE plpgsql SET search_path = public, pg_temp AS $$
 BEGIN
   IF (OLD.is_deleted IS DISTINCT FROM NEW.is_deleted
       OR OLD.deleted_at IS DISTINCT FROM NEW.deleted_at) THEN
-    IF current_setting('request.jwt.claim.role', true) IS DISTINCT FROM 'service_role' THEN
+    -- Allow service_role (PostgREST proxy) and supabase_admin (direct DB access / migrations)
+    IF current_setting('request.jwt.claim.role', true) IS DISTINCT FROM 'service_role'
+       AND current_user != 'supabase_admin' THEN
       RAISE EXCEPTION 'Direct modification of is_deleted/deleted_at is prohibited. Use the soft-delete or restore API endpoint.';
     END IF;
   END IF;
   RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$;
 
 -- Note: The WHEN clause optimizes performance — trigger function only fires when
 -- soft-delete columns actually change, skipping the function call for all other UPDATEs.
