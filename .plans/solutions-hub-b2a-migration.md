@@ -329,8 +329,8 @@ All 24 SH services use static methods that access `this.supabase` via the getter
 
 **Flow for session auth (API route):**
 ```
-withAuth → createServerClient(cookies) → BaseService.runWithClient(serverClient, () => {
-  handler calls SomeService.list() → this.supabase → clientOverride.getStore() → serverClient
+withAuth → await createServerSupabaseClient() → BaseService.runWithClient(serverClient, () => {
+  handler calls SolutionsService.getSolutions() → this.supabase → clientOverride?.getStore() → serverClient
   // RLS enforced via user's JWT from cookies ✓
 })
 ```
@@ -338,14 +338,14 @@ withAuth → createServerClient(cookies) → BaseService.runWithClient(serverCli
 **Flow for API key auth (API route):**
 ```
 withAuth → createImpersonatedClient(keyOwnerId) → BaseService.runWithClient(impersonatedClient, () => {
-  handler calls SomeService.list() → this.supabase → clientOverride.getStore() → impersonatedClient
+  handler calls SolutionsService.getSolutions() → this.supabase → clientOverride?.getStore() → impersonatedClient
   // RLS enforced via key owner's JWT ✓
 })
 ```
 
 **Flow for browser hooks (no API route):**
 ```
-Hook calls solutionsService.list() → this.supabase → clientOverride.getStore() → null → fallback to browser singleton
+Hook calls solutionsService.getSolutions() → this.supabase → clientOverride?.getStore() → null → fallback to browser singleton
 // RLS enforced via browser cookies ✓
 ```
 
