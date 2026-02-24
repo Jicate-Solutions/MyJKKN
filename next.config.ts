@@ -4,18 +4,23 @@ const nextConfig: NextConfig = {
   // Enable Cache Components for server-side caching (Next.js 16.1.1)
   cacheComponents: true,
 
+  // Force SWC to re-compile Supabase packages as local source instead of
+  // treating them as native ESM externals. This prevents the Turbopack
+  // "module factory not available / deleted in HMR update" error on first
+  // cold load in development (the symptom: works on refresh but fails first time).
+  transpilePackages: ['@supabase/ssr', '@supabase/supabase-js'],
+
   experimental: {
-    // Optimize large package imports — tree-shake unused exports
-    // @supabase entries fix the Turbopack HMR race condition on first cold load
-    // (wrapper.mjs factory deletion bug: works on refresh but fails first time)
+    // Optimize large barrel-file packages — tree-shake unused exports.
+    // NOTE: Only list barrel-file packages here (ones with a large index.js
+    // re-exporting many things). Native ESM packages like @supabase/* belong
+    // in transpilePackages above, not here.
     optimizePackageImports: [
       'lucide-react',
       'react-icons',
       '@radix-ui/react-icons',
       'date-fns',
-      'react-hot-toast',
-      '@supabase/supabase-js',
-      '@supabase/ssr'
+      'react-hot-toast'
     ]
   },
 
