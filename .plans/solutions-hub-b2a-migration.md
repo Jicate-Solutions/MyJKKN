@@ -1,0 +1,743 @@
+# Solutions Hub — B2A Migration Specification
+
+**Date:** 2026-02-24
+**Module:** Solutions Hub (`app/(routes)/solutions/`)
+**Goal:** 100% Pattern A compliance with unified auth
+**Current State:** Pattern B (96%) + 4 bypasses + 1 critical security hole
+**Target State:** Pattern A — Hook → API Route → withAuth → Service → DB
+
+---
+
+## FST Analysis: Why B2A?
+
+### 1. Fundamentals (First Principles)
+
+**What do we KNOW to be true?**
+- [x] 24/25 hooks correctly call services. The service layer is mature (24 classes, 15K lines)
+- [x] All 42 `sh_*` tables have RLS enabled with custom helper functions
+- [x] `withApiKeyAuth` exists but uses SERVICE_ROLE_KEY → bypasses ALL RLS
+- [x] Zero external API routes for core CRUD (only dept tracker has 7 routes)
+- [x] Upload route has NO auth — anyone can upload files
+- [x] BaseService uses `createClientSupabaseClient()` (browser cookies) — works in both client and API route contexts because `@supabase/ssr` reads cookies server-side too
+
+**What are we ASSUMING (unverified)?**
+- ⚠️ Every service method needs an API route — Confidence: Low
+  → REFRAMED: Only externally-useful operations need routes. Portal and admin operations can be session-only initially.
+- ⚠️ Hooks must switch from service calls to fetch() — Confidence: Medium
+  → For true B2A, yes. But services already work server-side via cookie forwarding, so Pattern B isn't broken — it's just not externally accessible.
+- ⚠️ API key auth must preserve RLS — Confidence: High
+  → This is non-negotiable. SERVICE_ROLE_KEY bypass is a security anti-pattern.
+
+**Assumption most worth challenging:**
+> "We need to move ALL operations to Pattern A simultaneously."
+> Reality: The migration can be phased. Pattern B is functional and secure for browser sessions. The priority is: (1) fix security holes, (2) add the unified auth layer, (3) incrementally add routes for external consumers.
+
+### 2. System Map
+
+**Current data flow:**
+```
+Browser User → Page → Hook → Service.method() → createClientSupabaseClient() → Supabase
+                                                        ↑ (cookie-based, RLS enforced)
+                 ↘ BYPASS: 3 pages call Supabase directly (skip hook+service)
+                 ↘ BYPASS: use-client-portal calls Supabase directly (skip service)
+                 ↘ BYPASS: upload route uses SERVICE_ROLE_KEY (no auth, no RLS)
+```
+
+**Target data flow:**
+```
+Browser User → Page → Hook → fetch(/api/solutions/...) → withAuth(session) → Service → Supabase (RLS)
+API Key User → HTTP → /api/solutions/...                → withAuth(apiKey) → Service → Supabase (RLS)
+                                                                ↑
+                                                    Unified auth: detects method,
+                                                    creates appropriate client,
+                                                    RLS always enforced
+```
+
+**Key Components:**
+
+| Component | Role | Current | Target |
+|-----------|------|---------|--------|
+| `withAuth` | Unified auth middleware | Does not exist | Detect session vs API key, create right client |
+| `BaseService` | Supabase query layer | Module-level singleton client | Accept injected client for API key context |
+| API routes | HTTP endpoints | 8 (dept tracker only) | ~75 endpoints across ~45 route files |
+| Hooks | React Query wrappers | Call services directly | Call fetch() to API routes |
+| Response envelope | Standardized output | Inconsistent | Unified: `{ data, metadata?, error? }` |
+
+### 3. Feedback Loops
+
+**Reinforcing (bad):**
+🔄 R1: Bypass exists → New dev copies pattern → More bypasses → Harder to migrate
+🔄 R2: No API routes → No external consumers → No pressure to add routes → Routes never added
+
+**Balancing (good):**
+⚖️ B1: RLS policies → Even if bypasses exist, data access is still role-gated at DB level
+⚖️ B2: Service layer maturity → 24 well-tested services make API routes thin wrappers
+
+**Dominant loop right now:**
+> R1 — bypass propagation. Every new feature copies existing patterns. Without intervention, the bypass count will grow.
+
+### 4. Leverage Points
+
+**High Leverage:**
+1. 🎯 `withAuth` middleware (Rank 5 — Rules of the system) — One file enables the entire migration. Every API route wraps with `withAuth(handler)`. Auth logic written once, used everywhere.
+2. 🎯 BaseService client injection (Rank 10 — Structure of flows) — Adding `withClient(supabase)` to BaseService lets services work with any auth context without rewriting query logic.
+
+**Medium Leverage:**
+3. Response envelope standardization — Consistent `{ data, metadata }` shape across all routes
+4. Route file generation — Routes are thin wrappers; the real logic is in services
+
+**Low Leverage (avoid):**
+- ❌ Rewriting services — They work. Don't touch business logic.
+- ❌ Changing RLS model — Custom helper functions are correct for SH's cross-institution nature.
+- ❌ Creating separate api-management routes — Unified auth means ONE route tree, not two.
+
+### 5. Blind Spots
+
+- 👁️ BaseService module-level singleton: In API route context, does `createClientSupabaseClient()` correctly read cookies from the request? (Yes — `@supabase/ssr` handles this in Next.js middleware/routes)
+- 👁️ API key impersonation: To preserve RLS for API keys, we need `supabase.auth.admin.getUserById()` or equivalent — this requires SERVICE_ROLE_KEY for the admin call only, then switches to user context for actual queries
+- 👁️ File upload is a different beast — storage operations don't go through services, they need their own auth pattern
+
+**Strongest counterargument:**
+> "Pattern B already works. The services use RLS-enforced clients. Adding an API route layer just adds latency and complexity for browser users with zero functional benefit."
+
+**Rebuttal:** True for browser-only use. But (a) the upload route is a real security hole RIGHT NOW, (b) external API access is a stated goal for the platform, (c) bypasses will multiply without structural enforcement. The cost of migration is real but bounded; the cost of inaction compounds.
+
+---
+
+## Specification
+
+### Phase 0: Foundation (Critical Security + Infrastructure)
+
+#### 0.1 Fix Upload Route Security
+
+**File:** `app/api/upload/solutions-documents/route.ts`
+
+**Current:** No auth, uses SERVICE_ROLE_KEY directly
+**Fix:**
+```
+1. Add getAuthSession() check — reject 401 if no session
+2. Extract user ID from session for audit trail
+3. Keep SERVICE_ROLE_KEY for storage operations (required for upload)
+4. Add user.id to file path: `${folderName}/${entityId}/${user.id}/${fileName}`
+```
+
+#### 0.2 Create `withAuth` Unified Auth Middleware
+
+**File:** `lib/auth/with-auth.ts` (new)
+
+**Design:**
+```typescript
+interface AuthContext {
+  user: User;                    // Authenticated user (from session or key owner)
+  authMethod: 'session' | 'api_key';
+  supabase: SupabaseClient;     // Server-side client with user's RLS context
+  apiKeyData?: ApiKeyData;      // Present only for API key auth
+  institutionId?: string;       // From profile or API key org
+}
+
+type AuthenticatedHandler = (
+  request: NextRequest,
+  auth: AuthContext,
+  context?: { params?: Promise<Record<string, string>> }
+) => Promise<NextResponse>;
+
+interface AuthOptions {
+  requiredPermission?: 'read' | 'write';
+  allowApiKey?: boolean;   // default: true
+  requireRole?: string[];  // optional role check
+}
+
+function withAuth(handler: AuthenticatedHandler, options?: AuthOptions)
+```
+
+**Auth detection order:**
+1. Check `Authorization: Bearer <token>` header → API key flow
+2. Check cookies → Session flow
+3. Neither → 401
+
+**Session flow:**
+1. Call `getAuthSession()` (uses `supabase.auth.getUser()` under the hood)
+2. Create server supabase client with user's cookie context
+3. Pass to handler — RLS enforced via user's JWT
+
+**API key flow:**
+1. SHA256 hash the token, look up in `api_keys` table
+2. Verify: is_active, not expired, has required permission
+3. Get key owner's `created_by` user ID
+4. Create a server supabase client impersonating that user:
+   - Use `supabase.auth.admin.getUserById(created_by)` to verify user exists
+   - Set RLS context via PostgreSQL `set_config('request.jwt.claims', ...)`
+   - OR use `supabase.rpc('set_auth_context', { user_id })` custom function
+5. Update `last_used_at` (fire-and-forget)
+6. Pass to handler — RLS enforced as key owner
+
+**Key principle:** The handler never knows or cares which auth method was used. It gets `auth.user` and `auth.supabase` and works identically.
+
+#### 0.3 Create RLS Impersonation Helper Function (DB)
+
+**Migration:** `supabase/migrations/XXXXXX_auth_impersonation.sql`
+
+```sql
+-- Function to set auth context for API key impersonation
+-- Called by withAuth middleware when API key auth is detected
+CREATE OR REPLACE FUNCTION set_auth_context(user_id uuid)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+  PERFORM set_config('request.jwt.claims', json_build_object(
+    'sub', user_id::text,
+    'role', 'authenticated'
+  )::text, true);
+  PERFORM set_config('request.jwt.claim_sub', user_id::text, true);
+  PERFORM set_config('role', 'authenticated', true);
+END;
+$$;
+
+-- Only callable by service role
+REVOKE ALL ON FUNCTION set_auth_context(uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION set_auth_context(uuid) TO service_role;
+```
+
+This lets API key auth set the RLS context so all existing policies (`auth.uid()`, `auth_institution_id()`, `sh_is_admin()`, etc.) evaluate correctly as the key owner.
+
+#### 0.4 BaseService Client Injection
+
+**File:** `lib/services/base-service.ts`
+
+**Current:** Module-level singleton client, no way to inject a different client
+**Change:** Add static `withClient()` factory method
+
+```typescript
+abstract class BaseService {
+  // Keep existing singleton for backward compatibility (hooks still calling directly)
+  protected static get supabase(): any {
+    return supabase;
+  }
+
+  // NEW: Create a service instance bound to a specific client
+  // Used by API routes that pass the auth-context-aware client
+  static withClient<T extends typeof BaseService>(
+    this: T,
+    client: SupabaseClient
+  ): InstanceType<T> {
+    // Return a proxy or subclass that overrides supabase getter
+    // Implementation: create a thin wrapper that delegates all static methods
+    // but uses the injected client instead of the singleton
+  }
+}
+```
+
+**Alternative (simpler, recommended):** Since all services use static methods calling `this.supabase`, and `this.supabase` is a getter returning the module-level singleton, we can use a **request-scoped override** pattern:
+
+```typescript
+// lib/services/base-service.ts additions
+import { AsyncLocalStorage } from 'node:async_hooks';
+
+const clientOverride = new AsyncLocalStorage<SupabaseClient>();
+
+export abstract class BaseService {
+  protected static get supabase(): any {
+    return clientOverride.getStore() ?? supabase; // Override if set, else singleton
+  }
+
+  // Run a callback with a specific supabase client
+  static runWithClient<T>(client: SupabaseClient, fn: () => T): T {
+    return clientOverride.run(client, fn);
+  }
+}
+```
+
+This is the **highest-leverage change in the entire migration.** One addition to BaseService, and ALL 24 services automatically work with injected clients. No service refactoring needed.
+
+#### 0.5 Unified Response Envelope
+
+**File:** `lib/api/response.ts` (new)
+
+Standardize ALL API responses:
+
+```typescript
+// List response
+{ data: T[], metadata: { page, limit, total, totalPages } }
+
+// Single item
+{ data: T }
+
+// Mutation success
+{ data: T, message?: string }
+
+// Error
+{ error: string, code?: string }
+```
+
+Reuse existing helpers from `lib/api-keys/response-helpers.ts` but rename `pagination` to `metadata` for consistency with BaseService's `BaseListResponse`.
+
+---
+
+### Phase 1: Core CRUD Routes
+
+The highest-value routes — these cover the primary entities that external consumers need.
+
+#### Route Structure Convention
+
+```
+app/api/solutions/[resource]/route.ts           → GET (list), POST (create)
+app/api/solutions/[resource]/[id]/route.ts      → GET (detail), PATCH (update), DELETE
+app/api/solutions/[resource]/[sub]/route.ts     → Nested resources
+app/api/solutions/[resource]/stats/route.ts     → Aggregated stats
+```
+
+Every route follows this template:
+```typescript
+import { withAuth } from '@/lib/auth/with-auth';
+import { SomeService } from '@/lib/services/solutions';
+import { listResponse, itemResponse, errorResponse } from '@/lib/api/response';
+
+export const GET = withAuth(async (request, auth) => {
+  const url = new URL(request.url);
+  const filters = extractFilters(url); // pagination, search, sort
+
+  // Use service with auth-context client
+  const result = await BaseService.runWithClient(auth.supabase, () =>
+    SomeService.list(filters)
+  );
+
+  return listResponse(result.data, result.metadata);
+}, { requiredPermission: 'read' });
+```
+
+#### 1.1 Solutions CRUD
+
+| Route | Methods | Service Methods |
+|-------|---------|-----------------|
+| `/api/solutions/route.ts` | GET, POST | `SolutionsService.list()`, `.create()` |
+| `/api/solutions/[id]/route.ts` | GET, PATCH, DELETE | `.getById()`, `.update()`, `.delete()` |
+| `/api/solutions/stats/route.ts` | GET | `.getStats()` |
+
+#### 1.2 Clients CRUD
+
+| Route | Methods | Service Methods |
+|-------|---------|-----------------|
+| `/api/solutions/clients/route.ts` | GET, POST | `ClientsService.list()`, `.create()` |
+| `/api/solutions/clients/[id]/route.ts` | GET, PATCH, DELETE | `.getById()`, `.update()`, `.deactivate()` |
+
+#### 1.3 Prospects & Pipeline
+
+| Route | Methods | Service Methods |
+|-------|---------|-----------------|
+| `/api/solutions/prospects/route.ts` | GET, POST | `ProspectsService.list()`, `.create()` |
+| `/api/solutions/prospects/[id]/route.ts` | GET, PATCH, DELETE | `.getById()`, `.update()`, `.delete()` |
+| `/api/solutions/prospects/[id]/activities/route.ts` | GET, POST | `.getActivities()`, `.logActivity()` |
+| `/api/solutions/prospects/[id]/stage/route.ts` | PATCH | `.updateStage()` |
+| `/api/solutions/prospects/stats/route.ts` | GET | `.getStats()` |
+| `/api/solutions/prospects/pipeline/route.ts` | GET | `.getPipelineBoard()` |
+| `/api/solutions/prospects/analytics/route.ts` | GET | `.getAnalytics()` |
+
+#### 1.4 Phases
+
+| Route | Methods | Service Methods |
+|-------|---------|-----------------|
+| `/api/solutions/phases/route.ts` | GET, POST | `PhasesService.list()`, `.create()` |
+| `/api/solutions/phases/[id]/route.ts` | GET, PATCH, DELETE | `.getById()`, `.update()`, `.delete()` |
+| `/api/solutions/phases/[id]/status/route.ts` | PATCH | `.updateStatus()` |
+| `/api/solutions/phases/stats/route.ts` | GET | `.getStats()` |
+
+---
+
+### Phase 2: Sub-Module Routes
+
+#### 2.1 Software Module
+
+| Route | Methods | Service |
+|-------|---------|---------|
+| `/api/solutions/builders/route.ts` | GET, POST | BuildersService |
+| `/api/solutions/builders/[id]/route.ts` | GET, PATCH, DELETE | BuildersService |
+| `/api/solutions/builders/[id]/skills/route.ts` | GET, POST | BuildersService |
+| `/api/solutions/builders/[id]/skills/[skillId]/route.ts` | PATCH, DELETE | BuildersService |
+| `/api/solutions/builders/[id]/assignments/route.ts` | GET | BuildersService |
+| `/api/solutions/builders/stats/route.ts` | GET | BuildersService |
+| `/api/solutions/iterations/route.ts` | GET, POST | IterationsService |
+| `/api/solutions/iterations/[id]/route.ts` | GET, PATCH, DELETE | IterationsService |
+| `/api/solutions/bugs/route.ts` | GET, POST | BugsService |
+| `/api/solutions/bugs/[id]/route.ts` | GET, PATCH, DELETE | BugsService |
+| `/api/solutions/bugs/[id]/status/route.ts` | PATCH | BugsService |
+| `/api/solutions/deployments/route.ts` | GET, POST | DeploymentsService |
+| `/api/solutions/deployments/[id]/route.ts` | GET, PATCH, DELETE | DeploymentsService |
+
+#### 2.2 Training Module
+
+| Route | Methods | Service |
+|-------|---------|---------|
+| `/api/solutions/training/programs/route.ts` | GET, POST | TrainingService |
+| `/api/solutions/training/programs/[id]/route.ts` | GET, PATCH, DELETE | TrainingService |
+| `/api/solutions/training/sessions/route.ts` | GET, POST | TrainingService |
+| `/api/solutions/training/sessions/[id]/route.ts` | GET, PATCH, DELETE | TrainingService |
+| `/api/solutions/training/sessions/[id]/assign/route.ts` | POST | TrainingService |
+| `/api/solutions/training/sessions/[id]/claim/route.ts` | POST | TrainingService |
+| `/api/solutions/training/cohort/route.ts` | GET, POST | CohortService |
+| `/api/solutions/training/cohort/[id]/route.ts` | GET, PATCH, DELETE | CohortService |
+
+#### 2.3 Content Module
+
+| Route | Methods | Service |
+|-------|---------|---------|
+| `/api/solutions/content/orders/route.ts` | GET, POST | ContentService |
+| `/api/solutions/content/orders/[id]/route.ts` | GET, PATCH, DELETE | ContentService |
+| `/api/solutions/content/deliverables/route.ts` | GET, POST | ContentService |
+| `/api/solutions/content/deliverables/[id]/route.ts` | GET, PATCH, DELETE | ContentService |
+| `/api/solutions/content/deliverables/[id]/submit/route.ts` | POST | ContentService |
+| `/api/solutions/content/deliverables/[id]/approve/route.ts` | POST | ContentService |
+| `/api/solutions/content/deliverables/[id]/reject/route.ts` | POST | ContentService |
+
+#### 2.4 Financial Module
+
+| Route | Methods | Service |
+|-------|---------|---------|
+| `/api/solutions/payments/route.ts` | GET, POST | PaymentsService |
+| `/api/solutions/payments/[id]/route.ts` | GET, PATCH, DELETE | PaymentsService |
+| `/api/solutions/payments/[id]/splits/route.ts` | POST | PaymentsService |
+| `/api/solutions/payments/stats/route.ts` | GET | PaymentsService |
+| `/api/solutions/earnings/route.ts` | GET | EarningsService |
+| `/api/solutions/earnings/summary/route.ts` | GET | EarningsService |
+| `/api/solutions/earnings/report/route.ts` | GET | EarningsService |
+| `/api/solutions/revenue-splits/models/route.ts` | GET, POST | RevenueSplitService |
+| `/api/solutions/revenue-splits/models/[id]/route.ts` | GET, PATCH, DELETE | RevenueSplitService |
+| `/api/solutions/revenue-splits/calculate/route.ts` | POST | RevenueSplitService |
+| `/api/solutions/unified-earnings/route.ts` | GET | UnifiedEarningsService |
+| `/api/solutions/unified-earnings/summary/route.ts` | GET | UnifiedEarningsService |
+| `/api/solutions/unified-earnings/payouts/route.ts` | GET | UnifiedEarningsService |
+
+#### 2.5 MOUs
+
+| Route | Methods | Service |
+|-------|---------|---------|
+| `/api/solutions/mous/route.ts` | GET, POST | MouService |
+| `/api/solutions/mous/[id]/route.ts` | GET, PATCH, DELETE | MouService |
+| `/api/solutions/mous/[id]/status/route.ts` | PATCH | MouService |
+
+---
+
+### Phase 3: Portal & Analytics Routes
+
+#### 3.1 Builder Portal (session-only initially)
+
+| Route | Methods | Service |
+|-------|---------|---------|
+| `/api/solutions/builder-portal/profile/route.ts` | GET | BuilderPortalService |
+| `/api/solutions/builder-portal/overview/route.ts` | GET | BuilderPortalService |
+| `/api/solutions/builder-portal/assignments/route.ts` | GET | BuilderPortalService |
+| `/api/solutions/builder-portal/available-phases/route.ts` | GET | BuilderPortalService |
+| `/api/solutions/builder-portal/claim/route.ts` | POST | BuilderPortalService |
+| `/api/solutions/builder-portal/earnings/route.ts` | GET | BuilderPortalService |
+
+#### 3.2 Cohort Portal (session-only initially)
+
+| Route | Methods | Service |
+|-------|---------|---------|
+| `/api/solutions/cohort-portal/profile/route.ts` | GET | CohortService (portal methods) |
+| `/api/solutions/cohort-portal/sessions/route.ts` | GET | CohortService |
+| `/api/solutions/cohort-portal/earnings/route.ts` | GET | CohortService |
+| `/api/solutions/cohort-portal/claim/route.ts` | POST | CohortService |
+
+#### 3.3 Client Portal (replaces bypass hook)
+
+| Route | Methods | Service |
+|-------|---------|---------|
+| `/api/solutions/client-portal/profile/route.ts` | GET | NEW: ClientPortalService |
+| `/api/solutions/client-portal/dashboard/route.ts` | GET | NEW: ClientPortalService |
+| `/api/solutions/client-portal/solutions/route.ts` | GET | NEW: ClientPortalService |
+| `/api/solutions/client-portal/deliverables/route.ts` | GET | NEW: ClientPortalService |
+| `/api/solutions/client-portal/payments/route.ts` | GET | NEW: ClientPortalService |
+| `/api/solutions/client-portal/communications/route.ts` | GET, POST | NEW: ClientPortalService |
+
+**NOTE:** This phase requires creating `ClientPortalService` in `lib/services/solutions/` to replace the direct Supabase queries in `use-client-portal.ts`.
+
+#### 3.4 Production Portal (session-only initially)
+
+| Route | Methods | Service |
+|-------|---------|---------|
+| `/api/solutions/production-portal/profile/route.ts` | GET | ProductionService |
+| `/api/solutions/production-portal/available-work/route.ts` | GET | ProductionService |
+| `/api/solutions/production-portal/my-work/route.ts` | GET | ProductionService |
+| `/api/solutions/production-portal/claim/route.ts` | POST | ProductionService |
+| `/api/solutions/production-portal/submit/route.ts` | POST | ProductionService |
+| `/api/solutions/production-portal/earnings/route.ts` | GET | ProductionService |
+
+#### 3.5 Discovery & Communications
+
+| Route | Methods | Service |
+|-------|---------|---------|
+| `/api/solutions/discovery/visits/route.ts` | GET, POST | DiscoveryService |
+| `/api/solutions/discovery/visits/[id]/route.ts` | GET, PATCH, DELETE | DiscoveryService |
+| `/api/solutions/discovery/communications/route.ts` | GET, POST | DiscoveryService |
+| `/api/solutions/discovery/communications/[id]/route.ts` | GET, PATCH, DELETE | DiscoveryService |
+
+#### 3.6 Publications & Accreditation
+
+| Route | Methods | Service |
+|-------|---------|---------|
+| `/api/solutions/publications/route.ts` | GET, POST | PublicationsService |
+| `/api/solutions/publications/[id]/route.ts` | GET, PATCH, DELETE | PublicationsService |
+| `/api/solutions/publications/[id]/contributors/route.ts` | GET, POST, DELETE | PublicationsService |
+| `/api/solutions/publications/accreditation/route.ts` | GET | PublicationsService |
+| `/api/solutions/publications/accreditation/nirf/route.ts` | GET | PublicationsService |
+| `/api/solutions/publications/accreditation/naac/route.ts` | GET | PublicationsService |
+
+#### 3.7 Products, TRL & RDIF
+
+| Route | Methods | Service |
+|-------|---------|---------|
+| `/api/solutions/products/route.ts` | GET, POST | ProductsService |
+| `/api/solutions/products/[id]/route.ts` | GET, PATCH, DELETE | ProductsService |
+| `/api/solutions/products/[id]/trl/route.ts` | PATCH | ProductsService |
+| `/api/solutions/products/[id]/validations/route.ts` | GET, POST | ProductsService |
+| `/api/solutions/products/[id]/validations/[vid]/route.ts` | PATCH, DELETE | ProductsService |
+| `/api/solutions/products/rdif/prerequisites/route.ts` | GET, PATCH | RDIFService |
+| `/api/solutions/products/rdif/readiness/route.ts` | GET | RDIFService |
+| `/api/solutions/products/rdif/milestones/route.ts` | GET | RDIFService |
+| `/api/solutions/products/stats/route.ts` | GET | ProductsService |
+
+#### 3.8 Compliance & Notifications
+
+| Route | Methods | Service |
+|-------|---------|---------|
+| `/api/solutions/compliance/dashboard/route.ts` | GET | ComplianceService |
+| `/api/solutions/notifications/route.ts` | GET | NotificationsService |
+| `/api/solutions/notifications/[id]/read/route.ts` | PATCH | NotificationsService |
+
+#### 3.9 Departments (ALREADY DONE — keep existing 7 routes)
+
+No changes needed. These routes already follow Pattern A with `getAuthSession()` + DepartmentTrackerService.
+
+---
+
+### Phase 4: Hook Migration
+
+Convert ALL hooks from calling services directly to calling `/api/solutions/` routes via `fetch()`.
+
+#### Hook Migration Template
+
+**Before (Pattern B):**
+```typescript
+// hooks/solutions/use-solutions.ts
+import { solutionsService } from '@/lib/services/solutions';
+
+export function useSolutions(filters) {
+  return useQuery({
+    queryKey: solutionsHubKeys.solutions.list(filters),
+    queryFn: () => solutionsService.list(filters),
+  });
+}
+```
+
+**After (Pattern A):**
+```typescript
+// hooks/solutions/use-solutions.ts
+import { apiClient } from '@/lib/api/client';
+
+export function useSolutions(filters) {
+  return useQuery({
+    queryKey: solutionsHubKeys.solutions.list(filters),
+    queryFn: () => apiClient.get('/api/solutions', { params: filters }),
+  });
+}
+```
+
+#### 4.1 Create API Client Helper
+
+**File:** `lib/api/client.ts` (new)
+
+```typescript
+// Thin wrapper around fetch() for internal API calls
+// Handles: JSON parsing, error extraction, query param serialization, auth headers
+
+export const apiClient = {
+  async get<T>(url: string, options?: { params?: Record<string, any> }): Promise<T> { ... },
+  async post<T>(url: string, body: any): Promise<T> { ... },
+  async patch<T>(url: string, body: any): Promise<T> { ... },
+  async delete(url: string): Promise<void> { ... },
+};
+```
+
+#### 4.2 Hook Migration Order (by dependency)
+
+| Priority | Hook File | Service | Dependent Hooks |
+|----------|-----------|---------|-----------------|
+| 1 | use-solutions.ts | SolutionsService | Many (core entity) |
+| 2 | use-clients.ts | ClientsService | use-client-portal |
+| 3 | use-prospects.ts | ProspectsService | use-overdue-prospects |
+| 4 | use-phases.ts | PhasesService | Builder assignments |
+| 5 | use-builders.ts | BuildersService | use-builder-portal |
+| 6 | use-training.ts | TrainingService | use-cohort-portal |
+| 7 | use-content.ts | ContentService | use-production-portal |
+| 8 | use-mous.ts | MouService | None |
+| 9 | use-payments.ts | PaymentsService | use-earnings |
+| 10 | use-earnings.ts | EarningsService | use-unified-earnings |
+| 11 | use-revenue-splits.ts | RevenueSplitService | None |
+| 12 | use-discovery.ts | DiscoveryService | None |
+| 13 | use-publications.ts | PublicationsService | None |
+| 14 | use-products.ts | ProductsService, RDIFService | None |
+| 15 | use-builder-portal.ts | BuilderPortalService | None |
+| 16 | use-cohort-portal.ts | CohortService | None |
+| 17 | use-production-portal.ts | ProductionService | None |
+| 18 | use-client-portal.ts | NEW ClientPortalService | None |
+| 19 | use-compliance-dashboard.ts | ComplianceService | None |
+| 20 | use-unified-earnings.ts | UnifiedEarningsService | None |
+| 21 | use-deployments.ts | DeploymentsService | None |
+| 22 | use-iterations.ts | IterationsService | None |
+| 23 | use-bugs.ts | BugsService | None |
+| 24 | use-overdue-prospects.ts | ProspectsService | None |
+
+---
+
+### Phase 5: Bypass Elimination
+
+#### 5.1 Fix `use-client-portal.ts` (647 lines, 25 `as any` casts)
+
+**Action:** Create `lib/services/solutions/client-portal-service.ts`
+- Extract all Supabase queries from the hook into a proper service class
+- Service extends BaseService
+- Hook becomes a thin wrapper calling API routes (Phase 3.3 + Phase 4)
+- All 25 `as any` casts eliminated via proper typing
+
+#### 5.2 Fix `clients/page.tsx` (1 inline query)
+
+**Current:** Inline `useQuery` fetching `sh_prospects.converted_client_id` to determine pipeline vs direct clients
+**Fix:** Add a `GET /api/solutions/prospects/converted-ids` route OR add a `isPipelineClient` field to the clients list response by joining in the service layer
+
+#### 5.3 Fix `pipeline/_components/pipeline-board.tsx` (2 inline queries)
+
+**Current:** Direct Supabase calls for drag-drop stage updates on `sh_prospects`
+**Fix:** Use `useUpdatePipelineStage` mutation from `use-prospects` hook (already exists). Remove inline Supabase client.
+
+#### 5.4 Fix `pipeline/analytics/_components/pipeline-analytics.tsx` (3 inline queries)
+
+**Current:** Direct Supabase queries to `sh_prospects`, `sh_clients`, `sh_solutions` for analytics calculations
+**Fix:** Use `usePipelineAnalytics` hook from `use-prospects` (already exists in hook index). The hook calls `ProspectsService.getAnalytics()` which already computes these aggregations.
+
+---
+
+### Phase 6: API Documentation & External Access
+
+#### 6.1 Developer Portal Documentation
+
+**Location:** `/application-hub/api-guidelines` (existing portal page)
+
+For Solutions Hub, document:
+- All endpoints with HTTP methods
+- Request/response shapes with TypeScript types
+- Query parameter reference (pagination, filters, sorting)
+- Authentication methods (session + API key)
+- Code examples (JavaScript, Python, curl)
+- AI prompt templates for common operations
+
+#### 6.2 API Key Permission Scoping
+
+Extend `api_keys.permissions` to include service-level scoping:
+
+```typescript
+permissions: {
+  services: ['solutions-hub'],  // Which modules this key can access
+  read: true,
+  write: false,
+}
+```
+
+`withAuth` checks that the API key is authorized for the `solutions-hub` service before allowing access.
+
+#### 6.3 Rate Limiting
+
+Add rate limiting to `withAuth`:
+- Session auth: No rate limit (browser users)
+- API key auth: Respect `api_keys.permissions.rate_limit` (default 100 req/min)
+
+---
+
+## Route Count Summary
+
+| Phase | New Route Files | Endpoints |
+|-------|----------------:|----------:|
+| Phase 0 | 3 (withAuth, response, upload fix) | — |
+| Phase 1 | 9 | ~20 |
+| Phase 2 | 25 | ~52 |
+| Phase 3 | 23 | ~40 |
+| Phase 4 | 1 (api client) | — |
+| Phase 5 | 1 (client-portal-service) | — |
+| Phase 6 | 0 (docs only) | — |
+| **Existing** | **8** (dept tracker + upload) | **~12** |
+| **Total** | **~70** | **~124** |
+
+---
+
+## New Files to Create
+
+| File | Purpose |
+|------|---------|
+| `lib/auth/with-auth.ts` | Unified auth middleware |
+| `lib/api/response.ts` | Standardized response helpers |
+| `lib/api/client.ts` | Internal API client for hooks |
+| `lib/services/solutions/client-portal-service.ts` | Service for client portal (replace bypass) |
+| `supabase/migrations/XXXXXX_auth_impersonation.sql` | RLS impersonation function |
+| ~62 route files under `app/api/solutions/` | API endpoints |
+
+## Files to Modify
+
+| File | Change |
+|------|--------|
+| `lib/services/base-service.ts` | Add `AsyncLocalStorage` client injection |
+| `app/api/upload/solutions-documents/route.ts` | Add auth check |
+| `hooks/solutions/*.ts` (24 files) | Migrate from service calls to fetch() |
+| `app/(routes)/solutions/clients/page.tsx` | Remove inline Supabase query |
+| `app/(routes)/solutions/pipeline/_components/pipeline-board.tsx` | Remove inline Supabase queries |
+| `app/(routes)/solutions/pipeline/analytics/_components/pipeline-analytics.tsx` | Remove inline Supabase queries |
+| `hooks/solutions/use-client-portal.ts` | Rewrite to use ClientPortalService via API |
+
+---
+
+## Execution Order & Dependencies
+
+```
+Phase 0 ─── Foundation (MUST complete first)
+  ├── 0.1 Fix upload route (standalone, do first)
+  ├── 0.2 withAuth middleware (depends on 0.3)
+  ├── 0.3 DB impersonation function (standalone)
+  ├── 0.4 BaseService injection (standalone)
+  └── 0.5 Response helpers (standalone)
+
+Phase 1 ─── Core routes (depends on Phase 0)
+  └── 9 route files, can be done in parallel
+
+Phase 2 ─── Sub-module routes (depends on Phase 0)
+  └── 25 route files, can be done in parallel with Phase 1
+
+Phase 3 ─── Portal routes (depends on Phase 0 + Phase 5.1)
+  └── 23 route files, Phase 3.3 depends on 5.1 (ClientPortalService)
+
+Phase 4 ─── Hook migration (depends on Phases 1-3)
+  ├── 4.1 API client helper (standalone)
+  └── 4.2 Migrate 24 hook files (depends on matching routes existing)
+
+Phase 5 ─── Bypass elimination (can start after Phase 0)
+  ├── 5.1 ClientPortalService (do BEFORE Phase 3.3 and 4.18)
+  ├── 5.2 clients/page.tsx (do after Phase 1.2 routes exist)
+  ├── 5.3 pipeline-board.tsx (standalone, just use existing hook)
+  └── 5.4 pipeline-analytics.tsx (standalone, just use existing hook)
+
+Phase 6 ─── Documentation (after Phases 1-5)
+```
+
+---
+
+## Verification Criteria (100% B2A Compliance)
+
+- [ ] **Zero bypasses**: No file in `app/(routes)/solutions/` imports `createClientSupabaseClient`
+- [ ] **Zero `as any` supabase casts**: All hooks use typed API client
+- [ ] **All hooks call API routes**: `grep -r 'from.*services/solutions' hooks/solutions/` returns 0 results
+- [ ] **Upload route authenticated**: `getAuthSession()` check present
+- [ ] **withAuth on all routes**: Every route file in `app/api/solutions/` uses `withAuth()`
+- [ ] **Unified response envelope**: All routes return `{ data, metadata? }` shape
+- [ ] **API key auth works**: External consumers can authenticate with Bearer token
+- [ ] **RLS preserved for API keys**: API key queries are scoped to key owner's permissions
+- [ ] **Service role not used in routes**: `SUPABASE_SERVICE_ROLE_KEY` only in withAuth (for impersonation setup) and upload (for storage)
+- [ ] **Portal documented**: All endpoints listed at /application-hub/api-guidelines
