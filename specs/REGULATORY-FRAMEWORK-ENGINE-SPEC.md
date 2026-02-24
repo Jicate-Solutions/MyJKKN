@@ -1019,6 +1019,16 @@ CREATE TABLE regulatory_metrics (
   UNIQUE(criteria_id, code)
 );
 
+-- 3b. Metrics Safe View (MANDATORY — strips data connector fields for non-super_admin queries)
+CREATE OR REPLACE VIEW regulatory_metrics_safe AS
+SELECT id, criteria_id, code, name, description, data_type,
+       unit, is_auto_calculable, requires_evidence,
+       validation_min, validation_max, validation_regex,
+       sort_order, data_window_years, formula, formula_dependencies,
+       dvv_guidance, metadata, created_at, updated_at
+FROM regulatory_metrics;
+-- EXCLUDED: data_connector_id, data_connector_query (contain raw SQL / DB schema)
+
 -- 4. Metric Values (actual data — the heart of the system)
 CREATE TABLE regulatory_metric_values (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
