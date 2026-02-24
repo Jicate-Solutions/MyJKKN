@@ -1239,9 +1239,9 @@ CREATE TABLE regulatory_metric_assignments (
   metric_value_id uuid NOT NULL REFERENCES regulatory_metric_values(id) ON DELETE CASCADE,
   submission_id uuid NOT NULL REFERENCES regulatory_submissions(id) ON DELETE CASCADE,
   institution_id uuid NOT NULL REFERENCES institutions(id),
-  assigned_to uuid NOT NULL REFERENCES auth.users(id),
+  assigned_to uuid NOT NULL REFERENCES profiles(id),   -- profiles, not auth.users (consistent with all other user FK refs)
   assigned_to_department text,
-  assigned_by uuid NOT NULL REFERENCES auth.users(id),
+  assigned_by uuid NOT NULL REFERENCES profiles(id),   -- profiles, not auth.users
   assigned_at timestamptz NOT NULL DEFAULT now(),
   due_date date,
   status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','in_progress','submitted','approved','rejected')),
