@@ -1,7 +1,7 @@
 # Regulatory Framework Engine — Complete Specification
 
 > **Status:** Ready for Implementation — B2A Architecture Compliant (Pattern A: Page → Hook → API Route → Service → DB)
-> **Created:** 2026-02-23  |  **Updated:** 2026-02-24 (B2A rewrite + 4 rounds of multi-agent review: 88+ fixes applied — security hardening, schema constraints, NIRF corrections, RLS soft-delete, formula engine, file upload security, rate limiting, pagination, deletion guards, API filter docs, evidence restore, per-transition role enforcement, hod dashboard access, partial indexes for NULL columns, WITH CHECK on all UPDATE policies, institution-scoped service-role queries, soft-delete trigger protection, multi-statement SQL injection prevention, FK cascade chain guards, defense-in-depth metrics view, abuse-prevention rate limits, soft-delete-aware RLS USING clauses, partial GIN indexes excluding deleted records, CTE-safe SQL validation, serverless-compatible advisory lock rate limiting, CSV formula injection mitigation)
+> **Created:** 2026-02-23  |  **Updated:** 2026-02-24 (B2A rewrite + 4 rounds of multi-agent review + schema/DDL fixes from consolidated review: iqac_coordinator role prerequisite, NIRF unique index fix, FK cascade chain corrections, optimistic locking, CHECK constraints on 10 text-enum columns, submission transitions audit table, cancelled/dvv_revision status, history immutability trigger, soft-delete trigger DDL, temporal/consistency CHECKs, criteria depth limit, evidence dedup index, simulation size guard)
 > **Based On:** FST Gap Analysis (SARAL ERP vs MyJKKN), Future-Proof Regulatory Architecture FST, Module Health Audit (8 review rounds, 301 bugs fixed)
 > **Total Effort Estimate:** 8-10 weeks
 > **Priority:** P0 (Critical — regulatory compliance)
@@ -820,24 +820,44 @@ Each connector defines: **Source Module → Source Table(s) → Key Columns → 
 
 ## Database Schema — New Tables
 
+> **Schema Summary:** 16 tables + 1 view, 50 RLS policies, 14 triggers, 28+ indexes.
+
 ```sql
 -- ═══════════════════════════════════════════════
 -- REGULATORY FRAMEWORK ENGINE — MIGRATION
 -- ═══════════════════════════════════════════════
+
+-- ═══════════════════════════════════════════════
+-- PREREQUISITES
+-- ═══════════════════════════════════════════════
+-- The Regulatory Framework Engine requires the `iqac_coordinator` role to exist.
+-- This role is the PRIMARY user of the entire module (IQAC = Internal Quality Assurance Cell).
+-- Without this role, all 50 RLS policies and all API route role checks will silently fail
+-- for the module's primary user.
+
+-- PREREQUISITE: Add iqac_coordinator role to the system
+-- The profiles.role column must accept 'iqac_coordinator' as a valid value.
+-- Add to types/auth.ts SYSTEM_ROLES constant.
+-- Assign at least one user per institution as iqac_coordinator before enabling the Regulatory module.
+ALTER TABLE profiles DROP CONSTRAINT IF EXISTS profiles_role_check;
+ALTER TABLE profiles ADD CONSTRAINT profiles_role_check CHECK (role IN (
+  'super_admin','administrator','institution_admin','principal','hod',
+  'faculty','staff','student','guest','driver','parent','iqac_coordinator'
+));
 
 -- 1. Framework Definitions (NAAC, NIRF, NBA, AICTE, UGC, ARIIA...)
 CREATE TABLE regulatory_frameworks (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   institution_id uuid REFERENCES institutions(id),  -- NULL = global template
   name text NOT NULL,                                -- "NAAC SSR 2022 Revised"
-  body text NOT NULL,                                -- "NAAC", "NIRF", "NBA", "AICTE", "UGC"
-  framework_type text NOT NULL DEFAULT 'accreditation', -- accreditation | ranking | compliance | reporting
+  body text NOT NULL CHECK (length(trim(body)) > 0), -- "NAAC", "NIRF", "NBA", "AICTE", "UGC"
+  framework_type text NOT NULL DEFAULT 'accreditation' CHECK (framework_type IN ('accreditation','ranking','compliance','reporting')),
   institution_type text,                             -- NULL = universal; 'university' | 'autonomous_college' | 'affiliated_college' (NAAC Binary has different weights per type)
   version text NOT NULL,                             -- "2022-rev", "2025"
   effective_from date,
   effective_to date,                                 -- NULL = currently active
-  year_type text NOT NULL DEFAULT 'academic',        -- academic | calendar (NIRF=calendar, NAAC=academic)
-  status text NOT NULL DEFAULT 'active',             -- draft | active | archived
+  year_type text NOT NULL DEFAULT 'academic' CHECK (year_type IN ('academic','calendar')),  -- NIRF=calendar, NAAC=academic
+  status text NOT NULL DEFAULT 'active' CHECK (status IN ('draft','active','archived')),
   total_max_score numeric,                           -- e.g., 1050 for NAAC Old, 900 for NAAC Binary, 100 for NIRF (normalized)
   description text,
   submission_portal_url text,                        -- e.g., https://nirfrankings.in
@@ -847,6 +867,7 @@ CREATE TABLE regulatory_frameworks (
   created_by uuid REFERENCES profiles(id),
   created_at timestamptz DEFAULT now(),
   updated_at timestamptz DEFAULT now(),
+  CHECK (effective_to IS NULL OR effective_to >= effective_from),
   UNIQUE(institution_id, body, version, institution_type),
   UNIQUE(institution_id, code)
   -- NOTE: code is unique PER institution (not globally). Global templates (institution_id=NULL)
@@ -861,8 +882,11 @@ CREATE TABLE regulatory_frameworks (
 -- Partial unique indexes for NULL institution_id (global templates)
 CREATE UNIQUE INDEX idx_frameworks_global_code ON regulatory_frameworks (code)
   WHERE institution_id IS NULL;
+-- NOTE: The original (body, version) uniqueness was too restrictive for discipline-specific
+-- frameworks like NIRF which share the same body+version but have different codes.
+-- All 7 NIRF 2025 variants have body='NIRF', version='2025' — only `code` distinguishes them.
 CREATE UNIQUE INDEX idx_frameworks_universal ON regulatory_frameworks
-  (body, version) WHERE institution_type IS NULL AND institution_id IS NULL;
+  (body, code) WHERE institution_id IS NULL;
 CREATE UNIQUE INDEX idx_frameworks_global_typed ON regulatory_frameworks
   (body, version, institution_type) WHERE institution_type IS NOT NULL AND institution_id IS NULL;
 -- Prevents duplicate global templates like two (NAAC, 2024, autonomous_college) rows with NULL institution_id.
@@ -872,6 +896,7 @@ CREATE TABLE regulatory_criteria (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   framework_id uuid NOT NULL REFERENCES regulatory_frameworks(id) ON DELETE CASCADE,
   parent_criteria_id uuid REFERENCES regulatory_criteria(id),  -- NULL = top-level
+  depth integer NOT NULL DEFAULT 1 CHECK (depth <= 5), -- nesting depth (1=top-level), capped to prevent runaway hierarchies
   code text NOT NULL,                                -- "I", "1.1", "TLR", "TLR-1"
   name text NOT NULL,                                -- "Curricular Aspects"
   description text,
@@ -898,7 +923,8 @@ CREATE TABLE regulatory_metrics (
   code text NOT NULL,                                -- "1.1.1", "SSR-2.1"
   name text NOT NULL,                                -- "Number of programs with CBCS/elective"
   description text,
-  data_type text NOT NULL DEFAULT 'number',          -- number | percentage | ratio | text | boolean | file | currency
+  data_type text NOT NULL DEFAULT 'number' CHECK (data_type IN ('number','percentage','ratio','text','boolean','file','currency','scale')),
+  -- 'scale' added for NAAC A-E metrics (e.g., 1.4.1 Feedback System, 5.1.2 Capacity Building)
   unit text,                                         -- "count", "%", "INR lakhs", "ratio", "years"
   formula text,                                      -- e.g., "(placed_count / eligible_count) * 100"
   formula_dependencies text[],                       -- metric codes this formula depends on
@@ -942,16 +968,24 @@ CREATE TABLE regulatory_metric_values (
   updated_at timestamptz DEFAULT now(),
   UNIQUE(metric_id, institution_id, academic_year)
 );
+-- NOTE (H2 — metric_values deletion path): Metric values do NOT have soft-delete. The deletion
+-- path is: (1) Manual metric values can be updated to a previous value from history (effectively
+-- 'undo'). (2) Metric values are CASCADE-deleted when their parent metric is deleted. (3) The
+-- framework/criteria/metric deletion guard prevents deletion when active submissions exist.
+-- (4) For wrong-year or wrong-metric entries, UPDATE the value rather than deleting the row.
 
 -- 5. Metric Value History (audit trail — every change recorded)
 CREATE TABLE regulatory_metric_value_history (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  metric_value_id uuid NOT NULL REFERENCES regulatory_metric_values(id) ON DELETE RESTRICT,
-  -- RESTRICT prevents deleting a metric_value that has history records.
-  -- Use soft-delete (is_manually_overridden, etc.) on metric_values instead of hard delete.
+  metric_value_id uuid NOT NULL REFERENCES regulatory_metric_values(id) ON DELETE CASCADE,
+  -- CASCADE chosen over RESTRICT: when a metric_value is deleted (via framework deletion
+  -- cascade), its history is destroyed. The framework deletion guard pre-checks for active
+  -- submissions before allowing cascade. Historical audit data for deleted frameworks is not
+  -- retained — archive before deletion if needed.
   old_value text,
   new_value text,
-  change_type text NOT NULL,                         -- auto_refresh | manual_entry | manual_override | verification
+  change_type text NOT NULL CHECK (change_type IN ('auto_refresh','manual_entry','manual_override','verification','dvv_response')),
+  -- 'dvv_response' added for DVV workflow (NAAC Data Validation & Verification responses)
   changed_by uuid REFERENCES profiles(id),
   change_reason text,
   source_snapshot jsonb,
@@ -961,10 +995,13 @@ CREATE TABLE regulatory_metric_value_history (
 -- 6. Evidence Documents
 CREATE TABLE regulatory_evidence (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  metric_id uuid REFERENCES regulatory_metrics(id) ON DELETE RESTRICT,
-  criteria_id uuid REFERENCES regulatory_criteria(id) ON DELETE RESTRICT,
-  -- RESTRICT: evidence must be removed before its parent metric/criterion can be deleted.
-  -- This blocks the CASCADE chain from framework→criteria→metrics when evidence exists.
+  metric_id uuid REFERENCES regulatory_metrics(id) ON DELETE SET NULL,
+  criteria_id uuid REFERENCES regulatory_criteria(id) ON DELETE SET NULL,
+  -- SET NULL preserves evidence documents when their parent metric/criterion is deleted.
+  -- Evidence retains its file_url and institution context. The CHECK constraint
+  -- (metric_id IS NOT NULL OR criteria_id IS NOT NULL) allows one to be null if the other remains.
+  -- If BOTH become null after cascaded deletions, orphaned evidence can be found via:
+  --   SELECT * FROM regulatory_evidence WHERE metric_id IS NULL AND criteria_id IS NULL AND is_deleted = false;
   submission_id uuid,  -- FK added after regulatory_submissions table exists (see ALTER TABLE below)
   institution_id uuid NOT NULL REFERENCES institutions(id),
   academic_year text NOT NULL CHECK (academic_year ~ '^\d{4}(-\d{2})?$'),
@@ -973,14 +1010,17 @@ CREATE TABLE regulatory_evidence (
   file_type text,                                    -- pdf, jpg, xlsx, etc.
   file_size_bytes bigint,                            -- bigint to support files > 2GB
   description text,
-  evidence_type text DEFAULT 'supporting',           -- supporting | primary | certificate | screenshot
+  evidence_type text DEFAULT 'supporting' CHECK (evidence_type IN ('supporting','primary','certificate','screenshot','geo_tagged_photo')),
+  -- 'geo_tagged_photo' added for infrastructure/campus evidence requiring location proof
   uploaded_by uuid NOT NULL REFERENCES profiles(id),
   is_deleted boolean DEFAULT false,
   deleted_at timestamptz,
   created_at timestamptz DEFAULT now(),
   updated_at timestamptz DEFAULT now(),
   metadata jsonb DEFAULT '{}',
-  CHECK (metric_id IS NOT NULL OR criteria_id IS NOT NULL)  -- evidence must link to a metric or criteria
+  CHECK (metric_id IS NOT NULL OR criteria_id IS NOT NULL),  -- evidence must link to a metric or criteria
+  CHECK ((is_deleted = false AND deleted_at IS NULL) OR (is_deleted = true AND deleted_at IS NOT NULL))
+  -- Consistency: is_deleted flag and deleted_at timestamp must agree
 );
 
 -- 7. Submissions (workflow: draft → review → approved → submitted)
@@ -989,7 +1029,16 @@ CREATE TABLE regulatory_submissions (
   framework_id uuid NOT NULL REFERENCES regulatory_frameworks(id),
   institution_id uuid NOT NULL REFERENCES institutions(id),
   academic_year text NOT NULL CHECK (academic_year ~ '^\d{4}(-\d{2})?$'),
-  status text NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','data_collection','in_review','approved','submitted','accepted','returned')),
+  status text NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','data_collection','in_review','approved','submitted','accepted','returned','cancelled','dvv_revision')),
+  -- 'cancelled': A submission can transition to cancelled only from 'draft' status.
+  --   Cancelled submissions are excluded from the UNIQUE constraint via the partial unique index below.
+  -- 'dvv_revision': Returned submissions from DVV (Data Validation & Verification) enter this state
+  --   instead of data_collection to prevent auto-refresh from overwriting submitted values.
+  version integer NOT NULL DEFAULT 1,
+  -- Optimistic locking: the status transition endpoint MUST use `SELECT ... FOR UPDATE` on the
+  -- submission row before validating and applying the transition. The `version` column increments
+  -- on every UPDATE. API routes that modify submissions must include `expected_version` in the
+  -- request body and verify it matches before writing. Return 409 Conflict if version mismatch.
   completeness_percentage numeric DEFAULT 0,
   auto_populated_count integer DEFAULT 0,
   manual_entry_count integer DEFAULT 0,
@@ -1005,12 +1054,47 @@ CREATE TABLE regulatory_submissions (
   notes text,
   created_at timestamptz DEFAULT now(),
   updated_at timestamptz DEFAULT now(),
-  UNIQUE(framework_id, institution_id, academic_year)
+  -- NOTE: UNIQUE constraint replaced by partial unique index below (excludes cancelled submissions)
 );
+-- Partial unique index: only one active (non-cancelled) submission per framework+institution+year
+CREATE UNIQUE INDEX idx_submissions_unique_active ON regulatory_submissions(framework_id, institution_id, academic_year)
+  WHERE status != 'cancelled';
 
 -- Add deferred FK from regulatory_evidence → regulatory_submissions (created after submissions table exists)
 ALTER TABLE regulatory_evidence ADD CONSTRAINT fk_evidence_submission
   FOREIGN KEY (submission_id) REFERENCES regulatory_submissions(id) ON DELETE RESTRICT;
+
+-- 7b. Submission Status Transitions (Audit Trail)
+-- Every status transition is recorded for full audit history. This replaces the pattern of
+-- only preserving the latest approved_at/approved_by, allowing complete re-approval tracking.
+CREATE TABLE regulatory_submission_transitions (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  submission_id uuid NOT NULL REFERENCES regulatory_submissions(id) ON DELETE CASCADE,
+  from_status text NOT NULL,
+  to_status text NOT NULL,
+  transitioned_by uuid NOT NULL REFERENCES auth.users(id),
+  reason text,
+  metadata jsonb NOT NULL DEFAULT '{}',
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+ALTER TABLE regulatory_submission_transitions ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "transitions_read" ON regulatory_submission_transitions FOR SELECT USING (
+  EXISTS (
+    SELECT 1 FROM regulatory_submissions s
+    WHERE s.id = submission_id
+    AND (s.institution_id = auth_institution_id()
+         OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'))
+  )
+);
+
+CREATE POLICY "transitions_insert" ON regulatory_submission_transitions FOR INSERT WITH CHECK (
+  EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN
+    ('super_admin','institution_admin','iqac_coordinator','principal'))
+);
+
+CREATE INDEX idx_reg_transitions_submission ON regulatory_submission_transitions(submission_id, created_at DESC);
 
 -- 8. Data Connector Registry (named, reusable query definitions)
 CREATE TABLE regulatory_data_connectors (
@@ -1020,7 +1104,7 @@ CREATE TABLE regulatory_data_connectors (
   source_module text NOT NULL,                       -- "learner-management", "staff", etc.
   source_tables text[] NOT NULL,                     -- ["learners_profiles", "admissions"]
   query_template text NOT NULL,                      -- SQL with $1=institution_id, $2=start_date, $3=end_date
-  output_type text NOT NULL DEFAULT 'single_value',  -- single_value | table | aggregation
+  output_type text NOT NULL DEFAULT 'single_value' CHECK (output_type IN ('single_value','table','aggregation')),
   output_columns text[],                             -- column names in result set
   is_active boolean DEFAULT true,
   last_tested_at timestamptz,
@@ -1042,7 +1126,9 @@ CREATE TABLE regulatory_simulations (
   institution_id uuid NOT NULL REFERENCES institutions(id),
   name text NOT NULL,                                -- "What if 5 more PhD faculty"
   base_academic_year text NOT NULL CHECK (base_academic_year ~ '^\d{4}(-\d{2})?$'),
-  overrides jsonb NOT NULL DEFAULT '{}',             -- {metric_code: new_value, ...}
+  overrides jsonb NOT NULL DEFAULT '{}' CHECK (pg_column_size(overrides) < 65536),
+  -- Size limit prevents abuse via excessively large override payloads
+  -- {metric_code: new_value, ...}
   calculated_score numeric,
   score_delta numeric,                               -- difference from base
   rank_estimate text,                                -- estimated rank band
@@ -1071,7 +1157,8 @@ CREATE TABLE regulatory_peer_visits (
   submission_id uuid REFERENCES regulatory_submissions(id) ON DELETE RESTRICT,
   -- Nullable: initial/exploratory visits (e.g., NAAC preliminary) may precede formal submissions.
   institution_id uuid NOT NULL REFERENCES institutions(id),
-  visit_type text NOT NULL,                          -- naac_peer_team | nba_evaluator | aicte_expert
+  visit_type text NOT NULL CHECK (visit_type IN ('naac_peer_team','nba_evaluator','aicte_expert','naac_dvv')),
+  -- 'naac_dvv' added for DVV (Data Validation & Verification) visit coordination
   status text NOT NULL DEFAULT 'scheduled' CHECK (status IN ('scheduled','confirmed','in_progress','completed','postponed','cancelled')),
   scheduled_date date,
   actual_start_date date,
@@ -1094,7 +1181,7 @@ CREATE TABLE regulatory_peer_visits (
 CREATE TABLE regulatory_governing_bodies (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   institution_id uuid NOT NULL REFERENCES institutions(id),
-  body_type text NOT NULL,                           -- governing_body | academic_council | bos | iqac | finance_committee | exam_committee | anti_ragging | icc | grievance_cell
+  body_type text NOT NULL CHECK (body_type IN ('governing_body','academic_council','bos','iqac','finance_committee','exam_committee','anti_ragging','icc','grievance_cell')),
   name text NOT NULL,                                -- "Board of Studies - Computer Science"
   mandate text,                                      -- statutory purpose/responsibilities
   formation_date date,
@@ -1140,7 +1227,7 @@ CREATE TABLE regulatory_course_syllabi (
   semester integer,
   syllabus_file_url text,                            -- uploaded syllabus document
   teaching_plan_file_url text,                       -- uploaded teaching plan
-  revision_status text DEFAULT 'current',            -- current | under_revision | archived
+  revision_status text DEFAULT 'current' CHECK (revision_status IN ('current','under_revision','archived')),
   revision_date date,
   bos_approval_date date,                            -- Board of Studies approval
   bos_meeting_id uuid,                               -- FK to regulatory_body_meetings if tracked
@@ -1154,6 +1241,7 @@ CREATE TABLE regulatory_course_syllabi (
   innovative_methods text,                           -- pedagogical innovations used
   created_at timestamptz DEFAULT now(),
   updated_at timestamptz DEFAULT now(),
+  CHECK (completed_hours IS NULL OR total_hours IS NULL OR completed_hours <= total_hours),
   UNIQUE(institution_id, course_code, academic_year, semester)
 );
 
@@ -1346,14 +1434,11 @@ CREATE POLICY "evidence_update" ON regulatory_evidence FOR UPDATE
 -- This is intentional: evidence uploaded for regulatory compliance should require
 -- IQAC coordinator review before modification/removal.
 
--- SOFT-DELETE PROTECTION: Implementation MUST include a DB trigger that prevents
--- non-service-role clients from modifying `is_deleted` or `deleted_at` columns
--- on `regulatory_evidence`. Only the soft-delete endpoint (DELETE /evidence/[id])
--- and restore endpoint (PUT /evidence/[id]/restore) — both using service-role
--- client — should toggle these fields. This prevents users from bypassing the
--- 30-day recovery window or restoring evidence without going through the API.
--- Pattern: trigger checks current_setting('request.jwt.claim.role') != 'service_role'
--- and raises exception if is_deleted or deleted_at is being changed.
+-- SOFT-DELETE PROTECTION: The `protect_evidence_soft_delete()` trigger (see IMMUTABILITY
+-- TRIGGERS section below) enforces this at the DB level. It prevents non-service-role
+-- clients from modifying `is_deleted` or `deleted_at` columns. Only the soft-delete endpoint
+-- (DELETE /evidence/[id]) and restore endpoint (PUT /evidence/[id]/restore) — both using
+-- service-role client — can toggle these fields.
 
 -- ─── Submissions: controlled workflow, approval restricted ───
 -- T8: Generate reports = super_admin, institution_admin, iqac_coordinator
@@ -1672,6 +1757,18 @@ CREATE INDEX idx_reg_syllabi_dept ON regulatory_course_syllabi(institution_id, d
 -- NOTE: peer_benchmarks UNIQUE(institution_id, framework_id, academic_year, peer_institution_name, metric_code) already creates an implicit index
 CREATE INDEX idx_reg_benchmarks_inst_framework ON regulatory_peer_benchmarks(institution_id, framework_id, academic_year);
 
+-- Evidence: prevent duplicate uploads for the same metric+institution+year+file
+CREATE UNIQUE INDEX idx_reg_evidence_no_dup ON regulatory_evidence(metric_id, institution_id, academic_year, file_name)
+  WHERE is_deleted = false AND metric_id IS NOT NULL;
+
+-- Evidence: lookup by uploader (for "my uploads" view)
+CREATE INDEX idx_reg_evidence_uploaded_by ON regulatory_evidence(uploaded_by, institution_id)
+  WHERE is_deleted = false;
+
+-- Course syllabi: optimized lookup for current-year courses (used by completion dashboard view)
+CREATE INDEX idx_reg_syllabi_current ON regulatory_course_syllabi(institution_id, academic_year)
+  WHERE revision_status = 'current';
+
 -- ═══════════════════════════════════════════════
 -- TRIGGERS
 -- ═══════════════════════════════════════════════
@@ -1721,13 +1818,16 @@ CREATE TRIGGER trg_history_immutable
   BEFORE UPDATE OR DELETE ON regulatory_metric_value_history
   FOR EACH ROW EXECUTE FUNCTION prevent_history_mutation();
 
--- Evidence soft-delete protection. Only service-role clients can toggle is_deleted/deleted_at.
-CREATE OR REPLACE FUNCTION prevent_evidence_soft_delete_bypass()
+-- Evidence soft-delete protection trigger
+-- Prevents non-service-role clients from directly modifying is_deleted/deleted_at.
+-- Only the soft-delete endpoint (DELETE /evidence/[id]) and restore endpoint
+-- (PUT /evidence/[id]/restore) — both using service-role client — should toggle these fields.
+CREATE OR REPLACE FUNCTION protect_evidence_soft_delete()
 RETURNS trigger AS $$
 BEGIN
   IF (OLD.is_deleted IS DISTINCT FROM NEW.is_deleted
       OR OLD.deleted_at IS DISTINCT FROM NEW.deleted_at) THEN
-    IF current_setting('request.jwt.claim.role', true) != 'service_role' THEN
+    IF current_setting('request.jwt.claim.role', true) IS DISTINCT FROM 'service_role' THEN
       RAISE EXCEPTION 'Direct modification of is_deleted/deleted_at is prohibited. Use the soft-delete or restore API endpoint.';
     END IF;
   END IF;
@@ -1735,9 +1835,13 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- Note: The WHEN clause optimizes performance — trigger function only fires when
+-- soft-delete columns actually change, skipping the function call for all other UPDATEs.
 CREATE TRIGGER trg_evidence_soft_delete_guard
   BEFORE UPDATE ON regulatory_evidence
-  FOR EACH ROW EXECUTE FUNCTION prevent_evidence_soft_delete_bypass();
+  FOR EACH ROW
+  WHEN (OLD.is_deleted IS DISTINCT FROM NEW.is_deleted OR OLD.deleted_at IS DISTINCT FROM NEW.deleted_at)
+  EXECUTE FUNCTION protect_evidence_soft_delete();
 ```
 
 ---
@@ -1751,7 +1855,7 @@ CREATE TRIGGER trg_evidence_soft_delete_guard
 
 ```
 Week 1: Database + API Layer Foundation
-├── Day 1-2: Apply migration (15 new tables + 1 view + RLS + indexes + search extensions)
+├── Day 1-2: Apply migration (16 new tables + 1 view + RLS + indexes + search extensions)
 ├── Day 3: Build shared utilities (regulatory-utils.ts) + API auth helper
 ├── Day 4: API routes for frameworks (GET list, GET detail, POST, PUT, DELETE)
 │           + Service: RegulatoryFrameworkService + RegulatoryCriteriaService
@@ -2688,7 +2792,7 @@ report-generator.ts
 │  Supabase Client (server-side) → PostgreSQL                            │
 │       │ RLS policies enforce institution_id scoping                     │
 │       ▼                                                                 │
-│  Database (15 tables + 1 view + 48 RLS policies)                       │
+│  Database (16 tables + 1 view + 50 RLS policies)                       │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -2993,7 +3097,7 @@ Additional entity-specific filters are documented per endpoint where applicable.
 
 | Method | Endpoint | Service Method | Roles (T8) | Description |
 |--------|----------|---------------|------------|-------------|
-| GET | `/api/regulatory/submissions` | `getSubmissions(filters)` | super_admin, institution_admin, iqac_coordinator, principal, hod | List submissions. **Query params:** `framework_id` (uuid), `academic_year` (text), `status` (text: draft\|data_collection\|in_review\|approved\|submitted\|accepted\|returned). hod has read-only access per R4-Fix 5. |
+| GET | `/api/regulatory/submissions` | `getSubmissions(filters)` | super_admin, institution_admin, iqac_coordinator, principal, hod | List submissions. **Query params:** `framework_id` (uuid), `academic_year` (text), `status` (text: draft\|data_collection\|in_review\|approved\|submitted\|accepted\|returned\|cancelled\|dvv_revision). hod has read-only access per R4-Fix 5. |
 | GET | `/api/regulatory/submissions/[id]` | `getSubmissionById(id)` | super_admin, institution_admin, iqac_coordinator, principal | Submission detail with scores |
 | POST | `/api/regulatory/submissions` | `createSubmission(data)` | super_admin, institution_admin, iqac_coordinator | Create new submission (status=draft) |
 | PUT | `/api/regulatory/submissions/[id]/status` | `updateSubmissionStatus(id, newStatus)` | super_admin, institution_admin, iqac_coordinator, principal | Transition status. **CONCURRENCY CONTROL (CRITICAL):** The service method MUST use `SELECT ... FOR UPDATE` on the submission row before reading current status. This prevents TOCTOU race conditions where two users simultaneously read `in_review` and both trigger different transitions (one `returned`, one `approved`), with last-writer-wins producing inconsistent state. Alternative: optimistic locking via `version` column — UPDATE with `WHERE version = $expected_version`, return 409 if 0 rows affected. **Per-transition role enforcement (app-layer):** The role check is NOT a flat list — each transition has its own allowed roles as documented in the State Machine table below. The API route must: (1) acquire row lock via SELECT FOR UPDATE, (2) validate the transition is valid from current status, (3) check the caller's role against the specific transition's allowed roles, (4) reject with 403 if the role is insufficient for that specific transition (e.g., iqac_coordinator cannot trigger `in_review → approved`). |
@@ -3012,8 +3116,11 @@ Additional entity-specific filters are documented per endpoint where applicable.
 | `submitted` | `accepted` | institution_admin, super_admin | Regulatory body accepted submission |
 | `submitted` | `returned` | institution_admin, super_admin | Regulatory body returned (e.g., NAAC DVV) |
 | `returned` | `data_collection` | iqac_coordinator, institution_admin, super_admin | Restart data collection after corrections |
+| `returned` | `dvv_revision` | iqac_coordinator, institution_admin, super_admin | DVV-returned submissions enter revision mode (preserves submitted values; auto-refresh disabled) |
+| `dvv_revision` | `in_review` | iqac_coordinator, institution_admin, super_admin | DVV revisions complete, submit for re-review |
+| `draft` | `cancelled` | iqac_coordinator, institution_admin, super_admin | Cancel a draft submission (excluded from UNIQUE constraint) |
 
-**Terminal state:** `accepted` — no outgoing transitions.
+**Terminal states:** `accepted`, `cancelled` — no outgoing transitions.
 Invalid transitions return `409 Conflict`.
 
 **Score and timestamp behavior on transitions:**
@@ -3073,7 +3180,7 @@ The API route calculates `score_delta` and `rank_estimate` server-side before st
 
 | Method | Endpoint | Service Method | Roles (T8) | Description |
 |--------|----------|---------------|------------|-------------|
-| GET | `/api/regulatory/peer-visits` | `getPeerVisits(filters)` | all with institution access | List peer visits. **Query params:** `submission_id` (uuid), `visit_type` (text: naac_peer_team\|nba_evaluator\|aicte_expert), `status` (text: scheduled\|confirmed\|in_progress\|completed\|postponed\|cancelled). |
+| GET | `/api/regulatory/peer-visits` | `getPeerVisits(filters)` | all with institution access | List peer visits. **Query params:** `submission_id` (uuid), `visit_type` (text: naac_peer_team\|nba_evaluator\|aicte_expert\|naac_dvv), `status` (text: scheduled\|confirmed\|in_progress\|completed\|postponed\|cancelled). |
 | POST | `/api/regulatory/peer-visits` | `createPeerVisit(data)` | super_admin, institution_admin, iqac_coordinator | Schedule a peer visit |
 | PUT | `/api/regulatory/peer-visits/[id]` | `updatePeerVisit(id, data)` | super_admin, institution_admin, iqac_coordinator | Update visit details |
 
