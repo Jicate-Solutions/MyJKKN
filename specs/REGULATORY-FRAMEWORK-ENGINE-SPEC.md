@@ -1397,7 +1397,7 @@ CREATE TABLE regulatory_course_syllabi (
   revision_status text DEFAULT 'current' CHECK (revision_status IN ('current','under_revision','archived')),
   revision_date date,
   bos_approval_date date,                            -- Board of Studies approval
-  bos_meeting_id uuid,                               -- FK to regulatory_body_meetings if tracked
+  bos_meeting_id uuid REFERENCES regulatory_body_meetings(id), -- FK to Board of Studies meeting
   total_hours integer,                               -- planned teaching hours
   completed_hours integer,                            -- actual hours delivered
   completion_percentage numeric GENERATED ALWAYS AS (
