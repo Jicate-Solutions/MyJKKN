@@ -9,8 +9,8 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { solutionsHubKeys } from '@/lib/query-keys';
 import { QUERY_CONFIG } from '@/lib/config/query-config';
+import { apiClient } from '@/lib/api/client';
 import {
-  productsService,
   PRODUCT_STATUSES,
   TRL_LEVELS,
   DOMAIN_LABELS,
@@ -36,7 +36,6 @@ import {
   type ValidationStatus,
 } from '@/lib/services/solutions/products-service';
 import {
-  rdifService,
   RDIF_PREREQUISITE_KEYS,
   BRIDGE_YEAR_THRESHOLDS,
   type RDIFReadinessResult,
@@ -128,7 +127,7 @@ export interface UpdatePrerequisiteInput extends ServiceUpdatePrerequisiteInput 
 export function useProducts(filters?: ProductFilters) {
   return useQuery({
     queryKey: solutionsHubKeys.products.list(filters),
-    queryFn: () => productsService.getProducts(filters),
+    queryFn: () => apiClient.get<SHProduct[]>('/api/solutions/products', { params: filters as Record<string, any> }),
     ...QUERY_CONFIG.DYNAMIC_DATA,
   });
 }
@@ -139,7 +138,7 @@ export function useProducts(filters?: ProductFilters) {
 export function useProduct(id: string) {
   return useQuery({
     queryKey: solutionsHubKeys.products.detail(id),
-    queryFn: () => productsService.getProductById(id),
+    queryFn: () => apiClient.get<ProductWithValidations>(`/api/solutions/products/${id}`),
     enabled: !!id,
     ...QUERY_CONFIG.SEMI_STABLE_DATA,
   });
@@ -151,7 +150,7 @@ export function useProduct(id: string) {
 export function useProductStats() {
   return useQuery({
     queryKey: solutionsHubKeys.products.stats(),
-    queryFn: () => productsService.getProductStats(),
+    queryFn: () => apiClient.get<ProductStats>('/api/solutions/products/stats'),
     ...QUERY_CONFIG.DASHBOARD_DATA,
   });
 }
@@ -162,7 +161,7 @@ export function useProductStats() {
 export function useRetainedIPSolutions() {
   return useQuery({
     queryKey: solutionsHubKeys.products.retainedIP(),
-    queryFn: () => productsService.getRetainedIPSolutions(),
+    queryFn: () => apiClient.get<SHProduct[]>('/api/solutions/products', { params: { retained_ip: 'true' } }),
     ...QUERY_CONFIG.SEMI_STABLE_DATA,
   });
 }
@@ -173,7 +172,7 @@ export function useRetainedIPSolutions() {
 export function useTRLHistory(productId: string) {
   return useQuery({
     queryKey: solutionsHubKeys.products.trlHistory(productId),
-    queryFn: () => productsService.getTRLHistory(productId),
+    queryFn: () => apiClient.get(`/api/solutions/products/${productId}/trl`),
     enabled: !!productId,
     ...QUERY_CONFIG.SEMI_STABLE_DATA,
   });
@@ -189,7 +188,7 @@ export function useTRLHistory(productId: string) {
 export function useProductValidations(productId: string) {
   return useQuery({
     queryKey: solutionsHubKeys.products.validations(productId),
-    queryFn: () => productsService.getValidations(productId),
+    queryFn: () => apiClient.get<SHProductValidation[]>(`/api/solutions/products/${productId}/validations`),
     enabled: !!productId,
     ...QUERY_CONFIG.DYNAMIC_DATA,
   });
@@ -205,7 +204,7 @@ export function useProductValidations(productId: string) {
 export function useRDIFPrerequisites() {
   return useQuery({
     queryKey: solutionsHubKeys.products.rdifPrerequisites(),
-    queryFn: () => productsService.getPrerequisites(),
+    queryFn: () => apiClient.get<SHRDIFPrerequisite[]>('/api/solutions/products/rdif/prerequisites'),
     ...QUERY_CONFIG.SEMI_STABLE_DATA,
   });
 }
@@ -216,7 +215,7 @@ export function useRDIFPrerequisites() {
 export function useRDIFReadinessScore() {
   return useQuery({
     queryKey: solutionsHubKeys.products.rdifScore(),
-    queryFn: () => rdifService.calculateRDIFScore(),
+    queryFn: () => apiClient.get<RDIFReadinessResult>('/api/solutions/products/rdif/readiness'),
     ...QUERY_CONFIG.DASHBOARD_DATA,
   });
 }
@@ -227,7 +226,7 @@ export function useRDIFReadinessScore() {
 export function useThreeYearBridgeStatus() {
   return useQuery({
     queryKey: solutionsHubKeys.products.bridgeStatus(),
-    queryFn: () => rdifService.getThreeYearBridgeStatus(),
+    queryFn: () => apiClient.get<ThreeYearBridgeStatus>('/api/solutions/products/rdif/readiness', { params: { bridge_status: 'true' } }),
     ...QUERY_CONFIG.DASHBOARD_DATA,
   });
 }
@@ -238,7 +237,7 @@ export function useThreeYearBridgeStatus() {
 export function useNextRDIFMilestones() {
   return useQuery({
     queryKey: solutionsHubKeys.products.nextMilestones(),
-    queryFn: () => rdifService.getNextMilestones(),
+    queryFn: () => apiClient.get<RDIFMilestone[]>('/api/solutions/products/rdif/milestones'),
     ...QUERY_CONFIG.SEMI_STABLE_DATA,
   });
 }
@@ -255,7 +254,7 @@ export function useCreateProduct() {
 
   return useMutation({
     mutationFn: (input: CreateProductInput) =>
-      productsService.createProduct(input as ServiceCreateProductInput),
+      apiClient.post<SHProduct>('/api/solutions/products', input),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.products.all });
     },
@@ -270,7 +269,7 @@ export function useUpdateProduct() {
 
   return useMutation({
     mutationFn: ({ id, input }: { id: string; input: UpdateProductInput }) =>
-      productsService.updateProduct(id, input),
+      apiClient.patch<SHProduct>(`/api/solutions/products/${id}`, input),
     onSuccess: (data: SHProduct) => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.products.all });
       if (data?.id) {
@@ -290,7 +289,7 @@ export function useDeleteProduct() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (id: string) => productsService.deleteProduct(id),
+    mutationFn: (id: string) => apiClient.delete(`/api/solutions/products/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.products.all });
     },
@@ -304,7 +303,8 @@ export function useArchiveProduct() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (id: string) => productsService.archiveProduct(id),
+    mutationFn: (id: string) =>
+      apiClient.patch<SHProduct>(`/api/solutions/products/${id}`, { status: 'archived' }),
     onSuccess: (data: SHProduct) => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.products.all });
       if (data?.id) {
@@ -325,7 +325,7 @@ export function useUpdateProductStatus() {
 
   return useMutation({
     mutationFn: ({ id, status }: { id: string; status: ProductStatus }) =>
-      productsService.updateProductStatus(id, status),
+      apiClient.patch<SHProduct>(`/api/solutions/products/${id}`, { status }),
     onSuccess: (data: SHProduct) => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.products.all });
       if (data?.id) {
@@ -357,7 +357,7 @@ export function useUpdateTRL() {
       productId: string;
       newTRL: number;
       assessedBy?: string;
-    }) => productsService.updateTRL(productId, newTRL, assessedBy),
+    }) => apiClient.patch<SHProduct>(`/api/solutions/products/${productId}/trl`, { current_trl: newTRL, assessed_by: assessedBy }),
     onSuccess: (data: SHProduct) => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.products.all });
       if (data?.id) {
@@ -385,7 +385,7 @@ export function useAddValidation() {
 
   return useMutation({
     mutationFn: (input: CreateValidationInput) =>
-      productsService.addValidation(input as ServiceCreateValidationInput),
+      apiClient.post<SHProductValidation>(`/api/solutions/products/${input.product_id}/validations`, input),
     onSuccess: (data: SHProductValidation) => {
       if (data?.product_id) {
         queryClient.invalidateQueries({
@@ -410,8 +410,8 @@ export function useUpdateValidation() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ id, input }: { id: string; input: UpdateValidationInput }) =>
-      productsService.updateValidation(id, input),
+    mutationFn: ({ id, productId, input }: { id: string; productId: string; input: UpdateValidationInput }) =>
+      apiClient.patch<SHProductValidation>(`/api/solutions/products/${productId}/validations/${id}`, input),
     onSuccess: (data: SHProductValidation) => {
       if (data?.product_id) {
         queryClient.invalidateQueries({
@@ -433,7 +433,7 @@ export function useDeleteValidation() {
 
   return useMutation({
     mutationFn: ({ id, productId }: { id: string; productId: string }) =>
-      productsService.deleteValidation(id),
+      apiClient.delete(`/api/solutions/products/${productId}/validations/${id}`),
     onSuccess: (_data: void, variables: { id: string; productId: string }) => {
       queryClient.invalidateQueries({
         queryKey: solutionsHubKeys.products.validations(variables.productId),
@@ -457,7 +457,7 @@ export function useUpdatePrerequisite() {
 
   return useMutation({
     mutationFn: ({ key, input }: { key: string; input: UpdatePrerequisiteInput }) =>
-      productsService.updatePrerequisite(key, input),
+      apiClient.patch<SHRDIFPrerequisite>('/api/solutions/products/rdif/prerequisites', { prerequisite_key: key, ...input }),
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: solutionsHubKeys.products.rdifPrerequisites(),
