@@ -23,13 +23,15 @@ export const GET = withApiKeyAuth(async (request, auth) => {
 
   switch (reportType) {
     case 'occupancy': {
-      const { data: blocks } = await supabase
+      const { data: blocks, error: blocksError } = await supabase
         .from('hostel_blocks').select('id, name, gender, total_rooms, total_beds')
         .eq('institution_id', institutionId);
+      if (blocksError) throw blocksError;
 
-      const { count: totalAllocations } = await supabase
+      const { count: totalAllocations, error: allocError } = await supabase
         .from('hostel_allocations').select('*', { count: 'exact', head: true })
         .eq('institution_id', institutionId).eq('status', 'active');
+      if (allocError) throw allocError;
 
       const totalBeds = (blocks ?? []).reduce((sum: number, b: any) => sum + (b.total_beds || 0), 0);
 
