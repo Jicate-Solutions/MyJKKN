@@ -199,7 +199,7 @@ Data collection for NAAC/NIRF is coordinated across 15-30 departments. The IQAC 
 5. IQAC reviews completed metrics → approves or sends back
 6. Once all metrics are approved → submission moves to `in_review`
 
-> **Schema addition (see Database Schema section):** New table: `regulatory_metric_assignments` (id uuid PK, metric_value_id uuid REFERENCES regulatory_metric_values(id), assigned_to uuid REFERENCES auth.users(id), assigned_to_department text, assigned_by uuid REFERENCES auth.users(id), assigned_at timestamptz DEFAULT now(), due_date date, status text NOT NULL CHECK(status IN ('pending','in_progress','submitted','approved','rejected')), reviewer_notes text)
+> **Schema addition (see Database Schema section):** New table: `regulatory_metric_assignments` — simplified preview; see canonical DDL for complete columns including institution_id, submission_id, and created_at. FK targets use profiles(id), not auth.users(id).
 
 ---
 
