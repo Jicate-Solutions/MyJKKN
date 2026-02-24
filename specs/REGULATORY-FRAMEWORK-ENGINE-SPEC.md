@@ -2447,53 +2447,607 @@ report-generator.ts
 
 ---
 
-## File Structure (New)
+## Architecture Pattern: B2A (Pattern A Compliance)
+
+> **MANDATORY:** This module MUST follow **Pattern A** — the standard MyJKKN data flow architecture.
+> Pattern A: **Page → Hook (fetch) → API Route → Service → DB (RLS)**
+>
+> **NO direct Supabase calls in hooks.** All data access flows through API routes.
+> This ensures: (1) server-side auth validation, (2) request validation, (3) consistent error handling, (4) audit logging capability, (5) API surface for future ONOD integration.
+
+### Data Flow Diagram
 
 ```
-app/(routes)/regulatory/
-├── page.tsx                          — Dashboard
+┌─────────────────────────────────────────────────────────────────────────┐
+│ BROWSER (Client-Side)                                                   │
+│                                                                         │
+│  Page Component                                                         │
+│       │ uses                                                            │
+│       ▼                                                                 │
+│  React Query Hook (hooks/regulatory/use-*.ts)                          │
+│       │ fetch('/api/regulatory/...')                                     │
+│       ▼                                                                 │
+├─────────────────────────── HTTP Boundary ───────────────────────────────┤
+│ SERVER (API Routes)                                                     │
+│                                                                         │
+│  API Route (app/api/regulatory/**/route.ts)                            │
+│       │ 1. getAuthUser() — verify session                               │
+│       │ 2. Parse & validate params                                      │
+│       │ 3. Role check (per T8 permission matrix)                        │
+│       │ 4. Call service method                                          │
+│       ▼                                                                 │
+│  Service Layer (lib/services/regulatory/*.ts)                          │
+│       │ Static class methods — Supabase queries                         │
+│       │ Business logic, validation, sanitization                        │
+│       ▼                                                                 │
+│  Supabase Client (server-side) → PostgreSQL                            │
+│       │ RLS policies enforce institution_id scoping                     │
+│       ▼                                                                 │
+│  Database (15 tables + 1 view + 47 RLS policies)                       │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### Response Envelope Standard
+
+All API routes MUST return this envelope:
+
+```typescript
+// Success response
+{
+  success: true,
+  data: T | T[],                    // single item or array
+  metadata?: {
+    total: number,                  // total matching records
+    page: number,                   // current page (1-based)
+    limit: number,                  // items per page
+    totalPages: number              // ceil(total / limit)
+  }
+}
+
+// Error response
+{
+  success: false,
+  error: string,                    // machine-readable code: UNAUTHORIZED | VALIDATION_ERROR | NOT_FOUND | FORBIDDEN | INTERNAL_ERROR
+  message: string                   // human-readable description
+}
+```
+
+**HTTP Status Codes:**
+| Code | When |
+|------|------|
+| 200 | Success (GET, PUT) |
+| 201 | Created (POST) |
+| 400 | Validation error (missing/invalid params) |
+| 401 | Not authenticated (no session) |
+| 403 | Not authorized (role insufficient per T8) |
+| 404 | Resource not found |
+| 409 | Conflict (duplicate, invalid state transition) |
+| 500 | Internal server error |
+
+### Auth & Role Middleware Pattern
+
+Every API route must implement this pattern:
+
+```typescript
+import { NextRequest, NextResponse } from 'next/server'
+import { getAuthUser } from '@/lib/supabase/server'
+import { RegulatoryFrameworkService } from '@/lib/services/regulatory'
+
+export async function GET(request: NextRequest) {
+  // 1. Auth check
+  const { user, error: authError } = await getAuthUser()
+  if (authError || !user) {
+    return NextResponse.json(
+      { success: false, error: 'UNAUTHORIZED', message: 'Authentication required' },
+      { status: 401 }
+    )
+  }
+
+  // 2. Get user profile for role check
+  // (use server-side Supabase to get profile — NOT passed from client)
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('role, institution_id')
+    .eq('id', user.id)
+    .single()
+
+  // 3. Role check per T8 permission matrix
+  const allowedRoles = ['super_admin', 'institution_admin', 'iqac_coordinator', 'principal', 'hod']
+  if (!allowedRoles.includes(profile.role)) {
+    return NextResponse.json(
+      { success: false, error: 'FORBIDDEN', message: 'Insufficient permissions' },
+      { status: 403 }
+    )
+  }
+
+  // 4. Parse query params
+  const { searchParams } = request.nextUrl
+  const institutionId = profile.role === 'super_admin'
+    ? searchParams.get('institution_id') || undefined   // super_admin can query any
+    : profile.institution_id                             // others scoped to their own
+
+  // 5. Call service
+  const result = await RegulatoryFrameworkService.getFrameworks({
+    institution_id: institutionId,
+    ...otherFilters
+  })
+
+  // 6. Return envelope
+  return NextResponse.json({
+    success: true,
+    data: result.data,
+    metadata: result.metadata
+  })
+}
+```
+
+### Hook Pattern (Client-Side)
+
+Hooks call API routes via `fetch()` — NEVER Supabase directly:
+
+```typescript
+// hooks/regulatory/use-frameworks.ts
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+
+export const regulatoryKeys = {
+  frameworks: {
+    all: ['regulatory-frameworks'] as const,
+    list: (filters: FrameworkFilters) => [...regulatoryKeys.frameworks.all, 'list', filters] as const,
+    detail: (id: string) => [...regulatoryKeys.frameworks.all, 'detail', id] as const,
+  },
+  // ... other entities
+}
+
+export function useFrameworks(filters: FrameworkFilters) {
+  return useQuery({
+    queryKey: regulatoryKeys.frameworks.list(filters),
+    queryFn: async () => {
+      const params = new URLSearchParams()
+      if (filters.institution_id) params.set('institution_id', filters.institution_id)
+      if (filters.body) params.set('body', filters.body)
+      if (filters.status) params.set('status', filters.status)
+      if (filters.search) params.set('search', filters.search)
+      if (filters.page) params.set('page', String(filters.page))
+      if (filters.limit) params.set('limit', String(filters.limit))
+
+      const res = await fetch(`/api/regulatory/frameworks?${params}`)
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ message: 'Failed to fetch frameworks' }))
+        throw new Error(err.message)
+      }
+      return res.json()  // returns { success, data, metadata }
+    },
+    enabled: !!filters.institution_id || isSuperAdmin,
+  })
+}
+```
+
+### Super Admin Access Pattern (Unchanged)
+
+The T8 super_admin rule STILL applies — implemented at both API route (role check) and RLS (DB policy) layers:
+
+```typescript
+// In API route: super_admin can omit institution_id
+const institutionId = profile.role === 'super_admin'
+  ? searchParams.get('institution_id') || undefined
+  : profile.institution_id
+
+// In hooks: super_admin can still see all data
+const { isSuperAdmin } = usePermissions()
+const institutionId = isSuperAdmin ? undefined : profile?.institution_id
+enabled: isSuperAdmin || !!institutionId
+```
+
+### Shared Utilities (Extract from Services)
+
+These utilities are duplicated across 9 service files — extract to shared:
+
+```
+lib/utils/
+├── toast-error.ts               — friendlyErrorMessage() for client-side error display
+├── regulatory-utils.ts          — isValidUUID(), validateId(), sanitizeSearch(), formatError()
+```
+
+`sanitizeSearch()` MUST strip PostgREST-injectable characters: `[,().\\%]` → replaced with empty string.
+
+---
+
+## API Routes Specification
+
+> **Every service method is exposed as an API route.** No service method should only be callable from client-side Supabase.
+> Route naming: `/api/regulatory/{entity}` for collections, `/api/regulatory/{entity}/[id]` for single items.
+> All routes follow the auth + role + envelope pattern above.
+
+### Frameworks API
+
+| Method | Endpoint | Service Method | Roles (T8) | Description |
+|--------|----------|---------------|------------|-------------|
+| GET | `/api/regulatory/frameworks` | `getFrameworks(filters)` | all authenticated | List frameworks with pagination/filters |
+| GET | `/api/regulatory/frameworks/[id]` | `getFrameworkById(id)` | all authenticated | Single framework with criteria count |
+| GET | `/api/regulatory/frameworks/[id]/tree` | `getFrameworkTree(id)` | all authenticated | Full criteria→metrics hierarchy |
+| GET | `/api/regulatory/frameworks/[id]/completeness` | `getFrameworkCompleteness(id, institutionId, year)` | super_admin, institution_admin, iqac_coordinator, principal, hod | Completeness % and metric breakdown |
+| POST | `/api/regulatory/frameworks` | `createFramework(data)` | super_admin | Create new framework definition |
+| PUT | `/api/regulatory/frameworks/[id]` | `updateFramework(id, data)` | super_admin | Update framework |
+| DELETE | `/api/regulatory/frameworks/[id]` | `deleteFramework(id)` | super_admin | Delete framework (if no submissions) |
+
+### Criteria API
+
+| Method | Endpoint | Service Method | Roles (T8) | Description |
+|--------|----------|---------------|------------|-------------|
+| GET | `/api/regulatory/criteria` | `getCriteria(frameworkId)` | all authenticated | List criteria for a framework |
+| GET | `/api/regulatory/criteria/[id]` | `getCriterionById(id)` | all authenticated | Single criterion with children |
+| POST | `/api/regulatory/criteria` | `createCriterion(data)` | super_admin | Add criterion to framework |
+| PUT | `/api/regulatory/criteria/[id]` | `updateCriterion(id, data)` | super_admin | Update criterion |
+| DELETE | `/api/regulatory/criteria/[id]` | `deleteCriterion(id)` | super_admin | Delete criterion (cascades metrics) |
+
+### Metrics API
+
+| Method | Endpoint | Service Method | Roles (T8) | Description |
+|--------|----------|---------------|------------|-------------|
+| GET | `/api/regulatory/metrics` | `getMetrics(criteriaId)` | all authenticated | List metrics for a criterion |
+| GET | `/api/regulatory/metrics/[id]` | `getMetricById(id)` | all authenticated | Single metric with value history |
+| POST | `/api/regulatory/metrics` | `createMetric(data)` | super_admin | Add metric to criterion |
+| PUT | `/api/regulatory/metrics/[id]` | `updateMetric(id, data)` | super_admin | Update metric definition |
+
+### Metric Values API
+
+| Method | Endpoint | Service Method | Roles (T8) | Description |
+|--------|----------|---------------|------------|-------------|
+| GET | `/api/regulatory/metric-values` | `getMetricValues(filters)` | super_admin, institution_admin, iqac_coordinator, principal, hod | List metric values with filters (institution_id, academic_year, framework_id via criteria chain) |
+| GET | `/api/regulatory/metric-values/[id]/history` | `getMetricHistory(id)` | super_admin, institution_admin, iqac_coordinator, principal, hod | Audit trail for a metric value |
+| POST | `/api/regulatory/metric-values` | `upsertMetricValue(data)` | super_admin, institution_admin, iqac_coordinator, hod | Create or update metric value (triggers history) |
+| POST | `/api/regulatory/metric-values/refresh` | `refreshAutoMetrics(frameworkId, institutionId, year)` | super_admin, institution_admin, iqac_coordinator | Run all data connectors and refresh auto-calculated values |
+
+### Evidence API
+
+| Method | Endpoint | Service Method | Roles (T8) | Description |
+|--------|----------|---------------|------------|-------------|
+| GET | `/api/regulatory/evidence` | `getEvidence(filters)` | all with institution access | List evidence with filters (metric_id, criteria_id, submission_id, academic_year) |
+| GET | `/api/regulatory/evidence/search` | `searchEvidence(query, filters)` | all with institution access | Full-text search across evidence documents |
+| POST | `/api/regulatory/evidence` | `uploadEvidence(data)` | super_admin, institution_admin, iqac_coordinator, hod, staff | Upload evidence document |
+| PUT | `/api/regulatory/evidence/[id]` | `updateEvidence(id, data)` | super_admin, institution_admin, iqac_coordinator | Update evidence metadata |
+| DELETE | `/api/regulatory/evidence/[id]` | `softDeleteEvidence(id)` | super_admin, institution_admin, iqac_coordinator | Soft-delete (set is_deleted=true) |
+| GET | `/api/regulatory/evidence/[id]/versions` | `getEvidenceVersions(id)` | all with institution access | Version history for an evidence document |
+| POST | `/api/regulatory/evidence/[id]/versions` | `addEvidenceVersion(id, data)` | super_admin, institution_admin, iqac_coordinator, hod, faculty | Add new version of evidence document |
+
+### Submissions API
+
+| Method | Endpoint | Service Method | Roles (T8) | Description |
+|--------|----------|---------------|------------|-------------|
+| GET | `/api/regulatory/submissions` | `getSubmissions(filters)` | super_admin, institution_admin, iqac_coordinator, principal | List submissions |
+| GET | `/api/regulatory/submissions/[id]` | `getSubmissionById(id)` | super_admin, institution_admin, iqac_coordinator, principal | Submission detail with scores |
+| POST | `/api/regulatory/submissions` | `createSubmission(data)` | super_admin, institution_admin, iqac_coordinator | Create new submission (status=draft) |
+| PUT | `/api/regulatory/submissions/[id]/status` | `updateSubmissionStatus(id, newStatus)` | super_admin, institution_admin, principal | Transition status (enforces valid state machine) |
+| POST | `/api/regulatory/submissions/[id]/calculate-score` | `calculateSubmissionScore(id)` | super_admin, institution_admin, iqac_coordinator | Calculate and persist total score (MUTATION, not query!) |
+
+**Submission Status State Machine (enforced at API route level):**
+```
+draft → data_collection → in_review → approved → submitted → accepted
+                                    ↘ returned (back to data_collection)
+```
+Invalid transitions return `409 Conflict`.
+
+### Simulations API
+
+| Method | Endpoint | Service Method | Roles (T8) | Description |
+|--------|----------|---------------|------------|-------------|
+| GET | `/api/regulatory/simulations` | `getSimulations(filters)` | super_admin, institution_admin, iqac_coordinator, principal | List simulations |
+| POST | `/api/regulatory/simulations` | `createSimulation(data)` | super_admin, institution_admin, iqac_coordinator, principal | Create what-if simulation |
+| DELETE | `/api/regulatory/simulations/[id]` | `deleteSimulation(id)` | super_admin, institution_admin, iqac_coordinator | Delete a simulation |
+
+**Simulation overrides schema (stored as JSONB):**
+```typescript
+overrides: Record<string, number>  // metric_code → overridden_numeric_value
+```
+The API route calculates `score_delta` and `rank_estimate` server-side before storing.
+
+### Governance API
+
+| Method | Endpoint | Service Method | Roles (T8) | Description |
+|--------|----------|---------------|------------|-------------|
+| GET | `/api/regulatory/governing-bodies` | `getGoverningBodies(filters)` | all with institution access | List governing bodies |
+| POST | `/api/regulatory/governing-bodies` | `createGoverningBody(data)` | super_admin, institution_admin, principal | Create governing body |
+| PUT | `/api/regulatory/governing-bodies/[id]` | `updateGoverningBody(id, data)` | super_admin, institution_admin, principal | Update body (members, mandate) |
+| GET | `/api/regulatory/governing-bodies/[id]/meetings` | `getMeetings(bodyId, filters)` | all with institution access | List meetings for a body |
+| POST | `/api/regulatory/governing-bodies/[id]/meetings` | `createMeeting(bodyId, data)` | super_admin, institution_admin, iqac_coordinator, principal | Record a meeting |
+| PUT | `/api/regulatory/meetings/[id]` | `updateMeeting(id, data)` | super_admin, institution_admin, iqac_coordinator, principal | Update meeting (agenda, resolutions, action items) |
+| PUT | `/api/regulatory/meetings/[id]/approve` | `approveMeeting(id)` | super_admin, institution_admin, principal | Approve meeting minutes |
+
+### Peer Visits API
+
+| Method | Endpoint | Service Method | Roles (T8) | Description |
+|--------|----------|---------------|------------|-------------|
+| GET | `/api/regulatory/peer-visits` | `getPeerVisits(filters)` | all with institution access | List peer visits |
+| POST | `/api/regulatory/peer-visits` | `createPeerVisit(data)` | super_admin, institution_admin, iqac_coordinator | Schedule a peer visit |
+| PUT | `/api/regulatory/peer-visits/[id]` | `updatePeerVisit(id, data)` | super_admin, institution_admin, iqac_coordinator | Update visit details |
+
+### Syllabi API
+
+| Method | Endpoint | Service Method | Roles (T8) | Description |
+|--------|----------|---------------|------------|-------------|
+| GET | `/api/regulatory/syllabi` | `getSyllabi(filters)` | all with institution access | List course syllabi |
+| GET | `/api/regulatory/syllabi/[id]` | `getSyllabusById(id)` | all with institution access | Single syllabus with CO-PO mapping |
+| POST | `/api/regulatory/syllabi` | `upsertSyllabus(data)` | super_admin, institution_admin, iqac_coordinator, hod, faculty | Create/update syllabus |
+| PUT | `/api/regulatory/syllabi/[id]/hours` | `updateCompletionHours(id, completedHours)` | super_admin, institution_admin, iqac_coordinator, hod, faculty | Update completed teaching hours |
+
+### Benchmarks API
+
+| Method | Endpoint | Service Method | Roles (T8) | Description |
+|--------|----------|---------------|------------|-------------|
+| GET | `/api/regulatory/benchmarks` | `getBenchmarks(filters)` | all with institution access | List peer benchmarks |
+| GET | `/api/regulatory/benchmarks/[id]` | `getBenchmarkById(id)` | all with institution access | Single benchmark detail |
+| GET | `/api/regulatory/benchmarks/peer-institutions` | `getPeerInstitutions(filters)` | all with institution access | Distinct peer institution list |
+| POST | `/api/regulatory/benchmarks` | `createBenchmark(data)` | super_admin, institution_admin, iqac_coordinator | Create benchmark entry |
+| PUT | `/api/regulatory/benchmarks/[id]` | `updateBenchmark(id, data)` | super_admin, institution_admin, iqac_coordinator | Update benchmark |
+| DELETE | `/api/regulatory/benchmarks/[id]` | `deleteBenchmark(id)` | super_admin, institution_admin, iqac_coordinator | Delete benchmark |
+| GET | `/api/regulatory/benchmarks/comparison` | `getBenchmarkComparison(frameworkId, year)` | super_admin, institution_admin, iqac_coordinator, principal | Gap analysis across peer institutions |
+
+### Dashboard API
+
+| Method | Endpoint | Service Method | Roles (T8) | Description |
+|--------|----------|---------------|------------|-------------|
+| GET | `/api/regulatory/dashboard/stats` | `getDashboardStats(institutionId)` | super_admin, institution_admin, iqac_coordinator, principal, hod | Framework count, completeness %, active submissions |
+| GET | `/api/regulatory/dashboard/deadlines` | `getUpcomingDeadlines(institutionId)` | super_admin, institution_admin, iqac_coordinator, principal, hod | Frameworks with upcoming submission_deadline |
+| GET | `/api/regulatory/dashboard/completeness` | `getDataCompleteness(institutionId)` | super_admin, institution_admin, iqac_coordinator, principal, hod | Per-module data completeness chart data |
+
+### Data Connectors API
+
+| Method | Endpoint | Service Method | Roles (T8) | Description |
+|--------|----------|---------------|------------|-------------|
+| GET | `/api/regulatory/data-connectors` | `getDataConnectors()` | super_admin | List all data connectors with status |
+| GET | `/api/regulatory/data-connectors/[id]` | `getDataConnectorById(id)` | super_admin | Connector detail with last test result |
+| POST | `/api/regulatory/data-connectors/[id]/test` | `testDataConnector(id, institutionId)` | super_admin | Execute connector query and return sample results |
+| POST | `/api/regulatory/data-connectors/[id]/refresh` | `refreshConnectorMetrics(id, institutionId, year)` | super_admin | Run connector and update all linked metric_values |
+
+**Total API Surface: 47 endpoints across 11 entity groups.**
+
+---
+
+## Sidebar Navigation Entry
+
+Add to `sidebarMenuLink.ts` (or equivalent navigation config):
+
+```typescript
+{
+  title: 'Regulatory Compliance',
+  icon: ShieldCheck,  // from lucide-react
+  path: '/regulatory',
+  roles: ['super_admin', 'institution_admin', 'iqac_coordinator', 'principal', 'hod'],
+  children: [
+    { title: 'Dashboard', path: '/regulatory' },
+    { title: 'Frameworks', path: '/regulatory/frameworks' },
+    { title: 'Submissions', path: '/regulatory/submissions' },
+    { title: 'Governance', path: '/regulatory/governance' },
+    { title: 'Benchmarks', path: '/regulatory/benchmarks' },
+    { title: 'Evidence Repository', path: '/regulatory/evidence' },
+    { title: 'Data Sources', path: '/regulatory/data-sources' },
+  ]
+}
+```
+
+**Bottom navigation (mobile):** Include "Regulatory" as a collapsible item if the user's role is in the allowed list.
+
+---
+
+## File Structure (Updated for Pattern A)
+
+```
+app/api/regulatory/                  — API Routes (Pattern A server layer)
+├── frameworks/
+│   ├── route.ts                     — GET (list), POST (create)
+│   └── [id]/
+│       ├── route.ts                 — GET (detail), PUT (update), DELETE
+│       ├── tree/route.ts            — GET (criteria→metrics hierarchy)
+│       └── completeness/route.ts    — GET (completeness %)
+├── criteria/
+│   ├── route.ts                     — GET (list), POST (create)
+│   └── [id]/route.ts               — GET, PUT, DELETE
+├── metrics/
+│   ├── route.ts                     — GET (list), POST (create)
+│   └── [id]/route.ts               — GET, PUT
+├── metric-values/
+│   ├── route.ts                     — GET (list), POST (upsert)
+│   ├── refresh/route.ts             — POST (run all data connectors)
+│   └── [id]/
+│       └── history/route.ts         — GET (audit trail)
+├── evidence/
+│   ├── route.ts                     — GET (list), POST (upload)
+│   ├── search/route.ts              — GET (full-text search)
+│   └── [id]/
+│       ├── route.ts                 — PUT (update), DELETE (soft-delete)
+│       └── versions/route.ts        — GET (list), POST (add version)
+├── submissions/
+│   ├── route.ts                     — GET (list), POST (create)
+│   └── [id]/
+│       ├── route.ts                 — GET (detail)
+│       ├── status/route.ts          — PUT (transition status)
+│       └── calculate-score/route.ts — POST (calculate & persist)
+├── simulations/
+│   ├── route.ts                     — GET (list), POST (create)
+│   └── [id]/route.ts               — DELETE
+├── governing-bodies/
+│   ├── route.ts                     — GET (list), POST (create)
+│   └── [id]/
+│       ├── route.ts                 — PUT (update)
+│       └── meetings/route.ts        — GET (list), POST (create)
+├── meetings/
+│   └── [id]/
+│       ├── route.ts                 — PUT (update)
+│       └── approve/route.ts         — PUT (approve minutes)
+├── peer-visits/
+│   ├── route.ts                     — GET (list), POST (create)
+│   └── [id]/route.ts               — PUT (update)
+├── syllabi/
+│   ├── route.ts                     — GET (list), POST (upsert)
+│   └── [id]/
+│       ├── route.ts                 — GET (detail)
+│       └── hours/route.ts           — PUT (update completed hours)
+├── benchmarks/
+│   ├── route.ts                     — GET (list), POST (create)
+│   ├── peer-institutions/route.ts   — GET (distinct peer list)
+│   ├── comparison/route.ts          — GET (gap analysis)
+│   └── [id]/route.ts               — GET, PUT, DELETE
+├── dashboard/
+│   ├── stats/route.ts               — GET (summary stats)
+│   ├── deadlines/route.ts           — GET (upcoming deadlines)
+│   └── completeness/route.ts        — GET (per-module data completeness)
+└── data-connectors/
+    ├── route.ts                     — GET (list all connectors)
+    └── [id]/
+        ├── route.ts                 — GET (detail)
+        ├── test/route.ts            — POST (test connector)
+        └── refresh/route.ts         — POST (refresh linked metrics)
+
+app/(routes)/regulatory/             — Page Routes (UI layer)
+├── page.tsx                         — Dashboard
+├── layout.tsx                       — Regulatory module layout wrapper
 ├── _components/
 │   ├── dashboard-overview.tsx
 │   ├── completeness-chart.tsx
 │   ├── deadline-tracker.tsx
 │   └── score-summary-card.tsx
 ├── frameworks/
-│   ├── page.tsx                      — Framework list
-│   ├── new/page.tsx                  — Create framework wizard
+│   ├── page.tsx                     — Framework list
+│   ├── new/page.tsx                 — Create framework wizard
 │   └── [frameworkId]/
-│       ├── page.tsx                  — Framework overview
-│       ├── criteria/page.tsx         — Criteria tree
-│       ├── metrics/page.tsx          — Metric list with values
-│       ├── evidence/page.tsx         — Evidence management
-│       ├── simulation/page.tsx       — Score simulator
-│       └── report/page.tsx           — Report generation
+│       ├── page.tsx                 — Framework overview (criteria tree, evidence panel)
+│       ├── _components/
+│       │   ├── criteria-tree.tsx
+│       │   ├── evidence-panel.tsx
+│       │   └── metric-table.tsx
+│       ├── metrics/page.tsx         — Metric list with inline value editing
+│       ├── evidence/page.tsx        — Evidence management per framework
+│       ├── simulation/page.tsx      — Score simulator with what-if
+│       └── report/page.tsx          — Report generation & download
 ├── submissions/
-│   ├── page.tsx                      — Submission history
-│   └── [submissionId]/page.tsx       — Submission detail
+│   ├── page.tsx                     — Submission history
+│   ├── _components/
+│   │   └── submission-workflow.tsx   — Status stepper with transition buttons
+│   └── [submissionId]/page.tsx      — Submission detail
+├── governance/
+│   ├── page.tsx                     — 4-tab view: Bodies, Meetings, Syllabi, Peer Visits
+│   └── _components/
+│       ├── body-list.tsx
+│       ├── meeting-list.tsx
+│       ├── syllabus-table.tsx
+│       └── peer-visit-timeline.tsx
+├── benchmarks/
+│   ├── page.tsx                     — Peer benchmarking with gap analysis chart
+│   └── _components/
+│       ├── benchmark-table.tsx
+│       └── gap-analysis-chart.tsx
+├── evidence/
+│   └── page.tsx                     — Full-text evidence repository search
 ├── data-sources/
-│   └── page.tsx                      — Connector health dashboard
+│   └── page.tsx                     — Connector health dashboard
 └── settings/
-    └── page.tsx                      — Year config, notifications
+    └── page.tsx                     — Year config, notification preferences
 
-hooks/regulatory/
-├── use-frameworks.ts
-├── use-criteria.ts
-├── use-metrics.ts
-├── use-metric-values.ts
-├── use-evidence.ts
-├── use-submissions.ts
-├── use-data-connectors.ts
-├── use-simulations.ts
-├── use-regulatory-dashboard.ts
-└── index.ts
+hooks/regulatory/                    — React Query hooks (fetch-based, Pattern A)
+├── use-frameworks.ts                — useFrameworks, useFramework, useFrameworkTree, useFrameworkCompleteness, useCreateFramework, useUpdateFramework
+├── use-criteria.ts                  — useCriteria, useCriterion, useCreateCriterion, useUpdateCriterion
+├── use-metrics.ts                   — useMetrics, useMetric, useCreateMetric, useUpdateMetric
+├── use-metric-values.ts             — useMetricValues, useMetricHistory, useUpsertMetricValue, useRefreshAutoMetrics
+├── use-evidence.ts                  — useEvidence, useSearchEvidence, useUploadEvidence, useUpdateEvidence, useSoftDeleteEvidence, useEvidenceVersions, useAddEvidenceVersion
+├── use-submissions.ts               — useSubmissions, useSubmission, useCreateSubmission, useUpdateSubmissionStatus, useCalculateScore
+├── use-simulations.ts               — useSimulations, useCreateSimulation, useDeleteSimulation
+├── use-governance.ts                — useGoverningBodies, useCreateGoverningBody, useUpdateGoverningBody, useMeetings, useCreateMeeting, useUpdateMeeting, useApproveMeeting
+├── use-peer-visits.ts               — usePeerVisits, useCreatePeerVisit, useUpdatePeerVisit
+├── use-syllabi.ts                   — useSyllabi, useSyllabus, useUpsertSyllabus, useUpdateCompletionHours
+├── use-benchmarks.ts                — useBenchmarks, useBenchmark, usePeerInstitutions, useCreateBenchmark, useUpdateBenchmark, useDeleteBenchmark, useBenchmarkComparison
+├── use-dashboard.ts                 — useDashboardStats, useUpcomingDeadlines, useDataCompleteness
+├── use-data-connectors.ts           — useDataConnectors, useDataConnector, useTestConnector, useRefreshConnector
+└── index.ts                         — Barrel export of all hooks
 
-lib/services/regulatory/
-├── data-connector-engine.ts          — Executes connectors, populates values
-├── formula-engine.ts                 — Evaluates metric formulas
-├── score-calculator.ts               — Weighted score aggregation
-├── report-generator.ts               — PDF/CSV generation
-└── framework-seeder.ts               — Seeds NAAC/NIRF templates
+lib/services/regulatory/             — Service layer (server-side only, Supabase queries)
+├── regulatory-framework-service.ts  — Framework CRUD + tree + completeness
+├── regulatory-criteria-service.ts   — Criteria CRUD (NEW — was missing, criteria methods were in framework service)
+├── regulatory-metric-service.ts     — Metric definitions + values + history + auto-refresh
+├── regulatory-evidence-service.ts   — Evidence CRUD + search + versioning
+├── regulatory-submission-service.ts — Submission CRUD + status machine + score calculation
+├── regulatory-simulation-service.ts — Simulation CRUD + score delta computation
+├── regulatory-governance-service.ts — Governing bodies + meetings + approvals
+├── regulatory-peer-visit-service.ts — Peer visit CRUD
+├── regulatory-syllabus-service.ts   — Syllabi + completion tracking + CO-PO
+├── regulatory-benchmark-service.ts  — Benchmarks + gap analysis + peer institution aggregation
+├── regulatory-dashboard-service.ts  — Dashboard aggregations (NEW — was done inline in hooks)
+├── regulatory-data-connector-service.ts — Connector CRUD + test + refresh (NEW — was planned as data-connector-engine.ts)
+├── data-connector-engine.ts         — Executes connector SQL, populates metric values
+├── formula-engine.ts                — Evaluates metric formulas (cross-metric references)
+├── score-calculator.ts              — Weighted score aggregation per framework type
+├── report-generator.ts              — PDF/CSV/JSON generation per regulatory body
+└── index.ts                         — Barrel export of all services + types
+
+lib/utils/
+├── toast-error.ts                   — friendlyErrorMessage() for client-side error display
+└── regulatory-utils.ts              — isValidUUID(), validateId(), sanitizeSearch(), formatError()
+
+types/regulatory.types.ts            — TypeScript types (MUST align 1:1 with service types — no duplication)
 ```
+
+### Hook Architecture Rules
+
+1. **ONE tier of hooks** — no "core" vs "adapter" split. Each hook returns exactly what the API returns.
+2. **ALL hooks use `fetch()`** to call API routes — zero direct Supabase imports in hook files.
+3. **Query key factory** — centralized in each hook file as `regulatoryKeys.entity.list/detail`.
+4. **Mutations use `useMutation`** — never `useQuery` for write operations (fixes the useCalculateScore anti-pattern).
+5. **Cache invalidation** — after mutation success, invalidate the broad entity key (e.g., `['regulatory-frameworks']`), not narrow sub-keys.
+6. **Error handling** — mutations catch errors and pass to `friendlyErrorMessage()` for toast display. No raw Supabase error strings.
+
+### Service Architecture Rules
+
+1. **Static class methods** — all services use the existing `ClassName.methodName()` pattern.
+2. **Server-side Supabase client** — services use `createServerSupabaseClient()`, NOT browser client.
+3. **No auth checks in services** — auth is handled by the API route layer. Services trust they're called from authenticated routes.
+4. **Shared utilities** — `isValidUUID()`, `validateId()`, `sanitizeSearch()`, `formatError()` imported from `lib/utils/regulatory-utils.ts`, NOT duplicated per service.
+5. **PostgREST injection safety** — all user-supplied search strings pass through `sanitizeSearch()` before `.or()` or `.ilike()` calls.
+
+---
+
+## Known Audit Findings to Address During Implementation
+
+> **These issues were identified during 8 rounds of code review + Module Health Audit (2026-02-23/24).**
+> Each item MUST be resolved during the B2A rewrite — they are NOT deferred.
+
+### Phantom Fields (14 fields across 5 pages)
+
+Fields referenced in page components that don't exist on DB rows. The Dashboard API and Framework Detail API MUST compute these server-side:
+
+| Page | Phantom Field | Resolution |
+|------|--------------|------------|
+| Dashboard | `fw.metric_count` | Compute in `getDashboardStats()`: COUNT of metrics via criteria→metrics join |
+| Dashboard | `fw.criteria_count` | Compute in `getDashboardStats()`: COUNT of criteria per framework |
+| Dashboard | `fw.score` | Compute in `getDashboardStats()`: Latest submission `calculated_score` or null |
+| Dashboard | `fw.cycle` | Derive from `effective_from` / `effective_to` dates |
+| Framework Detail | `framework.score` | From latest submission's `calculated_score` |
+| Framework Detail | `framework.max_score` | Already exists on `regulatory_frameworks.total_max_score` |
+| Framework Detail | `framework.cycle` | Derive from dates |
+| Metrics | `metric.previous_value` | Compute: value from previous academic_year for same metric |
+| Metrics | `metric.score` | Compute: weighted score contribution from metric value |
+| Submissions | `sub.due_date` | Map to `framework.submission_deadline` via framework join |
+| Submissions | `sub.assigned_to_name` | NOT in schema — either add `assigned_to` column or remove from UI |
+| Simulations | `sim.total_original` | Compute in `createSimulation()` and store in `metadata` JSONB |
+| Simulations | `sim.total_simulated` | Compute in `createSimulation()` and store in `metadata` JSONB |
+
+### useCalculateScore Anti-Pattern
+
+**Problem:** Wrapped in `useQuery` — fires on mount, refocus, cache invalidation. Performs DB writes silently.
+**Fix:** Convert to `useMutation`. The submissions page should show a "Calculate Score" button that triggers it explicitly.
+
+### useRefreshAutoMetric No-Op
+
+**Problem:** Only invalidates React Query cache — doesn't actually re-run data connectors.
+**Fix:** Must call `POST /api/regulatory/metric-values/refresh` which executes the data connector engine server-side.
+
+### Upload Dialogs (Non-Functional Stubs)
+
+**Problem:** Evidence panel and metric table have upload buttons with no handlers.
+**Fix:** Wire to `POST /api/regulatory/evidence` with proper file upload (multipart/form-data or Supabase Storage presigned URL).
+
+### Simulation Baselines Always Zero
+
+**Problem:** `useSimulationData` reads `c.score` from criteria — criteria have no score column.
+**Fix:** The simulation API route must compute criteria scores from metric_values (aggregate numeric_value × weight through the criteria→metrics chain) before returning to the client.
 
 ---
 
