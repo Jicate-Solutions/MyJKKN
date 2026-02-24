@@ -2809,7 +2809,17 @@ lib/utils/
 | POST | `/api/regulatory/metric-values` | `upsertMetricValue(data)` | super_admin, institution_admin, iqac_coordinator, hod | Create or update metric value (triggers history) |
 | POST | `/api/regulatory/metric-values/refresh` | `refreshAutoMetrics(frameworkId, institutionId, year)` | super_admin, institution_admin, iqac_coordinator | Run all data connectors and refresh auto-calculated values |
 
-> **Implementation note:** The refresh endpoint's service layer reads `regulatory_data_connectors.query_template`, which is restricted to `super_admin` at the RLS level. The `DataConnectorEngine` service MUST use a **service-role Supabase client** (bypasses RLS) to read connector templates, regardless of the calling user's role. This is safe because the API route already validates the caller's role before invoking the service.
+> **Implementation note — DataConnectorEngine Security (CRITICAL):**
+>
+> The refresh endpoint's service layer reads `regulatory_data_connectors.query_template`, which is restricted to `super_admin` at the RLS level. The `DataConnectorEngine` service MUST use a **service-role Supabase client** (bypasses RLS) to read connector templates, regardless of the calling user's role. This is safe because the API route already validates the caller's role before invoking the service.
+>
+> **Mandatory security controls for DataConnectorEngine:**
+> 1. **Institution scoping:** Every connector query MUST inject `institution_id` as `$1` parameter. The engine must NEVER execute a connector query without binding the caller's institution_id (or the requested institution_id for super_admin). This prevents cross-institution data leakage even though RLS is bypassed.
+> 2. **Read-only transactions:** All connector queries MUST execute inside a `SET TRANSACTION READ ONLY` block. This prevents any INSERT/UPDATE/DELETE from being smuggled into a query_template.
+> 3. **SELECT-only enforcement:** The engine MUST validate that `query_template` starts with `SELECT` (after trimming whitespace/comments). Reject templates containing `INSERT`, `UPDATE`, `DELETE`, `DROP`, `ALTER`, `CREATE`, `TRUNCATE`, `GRANT`, `REVOKE`, or `EXECUTE`.
+> 4. **Parameterized execution:** All query_template SQL uses `$1`, `$2`, `$3` positional parameters — NEVER string interpolation. The engine binds parameters via `supabase.rpc()` or `pg` parameterized query.
+> 5. **Timeout:** Each connector query MUST have a `statement_timeout` (e.g., 30 seconds) to prevent long-running queries from degrading the database.
+> 6. **Rate limiting:** The refresh endpoint should be queued (max 1 concurrent refresh per institution) to prevent database overload during batch operations.
 
 ### Evidence API
 
