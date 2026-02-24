@@ -130,7 +130,7 @@ export function useMyStats(learnerId: string | undefined) {
 export function useProductionLearnerStats() {
   return useQuery({
     queryKey: [...solutionsHubKeys.productionLearners.all, 'stats'],
-    queryFn: () => productionService.getLearnerStats(),
+    queryFn: () => apiClient.get('/api/solutions/production-portal/learners/stats'),
     ...QUERY_CONFIG.DASHBOARD_DATA,
   });
 }

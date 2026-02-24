@@ -1,0 +1,17 @@
+import { NextResponse } from 'next/server'
+import { withAuth } from '@/lib/auth/with-auth'
+import { CohortService } from '@/lib/services/solutions/cohort-service'
+import { successApiResponse } from '@/lib/api/response'
+import { corsHeaders } from '@/lib/api-keys/cors'
+
+export async function OPTIONS() {
+  return NextResponse.json({}, { headers: corsHeaders })
+}
+
+export const POST = withAuth(async (_req, context) => {
+  const { id } = await context!.params!
+
+  const result = await CohortService.levelUpCohortMember(id)
+
+  return successApiResponse(result)
+})
