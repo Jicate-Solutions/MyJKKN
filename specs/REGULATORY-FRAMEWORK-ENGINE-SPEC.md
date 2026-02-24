@@ -2055,7 +2055,7 @@ CREATE TRIGGER trg_evidence_soft_delete_guard
 
 ```
 Week 1: Database + API Layer Foundation
-├── Day 1-2: Apply migration (16 new tables + 1 view + RLS + indexes + search extensions)
+├── Day 1-2: Apply migration (18 new tables + 2 views + RLS + indexes + search extensions)
 ├── Day 3: Build shared utilities (regulatory-utils.ts) + API auth helper
 ├── Day 4: API routes for frameworks (GET list, GET detail, POST, PUT, DELETE)
 │           + Service: RegulatoryFrameworkService + RegulatoryCriteriaService
