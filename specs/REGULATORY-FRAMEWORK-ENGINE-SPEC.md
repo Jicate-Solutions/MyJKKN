@@ -3992,9 +3992,15 @@ NAAC SSR is 200-300 pages. PDF generation WILL timeout on Vercel's 30-second ser
 
 **Solution: Move role + institution_id into JWT custom claims at login.**
 
-1. At login/token refresh, set custom claims:
+1. At login/token refresh, set custom claims via **Supabase Auth Hook** (`custom_access_token_hook`):
    ```sql
-   -- Supabase auth hook or custom login function
+   -- PSEUDOCODE showing the claim structure — actual implementation uses
+   -- Supabase's custom_access_token_hook which receives the JWT payload
+   -- and returns a modified version. See: supabase.com/docs/guides/auth/jwts
+   -- The hook function would add these claims to raw_app_meta_data:
+   --   institution_id: profiles.institution_id
+   --   app_role: profiles.role
+   -- Result: auth.jwt()->'app_metadata'->>'institution_id' becomes available in RLS
    SELECT auth.jwt() || jsonb_build_object(
      'institution_id', p.institution_id::text,
      'app_role', p.role
