@@ -4142,7 +4142,7 @@ Tree structure is assembled in application code from these two flat result sets.
    - Before executing the `query_template`, run a lightweight check: `SELECT to_regclass($source_table)` — returns NULL if the table doesn't exist.
    - If NULL: skip this connector, log a warning, and include it in the batch response as `{ "connector": "DC-XX", "error": "source_table 'table_name' does not exist", "skipped": true }`.
    - Do NOT treat this as a fatal error — other connectors in the batch proceed normally.
-   - The `regulatory_data_connectors.last_test_status` should be set to `'error'` with `last_test_error = 'source_table does not exist'`.
+   - The `regulatory_data_connectors.last_test_status` should be set to `'error'` with `test_error_message = 'source_table does not exist'`.
    - The Data Sources admin page should surface connectors with `last_test_status = 'error'` prominently so super_admin can fix the query_template.
 
 ---
