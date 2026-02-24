@@ -457,19 +457,84 @@ export async function OPTIONS() {
   return NextResponse.json({}, { headers: corsHeaders });
 }
 
+// ── GET (list) ──────────────────────────────────────────────
 export const GET = withAuth(async (request, auth) => {
   const url = new URL(request.url);
   const { page, limit } = getPaginationParams(url);
   const search = getStringParam(url, 'search');
   const status = getStringParam(url, 'status');
 
-  // auth.supabase is already injected via BaseService.runWithClient() inside withAuth
-  // All service calls automatically use the correct client (session or impersonated)
-  const result = await SolutionsService.getSolutions({ page, limit, search, status });
+  // CRITICAL: BaseService.executeListQuery REQUIRES institution_id (throws if missing).
+  // Pass auth.institutionId from the withAuth context. For super_admin wanting ALL
+  // institutions, individual services must handle that (e.g., skip the institution filter
+  // when the caller is super_admin). This is a pre-existing limitation of BaseService,
+  // not introduced by B2A.
+  const result = await SolutionsService.getSolutions({
+    institution_id: auth.institutionId ?? undefined,
+    page, limit, search, status,
+  });
 
   return paginatedResponse(result.data, result.metadata.total, page, limit);
 }, { requiredPermission: 'read' });
+
+// ── POST (create) ───────────────────────────────────────────
+export const POST = withAuth(async (request, auth) => {
+  const body = await request.json(); // Throws SyntaxError if invalid JSON (caught by withAuth)
+
+  // NOTE: No Zod validation in this project — services validate at the DB level.
+  // If validation is desired, add Zod schemas to lib/services/solutions/types.ts.
+  const result = await SolutionsService.createSolution({
+    ...body,
+    institution_id: auth.institutionId,
+    created_by: auth.user.id,
+  });
+
+  return createdResponse(result);
+}, { requiredPermission: 'write' });
 ```
+
+**Route template for `[id]/route.ts` (detail, update, delete):**
+```typescript
+import { withAuth } from '@/lib/auth/with-auth';
+import { SolutionsService } from '@/lib/services/solutions/solutions-service';
+import { successApiResponse, errorResponse, noContentResponse } from '@/lib/api/response';
+import { corsHeaders } from '@/lib/api-keys/cors';
+
+export async function OPTIONS() {
+  return NextResponse.json({}, { headers: corsHeaders });
+}
+
+// ── GET (single) ────────────────────────────────────────────
+export const GET = withAuth(async (request, auth, context) => {
+  // Next.js 16: params is a Promise, must await
+  const { id } = await context!.params!;
+
+  const result = await SolutionsService.getSolutionById(id, auth.institutionId ?? undefined);
+  if (!result) return errorResponse('Solution not found', 404);
+
+  return successApiResponse(result);
+}, { requiredPermission: 'read' });
+
+// ── PATCH (update) ──────────────────────────────────────────
+export const PATCH = withAuth(async (request, auth, context) => {
+  const { id } = await context!.params!;
+  const body = await request.json();
+
+  const result = await SolutionsService.updateSolution(id, body, auth.institutionId ?? undefined);
+  return successApiResponse(result);
+}, { requiredPermission: 'write' });
+
+// ── DELETE ──────────────────────────────────────────────────
+export const DELETE = withAuth(async (request, auth, context) => {
+  const { id } = await context!.params!;
+
+  await SolutionsService.deleteSolution(id, auth.institutionId ?? undefined);
+  return noContentResponse();
+}, { requiredPermission: 'write' });
+```
+
+**CRITICAL: `institution_id` in service calls:**
+`BaseService.executeListQuery()` (line 91 of `base-service.ts`) **throws** if `institution_id` is missing. This is a hard requirement for ALL list queries. Route handlers MUST pass `auth.institutionId` to service filter objects. For single/update/delete operations, `institutionId` is optional but recommended for defense-in-depth (RLS also filters). **Super_admin cross-institution queries** are a pre-existing Pattern B limitation — services that need it must override `executeListQuery` to skip the institution filter when the caller's role is `super_admin`. This is NOT a B2A concern.
 
 **NOTE:** Use the query helpers from `lib/api-keys/query-helpers.ts` (already exist) to extract pagination, date ranges, sort, and string/UUID params. Do NOT create a new `extractFilters()` function — the existing helpers are well-tested and cover all cases.
 
