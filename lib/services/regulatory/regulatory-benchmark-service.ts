@@ -129,7 +129,7 @@ export class RegulatoryBenchmarkService {
         }
       }
     } catch (error) {
-      console.error('[RegulatoryBenchmarkService] Error fetching benchmarks:', this.formatError(error))
+      console.error('[RegulatoryBenchmarkService] Error fetching benchmarks:', formatError(error))
       throw error
     }
   }
@@ -160,7 +160,7 @@ export class RegulatoryBenchmarkService {
 
       return data
     } catch (error) {
-      console.error('[RegulatoryBenchmarkService] Error fetching benchmark:', this.formatError(error))
+      console.error('[RegulatoryBenchmarkService] Error fetching benchmark:', formatError(error))
       throw error
     }
   }
@@ -198,7 +198,7 @@ export class RegulatoryBenchmarkService {
 
       return uniquePeers
     } catch (error) {
-      console.error('[RegulatoryBenchmarkService] Error fetching peer institutions:', this.formatError(error))
+      console.error('[RegulatoryBenchmarkService] Error fetching peer institutions:', formatError(error))
       throw error
     }
   }
@@ -250,7 +250,7 @@ export class RegulatoryBenchmarkService {
 
       return result
     } catch (error) {
-      console.error('[RegulatoryBenchmarkService] Error creating benchmark:', this.formatError(error))
+      console.error('[RegulatoryBenchmarkService] Error creating benchmark:', formatError(error))
       throw error
     }
   }
@@ -305,7 +305,7 @@ export class RegulatoryBenchmarkService {
 
       return result
     } catch (error) {
-      console.error('[RegulatoryBenchmarkService] Error upserting benchmark:', this.formatError(error))
+      console.error('[RegulatoryBenchmarkService] Error upserting benchmark:', formatError(error))
       throw error
     }
   }
@@ -345,7 +345,7 @@ export class RegulatoryBenchmarkService {
 
       return result
     } catch (error) {
-      console.error('[RegulatoryBenchmarkService] Error updating benchmark:', this.formatError(error))
+      console.error('[RegulatoryBenchmarkService] Error updating benchmark:', formatError(error))
       throw error
     }
   }
@@ -371,7 +371,7 @@ export class RegulatoryBenchmarkService {
 
       return true
     } catch (error) {
-      console.error('[RegulatoryBenchmarkService] Error deleting benchmark:', this.formatError(error))
+      console.error('[RegulatoryBenchmarkService] Error deleting benchmark:', formatError(error))
       throw error
     }
   }
@@ -425,7 +425,7 @@ export class RegulatoryBenchmarkService {
 
       return comparison
     } catch (error) {
-      console.error('[RegulatoryBenchmarkService] Error fetching benchmark comparison:', this.formatError(error))
+      console.error('[RegulatoryBenchmarkService] Error fetching benchmark comparison:', formatError(error))
       throw error
     }
   }
