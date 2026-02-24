@@ -429,3 +429,63 @@ All 108 findings were addressed in a single session using a 5-agent parallel swa
 **Final spec (after Round 8):** 4,660 lines | 18 tables + 2 views | 58 RLS policies | 67 API endpoints | 20 frameworks
 
 **Audit score: 111 + 28 Round 8 = 139 total findings, all resolved or documented.**
+
+---
+
+## Round 9 — Zero-Trust Deep Audit (5 parallel agents)
+
+**Date:** 2026-02-24
+**Methodology:** 5 parallel audit agents, each owning a non-overlapping section:
+- S1: DDL Schema (lines 1-950) — 1 CRITICAL, 7 HIGH, 4 LOW
+- S2: RLS + Triggers (lines 950-2000) — 3 CRITICAL, 11 HIGH, 4 LOW
+- S3: API + State Machine (lines 2000-3300) — 0 CRITICAL, 2 HIGH, 5 LOW
+- S4: B2A Architecture (lines 3300-4250) — 1 CRITICAL, 5 HIGH, 2 LOW
+- S5: Performance + Implementer Guide (lines 4250-4660) — 0 CRITICAL, 4 HIGH, 2 LOW
+
+**Raw total:** 51 findings (5 CRIT + 29 HIGH + 17 LOW). After deduplication: ~45 unique.
+
+### Key systemic issue discovered: WITH CHECK Asymmetry
+
+6 UPDATE policies (submissions, peer_visits, governing_bodies, body_meetings, syllabi, benchmarks) had USING clauses with full role + institution checks, but WITH CHECK clauses only verified institution_id without role restriction. Fixed by mirroring the full role check in WITH CHECK.
+
+### All Round 9 fixes applied:
+
+| Category | Fix | Count |
+|----------|-----|-------|
+| **Cross-tenant leakage** | DVV queries read policy: changed OR to AND pattern | 1 |
+| **WITH CHECK asymmetry** | Added role restriction to WITH CHECK on 6 UPDATE policies + metric_assignments | 7 |
+| **Operator precedence** | Parenthesized OR/AND in metric_assignments read/update | 2 |
+| **Missing role guard** | Added role check to transitions_read policy | 1 |
+| **FK target consistency** | Changed auth.users → profiles on transitions + assignments | 3 |
+| **CHECK constraints added** | institution_type, code non-empty, from_status/to_status | 3 |
+| **Missing DDL column** | Added `data_window_years` to regulatory_metrics | 1 |
+| **Safe view completeness** | Added `unit`, `validation_regex`, `data_window_years` to safe view | 1 |
+| **Safe view in migration** | Added canonical CREATE VIEW to migration section | 1 |
+| **Phantom column removed** | `data_connector_mapping` reference eliminated | 1 |
+| **total_metrics_count** | Added subquery to dashboard stats UPDATE | 1 |
+| **Composite index** | Value history index: (metric_value_id) → (metric_value_id, created_at DESC) | 1 |
+| **Redundant index removed** | idx_frameworks_universal (subsumed by idx_frameworks_global_code) | 1 |
+| **Trigger hardening** | Added search_path + supabase_admin bypass to trigger functions | 2 |
+| **Deletion guard accuracy** | Corrected RESTRICT vs CASCADE claims, added dvv_queries + assignments | 1 |
+| **Stale counts** | Roadmap "16 tables + 1 view" → "18 tables + 2 views" | 1 |
+| **L2 accuracy** | Simulations: "append-only" → "create-or-delete only" | 1 |
+| **L18 accuracy** | "schema supports it" → "requires adding is_consolidated" | 1 |
+| **File structure** | Added report/status/route.ts for async polling | 1 |
+| **Hook completeness** | Added useReportStatus to submissions hook file | 1 |
+| **hod detail access** | Added hod to getSubmissionById roles (matches list endpoint + RLS) | 1 |
+| **T4 preview** | Simplified metric_assignments preview, noted canonical DDL | 1 |
+
+### Items documented but not fixed:
+
+| Item | Reason |
+|------|--------|
+| Data connector RLS blocking FK joins | Design-level risk; safe view pattern documented; explicit gotcha note in spec |
+| Dual criteria/metrics read policies (simple vs enhanced) | Documented; implementer chooses enhanced version |
+| criteria_modify / metrics_modify no WITH CHECK | Documented as intentional (L13) — super_admin only |
+| Evidence soft-delete function GUC fragility | Mitigated with supabase_admin bypass; full PostgREST dependency is acceptable |
+| Governance/syllabi/benchmarks READ RLS breadth | Intentional: API enforces role restriction |
+| Bulk import / DVV query CRUD endpoints | Phase 2/3 features |
+
+**Final spec (after Round 9):** 4,709 lines | 18 tables + 2 views (canonical) | 58 RLS policies | 67 API endpoints | 20 frameworks
+
+**Cumulative audit score: 139 (Rounds 1-8) + ~35 fixed (Round 9) = 174+ total findings, all resolved or documented.**
