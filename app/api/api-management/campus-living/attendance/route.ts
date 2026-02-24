@@ -18,7 +18,8 @@ export const GET = withApiKeyAuth(async (request, auth) => {
 
   const blockId = getUuidParam(url, 'block_id');
   const learnerId = getUuidParam(url, 'learner_id');
-  const status = getStringParam(url, 'status');
+  const eveningStatus = getStringParam(url, 'evening_status');
+  const morningStatus = getStringParam(url, 'morning_status');
   const { dateFrom, dateTo } = getDateRangeParams(url);
 
   let query = (auth.supabase as any)
@@ -28,7 +29,8 @@ export const GET = withApiKeyAuth(async (request, auth) => {
 
   if (blockId) query = query.eq('block_id', blockId);
   if (learnerId) query = query.eq('learner_id', learnerId);
-  if (status) query = query.eq('status', status);
+  if (eveningStatus) query = query.eq('evening_status', eveningStatus);
+  if (morningStatus) query = query.eq('morning_status', morningStatus);
   if (dateFrom) query = query.gte('date', dateFrom);
   if (dateTo) query = query.lte('date', dateTo);
 
