@@ -97,7 +97,6 @@ export default function MetricEntryPage() {
 
   const updateMetricMutation = useUpdateMetricValue()
   const refreshAutoMutation = useRefreshAutoMetric()
-  const bulkRefreshMutation = useBulkRefreshAutoMetrics()
 
   const isLoading = frameworkLoading || metricsLoading || criteriaLoading
 
