@@ -1135,13 +1135,14 @@ Counted from the phase-by-phase tables above:
 Phase 0 ─── Foundation (MUST complete first)
   IMPLEMENTATION ORDER (not document order):
   1st: 0.1 Fix upload route (standalone quick security fix)
-  2nd: 0.3 JWT impersonation helper (standalone, requires `bun add jsonwebtoken`)
+  2nd: 0.3 JWT impersonation helper (standalone, prefer `jose` over `jsonwebtoken`)
   3rd: 0.4 BaseService AsyncLocalStorage injection (standalone, highest leverage)
   4th: 0.5 Response helpers (standalone)
-  5th: 0.2 withAuth middleware (LAST — depends on 0.3 + 0.4 being complete)
+  5th: 0.6 Observability & error mapping (standalone, but include in withAuth)
+  6th: 0.2 withAuth middleware (LAST — depends on 0.3, 0.4, 0.5, 0.6 being complete)
 
-  NOTE: Document sections are numbered 0.1-0.5 for logical grouping, but
-  0.2 should be IMPLEMENTED last because it depends on 0.3 and 0.4.
+  NOTE: Document sections are numbered 0.1-0.6 for logical grouping, but
+  0.2 should be IMPLEMENTED last because it depends on 0.3, 0.4, and incorporates 0.6.
 
 Phase 1 ─── Core routes (depends on Phase 0)
   └── 16 route files (~29 endpoints), can be done in parallel
