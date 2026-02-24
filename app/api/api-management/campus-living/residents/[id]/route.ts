@@ -1,19 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { corsHeaders } from '@/lib/api-keys/cors';
 import { withApiKeyAuth } from '@/lib/api-keys/with-api-key-auth';
-import { successApiResponse, paginatedResponse, errorResponse } from '@/lib/api-keys/response-helpers';
+import { successApiResponse, errorResponse } from '@/lib/api-keys/response-helpers';
 
 export const OPTIONS = () => new NextResponse(null, { headers: corsHeaders });
 
-/**
- * GET /api/api-management/campus-living/residents/:id
- * Get a resident's allocation history by learner_id.
- * Returns all allocations (active and historical) for this learner.
- */
 export const GET = withApiKeyAuth(async (request, auth, context) => {
   const params = await context?.params;
   const id = params?.id;
   if (!id) return errorResponse('Learner ID is required', 400);
+  const institutionId = auth.institutionId;
+  if (!institutionId) return errorResponse('API key must be associated with an organization', 400);
 
   const { data, error } = await (auth.supabase as any)
     .from('hostel_allocations')
@@ -25,13 +22,10 @@ export const GET = withApiKeyAuth(async (request, auth, context) => {
       hostel_beds(id, bed_number)
     `)
     .eq('learner_id', id)
+    .eq('institution_id', institutionId)
     .order('created_at', { ascending: false });
 
   if (error) throw error;
-
-  if (!data || data.length === 0) {
-    return errorResponse('No allocations found for this learner', 404);
-  }
-
+  if (!data || data.length === 0) return errorResponse('No allocations found for this learner', 404);
   return successApiResponse(data);
 }, { permission: 'read' });
