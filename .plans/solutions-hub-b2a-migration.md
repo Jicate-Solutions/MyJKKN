@@ -465,6 +465,8 @@ This is intentionally separate from `lib/api-keys/response-helpers.ts` — the t
 
 **Existing file `lib/api-keys/cors.ts` already exists** — it provides `corsHeaders` and `getCorsHeadersWithOrigin()`. No modification needed.
 
+**Pre-existing CORS issue (out of scope but noted):** The current `corsHeaders` sets BOTH `Access-Control-Allow-Credentials: 'true'` AND `Access-Control-Allow-Origin: '*'`. Per the CORS spec, browsers reject this combination — you cannot use `*` with credentials. This doesn't affect API key consumers (non-browser), but WILL affect browser-based cross-origin requests that include cookies. For development this is fine; for production, `getCorsHeadersWithOrigin(origin)` should be used instead of `corsHeaders`. This is NOT part of the B2A migration — it's a pre-existing issue affecting all api-management routes too.
+
 ---
 
 ### Phase 1: Core CRUD Routes
