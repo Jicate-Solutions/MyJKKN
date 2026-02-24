@@ -233,9 +233,15 @@ export function createImpersonatedClient(userId: string) {
 }
 ```
 
-**Dependency:** `bun add jsonwebtoken && bun add -d @types/jsonwebtoken`
+**Dependencies:**
+- `bun add jsonwebtoken && bun add -d @types/jsonwebtoken`
 
-**Environment variable:** `SUPABASE_JWT_SECRET` — already available in Supabase project settings (Settings → API → JWT Secret). Must be added to `.env.local` if not present.
+**Environment variable (CRITICAL PREREQUISITE):**
+- `SUPABASE_JWT_SECRET` — **Currently MISSING from `.env.local`**. Must be added before Phase 0.3 can work.
+- Get from: Supabase Dashboard → Project Settings → API → JWT Secret
+- This is the same HS256 secret Supabase uses internally to sign all JWTs
+- The Supabase anon key JWT structure is: `{ iss: "supabase", ref: "<project_ref>", role: "anon", iat, exp }` — no `aud` claim, so our impersonated JWT doesn't need one either
+- The impersonated JWT intentionally omits the `ref` claim (it's Supabase metadata, not checked by PostgREST)
 
 This approach is reliable because PostgREST reads the JWT from the `Authorization` header on EVERY request, so `auth.uid()` and all derived RLS functions work correctly across all queries made by the impersonated client.
 
