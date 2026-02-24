@@ -134,7 +134,8 @@ export const GET = withApiKeyAuth(async (request, auth) => {
     case 'leave': {
       const { data, error: leaveError } = await supabase
         .from('hostel_leave_requests').select('status')
-        .eq('institution_id', institutionId);
+        .eq('institution_id', institutionId)
+        .limit(10000);
       if (leaveError) throw leaveError;
 
       const items = data ?? [];
