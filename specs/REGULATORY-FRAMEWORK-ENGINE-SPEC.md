@@ -3131,7 +3131,7 @@ hooks/regulatory/                    — React Query hooks (fetch-based, Pattern
 ├── use-criteria.ts                  — useCriteria, useCriterion, useCreateCriterion, useUpdateCriterion, useDeleteCriterion
 ├── use-metrics.ts                   — useMetrics, useMetric, useCreateMetric, useUpdateMetric
 ├── use-metric-values.ts             — useMetricValues, useMetricValueHistory, useUpsertMetricValue, useRefreshAutoMetrics
-├── use-evidence.ts                  — useEvidence, useSearchEvidence, useUploadEvidence, useUpdateEvidence, useSoftDeleteEvidence, useEvidenceVersions, useAddEvidenceVersion
+├── use-evidence.ts                  — useEvidence, useSearchEvidence, useUploadEvidence, useUpdateEvidence, useSoftDeleteEvidence, useDeletedEvidence, useRestoreEvidence, useEvidenceVersions, useAddEvidenceVersion
 ├── use-submissions.ts               — useSubmissions, useSubmission, useCreateSubmission, useUpdateSubmissionStatus, useCalculateScore, useGenerateReport
 ├── use-simulations.ts               — useSimulations, useCreateSimulation, useDeleteSimulation
 ├── use-governance.ts                — useGoverningBodies, useCreateGoverningBody, useUpdateGoverningBody, useMeetings, useCreateMeeting, useUpdateMeeting, useApproveMeeting
