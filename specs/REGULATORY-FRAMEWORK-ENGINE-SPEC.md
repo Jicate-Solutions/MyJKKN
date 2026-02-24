@@ -2791,7 +2791,7 @@ lib/utils/
 | GET | `/api/regulatory/criteria/[id]` | `getCriterionById(id)` | all authenticated | Single criterion with children |
 | POST | `/api/regulatory/criteria` | `createCriterion(data)` | super_admin | Add criterion to framework |
 | PUT | `/api/regulatory/criteria/[id]` | `updateCriterion(id, data)` | super_admin | Update criterion |
-| DELETE | `/api/regulatory/criteria/[id]` | `deleteCriterion(id)` | super_admin | Delete criterion (cascades metrics) |
+| DELETE | `/api/regulatory/criteria/[id]` | `deleteCriterion(id)` | super_admin | Delete criterion (cascades metrics). **Guard:** Reject if parent framework has status='active' AND any submissions exist for it — prevents destroying data mid-submission. Only allow deletion from 'draft' frameworks or frameworks with zero submissions. |
 
 ### Metrics API
 
