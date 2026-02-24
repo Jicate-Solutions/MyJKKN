@@ -142,7 +142,7 @@ export class RegulatoryPeerVisitService {
         }
       }
     } catch (error) {
-      console.error('[RegulatoryPeerVisitService] Error fetching peer visits:', this.formatError(error))
+      console.error('[RegulatoryPeerVisitService] Error fetching peer visits:', formatError(error))
       throw error
     }
   }
@@ -189,7 +189,7 @@ export class RegulatoryPeerVisitService {
 
       return result
     } catch (error) {
-      console.error('[RegulatoryPeerVisitService] Error creating peer visit:', this.formatError(error))
+      console.error('[RegulatoryPeerVisitService] Error creating peer visit:', formatError(error))
       throw error
     }
   }
@@ -240,7 +240,7 @@ export class RegulatoryPeerVisitService {
 
       return result
     } catch (error) {
-      console.error('[RegulatoryPeerVisitService] Error updating peer visit:', this.formatError(error))
+      console.error('[RegulatoryPeerVisitService] Error updating peer visit:', formatError(error))
       throw error
     }
   }
