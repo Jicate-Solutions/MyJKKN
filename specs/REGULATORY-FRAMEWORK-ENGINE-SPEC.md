@@ -1332,6 +1332,15 @@ CREATE POLICY "evidence_update" ON regulatory_evidence FOR UPDATE
 -- This is intentional: evidence uploaded for regulatory compliance should require
 -- IQAC coordinator review before modification/removal.
 
+-- SOFT-DELETE PROTECTION: Implementation MUST include a DB trigger that prevents
+-- non-service-role clients from modifying `is_deleted` or `deleted_at` columns
+-- on `regulatory_evidence`. Only the soft-delete endpoint (DELETE /evidence/[id])
+-- and restore endpoint (PUT /evidence/[id]/restore) — both using service-role
+-- client — should toggle these fields. This prevents users from bypassing the
+-- 30-day recovery window or restoring evidence without going through the API.
+-- Pattern: trigger checks current_setting('request.jwt.claim.role') != 'service_role'
+-- and raises exception if is_deleted or deleted_at is being changed.
+
 -- ─── Submissions: controlled workflow, approval restricted ───
 -- T8: Generate reports = super_admin, institution_admin, iqac_coordinator
 -- T8: Approve submission = super_admin, institution_admin, principal
