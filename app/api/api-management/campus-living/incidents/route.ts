@@ -18,7 +18,7 @@ export const GET = withApiKeyAuth(async (request, auth) => {
 
   const status = getStringParam(url, 'status');
   const severity = getStringParam(url, 'severity');
-  const category = getStringParam(url, 'category');
+  const incidentType = getStringParam(url, 'incident_type');
   const blockId = getUuidParam(url, 'block_id');
   const { dateFrom, dateTo } = getDateRangeParams(url);
 
@@ -29,7 +29,7 @@ export const GET = withApiKeyAuth(async (request, auth) => {
 
   if (status) query = query.eq('status', status);
   if (severity) query = query.eq('severity', severity);
-  if (category) query = query.eq('category', category);
+  if (incidentType) query = query.eq('incident_type', incidentType);
   if (blockId) query = query.eq('block_id', blockId);
   if (dateFrom) query = query.gte('reported_at', dateFrom);
   if (dateTo) query = query.lte('reported_at', dateTo);
