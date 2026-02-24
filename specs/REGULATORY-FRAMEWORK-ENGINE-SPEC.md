@@ -2809,7 +2809,7 @@ The API route calculates `score_delta` and `rank_estimate` server-side before st
 | GET | `/api/regulatory/governing-bodies/[id]/meetings` | `getMeetings(bodyId, filters)` | all with institution access | List meetings for a body |
 | POST | `/api/regulatory/governing-bodies/[id]/meetings` | `createMeeting(bodyId, data)` | super_admin, institution_admin, iqac_coordinator, principal | Record a meeting |
 | PUT | `/api/regulatory/meetings/[id]` | `updateMeeting(id, data)` | super_admin, institution_admin, iqac_coordinator, principal | Update meeting (agenda, resolutions, action items) |
-| PUT | `/api/regulatory/meetings/[id]/approve` | `approveMeeting(id)` | super_admin, institution_admin, principal | Approve meeting minutes |
+| PUT | `/api/regulatory/meetings/[id]/approve` | `approveMeeting(id)` | super_admin, institution_admin, iqac_coordinator, principal | Approve meeting minutes |
 
 ### Peer Visits API
 
