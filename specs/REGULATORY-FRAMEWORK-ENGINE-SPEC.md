@@ -3840,9 +3840,8 @@ lib/services/regulatory/             — Service layer (server-side only, Supaba
 │   -- years of columnar data to display. Multi-year functions query
 │   -- regulatory_metric_values for the same metric_id across multiple academic_year values.
 │   --
-│   -- Schema addition (see Database Schema section): Add `data_window_years integer NOT NULL
-│   --   DEFAULT 1` to `regulatory_metrics`. Set to 5 for NAAC QnM metrics requiring 5-year
-│   --   data, 3 for NIRF financial averages, 1 for current-year-only metrics.
+│   -- `data_window_years` column (added to DDL): Set to 5 for NAAC QnM metrics requiring
+│   --   5-year data, 3 for NIRF financial averages, 1 for current-year-only metrics.
 │
 ├── score-calculator.ts              — Weighted score aggregation per framework type
 │   -- NAAC 2022 uses two-level GPA aggregation: Individual Metric (0-4 scale)
