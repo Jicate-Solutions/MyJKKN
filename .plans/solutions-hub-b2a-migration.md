@@ -489,7 +489,7 @@ Every route follows this template:
 import { NextResponse } from 'next/server';
 import { withAuth } from '@/lib/auth/with-auth';
 import { SolutionsService } from '@/lib/services/solutions/solutions-service';
-import { paginatedResponse, errorResponse } from '@/lib/api/response';
+import { paginatedResponse, createdResponse, errorResponse } from '@/lib/api/response';
 import { getPaginationParams, getSortParams, getStringParam } from '@/lib/api-keys/query-helpers';
 import { corsHeaders } from '@/lib/api-keys/cors'; // ← EXISTING file, do NOT create a new lib/api/cors.ts
 
