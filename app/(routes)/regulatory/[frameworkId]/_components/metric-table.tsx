@@ -20,18 +20,9 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   RefreshCw,
-  Upload,
   Edit3,
   Check,
   X,
@@ -39,7 +30,6 @@ import {
   Filter,
   Zap,
   Pencil,
-  FileText,
 } from 'lucide-react'
 import { useUpdateMetricValue, useRefreshAutoMetric } from '@/hooks/regulatory'
 import toast from 'react-hot-toast'
