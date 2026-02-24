@@ -68,10 +68,14 @@ async function handleSamlSso(
     } = await supabase.auth.getUser();
 
     if (authError || !authUser) {
-      // User not authenticated - redirect to login with return URL
-      const loginUrl = new URL('/login', request.url);
-      loginUrl.searchParams.set('redirect', request.url);
-      return NextResponse.redirect(loginUrl);
+      // User not authenticated - redirect to login with return URL.
+      // Use /auth/login (the actual page path).
+      // Status 302 (not default 307) so the browser downgrades POST → GET,
+      // preventing "405 Method Not Allowed" on the login page.
+      // Use `redirectedFrom` to match the param name the login page reads.
+      const loginUrl = new URL('/auth/login', request.url);
+      loginUrl.searchParams.set('redirectedFrom', request.url);
+      return NextResponse.redirect(loginUrl, { status: 302 });
     }
 
     // Get user profile
