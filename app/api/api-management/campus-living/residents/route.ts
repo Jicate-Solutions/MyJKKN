@@ -10,7 +10,7 @@ export const OPTIONS = () => new NextResponse(null, { headers: corsHeaders });
  * GET /api/api-management/campus-living/residents
  * List current hostel residents (active allocations joined with learner data).
  *
- * Query params: page, limit, block_id, search
+ * Query params: page, limit, block_id
  */
 export const GET = withApiKeyAuth(async (request, auth) => {
   const url = new URL(request.url);
