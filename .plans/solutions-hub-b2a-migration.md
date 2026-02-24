@@ -582,7 +582,7 @@ export const GET = withAuth(async (request, auth) => {
 
 **NOTE:** This phase requires creating `ClientPortalService` in `lib/services/solutions/` to replace the direct Supabase queries in `use-client-portal.ts`.
 
-#### 3.4 Production Portal (session-only initially)
+#### 3.4 Production Portal (session-only initially, `allowApiKey: false`)
 
 | Route | Methods | Service |
 |-------|---------|---------|
