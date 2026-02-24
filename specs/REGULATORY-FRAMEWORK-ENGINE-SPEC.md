@@ -863,6 +863,9 @@ CREATE UNIQUE INDEX idx_frameworks_global_code ON regulatory_frameworks (code)
   WHERE institution_id IS NULL;
 CREATE UNIQUE INDEX idx_frameworks_universal ON regulatory_frameworks
   (body, version) WHERE institution_type IS NULL AND institution_id IS NULL;
+CREATE UNIQUE INDEX idx_frameworks_global_typed ON regulatory_frameworks
+  (body, version, institution_type) WHERE institution_type IS NOT NULL AND institution_id IS NULL;
+-- Prevents duplicate global templates like two (NAAC, 2024, autonomous_college) rows with NULL institution_id.
 
 -- 2. Criteria Tree (hierarchical — supports sub-criteria)
 CREATE TABLE regulatory_criteria (
