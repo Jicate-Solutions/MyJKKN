@@ -372,3 +372,60 @@ All 108 findings were addressed in a single session using a 5-agent parallel swa
 **Final spec (after Round 7):** 4,616 lines | 18 tables + 2 views | 58 RLS policies | 66 API endpoints | 20 frameworks
 
 **Audit score: 108/108 original findings + 3 Round 7 gaps = 111/111 all resolved.**
+
+---
+
+## ROUND 8: ZERO-TRUST DEEP STRUCTURAL AUDIT + FIX PASS
+
+4 parallel zero-trust auditors focused on structural correctness (DDL↔code column names, FK completeness, RLS WITH CHECK gaps, SECURITY DEFINER hardening, regulatory domain accuracy). Found 12 CRITICAL + 16 HIGH after deduplication.
+
+### CRITICAL fixes applied:
+
+| Fix | What Changed |
+|-----|--------------|
+| `display_order` → `sort_order` | All references (safe view, N+1 queries, ORDER BY) fixed to match DDL column name |
+| `weight` on metrics view | Removed — weight lives on `regulatory_criteria`, not `regulatory_metrics` |
+| `data_connector_mapping` | Removed from safe view exclusion comment (column never existed) |
+| SECURITY DEFINER `search_path` | Added `SET search_path = public, pg_temp` to both `restore_evidence` and `soft_delete_evidence` |
+| `prerequisite_submission_id` | Added to `regulatory_submissions` DDL (enables IIQA→SSR and Binary→MBGL prerequisites) |
+| `assessment_phase` | Added to `regulatory_frameworks` DDL (distinguishes primary vs MBGL assessment) |
+| `pass_threshold` + `validity_period_years` | Added to `regulatory_frameworks` DDL |
+| `created_by` | Added to `regulatory_submissions` DDL (audit trail for submission creator) |
+| Stale RESTRICT comment | Fixed to say CASCADE (matching actual DDL) |
+| Score calc `v.metric_code` | Fixed TypeScript to use JOIN-based query (code lives on metrics table, not metric_values) |
+| `last_test_error` | Fixed to `test_error_message` (matching DDL column name) |
+| Dashboard stats SET clause | Rewrote to use explicit subqueries (avoids PostgreSQL OLD-value gotcha) |
+| NAAC GPA grade boundaries | Fixed: A++ = 3.76-4.0, A+ = 3.51-3.75, A = 3.26-3.50 (per PIB notification) |
+| NIRF `RPC` → `RP` | Fixed parameter name to match official NIRF terminology |
+
+### HIGH fixes applied:
+
+| Fix | What Changed |
+|-----|--------------|
+| `dvv_queries_update` WITH CHECK | Added tenant isolation WITH CHECK clause |
+| `metric_assignments_update` WITH CHECK | Added tenant isolation WITH CHECK clause |
+| `evidence_insert` pre-delete guard | Added `is_deleted = false` to WITH CHECK |
+| `bos_meeting_id` FK | Added REFERENCES `regulatory_body_meetings(id)` |
+| Evidence type API filter | Added `geo_tagged_photo` to match DDL CHECK constraint |
+| Report status endpoint | Added `GET /submissions/[id]/report/status` (poll async generation) |
+| Evidence storage path | Aligned upload path with Performance Architecture partitioning |
+| JWT custom claims | Labeled as pseudocode, added Supabase auth hook documentation pointer |
+| Advisory lock distribution | Changed `(random()*4)::int` to `floor(random()*5)::int` for uniform distribution |
+| NBA per-criterion minimum | Added 60% per-criterion floor requirement |
+| Endpoint count | Updated 66 → 67 (added report status) |
+
+### Items documented but not fixed (lower priority):
+
+| Item | Reason |
+|------|--------|
+| DVV Queries/Metric Assignments API endpoints | Implicit CRUD via submissions workflow — document as Phase 2 explicit endpoints |
+| Bulk import endpoint | Referenced in roadmap Week 9 — Phase 2, not blocking Phase 1 |
+| Governance/syllabi/benchmarks RLS reads too permissive | Intentional: API layer is the stricter enforcement point; RLS provides institution isolation |
+| NAAC Binary 900-point total | Cannot be verified against final gazetted methodology; percentages confirmed correct |
+| NAAC 2022 total of 1050 | Internally consistent; source file NAACManual.txt not available for verification |
+| AICTE 9 vs 13 categories | Spec uses high-level groupings; actual AICTE form sections enumerated during report generation |
+| `is_consolidated` flag | Phase 3 feature; column deferred per L18 |
+
+**Final spec (after Round 8):** 4,660 lines | 18 tables + 2 views | 58 RLS policies | 67 API endpoints | 20 frameworks
+
+**Audit score: 111 + 28 Round 8 = 139 total findings, all resolved or documented.**
