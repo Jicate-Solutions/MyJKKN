@@ -871,15 +871,19 @@ Phase 1 ─── Core routes (depends on Phase 0)
 Phase 2 ─── Sub-module routes (depends on Phase 0)
   └── 44 route files (~87 endpoints), can be done in parallel with Phase 1
 
-Phase 3 ─── Portal routes (depends on Phase 0 + Phase 5.1)
-  └── 44 route files (~53 endpoints), Phase 3.3 depends on 5.1 (ClientPortalService)
+Phase 3 ─── Portal routes (depends on Phase 0; Phase 3.3 ALSO depends on 5.1)
+  ├── 3.1-3.2, 3.4-3.9: 38 route files — can start immediately after Phase 0
+  └── 3.3 Client Portal: 6 route files — BLOCKED on Phase 5.1 (ClientPortalService must exist first)
 
-Phase 4 ─── Hook migration (depends on Phases 1-3)
-  ├── 4.1 API client helper (standalone)
-  └── 4.2 Migrate 24 hook files (depends on matching routes existing)
+Phase 5.1 ─── Create ClientPortalService (can start after Phase 0, MUST finish before 3.3 and 4.18)
+  └── This is pulled ahead of Phase 5 because it blocks Phase 3.3
 
-Phase 5 ─── Bypass elimination (can start after Phase 0)
-  ├── 5.1 ClientPortalService (do BEFORE Phase 3.3 and 4.18)
+Phase 4 ─── Hook migration (depends on Phases 1-3 routes existing)
+  ├── 4.1 API client helper (standalone, can start any time)
+  └── 4.2 Migrate 24 hook files (each hook depends on its matching route existing)
+  └── 4.18 (use-client-portal) also depends on Phase 5.1
+
+Phase 5.2-5.4 ─── Remaining bypass elimination (can start after Phase 0)
   ├── 5.2 clients/page.tsx (do after Phase 1.2 routes exist)
   ├── 5.3 pipeline-board.tsx (standalone, just use existing hook)
   └── 5.4 pipeline-analytics.tsx (standalone, just use existing hook)
