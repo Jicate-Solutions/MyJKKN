@@ -353,7 +353,7 @@ All 108 findings were addressed in a single session using a 5-agent parallel swa
 | M31: Meetings API nesting | MISSING | Documented mixed pattern (nested create, flat update) |
 | L7: History growth | PARTIAL | Corrected to ~131K/yr, added 7-year retention policy |
 
-**Final spec (after Round 6):** 4,609 lines | 18 tables + 1 view | 58 RLS policies | 66 API endpoints | 20 frameworks
+**Final spec (after Round 6):** 4,609 lines | 18 tables + 2 views | 58 RLS policies | 66 API endpoints | 20 frameworks
 
 **Audit score: 108/108 findings verified after Round 6.**
 
@@ -369,6 +369,6 @@ All 108 findings were addressed in a single session using a 5-agent parallel swa
 | M6: Metric value concurrency | MISSING | Added optimistic locking via `expected_updated_at` on UPSERT, 409 Conflict on stale writes |
 | M14: program_id FK | MISSING | Changed from unlinked `uuid` to `REFERENCES programs(id)` on `regulatory_course_syllabi` |
 
-**Final spec (after Round 7):** 4,616 lines | 18 tables + 1 view | 58 RLS policies | 66 API endpoints | 20 frameworks
+**Final spec (after Round 7):** 4,616 lines | 18 tables + 2 views | 58 RLS policies | 66 API endpoints | 20 frameworks
 
 **Audit score: 108/108 original findings + 3 Round 7 gaps = 111/111 all resolved.**
