@@ -410,21 +410,47 @@ Standardize ALL API responses:
 { error: string, code?: string }
 ```
 
-**Implementation approach:** Create `lib/api/response.ts` as a thin wrapper that imports from the existing `lib/api-keys/response-helpers.ts` and re-exports with the `metadata` key name. Do NOT rewrite from scratch — the existing helpers already handle CORS headers, proper status codes, and all edge cases. The wrapper just renames the `pagination` key to `metadata` for consistency with BaseService's `BaseListResponse`:
+**Implementation approach (DECIDED — `metadata` key, not `pagination`):**
+
+The existing `lib/api-keys/response-helpers.ts` uses `{ data, count, pagination: {...} }` envelope. The new `lib/api/response.ts` uses `{ data, metadata: {...} }` to match `BaseService.BaseListResponse`. These are DIFFERENT contracts:
+
+| Key | Existing api-management routes | New solutions routes |
+|-----|-------------------------------|---------------------|
+| Pagination key | `pagination` | `metadata` |
+| Top-level `count` | Yes | No (inside metadata) |
+
+Create `lib/api/response.ts` with its own implementation (do NOT delegate to basePaginatedResponse):
 
 ```typescript
-// lib/api/response.ts — wrapper around existing helpers
-import { paginatedResponse as basePaginatedResponse, errorResponse, successApiResponse, createdResponse, noContentResponse } from '@/lib/api-keys/response-helpers';
-export { errorResponse, successApiResponse, createdResponse, noContentResponse };
+// lib/api/response.ts — response helpers for solutions API routes
+import { NextResponse } from 'next/server';
+import { corsHeaders } from '@/lib/api-keys/cors';
 
 export function paginatedResponse<T>(data: T[], total: number, page: number, limit: number) {
-  // Reuse base helper, which returns { data, count, pagination: {...} }
-  // For B2A routes we alias the key to `metadata` for BaseService consistency
-  return basePaginatedResponse(data, total, page, limit);
-  // NOTE: If you need to rename the key from `pagination` to `metadata` in the JSON output,
-  // create a custom response here instead of delegating to basePaginatedResponse.
+  return NextResponse.json({
+    data: data ?? [],
+    metadata: { page, limit, total, totalPages: total ? Math.ceil(total / limit) : 0 },
+  }, { headers: corsHeaders });
+}
+
+export function successApiResponse<T>(data: T, status: number = 200) {
+  return NextResponse.json({ data }, { status, headers: corsHeaders });
+}
+
+export function createdResponse<T>(data: T) {
+  return successApiResponse(data, 201);
+}
+
+export function errorResponse(message: string, status: number = 400) {
+  return NextResponse.json({ error: message }, { status, headers: corsHeaders });
+}
+
+export function noContentResponse() {
+  return new NextResponse(null, { status: 204, headers: corsHeaders });
 }
 ```
+
+This is intentionally separate from `lib/api-keys/response-helpers.ts` — the two coexist with different envelope shapes. Existing api-management routes keep using the old helpers; solutions routes use the new ones.
 
 **Existing file `lib/api-keys/cors.ts` already exists** — it provides `corsHeaders` and `getCorsHeadersWithOrigin()`. No modification needed.
 
