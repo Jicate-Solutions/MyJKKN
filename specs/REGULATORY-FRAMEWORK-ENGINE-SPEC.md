@@ -1356,6 +1356,10 @@ CREATE POLICY "submissions_update" ON regulatory_submissions FOR UPDATE
       OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'))
     AND EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN
       ('super_admin','institution_admin','iqac_coordinator','principal'))
+  )
+  WITH CHECK (
+    (institution_id = auth_institution_id()
+      OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'))
   );
 -- NOTE: iqac_coordinator can transition early statuses (draft→data_collection→in_review).
 -- The `approved` transition is app-layer enforced: only principal or above can approve.
