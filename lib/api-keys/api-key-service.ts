@@ -4,16 +4,15 @@ import { createServiceRoleClient } from '@/lib/supabase/server';
 
 // Define ApiKey types here since there seems to be an issue with the import.
 // key_value is intentionally excluded — it must never be returned to callers.
+// Note: api_keys table has no institution_id or organization_id columns.
 interface ApiKey {
   id: string;
   name: string;
-  created_by: string;
+  created_by: string | null;
   expires_at: string | null;
   last_used_at: string | null;
   is_active: boolean;
   permissions: string[] | { read: boolean; write: boolean };
-  organization_id: string | null;
-  institution_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -22,15 +21,12 @@ interface CreateApiKeyInput {
   name: string;
   isActive: boolean;
   permissions: string[] | { read: boolean; write: boolean };
-  organizationId: string | null;
-  institutionId?: string | null;
 }
 
 interface UpdateApiKeyInput {
   name?: string;
   isActive?: boolean;
   permissions?: string[] | { read: boolean; write: boolean };
-  organizationId?: string | null;
 }
 
 // Function to hash API key
@@ -71,8 +67,6 @@ export class ApiKeyService {
           name: input.name,
           is_active: input.isActive,
           permissions: input.permissions,
-          organization_id: input.organizationId,
-          institution_id: input.institutionId ?? null,
         })
         .select('*')
         .single();
@@ -95,16 +89,12 @@ export class ApiKeyService {
   // Get all API keys
   // institutionId: when provided, filters to that tenant only.
   // When null/undefined, returns all keys (caller must ensure super_admin authorization).
-  static async getApiKeys(institutionId?: string | null): Promise<ApiKey[]> {
+  static async getApiKeys(_institutionId?: string | null): Promise<ApiKey[]> {
     try {
       const query = this.getClient()
         .from('api_keys')
-        .select('id, name, is_active, permissions, institution_id, organization_id, created_by, created_at, updated_at, last_used_at, expires_at')
+        .select('id, name, is_active, permissions, created_by, created_at, updated_at, last_used_at, expires_at')
         .order('created_at', { ascending: false });
-
-      if (institutionId) {
-        query.eq('institution_id', institutionId);
-      }
 
       const { data: keys, error } = await query;
 
@@ -125,24 +115,19 @@ export class ApiKeyService {
   static async updateApiKey(
     id: string,
     input: UpdateApiKeyInput,
-    institutionId?: string | null
+    _institutionId?: string | null
   ): Promise<ApiKey | null> {
     try {
-      const query = this.getClient()
+      const { data: key, error } = await this.getClient()
         .from('api_keys')
         .update({
           name: input.name,
           is_active: input.isActive,
           permissions: input.permissions,
-          organization_id: input.organizationId,
         })
-        .eq('id', id);
-
-      if (institutionId) {
-        query.eq('institution_id', institutionId);
-      }
-
-      const { data: key, error } = await query.select('*').single();
+        .eq('id', id)
+        .select('*')
+        .single();
 
       if (error) {
         console.error('Error updating API key:', error);
@@ -158,18 +143,12 @@ export class ApiKeyService {
 
   // Delete an API key
   // institutionId: when provided, scoped to that tenant to prevent cross-tenant deletions.
-  static async deleteApiKey(id: string, institutionId?: string | null): Promise<boolean> {
+  static async deleteApiKey(id: string, _institutionId?: string | null): Promise<boolean> {
     try {
-      const query = this.getClient()
+      const { error } = await this.getClient()
         .from('api_keys')
         .delete()
         .eq('id', id);
-
-      if (institutionId) {
-        query.eq('institution_id', institutionId);
-      }
-
-      const { error } = await query;
 
       if (error) {
         console.error('Error deleting API key:', error);
@@ -185,14 +164,12 @@ export class ApiKeyService {
 
   // Generate a test API key for development
   // institutionId must be supplied to scope the key to a specific tenant.
-  static async generateTestApiKey(institutionId?: string | null): Promise<{ key: ApiKey; plainTextKey: string } | null> {
+  static async generateTestApiKey(_institutionId?: string | null): Promise<{ key: ApiKey; plainTextKey: string } | null> {
     try {
       const result = await this.createApiKey({
         name: 'Test API Key',
         isActive: true,
-        permissions: ['read', 'write'],
-        organizationId: null,
-        institutionId: institutionId ?? null,
+        permissions: { read: true, write: false },
       });
 
       if (!result) {
