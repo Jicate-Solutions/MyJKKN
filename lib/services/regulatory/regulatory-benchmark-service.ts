@@ -98,7 +98,7 @@ export class RegulatoryBenchmarkService {
         query = query.eq('metric_code', filters.metric_code)
       }
       if (filters.search) {
-        const safe = this.sanitizeSearch(filters.search)
+        const safe = sanitizeSearch(filters.search)
         if (safe) {
           query = query.or(
             `peer_institution_name.ilike.%${safe}%,metric_code.ilike.%${safe}%,notes.ilike.%${safe}%`
