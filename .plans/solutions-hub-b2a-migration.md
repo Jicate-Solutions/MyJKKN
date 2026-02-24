@@ -116,8 +116,8 @@ API Key User → HTTP → /api/solutions/...                → withAuth(apiKey)
 **Current:** No auth, uses SERVICE_ROLE_KEY directly
 **Fix:**
 ```
-1. Add getAuthSession() check — reject 401 if no session
-2. Extract user ID from session for audit trail
+1. Add getAuthUser() check — reject 401 if no session (NOTE: getAuthSession() is DEPRECATED, use getAuthUser() from lib/supabase/server.ts)
+2. Extract user ID from auth user for audit trail
 3. Keep SERVICE_ROLE_KEY for storage operations (required for upload)
 4. Add user.id to file path: `${folderName}/${entityId}/${user.id}/${fileName}`
 ```
