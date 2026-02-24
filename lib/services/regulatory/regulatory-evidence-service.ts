@@ -168,7 +168,7 @@ export class RegulatoryEvidenceService {
 
       // Try full-text search first using the search_vector column
       // Sanitize: remove characters that could break tsquery or PostgREST filter syntax
-      const sanitized = this.sanitizeSearch(searchTerm)
+      const sanitized = sanitizeSearch(searchTerm)
       if (!sanitized) return []
       const tsQuery = sanitized.split(/\s+/).join(' & ')
 
@@ -216,7 +216,7 @@ export class RegulatoryEvidenceService {
     academicYear?: string,
     limit: number = 20
   ) {
-    const safe = this.sanitizeSearch(searchTerm)
+    const safe = sanitizeSearch(searchTerm)
     if (!safe) return []
 
     let query = (this.getSupabase() as any)
