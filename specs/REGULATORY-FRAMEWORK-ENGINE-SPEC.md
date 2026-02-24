@@ -3020,9 +3020,9 @@ Invalid transitions return `409 Conflict`.
 
 **Rate limiting for expensive endpoints:**
 > The following endpoints are computationally expensive and MUST be rate-limited at the API route level:
-> - `POST /metric-values/refresh` — max 1 concurrent per institution (queued, not rejected)
-> - `POST /submissions/[id]/calculate-score` — max 1 concurrent per submission
-> - `POST /submissions/[id]/report` — max 1 concurrent per submission (report generation can take 10-30s)
+> - `POST /metric-values/refresh` — max 1 concurrent per institution. Lock key: `hashtext('metric-refresh:' || institution_id)`
+> - `POST /submissions/[id]/calculate-score` — max 1 concurrent per submission. Lock key: `hashtext('calc-score:' || submission_id)`. The score calculation MUST read all metric values within a single transaction using `SELECT ... FOR SHARE` to prevent concurrent metric value writes from creating inconsistent reads. Add `last_calculated_at timestamptz` to the submission UPDATE so the UI can show staleness.
+> - `POST /submissions/[id]/report` — max 1 concurrent per submission. Lock key: `hashtext('gen-report:' || submission_id)`. Report generation can take 10-30s.
 > Implementation: **Do NOT use in-memory locks** — Vercel serverless functions run in isolated instances with no shared memory, so in-memory Maps/Sets are useless for rate limiting. Instead, use **database advisory locks** (`SELECT pg_try_advisory_xact_lock(hashtext('metric-refresh:' || $1))`) keyed on `institutionId:endpoint` or `submissionId:endpoint`. If the lock is already held, return `{ success: false, error: 'RATE_LIMITED', message: 'Operation already in progress' }` with HTTP 429. Alternative: use Vercel KV (Redis) or Upstash for distributed rate limiting with TTL-based keys.
 >
 > **Additional rate limits for abuse prevention:**
