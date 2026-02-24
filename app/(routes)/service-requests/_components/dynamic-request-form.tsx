@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -62,6 +63,41 @@ function buildDynamicSchema(fields: ServiceTypeField[]) {
   return z.object(shape);
 }
 
+/**
+ * Returns filtered options for a cascading select field.
+ *
+ * Convention: option values that contain "||" are treated as cascading.
+ * Format: "parentFieldValue||actualStopValue"
+ *
+ * When no parent value is selected yet, returns an empty array so the
+ * dropdown shows an informational placeholder instead of all 400+ stops.
+ */
+function getCascadingOptions(
+  field: ServiceTypeField,
+  allValues: Record<string, any>
+): { options: Array<{ label: string; value: string }>; isCascading: boolean } {
+  const opts = field.field_options ?? [];
+  const isCascading = opts.some((o) => o.value.includes('||'));
+
+  if (!isCascading) return { options: opts, isCascading: false };
+
+  // Collect all unique parent prefixes present in this field's options
+  const prefixes = new Set(opts.map((o) => o.value.split('||')[0]));
+
+  // Find which currently selected form value matches a known prefix
+  const selectedParent = Object.values(allValues).find(
+    (val) => typeof val === 'string' && prefixes.has(val)
+  );
+
+  if (!selectedParent) return { options: [], isCascading: true };
+
+  const filtered = opts
+    .filter((o) => o.value.startsWith(selectedParent + '||'))
+    .map((o) => ({ label: o.label, value: o.value.split('||')[1] }));
+
+  return { options: filtered, isCascading: true };
+}
+
 export function DynamicRequestForm({
   fields,
   defaultValues,
@@ -84,6 +120,24 @@ export function DynamicRequestForm({
     resolver: zodResolver(schema),
     defaultValues: defaultValues || {},
   });
+
+  const allValues = watch();
+
+  // When a parent field changes, reset any cascading child fields that
+  // were filtering based on that parent's value.
+  useEffect(() => {
+    sortedFields.forEach((field) => {
+      if (field.field_options?.some((o) => o.value.includes('||'))) {
+        setValue(field.field_key, '');
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    // Depend on the values of NON-cascading select fields (the parent fields)
+    ...sortedFields
+      .filter((f) => f.field_type === 'select' && !f.field_options?.some((o) => o.value.includes('||')))
+      .map((f) => allValues[f.field_key]),
+  ]);
 
   const renderField = (field: ServiceTypeField) => {
     const error = errors[field.field_key];
@@ -193,7 +247,10 @@ export function DynamicRequestForm({
           </div>
         );
 
-      case 'select':
+      case 'select': {
+        const { options: effectiveOptions, isCascading } = getCascadingOptions(field, allValues);
+        const hasNoParentSelected = isCascading && effectiveOptions.length === 0;
+
         return (
           <div key={field.field_key} className="space-y-2">
             <Label htmlFor={field.field_key}>
@@ -203,12 +260,19 @@ export function DynamicRequestForm({
             <Select
               value={watch(field.field_key) || ''}
               onValueChange={(value) => setValue(field.field_key, value)}
+              disabled={hasNoParentSelected}
             >
               <SelectTrigger>
-                <SelectValue placeholder={field.placeholder || `Select ${field.field_label}`} />
+                <SelectValue
+                  placeholder={
+                    hasNoParentSelected
+                      ? 'Select a route first'
+                      : field.placeholder || `Select ${field.field_label}`
+                  }
+                />
               </SelectTrigger>
               <SelectContent>
-                {field.field_options?.map((opt) => (
+                {effectiveOptions.map((opt) => (
                   <SelectItem key={opt.value} value={opt.value}>
                     {opt.label}
                   </SelectItem>
@@ -223,6 +287,7 @@ export function DynamicRequestForm({
             )}
           </div>
         );
+      }
 
       case 'file':
         return (

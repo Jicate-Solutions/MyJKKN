@@ -75,9 +75,11 @@ async function handleSamlSso(
     }
 
     // Get user profile
+    // NOTE: The real table is `profiles` (not `user_profiles`). It stores a
+    // single `full_name` column — no separate first_name/last_name fields.
     const { data: userProfile, error: profileError } = await supabase
-      .from('user_profiles')
-      .select('id, email, first_name, last_name, role')
+      .from('profiles')
+      .select('id, email, full_name, role')
       .eq('id', authUser.id)
       .single();
 
@@ -89,8 +91,16 @@ async function handleSamlSso(
       );
     }
 
+    // Split full_name into first/last for MathWorks attribute mapping
+    const nameParts = (userProfile.full_name || '').trim().split(/\s+/);
+    const profileWithNames = {
+      ...userProfile,
+      first_name: nameParts[0] || '',
+      last_name: nameParts.slice(1).join(' ') || '',
+    };
+
     // Map user attributes
-    const userAttributes = SamlIdpService.mapUserToMathWorksAttributes(userProfile);
+    const userAttributes = SamlIdpService.mapUserToMathWorksAttributes(profileWithNames);
 
     // Create SAML session
     const session = await SamlSessionService.createSession({
