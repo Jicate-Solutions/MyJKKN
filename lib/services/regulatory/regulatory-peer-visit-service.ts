@@ -94,10 +94,10 @@ export class RegulatoryPeerVisitService {
   static async getPeerVisits(filters: PeerVisitFilters = {}) {
     try {
       if (filters.institution_id !== undefined) {
-        this.validateId(filters.institution_id, 'institution_id filter')
+        validateId(filters.institution_id, 'institution_id filter')
       }
       if (filters.submission_id !== undefined) {
-        this.validateId(filters.submission_id, 'submission_id filter')
+        validateId(filters.submission_id, 'submission_id filter')
       }
 
       let query = (this.getSupabase() as any)
@@ -153,10 +153,10 @@ export class RegulatoryPeerVisitService {
    */
   static async createPeerVisit(data: CreatePeerVisitData) {
     try {
-      this.validateId(data.submission_id, 'submission ID')
-      this.validateId(data.institution_id, 'institution ID')
+      validateId(data.submission_id, 'submission ID')
+      validateId(data.institution_id, 'institution ID')
       if (data.coordinator_id) {
-        this.validateId(data.coordinator_id, 'coordinator ID')
+        validateId(data.coordinator_id, 'coordinator ID')
       }
 
       const insertPayload = {
@@ -199,14 +199,14 @@ export class RegulatoryPeerVisitService {
    */
   static async updatePeerVisit(id: string, data: UpdatePeerVisitData) {
     try {
-      this.validateId(id, 'peer visit ID')
+      validateId(id, 'peer visit ID')
 
       // Verify user is authenticated
       const { data: { user } } = await this.getSupabase().auth.getUser()
       if (!user) throw new Error('User not authenticated')
 
       if (data.coordinator_id) {
-        this.validateId(data.coordinator_id, 'coordinator ID')
+        validateId(data.coordinator_id, 'coordinator ID')
       }
 
       const updatePayload: Record<string, any> = {
