@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { corsHeaders } from '@/lib/api-keys/cors';
 import { withApiKeyAuth } from '@/lib/api-keys/with-api-key-auth';
 import { successApiResponse, errorResponse, noContentResponse } from '@/lib/api-keys/response-helpers';
+import { isValidUuid } from '@/lib/api-keys/query-helpers';
 
 export const OPTIONS = () => new NextResponse(null, { headers: corsHeaders });
 
