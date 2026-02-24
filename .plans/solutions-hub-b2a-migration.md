@@ -1198,3 +1198,13 @@ Phase 6 ─── Documentation (after Phases 1-5)
 - [ ] **JWT never logged**: `withAuth` error handlers do NOT include impersonated JWT tokens in `console.error()` messages
 - [ ] **ESLint return-await guard**: `return await runWithClient(...)` line has eslint-disable comment or project-level `@typescript-eslint/return-await` configured
 - [ ] **Portal documented**: All endpoints listed at /application-hub/api-guidelines
+- [ ] **Cookie check catches chunked cookies**: Cookie detection uses `.includes('-auth-token')` NOT `.endsWith('-auth-token')` (Supabase splits large JWTs into `.0`, `.1` chunks)
+- [ ] **withAuth imports `cookies` from `next/headers`**: Required for the cookie presence check
+- [ ] **PATCH body field allowlisting**: All PATCH handlers strip immutable fields (`institution_id`, `created_by`, `created_at`, `id`) from request body before passing to service
+- [ ] **Upload route validates entityId as UUID**: Regex check rejects path traversal attempts
+- [ ] **POST guards null institution_id**: super_admin POST operations require `institution_id` (from auth context OR body) — prevents orphaned data
+- [ ] **Postgres error codes mapped**: `withAuth` catch block maps 23505→409, 23502→400, 23503→400, 42501→403, 22P02→400 (same as `withApiKeyAuth`)
+- [ ] **ALS fallback warns on server**: BaseService getter logs warning when running on server WITHOUT client injection (helps catch unwrapped routes)
+- [ ] **`requiredPermission` defaults to `'write'`**: Omitting the option blocks read-only API keys from mutation endpoints (safe-by-default)
+- [ ] **Uses `jose` for JWT signing**: NOT `jsonwebtoken` — `jose` already installed (v6.0.12), avoids second JWT library
+- [ ] **No unused imports in route templates**: Only import helpers actually used in the handler (e.g., no `getSortParams` if not sorting)
