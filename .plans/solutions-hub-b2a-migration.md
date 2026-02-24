@@ -325,7 +325,7 @@ export abstract class BaseService {
 
 **How this works with existing code:**
 
-All 24 SH services use static methods that access `this.supabase` via the getter. The getter returns `clientOverride.getStore() ?? supabase`. Since `.bind(ClassName)` preserves `this` as the class, and the class resolves `this.supabase` through the prototype chain to `BaseService.supabase`, the override is transparent to all services. No service refactoring needed.
+All 24 SH services use static methods that access `this.supabase` via the getter. The getter returns `clientOverride?.getStore() ?? supabase` (optional chaining because `clientOverride` is `null` on browser). Since `.bind(ClassName)` preserves `this` as the class, and the class resolves `this.supabase` through the prototype chain to `BaseService.supabase`, the override is transparent to all services. No service refactoring needed.
 
 **Flow for session auth (API route):**
 ```
