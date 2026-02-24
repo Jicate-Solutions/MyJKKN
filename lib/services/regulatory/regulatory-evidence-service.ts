@@ -138,7 +138,7 @@ export class RegulatoryEvidenceService {
         }
       }
     } catch (error) {
-      console.error('[RegulatoryEvidenceService] Error fetching evidence:', this.formatError(error))
+      console.error('[RegulatoryEvidenceService] Error fetching evidence:', formatError(error))
       throw error
     }
   }
@@ -196,13 +196,13 @@ export class RegulatoryEvidenceService {
 
       // If FTS fails (e.g., bad tsquery syntax), fall back to ilike
       if (error) {
-        console.warn('[RegulatoryEvidenceService] FTS failed, falling back to ilike:', this.formatError(error))
+        console.warn('[RegulatoryEvidenceService] FTS failed, falling back to ilike:', formatError(error))
         return this.searchEvidenceFallback(searchTerm, institutionId, academicYear, limit)
       }
 
       return data || []
     } catch (error) {
-      console.error('[RegulatoryEvidenceService] Error searching evidence:', this.formatError(error))
+      console.error('[RegulatoryEvidenceService] Error searching evidence:', formatError(error))
       throw error
     }
   }
@@ -312,7 +312,7 @@ export class RegulatoryEvidenceService {
 
       return result
     } catch (error) {
-      console.error('[RegulatoryEvidenceService] Error uploading evidence:', this.formatError(error))
+      console.error('[RegulatoryEvidenceService] Error uploading evidence:', formatError(error))
       throw error
     }
   }
@@ -343,7 +343,7 @@ export class RegulatoryEvidenceService {
 
       return data
     } catch (error) {
-      console.error('[RegulatoryEvidenceService] Error soft-deleting evidence:', this.formatError(error))
+      console.error('[RegulatoryEvidenceService] Error soft-deleting evidence:', formatError(error))
       throw error
     }
   }
@@ -372,7 +372,7 @@ export class RegulatoryEvidenceService {
 
       return data || []
     } catch (error) {
-      console.error('[RegulatoryEvidenceService] Error fetching evidence versions:', this.formatError(error))
+      console.error('[RegulatoryEvidenceService] Error fetching evidence versions:', formatError(error))
       throw error
     }
   }
@@ -452,7 +452,7 @@ export class RegulatoryEvidenceService {
 
       return updatedEvidence
     } catch (error) {
-      console.error('[RegulatoryEvidenceService] Error adding evidence version:', this.formatError(error))
+      console.error('[RegulatoryEvidenceService] Error adding evidence version:', formatError(error))
       throw error
     }
   }
