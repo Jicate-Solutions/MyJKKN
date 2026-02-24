@@ -47,10 +47,10 @@ export class RegulatorySubmissionService {
   static async getSubmissions(filters: SubmissionFilters = {}) {
     try {
       if (filters.framework_id !== undefined) {
-        this.validateId(filters.framework_id, 'framework_id filter')
+        validateId(filters.framework_id, 'framework_id filter')
       }
       if (filters.institution_id !== undefined) {
-        this.validateId(filters.institution_id, 'institution_id filter')
+        validateId(filters.institution_id, 'institution_id filter')
       }
 
       let query = (this.getSupabase() as any)
@@ -109,7 +109,7 @@ export class RegulatorySubmissionService {
    */
   static async getSubmissionById(id: string) {
     try {
-      this.validateId(id, 'submission ID')
+      validateId(id, 'submission ID')
 
       const { data, error } = await (this.getSupabase() as any)
         .from('regulatory_submissions')
@@ -191,8 +191,8 @@ export class RegulatorySubmissionService {
    */
   static async createSubmission(data: CreateSubmissionData) {
     try {
-      this.validateId(data.framework_id, 'framework ID')
-      this.validateId(data.institution_id, 'institution ID')
+      validateId(data.framework_id, 'framework ID')
+      validateId(data.institution_id, 'institution ID')
 
       // Verify user is authenticated
       const { data: { user } } = await this.getSupabase().auth.getUser()
@@ -252,7 +252,7 @@ export class RegulatorySubmissionService {
    */
   static async updateSubmissionStatus(id: string, status: SubmissionStatus) {
     try {
-      this.validateId(id, 'submission ID')
+      validateId(id, 'submission ID')
 
       // Validate that the target status is a known value
       const validStatuses: SubmissionStatus[] = ['draft', 'data_collection', 'in_review', 'approved', 'submitted', 'accepted']
@@ -322,7 +322,7 @@ export class RegulatorySubmissionService {
    */
   static async calculateSubmissionScore(id: string) {
     try {
-      this.validateId(id, 'submission ID')
+      validateId(id, 'submission ID')
 
       // Get the submission details
       const { data: submission, error: subError } = await (this.getSupabase() as any)
