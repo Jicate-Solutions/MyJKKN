@@ -747,11 +747,11 @@ Add rate limiting to `withAuth`:
 
 | File | Purpose |
 |------|---------|
-| `lib/auth/with-auth.ts` | Unified auth middleware |
+| `lib/auth/with-auth.ts` | Unified auth middleware (session + API key detection, runWithClient wrapping) |
+| `lib/auth/impersonate.ts` | JWT impersonation helper for API key auth |
 | `lib/api/response.ts` | Standardized response helpers |
 | `lib/api/client.ts` | Internal API client for hooks |
 | `lib/services/solutions/client-portal-service.ts` | Service for client portal (replace bypass) |
-| `supabase/migrations/XXXXXX_auth_impersonation.sql` | RLS impersonation function |
 | ~62 route files under `app/api/solutions/` | API endpoints |
 
 ## Files to Modify
