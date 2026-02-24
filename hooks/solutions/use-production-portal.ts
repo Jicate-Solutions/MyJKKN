@@ -18,7 +18,6 @@ import type {
   UpdateProductionLearnerInput,
   SkillLevel,
 } from '@/lib/services/solutions';
-import { productionService } from '@/lib/services/solutions';
 
 // Re-export types for consumers
 export type {
