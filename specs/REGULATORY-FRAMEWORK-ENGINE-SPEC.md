@@ -2814,7 +2814,7 @@ Additional entity-specific filters are documented per endpoint where applicable.
 | GET | `/api/regulatory/frameworks/[id]/completeness` | `getFrameworkCompleteness(id, institutionId, year)` | super_admin, institution_admin, iqac_coordinator, principal, hod | Completeness % and metric breakdown |
 | POST | `/api/regulatory/frameworks` | `createFramework(data)` | super_admin | Create new framework definition |
 | PUT | `/api/regulatory/frameworks/[id]` | `updateFramework(id, data)` | super_admin | Update framework |
-| DELETE | `/api/regulatory/frameworks/[id]` | `deleteFramework(id)` | super_admin | Delete framework. **Guard:** Reject with 409 if any submissions exist for this framework (check `regulatory_submissions` count). Also reject if framework status='active' — must archive first. |
+| DELETE | `/api/regulatory/frameworks/[id]` | `deleteFramework(id)` | super_admin | Delete framework. **Guard:** Reject with 409 if any submissions exist for this framework (check `regulatory_submissions` count). Also reject if framework status='active' — must archive first. **FK cascade chain awareness:** Deletion cascades through criteria → metrics → metric_values. This cascade will be BLOCKED by: (1) `regulatory_evidence` FK RESTRICT on `criteria_id`/`metric_id` — any evidence linked to the framework's criteria/metrics prevents deletion; (2) `regulatory_metric_value_history` FK RESTRICT on `metric_value_id` — any audit trail entries prevent deletion. The guard should pre-check these and return a descriptive 409 ("Cannot delete: X evidence documents and Y metric value history entries exist") rather than letting PostgreSQL throw a cryptic FK violation. |
 
 ### Criteria API
 
