@@ -87,6 +87,11 @@ export default function ApiGuidelinesPage() {
               <ApiModuleLayout config={learnersModuleConfig} />
             </Card>
           </TabsContent>
+          <TabsContent value='campus-living'>
+            <Card className='p-6'>
+              <ApiModuleLayout config={campusLivingModuleConfig} />
+            </Card>
+          </TabsContent>
           <TabsContent value='academic'>
             <Card className='p-6'>
               <AcademicApiDocs />
