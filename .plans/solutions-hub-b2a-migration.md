@@ -128,13 +128,34 @@ API Key User → HTTP → /api/solutions/...                → withAuth(apiKey)
 
 **Design:**
 ```typescript
-interface AuthContext {
-  user: User;                    // Authenticated user (from session or key owner)
-  authMethod: 'session' | 'api_key';
-  supabase: SupabaseClient;     // Server-side client with user's RLS context
-  apiKeyData?: ApiKeyData;      // Present only for API key auth
-  institutionId?: string;       // From profile or API key org
+/**
+ * Unified auth user — NOT the GoTrue User object.
+ * For session auth: built from profiles table (same data as hooks use).
+ * For API key auth: built from profiles table lookup on api_keys.created_by.
+ * Handlers should NEVER rely on GoTrue-specific fields like app_metadata or user_metadata.
+ */
+interface AuthUser {
+  id: string;                    // User UUID (= auth.uid() for RLS)
+  email: string;
+  role: string;                  // 'super_admin' | 'admin' | 'staff' | etc.
+  institution_id: string | null; // From profiles.institution_id (null for some super_admins)
+  full_name?: string;
 }
+
+interface AuthContext {
+  user: AuthUser;                // Authenticated user (from session profile or API key owner profile)
+  authMethod: 'session' | 'api_key';
+  supabase: SupabaseClient;     // Server-side client with user's RLS context (for direct queries OUTSIDE services)
+  apiKeyData?: ApiKeyData;      // Present only for API key auth
+  institutionId: string | null;  // Shorthand for user.institution_id (from profiles table)
+}
+
+// NOTE on auth.supabase vs BaseService.runWithClient:
+// - Service calls (SolutionsService.getSolutions, etc.) get the correct client automatically
+//   via AsyncLocalStorage injection — handlers do NOT need auth.supabase for service calls
+// - auth.supabase is provided for cases where a handler needs to make a DIRECT Supabase
+//   query outside of services (e.g., a one-off join or RPC call not covered by services)
+// - In 95% of routes, you will NOT use auth.supabase directly — just call service methods
 
 type AuthenticatedHandler = (
   request: NextRequest,
@@ -144,12 +165,18 @@ type AuthenticatedHandler = (
 
 interface AuthOptions {
   requiredPermission?: 'read' | 'write';
-  allowApiKey?: boolean;   // default: true
-  requireRole?: string[];  // optional role check
+  allowApiKey?: boolean;   // default: true — set false for portal routes
+  requireRole?: string[];  // optional role check (e.g., ['admin', 'super_admin'])
 }
 
 function withAuth(handler: AuthenticatedHandler, options?: AuthOptions)
 ```
+
+**Relationship to existing `withApiKeyAuth`:**
+The existing `lib/api-keys/with-api-key-auth.ts` handles API-key-only auth for `api-management` routes. It uses SERVICE_ROLE_KEY (bypasses RLS) and maps `organization_id` → `institutionId`. The NEW `withAuth` in `lib/auth/with-auth.ts` is a **superset** that handles BOTH session + API key auth, uses JWT impersonation (preserves RLS), and is for Solutions Hub routes. The two coexist:
+- `api-management/*` routes → keep using `withApiKeyAuth` (unchanged)
+- `api/solutions/*` routes → use new `withAuth`
+- Future: existing api-management routes CAN be migrated to `withAuth` for RLS benefit, but this is NOT part of the current spec
 
 **Auth detection order (CRITICAL — cookies first, not Bearer first):**
 1. Check cookies (via `next/headers`) → Session flow (browser users always send cookies)
