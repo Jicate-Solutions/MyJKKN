@@ -767,9 +767,9 @@ Add rate limiting to `withAuth`:
 ```
 Phase 0 ─── Foundation (MUST complete first)
   ├── 0.1 Fix upload route (standalone, do first)
-  ├── 0.2 withAuth middleware (depends on 0.3)
-  ├── 0.3 DB impersonation function (standalone)
-  ├── 0.4 BaseService injection (standalone)
+  ├── 0.2 withAuth middleware (depends on 0.3 + 0.4)
+  ├── 0.3 JWT impersonation helper (standalone, requires `bun add jsonwebtoken`)
+  ├── 0.4 BaseService AsyncLocalStorage injection (standalone, highest leverage)
   └── 0.5 Response helpers (standalone)
 
 Phase 1 ─── Core routes (depends on Phase 0)
