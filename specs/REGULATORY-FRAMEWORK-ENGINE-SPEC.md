@@ -1155,7 +1155,7 @@ CREATE TABLE regulatory_peer_benchmarks (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   institution_id uuid NOT NULL REFERENCES institutions(id),
   framework_id uuid NOT NULL REFERENCES regulatory_frameworks(id),
-  academic_year text NOT NULL,
+  academic_year text NOT NULL CHECK (academic_year ~ '^\d{4}(-\d{2})?$'),
   peer_institution_name text NOT NULL,
   peer_institution_nirf_rank integer,
   peer_institution_naac_grade text,
