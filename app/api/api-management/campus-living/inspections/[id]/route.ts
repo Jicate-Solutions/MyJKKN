@@ -9,8 +9,16 @@ export const GET = withApiKeyAuth(async (request, auth, context) => {
   const params = await context?.params;
   const id = params?.id;
   if (!id) return errorResponse('Inspection ID is required', 400);
+  const institutionId = auth.institutionId;
+  if (!institutionId) return errorResponse('API key must be associated with an organization', 400);
+
   const { data, error } = await (auth.supabase as any)
-    .from('hostel_inspections').select('*').eq('id', id).single();
+    .from('hostel_inspections')
+    .select('*')
+    .eq('id', id)
+    .eq('institution_id', institutionId)
+    .single();
+
   if (error) {
     if (error.code === 'PGRST116') return errorResponse('Inspection not found', 404);
     throw error;
@@ -22,10 +30,20 @@ export const PATCH = withApiKeyAuth(async (request, auth, context) => {
   const params = await context?.params;
   const id = params?.id;
   if (!id) return errorResponse('Inspection ID is required', 400);
+  const institutionId = auth.institutionId;
+  if (!institutionId) return errorResponse('API key must be associated with an organization', 400);
+
   const body = await request.json();
   delete body.institution_id; delete body.id;
+
   const { data, error } = await (auth.supabase as any)
-    .from('hostel_inspections').update(body).eq('id', id).select().single();
+    .from('hostel_inspections')
+    .update(body)
+    .eq('id', id)
+    .eq('institution_id', institutionId)
+    .select()
+    .single();
+
   if (error) {
     if (error.code === 'PGRST116') return errorResponse('Inspection not found', 404);
     throw error;
