@@ -1192,8 +1192,10 @@ ALTER TABLE regulatory_evidence ADD COLUMN IF NOT EXISTS search_vector tsvector
     )
   ) STORED;
 
-CREATE INDEX idx_reg_evidence_search ON regulatory_evidence USING GIN (search_vector);
-CREATE INDEX idx_reg_evidence_filename_trgm ON regulatory_evidence USING GIN (file_name gin_trgm_ops);
+CREATE INDEX idx_reg_evidence_search ON regulatory_evidence USING GIN (search_vector)
+  WHERE is_deleted = false;  -- partial: exclude soft-deleted records from search index
+CREATE INDEX idx_reg_evidence_filename_trgm ON regulatory_evidence USING GIN (file_name gin_trgm_ops)
+  WHERE is_deleted = false;  -- partial: no need to fuzzy-match deleted file names
 
 -- ═══════════════════════════════════════════════
 -- OKR → REGULATORY INTEGRATION (Action Plan tracking)
