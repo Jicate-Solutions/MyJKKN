@@ -29,7 +29,7 @@ export const GET = withApiKeyAuth(async (request, auth) => {
       .eq('institution_id', institutionId);
 
     if (blockId) query = query.eq('block_id', blockId);
-    if (isActive !== undefined) query = query.eq('is_active', isActive === 'true');
+    if (isActive) query = query.eq('is_active', isActive === 'true');
 
     query = query.range(from, to).order('created_at', { ascending: false });
     const { data, error, count } = await query;
