@@ -158,6 +158,15 @@ function withAuth(handler: AuthenticatedHandler, options?: AuthOptions)
 
 **Why cookies-first?** Supabase session JWTs and API keys both use `Authorization: Bearer <token>`. If we checked Bearer first, a browser request with a session JWT in the Authorization header would be hashed, looked up in `api_keys`, and fail with 401. By checking cookies first, browser sessions are handled correctly. API consumers (external scripts, cURL) never send cookies, so they fall through to Bearer → API key lookup. This is a clean, reliable disambiguation.
 
+**Latency optimization (IMPORTANT):** "Check cookies" does NOT mean "create a full server client and call `getUser()`" — that would add ~100-200ms of wasted latency for every API key request (GoTrue HTTP round-trip that returns no user). Instead, check for the **presence** of Supabase session cookies first:
+```typescript
+const cookieStore = await cookies();
+const hasSessionCookie = cookieStore.getAll().some(c => c.name.startsWith('sb-') && c.name.endsWith('-auth-token'));
+```
+If `hasSessionCookie` is true → proceed to Session flow (create server client, call `getUser()`).
+If false → skip directly to Bearer header check → API key flow.
+This avoids any server-side HTTP call for API key requests.
+
 **Session flow:**
 1. `const serverClient = await createServerSupabaseClient()` — **this is async** (internally `await`s `cookies()` from `next/headers`)
 2. Verify user via `const { data: { user } } = await serverClient.auth.getUser()` — reject 401 if no user
