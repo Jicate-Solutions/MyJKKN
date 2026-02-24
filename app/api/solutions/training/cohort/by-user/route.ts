@@ -9,8 +9,9 @@ export async function OPTIONS() {
   return NextResponse.json({}, { headers: corsHeaders })
 }
 
-export const GET = withAuth(async (req) => {
-  const userId = getUuidParam(req, 'user_id')
+export const GET = withAuth(async (request, auth) => {
+  const url = new URL(request.url)
+  const userId = getUuidParam(url, 'user_id')
 
   if (!userId) {
     return errorResponse('user_id is required', 400)
