@@ -12,12 +12,12 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { solutionsHubKeys } from '@/lib/query-keys';
 import { QUERY_CONFIG } from '@/lib/config/query-config';
-import {
-  earningsService,
-  type EarningsFilters as ServiceEarningsFilters,
-  type EarningsWithPayment,
-  type EarningsSummary,
-  type RecipientTotalEarnings,
+import { apiClient } from '@/lib/api/client';
+import type {
+  EarningsFilters as ServiceEarningsFilters,
+  EarningsWithPayment,
+  EarningsSummary,
+  RecipientTotalEarnings,
 } from '@/lib/services/solutions';
 import type { RecipientType, EarningsStatus } from '@/lib/services/solutions/types';
 
@@ -75,7 +75,7 @@ export interface MonthlyEarningsReport {
 export function useEarnings(filters?: EarningsFilters) {
   return useQuery({
     queryKey: solutionsHubKeys.earnings.list(filters),
-    queryFn: () => earningsService.getEarnings(filters),
+    queryFn: () => apiClient.get('/api/solutions/earnings', { params: filters as Record<string, any> }),
     ...QUERY_CONFIG.DYNAMIC_DATA,
   });
 }
@@ -86,7 +86,7 @@ export function useEarnings(filters?: EarningsFilters) {
 export function useEarningsByRecipient(recipientType: RecipientType, recipientId: string) {
   return useQuery({
     queryKey: solutionsHubKeys.earnings.byRecipient(recipientType, recipientId),
-    queryFn: () => earningsService.getEarningsByRecipient(recipientType, recipientId),
+    queryFn: () => apiClient.get('/api/solutions/earnings', { params: { recipient_type: recipientType, recipient_id: recipientId } }),
     enabled: !!recipientType && !!recipientId,
     ...QUERY_CONFIG.SEMI_STABLE_DATA,
   });
@@ -98,7 +98,7 @@ export function useEarningsByRecipient(recipientType: RecipientType, recipientId
 export function useEarningsSummary() {
   return useQuery({
     queryKey: solutionsHubKeys.earnings.summary(),
-    queryFn: () => earningsService.getEarningsSummary(),
+    queryFn: () => apiClient.get('/api/solutions/earnings/summary'),
     ...QUERY_CONFIG.DASHBOARD_DATA,
   });
 }
@@ -109,7 +109,7 @@ export function useEarningsSummary() {
 export function useEarningsStats() {
   return useQuery({
     queryKey: ['solutions-hub', 'earnings', 'stats'],
-    queryFn: () => earningsService.getEarningsStats(),
+    queryFn: () => apiClient.get('/api/solutions/earnings', { params: { stats: 'true' } }),
     ...QUERY_CONFIG.DASHBOARD_DATA,
   });
 }
@@ -120,7 +120,7 @@ export function useEarningsStats() {
 export function useRecipientTotalEarnings(recipientType: RecipientType, recipientId: string) {
   return useQuery({
     queryKey: solutionsHubKeys.earnings.total(recipientType, recipientId),
-    queryFn: () => earningsService.getRecipientTotalEarnings(recipientType, recipientId),
+    queryFn: () => apiClient.get('/api/solutions/earnings', { params: { recipient_type: recipientType, recipient_id: recipientId, total_only: 'true' } }),
     enabled: !!recipientType && !!recipientId,
     ...QUERY_CONFIG.SEMI_STABLE_DATA,
   });
@@ -136,7 +136,7 @@ export function useDepartmentEarnings(
 ) {
   return useQuery({
     queryKey: solutionsHubKeys.earnings.byDepartment(departmentId, fromDate, toDate),
-    queryFn: () => earningsService.getDepartmentEarnings(departmentId, fromDate, toDate),
+    queryFn: () => apiClient.get('/api/solutions/earnings', { params: { department_id: departmentId, dateFrom: fromDate, dateTo: toDate } }),
     enabled: !!departmentId,
     ...QUERY_CONFIG.SEMI_STABLE_DATA,
   });
@@ -148,7 +148,7 @@ export function useDepartmentEarnings(
 export function useMonthlyEarningsReport(month: number, year: number) {
   return useQuery({
     queryKey: solutionsHubKeys.earnings.monthlyReport(month, year),
-    queryFn: () => earningsService.getMonthlyEarningsReport(month, year),
+    queryFn: () => apiClient.get('/api/solutions/earnings/report', { params: { month: String(month), year: String(year) } }),
     enabled: month > 0 && year > 0,
     ...QUERY_CONFIG.SEMI_STABLE_DATA,
   });
@@ -165,7 +165,7 @@ export function useCreateEarningEntry() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (input: CreateEarningInput) => earningsService.createEarningEntry(input),
+    mutationFn: (input: CreateEarningInput) => apiClient.post('/api/solutions/earnings', input),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.earnings.all });
     },
@@ -187,7 +187,7 @@ export function useUpdateEarningsStatus() {
       id: string;
       status: EarningsStatus;
       paidAt?: string;
-    }) => earningsService.updateEarningsStatus(id, status, paidAt),
+    }) => apiClient.patch('/api/solutions/earnings', { id, status, paid_at: paidAt }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.earnings.all });
     },
@@ -202,7 +202,7 @@ export function useBulkUpdateEarningsStatus() {
 
   return useMutation({
     mutationFn: ({ ids, status }: { ids: string[]; status: EarningsStatus }) =>
-      earningsService.bulkUpdateEarningsStatus(ids, status),
+      apiClient.patch('/api/solutions/earnings', { ids, status, _bulk: true }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.earnings.all });
     },
@@ -216,7 +216,7 @@ export function useApprovePaymentEarnings() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (paymentId: string) => earningsService.approvePaymentEarnings(paymentId),
+    mutationFn: (paymentId: string) => apiClient.post('/api/solutions/earnings', { payment_id: paymentId, _action: 'approve' }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.earnings.all });
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.payments.all });
@@ -232,7 +232,7 @@ export function useMarkEarningsAsPaid() {
 
   return useMutation({
     mutationFn: ({ ids, paidAt }: { ids: string[]; paidAt?: string }) =>
-      earningsService.markEarningsAsPaid(ids, paidAt),
+      apiClient.patch('/api/solutions/earnings', { ids, status: 'paid', paid_at: paidAt, _bulk: true }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.earnings.all });
     },
