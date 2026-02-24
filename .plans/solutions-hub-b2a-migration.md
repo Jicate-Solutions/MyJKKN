@@ -397,9 +397,9 @@ export const GET = withAuth(async (request, auth) => {
 
 | Route | Methods | Service Methods |
 |-------|---------|-----------------|
-| `/api/solutions/route.ts` | GET, POST | `SolutionsService.list()`, `.create()` |
-| `/api/solutions/[id]/route.ts` | GET, PATCH, DELETE | `.getById()`, `.update()`, `.delete()` |
-| `/api/solutions/stats/route.ts` | GET | `.getStats()` |
+| `/api/solutions/route.ts` | GET, POST | `SolutionsService.getSolutions()`, `.createSolution()` |
+| `/api/solutions/[id]/route.ts` | GET, PATCH, DELETE | `.getSolutionById()`, `.updateSolution()`, `.deleteSolution()` |
+| `/api/solutions/stats/route.ts` | GET | `.getSolutionStats()` |
 
 #### 1.2 Clients CRUD
 
