@@ -29,7 +29,7 @@ export const GET = withApiKeyAuth(async (request, auth) => {
 
   if (learnerId) query = query.eq('learner_id', learnerId);
   if (mealType) query = query.eq('meal_type', mealType);
-  if (consumed !== null && consumed !== undefined) query = query.eq('consumed', consumed === 'true');
+  if (consumed) query = query.eq('consumed', consumed === 'true');
   if (dateFrom) query = query.gte('date', dateFrom);
   if (dateTo) query = query.lte('date', dateTo);
 
