@@ -8,12 +8,12 @@
 import { useQuery } from '@tanstack/react-query';
 import { solutionsHubKeys } from '@/lib/query-keys';
 import { QUERY_CONFIG } from '@/lib/config/query-config';
-import { prospectsService } from '@/lib/services/solutions/prospects-service';
+import { apiClient } from '@/lib/api/client';
 
 export function useOverdueProspects() {
   return useQuery({
     queryKey: solutionsHubKeys.prospects.overdue(),
-    queryFn: () => prospectsService.getProspects({ overdue_only: true, limit: 50 }),
+    queryFn: () => apiClient.get('/api/solutions/prospects', { params: { overdue_only: true, limit: 50 } }),
     ...QUERY_CONFIG.DYNAMIC_DATA,
   });
 }
