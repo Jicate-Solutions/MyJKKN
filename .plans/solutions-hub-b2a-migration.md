@@ -430,6 +430,8 @@ export const GET = withAuth(async (request, auth) => {
 | `/api/solutions/[id]/route.ts` | GET, PATCH, DELETE | `.getSolutionById()`, `.updateSolution()`, `.deleteSolution()` |
 | `/api/solutions/stats/route.ts` | GET | `.getSolutionStats()` |
 
+**NOTE on service method names in tables below:** Phases 1.2-3.8 use shorthand like `.list()`, `.create()`, `.getById()` for brevity. The actual method names follow the pattern `get{Entity}s()`, `create{Entity}()`, `get{Entity}ById()`, `update{Entity}()`, `delete{Entity}()`. Always check the actual service file for exact method names during implementation.
+
 #### 1.2 Clients CRUD
 
 | Route | Methods | Service Methods |
