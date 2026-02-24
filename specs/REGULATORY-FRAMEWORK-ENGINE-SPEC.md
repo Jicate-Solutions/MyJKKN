@@ -1389,8 +1389,10 @@ CREATE POLICY "metrics_modify" ON regulatory_metrics FOR UPDATE
   USING (EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'));
 CREATE POLICY "metrics_delete" ON regulatory_metrics FOR DELETE
   USING (EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'));
--- NOTE: No API DELETE endpoint for individual metrics (metrics cascade-delete from criteria).
--- This policy exists to allow the cascade chain from criteria DELETE to succeed.
+-- NOTE: No API DELETE endpoint for individual metrics. Metrics are deleted via
+-- ON DELETE CASCADE from their parent criteria. CASCADE deletes BYPASS RLS policies
+-- entirely (PostgreSQL FK cascades are not subject to RLS checks on the child table).
+-- This policy exists only for direct DELETE statements (e.g., admin cleanup).
 
 -- Data connectors: RESTRICTED to super_admin (contains query_template SQL — exposing to other roles leaks DB schema)
 CREATE POLICY "connectors_read" ON regulatory_data_connectors FOR SELECT USING (
