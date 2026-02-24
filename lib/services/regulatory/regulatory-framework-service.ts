@@ -58,7 +58,7 @@ export class RegulatoryFrameworkService {
         query = query.eq('framework_type', filters.framework_type)
       }
       if (filters.search) {
-        const safe = this.sanitizeSearch(filters.search)
+        const safe = sanitizeSearch(filters.search)
         if (safe) {
           query = query.or(
             `name.ilike.%${safe}%,body.ilike.%${safe}%,description.ilike.%${safe}%`
