@@ -34,9 +34,9 @@ export const GET = withApiKeyAuth(async (request, auth) => {
   if (status) query = query.eq('status', status);
   if (current === 'true') {
     const today = new Date();
-    const dayOfWeek = today.getDay();
+    const dayOfWeek = today.getUTCDay();
     const monday = new Date(today);
-    monday.setDate(today.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1));
+    monday.setUTCDate(today.getUTCDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1));
     query = query.eq('week_start_date', monday.toISOString().split('T')[0]);
   }
 
