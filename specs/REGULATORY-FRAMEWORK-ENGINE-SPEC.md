@@ -2004,11 +2004,12 @@ CREATE TRIGGER trg_benchmarks_updated_at BEFORE UPDATE ON regulatory_peer_benchm
 
 -- Metric value history is append-only. This trigger prevents mutation even from service-role clients.
 CREATE OR REPLACE FUNCTION prevent_history_mutation()
-RETURNS trigger AS $$
+RETURNS trigger
+LANGUAGE plpgsql SET search_path = public, pg_temp AS $$
 BEGIN
   RAISE EXCEPTION 'regulatory_metric_value_history is append-only. UPDATE and DELETE are prohibited.';
 END;
-$$ LANGUAGE plpgsql;
+$$;
 
 CREATE TRIGGER trg_history_immutable
   BEFORE UPDATE OR DELETE ON regulatory_metric_value_history
