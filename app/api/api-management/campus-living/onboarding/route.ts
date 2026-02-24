@@ -42,6 +42,9 @@ export const GET = withApiKeyAuth(async (request, auth) => {
  * Body: { id: string, updates: Record<string, any> }
  */
 export const PATCH = withApiKeyAuth(async (request, auth) => {
+  const institutionId = auth.institutionId;
+  if (!institutionId) return errorResponse('API key must be associated with an organization', 400);
+
   const body = await request.json();
   const { id, ...updates } = body;
 
@@ -52,6 +55,7 @@ export const PATCH = withApiKeyAuth(async (request, auth) => {
     .from('hostel_onboarding_checklists')
     .update(updates)
     .eq('id', id)
+    .eq('institution_id', institutionId)
     .select()
     .single();
 
