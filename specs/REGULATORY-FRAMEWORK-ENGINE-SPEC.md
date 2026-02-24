@@ -2824,7 +2824,7 @@ Additional entity-specific filters are documented per endpoint where applicable.
 | GET | `/api/regulatory/criteria/[id]` | `getCriterionById(id)` | all authenticated | Single criterion with children |
 | POST | `/api/regulatory/criteria` | `createCriterion(data)` | super_admin | Add criterion to framework |
 | PUT | `/api/regulatory/criteria/[id]` | `updateCriterion(id, data)` | super_admin | Update criterion |
-| DELETE | `/api/regulatory/criteria/[id]` | `deleteCriterion(id)` | super_admin | Delete criterion (cascades metrics). **Guard:** Reject if parent framework has status='active' AND any submissions exist for it — prevents destroying data mid-submission. Only allow deletion from 'draft' frameworks or frameworks with zero submissions. |
+| DELETE | `/api/regulatory/criteria/[id]` | `deleteCriterion(id)` | super_admin | Delete criterion (cascades metrics). **Guard:** Reject if parent framework has status='active' AND any submissions exist for it — prevents destroying data mid-submission. Only allow deletion from 'draft' frameworks or frameworks with zero submissions. **FK cascade chain:** Deletion cascades to child metrics → metric_values. Blocked by: (1) evidence FK RESTRICT on `criteria_id`/`metric_id`; (2) metric_value_history FK RESTRICT. Pre-check and return descriptive 409 if any linked evidence or history exists. |
 
 ### Metrics API
 
