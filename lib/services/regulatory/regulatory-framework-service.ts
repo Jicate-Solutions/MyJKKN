@@ -88,7 +88,7 @@ export class RegulatoryFrameworkService {
         }
       }
     } catch (error) {
-      console.error('[RegulatoryFrameworkService] Error fetching frameworks:', this.formatError(error))
+      console.error('[RegulatoryFrameworkService] Error fetching frameworks:', formatError(error))
       throw error
     }
   }
@@ -117,7 +117,7 @@ export class RegulatoryFrameworkService {
 
       return data
     } catch (error) {
-      console.error('[RegulatoryFrameworkService] Error fetching framework:', this.formatError(error))
+      console.error('[RegulatoryFrameworkService] Error fetching framework:', formatError(error))
       throw error
     }
   }
@@ -191,7 +191,7 @@ export class RegulatoryFrameworkService {
         criteria: tree
       }
     } catch (error) {
-      console.error('[RegulatoryFrameworkService] Error fetching framework tree:', this.formatError(error))
+      console.error('[RegulatoryFrameworkService] Error fetching framework tree:', formatError(error))
       throw error
     }
   }
@@ -267,7 +267,7 @@ export class RegulatoryFrameworkService {
         completeness_percent: completenessPercent
       }
     } catch (error) {
-      console.error('[RegulatoryFrameworkService] Error calculating completeness:', this.formatError(error))
+      console.error('[RegulatoryFrameworkService] Error calculating completeness:', formatError(error))
       throw error
     }
   }
