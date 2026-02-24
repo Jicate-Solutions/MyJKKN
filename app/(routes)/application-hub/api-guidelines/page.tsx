@@ -57,11 +57,12 @@ export default function ApiGuidelinesPage() {
         <ApiNav />
 
         <Tabs defaultValue='basic'>
-          <TabsList className='w-full h-auto flex flex-wrap gap-1 p-1 lg:grid lg:grid-cols-7 lg:gap-0'>
+          <TabsList className='w-full h-auto flex flex-wrap gap-1 p-1 lg:grid lg:grid-cols-8 lg:gap-0'>
             <TabsTrigger value='basic'>Basic Guide</TabsTrigger>
             <TabsTrigger value='child-app'>Child App Integration</TabsTrigger>
             <TabsTrigger value='organization'>Organizations API</TabsTrigger>
             <TabsTrigger value='learners'>Learners API</TabsTrigger>
+            <TabsTrigger value='campus-living'>Campus Living API</TabsTrigger>
             <TabsTrigger value='academic'>Academic API</TabsTrigger>
             <TabsTrigger value='staff'>Staff API</TabsTrigger>
             <TabsTrigger value='curl'>CURL Documentation</TabsTrigger>
