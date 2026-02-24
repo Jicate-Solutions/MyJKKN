@@ -9,7 +9,7 @@ export const OPTIONS = () => new NextResponse(null, { headers: corsHeaders });
 export const GET = withApiKeyAuth(async (request, auth, context) => {
   const params = await context?.params;
   const id = params?.id;
-  if (!id) return errorResponse('Laundry order ID is required', 400);
+  if (!id || !isValidUuid(id)) return errorResponse('Valid laundry order UUID is required', 400);
   const institutionId = auth.institutionId;
   if (!institutionId) return errorResponse('API key must be associated with an organization', 400);
 
@@ -30,7 +30,7 @@ export const GET = withApiKeyAuth(async (request, auth, context) => {
 export const PATCH = withApiKeyAuth(async (request, auth, context) => {
   const params = await context?.params;
   const id = params?.id;
-  if (!id) return errorResponse('Laundry order ID is required', 400);
+  if (!id || !isValidUuid(id)) return errorResponse('Valid laundry order UUID is required', 400);
   const institutionId = auth.institutionId;
   if (!institutionId) return errorResponse('API key must be associated with an organization', 400);
 
