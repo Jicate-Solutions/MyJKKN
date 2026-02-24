@@ -1100,7 +1100,9 @@ CREATE TABLE regulatory_governing_bodies (
 -- Meeting minutes for governing bodies (NAAC evidence requirement)
 CREATE TABLE regulatory_body_meetings (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  body_id uuid NOT NULL REFERENCES regulatory_governing_bodies(id) ON DELETE CASCADE,
+  body_id uuid NOT NULL REFERENCES regulatory_governing_bodies(id) ON DELETE RESTRICT,
+  -- RESTRICT prevents accidentally destroying meeting records when deactivating a governing body.
+  -- To remove a body, first archive/reassign its meetings.
   institution_id uuid NOT NULL REFERENCES institutions(id),
   meeting_number integer NOT NULL,                   -- sequential per body per academic year
   academic_year text NOT NULL,
