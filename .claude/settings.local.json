@@ -225,7 +225,12 @@
       "Bash(cd \"D:/Projects/MyJKKN\" && bun test __tests__/lib/api-keys/audit-logger.test.ts 2>&1)",
       "Bash(cd D:/Projects/MyJKKN && bun test __tests__/lib/api-keys/audit-logger.test.ts 2>&1)",
       "Bash(cd D:/Projects/MyJKKN && bun test __tests__/lib/api-keys/ 2>&1)",
-      "Bash(cd /d/Projects/MyJKKN && bun test __tests__/lib/api-keys/ 2>&1)"
+      "Bash(cd /d/Projects/MyJKKN && bun test __tests__/lib/api-keys/ 2>&1)",
+      "Bash(claude mcp:*)",
+      "mcp__vercel__list_projects",
+      "mcp__vercel__list_teams",
+      "mcp__vercel__get_runtime_logs",
+      "Bash(git:*)"
     ],
     "deny": [],
     "ask": []

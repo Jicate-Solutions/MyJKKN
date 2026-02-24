@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { CodeBlock } from '@/components/code-block';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -29,8 +30,11 @@ import {
   Target,
   Activity,
   Building,
-  XCircle
+  XCircle,
+  FlaskConical
 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { B2AEndpointTesterDialog } from './b2a-endpoint-tester';
 
 // ─── Code snippets ──────────────────────────────────────────────────────────
 
@@ -222,6 +226,70 @@ const { data } = await res.json();
 //   grievances: { open: 5, overdue: 1 },
 //   billing: { pending_collections: 124 }
 // }`;
+
+// ─── Missing endpoint code snippets ──────────────────────────────────────────
+
+const billingSummaryCode = `// Institution-level billing summary
+const res = await fetch('https://jkkn.ai/api/b2a/billing/summary', {
+  headers: { 'Authorization': 'Bearer <key>' }
+});
+const { data } = await res.json();
+// data → { total_billed, total_collected, total_outstanding,
+//           by_status: { paid, partial, unpaid, overdue } }`;
+
+const billingOutstandingCode = `// Outstanding collections — filter by overdue days
+const res = await fetch(
+  'https://jkkn.ai/api/b2a/billing/outstanding?days_overdue=30',
+  { headers: { 'Authorization': 'Bearer <key>' } }
+);
+const { data, pagination } = await res.json();
+// data[0] → { student_id, name, amount_due, days_overdue, due_date, ... }`;
+
+const grievanceDashboardCode = `// Grievance dashboard summary
+const res = await fetch('https://jkkn.ai/api/b2a/grievance/dashboard', {
+  headers: { 'Authorization': 'Bearer <key>' }
+});
+const { data } = await res.json();
+// data → { total, open, in_progress, resolved, overdue,
+//           avg_resolution_days, by_category: { ... } }`;
+
+const grievanceSingleCode = `// Single grievance by UUID
+const res = await fetch(
+  'https://jkkn.ai/api/b2a/grievance/3fa85f64-5717-4562-b3fc-2c963f66afa6',
+  { headers: { 'Authorization': 'Bearer <key>' } }
+);
+const { data } = await res.json();
+// data → full grievance with status history, comments, attachments ...`;
+
+const okrComplianceCode = `// OKR compliance metrics
+const res = await fetch('https://jkkn.ai/api/b2a/okr/compliance', {
+  headers: { 'Authorization': 'Bearer <key>' }
+});
+const { data } = await res.json();
+// data → { compliance_rate, objectives_with_krs, total_objectives, avg_progress }`;
+
+const okrStatsCode = `// OKR aggregate statistics
+const res = await fetch('https://jkkn.ai/api/b2a/okr/stats', {
+  headers: { 'Authorization': 'Bearer <key>' }
+});
+const { data } = await res.json();
+// data → { total, by_status: { draft, active, completed, cancelled }, avg_progress }`;
+
+const learnersSingleCode = `// Single learner profile by UUID
+const res = await fetch(
+  'https://jkkn.ai/api/b2a/learners/3fa85f64-5717-4562-b3fc-2c963f66afa6',
+  { headers: { 'Authorization': 'Bearer <key>' } }
+);
+const { data } = await res.json();
+// data → full learner record with academic history, contact info, enrollment ...`;
+
+const staffSingleCode = `// Single staff member by UUID
+const res = await fetch(
+  'https://jkkn.ai/api/b2a/staff/3fa85f64-5717-4562-b3fc-2c963f66afa6',
+  { headers: { 'Authorization': 'Bearer <key>' } }
+);
+const { data } = await res.json();
+// data → full staff profile with qualifications, assignments, certifications ...`;
 
 // ─── Full TypeScript service example ────────────────────────────────────────
 
@@ -471,6 +539,8 @@ async function buildAgentContext(apiKey: string): Promise<string> {
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export default function B2AApiDocs() {
+  const [testEndpointId, setTestEndpointId] = useState<string | null>(null);
+
   return (
     <div className='space-y-6'>
       <Alert>
@@ -624,11 +694,11 @@ export default function B2AApiDocs() {
                 {[
                   { name: 'admission', desc: 'Student admission applications and statistics', status: 'live', endpoints: 3 },
                   { name: 'attendance', desc: 'Student attendance records and trend analysis', status: 'live', endpoints: 3 },
-                  { name: 'billing', desc: 'Fee structures, invoices, and payment status', status: 'live', endpoints: 1 },
-                  { name: 'grievance', desc: 'Student and staff service requests', status: 'live', endpoints: 1 },
-                  { name: 'okr', desc: 'Institutional OKR objectives and key results', status: 'live', endpoints: 1 },
-                  { name: 'learners', desc: 'Learner profiles and enrollment data', status: 'live', endpoints: 1 },
-                  { name: 'staff', desc: 'Faculty and staff directory', status: 'live', endpoints: 1 },
+                  { name: 'billing', desc: 'Fee structures, invoices, and payment status', status: 'live', endpoints: 3 },
+                  { name: 'grievance', desc: 'Student and staff service requests', status: 'live', endpoints: 3 },
+                  { name: 'okr', desc: 'Institutional OKR objectives and key results', status: 'live', endpoints: 3 },
+                  { name: 'learners', desc: 'Learner profiles and enrollment data', status: 'live', endpoints: 2 },
+                  { name: 'staff', desc: 'Faculty and staff directory', status: 'live', endpoints: 2 },
                   { name: 'organizations', desc: 'Institutions, departments, and courses', status: 'live', endpoints: 3 },
                   { name: 'morning-brief', desc: 'Daily institution-wide summary snapshot', status: 'live', endpoints: 1 },
                   { name: 'campus-living', desc: 'Hostel and residential facility data', status: 'soon', endpoints: 0 },
@@ -682,27 +752,36 @@ export default function B2AApiDocs() {
                 </p>
 
                 <div className='space-y-3'>
-                  <div className='flex items-center gap-2'>
+                  <div className='flex items-center gap-2 flex-wrap'>
                     <Badge className='text-xs'>GET</Badge>
                     <code className='text-xs bg-muted px-2 py-0.5 rounded'>/api/b2a/admission</code>
-                    <span className='text-xs text-muted-foreground'>List admissions</span>
+                    <span className='text-xs text-muted-foreground flex-1'>List admissions</span>
+                    <Button size='sm' variant='outline' className='h-6 text-xs px-2 gap-1' onClick={() => setTestEndpointId('admission-list')}>
+                      <FlaskConical className='h-3 w-3' />Try It
+                    </Button>
                   </div>
                   <div className='text-xs text-muted-foreground pl-4 space-y-1'>
                     <p><strong>Query params:</strong> <code className='bg-muted px-1 rounded'>status</code> · <code className='bg-muted px-1 rounded'>entry_type</code> · <code className='bg-muted px-1 rounded'>department_id</code> · <code className='bg-muted px-1 rounded'>program_id</code> · <code className='bg-muted px-1 rounded'>from</code> · <code className='bg-muted px-1 rounded'>to</code> · <code className='bg-muted px-1 rounded'>page</code> · <code className='bg-muted px-1 rounded'>limit</code> (max 100)</p>
                   </div>
                   <CodeBlock code={admissionListCode} language='javascript' />
 
-                  <div className='flex items-center gap-2'>
+                  <div className='flex items-center gap-2 flex-wrap'>
                     <Badge className='text-xs'>GET</Badge>
                     <code className='text-xs bg-muted px-2 py-0.5 rounded'>/api/b2a/admission/stats</code>
-                    <span className='text-xs text-muted-foreground'>Aggregate statistics</span>
+                    <span className='text-xs text-muted-foreground flex-1'>Aggregate statistics</span>
+                    <Button size='sm' variant='outline' className='h-6 text-xs px-2 gap-1' onClick={() => setTestEndpointId('admission-stats')}>
+                      <FlaskConical className='h-3 w-3' />Try It
+                    </Button>
                   </div>
                   <CodeBlock code={admissionStatsCode} language='javascript' />
 
-                  <div className='flex items-center gap-2'>
+                  <div className='flex items-center gap-2 flex-wrap'>
                     <Badge className='text-xs'>GET</Badge>
                     <code className='text-xs bg-muted px-2 py-0.5 rounded'>/api/b2a/admission/:id</code>
-                    <span className='text-xs text-muted-foreground'>Single record (UUID)</span>
+                    <span className='text-xs text-muted-foreground flex-1'>Single record (UUID)</span>
+                    <Button size='sm' variant='outline' className='h-6 text-xs px-2 gap-1' onClick={() => setTestEndpointId('admission-single')}>
+                      <FlaskConical className='h-3 w-3' />Try It
+                    </Button>
                   </div>
                   <CodeBlock code={admissionSingleCode} language='javascript' />
                 </div>
@@ -726,19 +805,26 @@ export default function B2AApiDocs() {
                 </p>
 
                 <div className='space-y-3'>
-                  <div className='flex items-center gap-2'>
+                  <div className='flex items-center gap-2 flex-wrap'>
                     <Badge className='text-xs'>GET</Badge>
                     <code className='text-xs bg-muted px-2 py-0.5 rounded'>/api/b2a/attendance</code>
+                    <span className='text-xs text-muted-foreground flex-1'>Daily attendance records</span>
+                    <Button size='sm' variant='outline' className='h-6 text-xs px-2 gap-1' onClick={() => setTestEndpointId('attendance-list')}>
+                      <FlaskConical className='h-3 w-3' />Try It
+                    </Button>
                   </div>
                   <div className='text-xs text-muted-foreground pl-4'>
                     <p><strong>Query params:</strong> <code className='bg-muted px-1 rounded'>from</code> · <code className='bg-muted px-1 rounded'>to</code> · <code className='bg-muted px-1 rounded'>student_id</code> · <code className='bg-muted px-1 rounded'>department_id</code> · <code className='bg-muted px-1 rounded'>page</code> · <code className='bg-muted px-1 rounded'>limit</code></p>
                   </div>
                   <CodeBlock code={attendanceListCode} language='javascript' />
 
-                  <div className='flex items-center gap-2'>
+                  <div className='flex items-center gap-2 flex-wrap'>
                     <Badge className='text-xs'>GET</Badge>
                     <code className='text-xs bg-muted px-2 py-0.5 rounded'>/api/b2a/attendance/trend</code>
-                    <span className='text-xs text-muted-foreground'>Max 90-day range</span>
+                    <span className='text-xs text-muted-foreground flex-1'>Max 90-day range</span>
+                    <Button size='sm' variant='outline' className='h-6 text-xs px-2 gap-1' onClick={() => setTestEndpointId('attendance-trend')}>
+                      <FlaskConical className='h-3 w-3' />Try It
+                    </Button>
                   </div>
                   <Alert className='py-2'>
                     <AlertDescription className='text-xs'>
@@ -747,9 +833,13 @@ export default function B2AApiDocs() {
                   </Alert>
                   <CodeBlock code={attendanceTrendCode} language='javascript' />
 
-                  <div className='flex items-center gap-2'>
+                  <div className='flex items-center gap-2 flex-wrap'>
                     <Badge className='text-xs'>GET</Badge>
                     <code className='text-xs bg-muted px-2 py-0.5 rounded'>/api/b2a/attendance/pending</code>
+                    <span className='text-xs text-muted-foreground flex-1'>Students below threshold</span>
+                    <Button size='sm' variant='outline' className='h-6 text-xs px-2 gap-1' onClick={() => setTestEndpointId('attendance-pending')}>
+                      <FlaskConical className='h-3 w-3' />Try It
+                    </Button>
                   </div>
                   <div className='text-xs text-muted-foreground pl-4'>
                     <p><strong>Query params:</strong> <code className='bg-muted px-1 rounded'>threshold</code> (default 75, percentage)</p>
@@ -765,23 +855,51 @@ export default function B2AApiDocs() {
                 <div className='flex items-center gap-3'>
                   <FileText className='h-4 w-4 text-yellow-500' />
                   <span className='font-medium'>Billing</span>
-                  <Badge variant='outline' className='text-xs'>1 endpoint</Badge>
+                  <Badge variant='outline' className='text-xs'>3 endpoints</Badge>
                   <Badge className='text-xs bg-yellow-100 text-yellow-700 border-yellow-200'>billing</Badge>
                 </div>
               </AccordionTrigger>
               <AccordionContent className='space-y-4 pt-2 pb-4'>
                 <p className='text-sm text-muted-foreground'>
-                  Access fee records, invoice status, and payment information. Supports
-                  filtering by billing status and date range.
+                  Access fee records, invoice status, payment information, and institution-level
+                  billing summaries. Supports filtering by billing status and due date.
                 </p>
-                <div className='flex items-center gap-2'>
+
+                <div className='flex items-center gap-2 flex-wrap'>
                   <Badge className='text-xs'>GET</Badge>
                   <code className='text-xs bg-muted px-2 py-0.5 rounded'>/api/b2a/billing</code>
+                  <span className='text-xs text-muted-foreground flex-1'>List billing records</span>
+                  <Button size='sm' variant='outline' className='h-6 text-xs px-2 gap-1' onClick={() => setTestEndpointId('billing-list')}>
+                    <FlaskConical className='h-3 w-3' />Try It
+                  </Button>
                 </div>
                 <div className='text-xs text-muted-foreground pl-4'>
-                  <p><strong>Query params:</strong> <code className='bg-muted px-1 rounded'>status</code> (pending/paid/overdue) · <code className='bg-muted px-1 rounded'>from</code> · <code className='bg-muted px-1 rounded'>to</code> · <code className='bg-muted px-1 rounded'>page</code> · <code className='bg-muted px-1 rounded'>limit</code></p>
+                  <p><strong>Query params:</strong> <code className='bg-muted px-1 rounded'>status</code> (unpaid/partial/paid/overdue) · <code className='bg-muted px-1 rounded'>due_before</code> · <code className='bg-muted px-1 rounded'>page</code> · <code className='bg-muted px-1 rounded'>limit</code></p>
                 </div>
                 <CodeBlock code={billingCode} language='javascript' />
+
+                <div className='flex items-center gap-2 flex-wrap'>
+                  <Badge className='text-xs'>GET</Badge>
+                  <code className='text-xs bg-muted px-2 py-0.5 rounded'>/api/b2a/billing/summary</code>
+                  <span className='text-xs text-muted-foreground flex-1'>Institution billing summary</span>
+                  <Button size='sm' variant='outline' className='h-6 text-xs px-2 gap-1' onClick={() => setTestEndpointId('billing-summary')}>
+                    <FlaskConical className='h-3 w-3' />Try It
+                  </Button>
+                </div>
+                <CodeBlock code={billingSummaryCode} language='javascript' />
+
+                <div className='flex items-center gap-2 flex-wrap'>
+                  <Badge className='text-xs'>GET</Badge>
+                  <code className='text-xs bg-muted px-2 py-0.5 rounded'>/api/b2a/billing/outstanding</code>
+                  <span className='text-xs text-muted-foreground flex-1'>Outstanding collections</span>
+                  <Button size='sm' variant='outline' className='h-6 text-xs px-2 gap-1' onClick={() => setTestEndpointId('billing-outstanding')}>
+                    <FlaskConical className='h-3 w-3' />Try It
+                  </Button>
+                </div>
+                <div className='text-xs text-muted-foreground pl-4'>
+                  <p><strong>Query params:</strong> <code className='bg-muted px-1 rounded'>days_overdue</code> (filter to records overdue by at least N days)</p>
+                </div>
+                <CodeBlock code={billingOutstandingCode} language='javascript' />
               </AccordionContent>
             </AccordionItem>
 
@@ -791,23 +909,48 @@ export default function B2AApiDocs() {
                 <div className='flex items-center gap-3'>
                   <AlertCircle className='h-4 w-4 text-red-500' />
                   <span className='font-medium'>Grievance</span>
-                  <Badge variant='outline' className='text-xs'>1 endpoint</Badge>
+                  <Badge variant='outline' className='text-xs'>3 endpoints</Badge>
                   <Badge className='text-xs bg-red-100 text-red-700 border-red-200'>grievance</Badge>
                 </div>
               </AccordionTrigger>
               <AccordionContent className='space-y-4 pt-2 pb-4'>
                 <p className='text-sm text-muted-foreground'>
                   Read service requests and grievances submitted by students and staff.
-                  Filter by status to find open or overdue items.
+                  Includes a dashboard summary and single-record detail lookup.
                 </p>
-                <div className='flex items-center gap-2'>
+
+                <div className='flex items-center gap-2 flex-wrap'>
                   <Badge className='text-xs'>GET</Badge>
                   <code className='text-xs bg-muted px-2 py-0.5 rounded'>/api/b2a/grievance</code>
+                  <span className='text-xs text-muted-foreground flex-1'>List grievances</span>
+                  <Button size='sm' variant='outline' className='h-6 text-xs px-2 gap-1' onClick={() => setTestEndpointId('grievance-list')}>
+                    <FlaskConical className='h-3 w-3' />Try It
+                  </Button>
                 </div>
                 <div className='text-xs text-muted-foreground pl-4'>
                   <p><strong>Query params:</strong> <code className='bg-muted px-1 rounded'>status</code> · <code className='bg-muted px-1 rounded'>priority</code> · <code className='bg-muted px-1 rounded'>from</code> · <code className='bg-muted px-1 rounded'>to</code> · <code className='bg-muted px-1 rounded'>page</code> · <code className='bg-muted px-1 rounded'>limit</code></p>
                 </div>
                 <CodeBlock code={grievanceCode} language='javascript' />
+
+                <div className='flex items-center gap-2 flex-wrap'>
+                  <Badge className='text-xs'>GET</Badge>
+                  <code className='text-xs bg-muted px-2 py-0.5 rounded'>/api/b2a/grievance/dashboard</code>
+                  <span className='text-xs text-muted-foreground flex-1'>Dashboard summary</span>
+                  <Button size='sm' variant='outline' className='h-6 text-xs px-2 gap-1' onClick={() => setTestEndpointId('grievance-dashboard')}>
+                    <FlaskConical className='h-3 w-3' />Try It
+                  </Button>
+                </div>
+                <CodeBlock code={grievanceDashboardCode} language='javascript' />
+
+                <div className='flex items-center gap-2 flex-wrap'>
+                  <Badge className='text-xs'>GET</Badge>
+                  <code className='text-xs bg-muted px-2 py-0.5 rounded'>/api/b2a/grievance/:id</code>
+                  <span className='text-xs text-muted-foreground flex-1'>Single grievance (UUID)</span>
+                  <Button size='sm' variant='outline' className='h-6 text-xs px-2 gap-1' onClick={() => setTestEndpointId('grievance-single')}>
+                    <FlaskConical className='h-3 w-3' />Try It
+                  </Button>
+                </div>
+                <CodeBlock code={grievanceSingleCode} language='javascript' />
               </AccordionContent>
             </AccordionItem>
 
@@ -817,23 +960,48 @@ export default function B2AApiDocs() {
                 <div className='flex items-center gap-3'>
                   <Target className='h-4 w-4 text-purple-500' />
                   <span className='font-medium'>OKR</span>
-                  <Badge variant='outline' className='text-xs'>1 endpoint</Badge>
+                  <Badge variant='outline' className='text-xs'>3 endpoints</Badge>
                   <Badge className='text-xs bg-purple-100 text-purple-700 border-purple-200'>okr</Badge>
                 </div>
               </AccordionTrigger>
               <AccordionContent className='space-y-4 pt-2 pb-4'>
                 <p className='text-sm text-muted-foreground'>
-                  Access institutional OKR objectives and their key results. Track progress
-                  percentages and filter by objective type or status.
+                  Access institutional OKR objectives, key results, compliance metrics, and
+                  aggregate statistics. Track progress percentages and filter by type or status.
                 </p>
-                <div className='flex items-center gap-2'>
+
+                <div className='flex items-center gap-2 flex-wrap'>
                   <Badge className='text-xs'>GET</Badge>
                   <code className='text-xs bg-muted px-2 py-0.5 rounded'>/api/b2a/okr/objectives</code>
+                  <span className='text-xs text-muted-foreground flex-1'>List objectives</span>
+                  <Button size='sm' variant='outline' className='h-6 text-xs px-2 gap-1' onClick={() => setTestEndpointId('okr-objectives')}>
+                    <FlaskConical className='h-3 w-3' />Try It
+                  </Button>
                 </div>
                 <div className='text-xs text-muted-foreground pl-4'>
                   <p><strong>Query params:</strong> <code className='bg-muted px-1 rounded'>status</code> · <code className='bg-muted px-1 rounded'>type</code> · <code className='bg-muted px-1 rounded'>from</code> · <code className='bg-muted px-1 rounded'>to</code> · <code className='bg-muted px-1 rounded'>page</code> · <code className='bg-muted px-1 rounded'>limit</code></p>
                 </div>
                 <CodeBlock code={okrCode} language='javascript' />
+
+                <div className='flex items-center gap-2 flex-wrap'>
+                  <Badge className='text-xs'>GET</Badge>
+                  <code className='text-xs bg-muted px-2 py-0.5 rounded'>/api/b2a/okr/compliance</code>
+                  <span className='text-xs text-muted-foreground flex-1'>Compliance metrics</span>
+                  <Button size='sm' variant='outline' className='h-6 text-xs px-2 gap-1' onClick={() => setTestEndpointId('okr-compliance')}>
+                    <FlaskConical className='h-3 w-3' />Try It
+                  </Button>
+                </div>
+                <CodeBlock code={okrComplianceCode} language='javascript' />
+
+                <div className='flex items-center gap-2 flex-wrap'>
+                  <Badge className='text-xs'>GET</Badge>
+                  <code className='text-xs bg-muted px-2 py-0.5 rounded'>/api/b2a/okr/stats</code>
+                  <span className='text-xs text-muted-foreground flex-1'>Aggregate statistics</span>
+                  <Button size='sm' variant='outline' className='h-6 text-xs px-2 gap-1' onClick={() => setTestEndpointId('okr-stats')}>
+                    <FlaskConical className='h-3 w-3' />Try It
+                  </Button>
+                </div>
+                <CodeBlock code={okrStatsCode} language='javascript' />
               </AccordionContent>
             </AccordionItem>
 
@@ -843,23 +1011,38 @@ export default function B2AApiDocs() {
                 <div className='flex items-center gap-3'>
                   <Users className='h-4 w-4 text-teal-500' />
                   <span className='font-medium'>Learners</span>
-                  <Badge variant='outline' className='text-xs'>1 endpoint</Badge>
+                  <Badge variant='outline' className='text-xs'>2 endpoints</Badge>
                   <Badge className='text-xs bg-teal-100 text-teal-700 border-teal-200'>learners</Badge>
                 </div>
               </AccordionTrigger>
               <AccordionContent className='space-y-4 pt-2 pb-4'>
                 <p className='text-sm text-muted-foreground'>
                   Retrieve learner/student profiles including enrollment data, academic standing,
-                  and contact information.
+                  and contact information. Supports full lifecycle status filtering.
                 </p>
-                <div className='flex items-center gap-2'>
+
+                <div className='flex items-center gap-2 flex-wrap'>
                   <Badge className='text-xs'>GET</Badge>
                   <code className='text-xs bg-muted px-2 py-0.5 rounded'>/api/b2a/learners</code>
+                  <span className='text-xs text-muted-foreground flex-1'>List learner profiles</span>
+                  <Button size='sm' variant='outline' className='h-6 text-xs px-2 gap-1' onClick={() => setTestEndpointId('learners-list')}>
+                    <FlaskConical className='h-3 w-3' />Try It
+                  </Button>
                 </div>
                 <div className='text-xs text-muted-foreground pl-4'>
-                  <p><strong>Query params:</strong> <code className='bg-muted px-1 rounded'>status</code> · <code className='bg-muted px-1 rounded'>department_id</code> · <code className='bg-muted px-1 rounded'>program_id</code> · <code className='bg-muted px-1 rounded'>page</code> · <code className='bg-muted px-1 rounded'>limit</code></p>
+                  <p><strong>Query params:</strong> <code className='bg-muted px-1 rounded'>lifecycle_status</code> · <code className='bg-muted px-1 rounded'>department_id</code> · <code className='bg-muted px-1 rounded'>semester_id</code> · <code className='bg-muted px-1 rounded'>page</code> · <code className='bg-muted px-1 rounded'>limit</code></p>
                 </div>
                 <CodeBlock code={learnersCode} language='javascript' />
+
+                <div className='flex items-center gap-2 flex-wrap'>
+                  <Badge className='text-xs'>GET</Badge>
+                  <code className='text-xs bg-muted px-2 py-0.5 rounded'>/api/b2a/learners/:id</code>
+                  <span className='text-xs text-muted-foreground flex-1'>Single learner (UUID)</span>
+                  <Button size='sm' variant='outline' className='h-6 text-xs px-2 gap-1' onClick={() => setTestEndpointId('learners-single')}>
+                    <FlaskConical className='h-3 w-3' />Try It
+                  </Button>
+                </div>
+                <CodeBlock code={learnersSingleCode} language='javascript' />
               </AccordionContent>
             </AccordionItem>
 
@@ -869,23 +1052,38 @@ export default function B2AApiDocs() {
                 <div className='flex items-center gap-3'>
                   <Briefcase className='h-4 w-4 text-indigo-500' />
                   <span className='font-medium'>Staff</span>
-                  <Badge variant='outline' className='text-xs'>1 endpoint</Badge>
+                  <Badge variant='outline' className='text-xs'>2 endpoints</Badge>
                   <Badge className='text-xs bg-indigo-100 text-indigo-700 border-indigo-200'>staff</Badge>
                 </div>
               </AccordionTrigger>
               <AccordionContent className='space-y-4 pt-2 pb-4'>
                 <p className='text-sm text-muted-foreground'>
                   Access staff and faculty profiles. Filter by role type (faculty, admin, etc.)
-                  or department for targeted queries.
+                  or department for targeted queries. Single-record lookup available.
                 </p>
-                <div className='flex items-center gap-2'>
+
+                <div className='flex items-center gap-2 flex-wrap'>
                   <Badge className='text-xs'>GET</Badge>
                   <code className='text-xs bg-muted px-2 py-0.5 rounded'>/api/b2a/staff</code>
+                  <span className='text-xs text-muted-foreground flex-1'>List staff members</span>
+                  <Button size='sm' variant='outline' className='h-6 text-xs px-2 gap-1' onClick={() => setTestEndpointId('staff-list')}>
+                    <FlaskConical className='h-3 w-3' />Try It
+                  </Button>
                 </div>
                 <div className='text-xs text-muted-foreground pl-4'>
                   <p><strong>Query params:</strong> <code className='bg-muted px-1 rounded'>role_type</code> · <code className='bg-muted px-1 rounded'>department_id</code> · <code className='bg-muted px-1 rounded'>page</code> · <code className='bg-muted px-1 rounded'>limit</code></p>
                 </div>
                 <CodeBlock code={staffCode} language='javascript' />
+
+                <div className='flex items-center gap-2 flex-wrap'>
+                  <Badge className='text-xs'>GET</Badge>
+                  <code className='text-xs bg-muted px-2 py-0.5 rounded'>/api/b2a/staff/:id</code>
+                  <span className='text-xs text-muted-foreground flex-1'>Single staff member (UUID)</span>
+                  <Button size='sm' variant='outline' className='h-6 text-xs px-2 gap-1' onClick={() => setTestEndpointId('staff-single')}>
+                    <FlaskConical className='h-3 w-3' />Try It
+                  </Button>
+                </div>
+                <CodeBlock code={staffSingleCode} language='javascript' />
               </AccordionContent>
             </AccordionItem>
 
@@ -905,6 +1103,24 @@ export default function B2AApiDocs() {
                   Useful for populating dropdowns, building directory trees, or seeding agent context
                   with the institution&apos;s structure.
                 </p>
+
+                <div className='space-y-2'>
+                  {[
+                    { path: '/api/b2a/organizations/institutions', id: 'orgs-institutions', desc: 'List institutions' },
+                    { path: '/api/b2a/organizations/departments', id: 'orgs-departments', desc: 'List departments' },
+                    { path: '/api/b2a/organizations/courses', id: 'orgs-courses', desc: 'List courses' },
+                  ].map(item => (
+                    <div key={item.id} className='flex items-center gap-2 flex-wrap'>
+                      <Badge className='text-xs'>GET</Badge>
+                      <code className='text-xs bg-muted px-2 py-0.5 rounded'>{item.path}</code>
+                      <span className='text-xs text-muted-foreground flex-1'>{item.desc}</span>
+                      <Button size='sm' variant='outline' className='h-6 text-xs px-2 gap-1' onClick={() => setTestEndpointId(item.id)}>
+                        <FlaskConical className='h-3 w-3' />Try It
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+
                 <CodeBlock code={orgsCode} language='javascript' />
                 <Alert className='py-2'>
                   <AlertDescription className='text-xs'>
@@ -933,6 +1149,14 @@ export default function B2AApiDocs() {
                   attendance, admissions, grievances, and billing. Designed as a low-cost single
                   call for daily dashboards and AI agent context building.
                 </p>
+                <div className='flex items-center gap-2 flex-wrap'>
+                  <Badge className='text-xs'>GET</Badge>
+                  <code className='text-xs bg-muted px-2 py-0.5 rounded'>/api/b2a/morning-brief</code>
+                  <span className='text-xs text-muted-foreground flex-1'>Daily institution snapshot</span>
+                  <Button size='sm' variant='outline' className='h-6 text-xs px-2 gap-1' onClick={() => setTestEndpointId('morning-brief')}>
+                    <FlaskConical className='h-3 w-3' />Try It
+                  </Button>
+                </div>
                 <CodeBlock code={morningBriefCode} language='javascript' />
               </AccordionContent>
             </AccordionItem>
@@ -1146,6 +1370,12 @@ export default function B2AApiDocs() {
 
         </TabsContent>
       </Tabs>
+
+      {/* Interactive endpoint tester — opened by "Try It" buttons throughout */}
+      <B2AEndpointTesterDialog
+        endpointId={testEndpointId}
+        onClose={() => setTestEndpointId(null)}
+      />
     </div>
   );
 }
