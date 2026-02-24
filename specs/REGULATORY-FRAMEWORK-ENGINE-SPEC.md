@@ -3411,7 +3411,7 @@ CREATE OR REPLACE FUNCTION soft_delete_evidence(
   p_evidence_id uuid,
   p_caller_institution_id uuid
 ) RETURNS void
-LANGUAGE plpgsql SECURITY DEFINER AS $$
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
 BEGIN
   UPDATE regulatory_evidence
   SET is_deleted = true, deleted_at = now()
