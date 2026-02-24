@@ -1532,6 +1532,10 @@ CREATE POLICY "body_meetings_update" ON regulatory_body_meetings FOR UPDATE
       OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'))
     AND EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN
       ('super_admin','institution_admin','iqac_coordinator','principal'))
+  )
+  WITH CHECK (
+    (institution_id = auth_institution_id()
+      OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'))
   );
 -- No DELETE on meeting minutes — permanent governance record
 
