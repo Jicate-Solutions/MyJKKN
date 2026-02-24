@@ -11,11 +11,11 @@ export async function OPTIONS() {
 
 export const GET = withAuth(async (request, auth) => {
   const url = new URL(request.url)
-  const { page, limit } = getPaginationParams(url.searchParams)
-  const division = getStringParam(url.searchParams, 'division')
-  const skill_level = getStringParam(url.searchParams, 'skill_level')
-  const is_active = getStringParam(url.searchParams, 'is_active')
-  const search = getStringParam(url.searchParams, 'search')
+  const { page, limit } = getPaginationParams(url)
+  const division = getStringParam(url, 'division')
+  const skill_level = getStringParam(url, 'skill_level')
+  const is_active = getStringParam(url, 'is_active')
+  const search = getStringParam(url, 'search')
 
   const filters: Record<string, any> = { page, limit }
   if (division) filters.division = division
