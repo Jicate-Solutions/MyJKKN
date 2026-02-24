@@ -43,7 +43,9 @@ export default function EditServiceRequestPage({
   const { data: serviceType } = useServiceType(request?.service_type_id || '');
   const updateRequest = useUpdateServiceRequest();
   const submitRequest = useSubmitServiceRequest();
-  const [priority, setPriority] = useState<ServiceRequestPriority | undefined>();
+  const [priority, setPriority] = useState<ServiceRequestPriority | undefined>(
+    request?.priority ?? undefined
+  );
 
   const canEdit =
     request?.status === 'draft' || request?.status === 'returned';

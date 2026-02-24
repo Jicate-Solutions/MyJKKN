@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { getAuthSession } from '@/lib/supabase/server';
+import { getAuthSession, createServerSupabaseClient } from '@/lib/supabase/server';
 import { ServiceTypeService } from '@/lib/services/service-requests/service-type-service';
 import { createServiceTypeSchema, type CreateServiceTypeDto } from '@/types/service-request';
 
@@ -14,9 +14,44 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const isActive = searchParams.get('is_active');
 
-    const filters: { is_active?: boolean } = {};
+    const filters: { is_active?: boolean; userRoleKeys?: string[]; isSuperAdmin?: boolean } = {};
     if (isActive !== null) {
       filters.is_active = isActive === 'true';
+    }
+
+    // Resolve the requesting user's roles so we can filter service types
+    // by allowed_roles. Superadmins bypass the filter entirely.
+    const supabase = await createServerSupabaseClient();
+
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('role, is_super_admin')
+      .eq('id', session.user.id)
+      .single();
+
+    const isSuperAdmin =
+      profile?.is_super_admin === true || profile?.role === 'super_admin';
+
+    if (isSuperAdmin) {
+      filters.isSuperAdmin = true;
+    } else {
+      // Collect the primary role from profiles + all additional roles from user_roles
+      const roleKeys = new Set<string>();
+      if (profile?.role) roleKeys.add(profile.role);
+
+      const { data: userRoles } = await supabase
+        .from('user_roles')
+        .select('custom_roles(role_key)')
+        .eq('user_id', session.user.id);
+
+      if (userRoles) {
+        for (const ur of userRoles as any[]) {
+          const key = ur.custom_roles?.role_key;
+          if (key) roleKeys.add(key);
+        }
+      }
+
+      filters.userRoleKeys = [...roleKeys];
     }
 
     const types = await ServiceTypeService.getServiceTypes(filters);

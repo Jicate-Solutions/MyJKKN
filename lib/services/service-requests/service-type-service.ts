@@ -19,10 +19,14 @@ const getSupabase = async () => await createServerSupabaseClient() as any;
 
 export class ServiceTypeService {
   /**
-   * List service types with their fields and approval steps
+   * List service types with their fields and approval steps.
+   * When userRoleKeys is provided (non-superadmin users), only service types
+   * whose allowed_roles overlaps with the user's roles are returned.
    */
   static async getServiceTypes(filters?: {
     is_active?: boolean;
+    userRoleKeys?: string[];
+    isSuperAdmin?: boolean;
   }): Promise<ServiceType[]> {
     const supabase = await getSupabase();
 
@@ -37,6 +41,13 @@ export class ServiceTypeService {
 
     if (filters?.is_active !== undefined) {
       query = query.eq('is_active', filters.is_active);
+    }
+
+    // Filter by allowed_roles unless the user is a superadmin.
+    // Uses Postgres && (overlaps) operator: returns types where at least
+    // one of the user's role keys is in the service type's allowed_roles array.
+    if (!filters?.isSuperAdmin && filters?.userRoleKeys && filters.userRoleKeys.length > 0) {
+      query = query.overlaps('allowed_roles', filters.userRoleKeys);
     }
 
     const { data, error } = await query;

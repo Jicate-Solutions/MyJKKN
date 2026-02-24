@@ -952,7 +952,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             },
             {
               href: '/service-requests/all-services',
-              label: 'All Services',
+              label: 'All Requests',
               active: pathname === '/service-requests/all-services'
             },
             {

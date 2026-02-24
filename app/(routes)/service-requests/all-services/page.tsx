@@ -65,7 +65,7 @@ export default function AllServicesPage() {
         {/* Header */}
         <div className="flex flex-col sm:flex-row justify-between items-start gap-4">
           <div>
-            <h1 className="text-2xl font-bold">All Services</h1>
+            <h1 className="text-2xl font-bold">All Requests</h1>
             <p className="text-muted-foreground">
               View and manage all service requests across the institution
             </p>
