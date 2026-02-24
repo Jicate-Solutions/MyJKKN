@@ -1576,7 +1576,9 @@ CREATE INDEX idx_reg_evidence_active ON regulatory_evidence(institution_id, acad
 -- NOTE: submissions UNIQUE(framework_id, institution_id, academic_year) already creates an implicit index
 CREATE INDEX idx_reg_simulations_framework ON regulatory_simulations(framework_id, institution_id);
 -- NOTE: evidence_versions UNIQUE(evidence_id, version_number) already creates an implicit index
-CREATE INDEX idx_reg_peer_visits_submission ON regulatory_peer_visits(submission_id, institution_id);
+CREATE INDEX idx_reg_peer_visits_submission ON regulatory_peer_visits(submission_id, institution_id)
+  WHERE submission_id IS NOT NULL;
+-- Partial index: exploratory visits (submission_id=NULL) don't need this lookup path.
 CREATE INDEX idx_reg_peer_visits_status ON regulatory_peer_visits(institution_id, status);
 CREATE INDEX idx_reg_governing_bodies_inst ON regulatory_governing_bodies(institution_id, body_type);
 -- NOTE: body_meetings UNIQUE(body_id, academic_year, meeting_number) already creates an implicit index
