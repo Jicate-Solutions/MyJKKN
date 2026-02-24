@@ -1373,7 +1373,7 @@ CREATE TABLE regulatory_body_meetings (
 CREATE TABLE regulatory_course_syllabi (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   institution_id uuid NOT NULL REFERENCES institutions(id),
-  program_id uuid,                                   -- FK to programs table (verify column name)
+  program_id uuid REFERENCES programs(id),             -- FK to programs table
   department text NOT NULL,
   course_code text NOT NULL,
   course_name text NOT NULL,
