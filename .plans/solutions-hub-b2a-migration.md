@@ -95,7 +95,7 @@ API Key User → HTTP → /api/solutions/...                → withAuth(apiKey)
 ### 5. Blind Spots
 
 - 👁️ **CONFIRMED BUG** — BaseService module-level singleton: `createClientSupabaseClient()` uses `createBrowserClient()` which reads `document.cookie`. In API routes (server), `document` is undefined → client has NO auth context → `auth.uid()` returns NULL → RLS denies access. This is the MOST critical issue to fix — `AsyncLocalStorage` client injection solves both this AND the API key auth problem
-- 👁️ API key impersonation: To preserve RLS for API keys, we need `supabase.auth.admin.getUserById()` or equivalent — this requires SERVICE_ROLE_KEY for the admin call only, then switches to user context for actual queries
+- 👁️ **RESOLVED** — API key impersonation: Use JWT generation with `SUPABASE_JWT_SECRET` to create a client that PostgREST treats as the key owner. SERVICE_ROLE_KEY only needed for the initial API key lookup in `api_keys` table (see Phase 0.3)
 - 👁️ File upload is a different beast — storage operations don't go through services, they need their own auth pattern
 
 **Strongest counterargument:**
