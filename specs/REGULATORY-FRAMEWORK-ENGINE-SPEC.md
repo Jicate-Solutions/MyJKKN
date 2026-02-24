@@ -4113,13 +4113,18 @@ Tree structure is assembled in application code from these two flat result sets.
          JOIN regulatory_criteria c ON m.criteria_id = c.id
          WHERE c.framework_id = rs.framework_id AND mv.institution_id = rs.institution_id
          AND mv.academic_year = rs.academic_year AND mv.is_auto_calculated = false),
+       total_metrics_count = (SELECT COUNT(*) FROM regulatory_metrics m
+           JOIN regulatory_criteria c ON m.criteria_id = c.id
+           WHERE c.framework_id = rs.framework_id),
        completeness_percentage = (
          (SELECT COUNT(*) FROM regulatory_metric_values mv
            JOIN regulatory_metrics m ON mv.metric_id = m.id
            JOIN regulatory_criteria c ON m.criteria_id = c.id
            WHERE c.framework_id = rs.framework_id AND mv.institution_id = rs.institution_id
            AND mv.academic_year = rs.academic_year)::numeric
-         / NULLIF(total_metrics_count, 0) * 100
+         / NULLIF((SELECT COUNT(*) FROM regulatory_metrics m2
+             JOIN regulatory_criteria c2 ON m2.criteria_id = c2.id
+             WHERE c2.framework_id = rs.framework_id), 0) * 100
        ),
        updated_at = now()
    FROM regulatory_submissions rs
