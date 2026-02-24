@@ -286,7 +286,8 @@ export abstract class BaseService {
   protected static get supabase(): any {
     // If running inside withAuth (API route), use the injected client
     // Otherwise fall back to browser client singleton (hooks calling from browser)
-    return clientOverride.getStore() ?? supabase;
+    // On browser, clientOverride is null → always returns browser singleton
+    return clientOverride?.getStore() ?? supabase;
   }
 
   /**
