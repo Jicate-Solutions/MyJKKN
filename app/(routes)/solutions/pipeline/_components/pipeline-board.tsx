@@ -41,10 +41,15 @@ import Link from 'next/link';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { apiClient } from '@/lib/api/client';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { solutionsHubKeys } from '@/lib/query-keys';
-import { usePipelineBoard, useUpdatePipelineStage } from '@/hooks/solutions/use-prospects';
+import {
+  usePipelineBoard,
+  useUpdatePipelineStage,
+  useReadyToReengage,
+  useReactivateProspect,
+} from '@/hooks/solutions/use-prospects';
 import { ProspectCard } from '@/components/solutions/pipeline/prospect-card';
 import { PipelineStats } from '@/components/solutions/pipeline/pipeline-stats';
 import { OverdueAlertBanner } from '@/components/solutions/pipeline/overdue-alert-banner';
