@@ -532,36 +532,6 @@ export default function MetricEntryPage() {
           </p>
         )}
 
-        {/* Upload Evidence Dialog */}
-        <Dialog open={!!uploadDialogMetricId} onOpenChange={(open) => !open && setUploadDialogMetricId(null)}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Upload Evidence</DialogTitle>
-              <DialogDescription>
-                Upload supporting documents for this metric.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="border-2 border-dashed rounded-lg p-8 text-center">
-              <FileText className="h-10 w-10 mx-auto mb-3 text-muted-foreground opacity-50" />
-              <p className="text-sm text-muted-foreground mb-2">
-                Drag and drop files here, or click to browse
-              </p>
-              <Button variant="outline" size="sm">
-                <Upload className="h-4 w-4 mr-2" />
-                Choose Files
-              </Button>
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setUploadDialogMetricId(null)}>
-                Cancel
-              </Button>
-              <Button>
-                <Upload className="h-4 w-4 mr-2" />
-                Upload
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
       </div>
     </ContentLayout>
   )
