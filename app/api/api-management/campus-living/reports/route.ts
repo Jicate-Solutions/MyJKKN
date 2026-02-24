@@ -69,9 +69,10 @@ export const GET = withApiKeyAuth(async (request, auth) => {
     }
 
     case 'maintenance': {
-      const { data } = await supabase
+      const { data, error: maintError } = await supabase
         .from('hostel_maintenance_requests').select('status, priority, sla_status')
         .eq('institution_id', institutionId);
+      if (maintError) throw maintError;
 
       const items = data ?? [];
       const byStatus: Record<string, number> = {};
