@@ -46,6 +46,20 @@ export class SamlIdpService {
 
     const config: SamlIdpConfig = this.getIdPConfig();
 
+    // ── Key format diagnostic (no key material logged) ──────────────────────
+    const rawEnvKey = process.env.SAML_PRIVATE_KEY ?? '';
+    const decodedKey = config.privateKey; // after decodePemIfNeeded
+    const finalKey   = this.formatPrivateKey(decodedKey);
+    console.log('[saml-idp] key-diagnostic', {
+      envLength:        rawEnvKey.length,
+      envFirst30:       rawEnvKey.substring(0, 30),
+      decodedFirst30:   decodedKey.substring(0, 30),
+      finalFirstLine:   finalKey.split('\n')[0],
+      finalLastLine:    finalKey.split('\n').filter(Boolean).at(-1),
+      finalKeyLength:   finalKey.length,
+    });
+    // ────────────────────────────────────────────────────────────────────────
+
     // Collect all valid SSO locations so samlify's Destination check accepts both
     // www.jkkn.ai and jkkn.ai variants (MathWorks may have registered either form).
     const ssoLocations: { Binding: string; Location: string }[] = [
