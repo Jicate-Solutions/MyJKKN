@@ -3,13 +3,13 @@
 /**
  * Solutions Hub - Solutions Hooks
  * Purpose: React Query hooks for solutions CRUD operations
- * Migrated from: JKKN-Solutions-Hub/src/hooks/use-solutions.ts
+ * Connected to: /api/solutions routes
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { solutionsHubKeys } from '@/lib/query-keys';
 import { QUERY_CONFIG } from '@/lib/config/query-config';
-import { solutionsService } from '@/lib/services/solutions/solutions-service';
+import { apiClient } from '@/lib/api/client';
 import type {
   SolutionFilters as ServiceSolutionFilters,
   UpdateSolutionInput as ServiceUpdateSolutionInput,
@@ -65,7 +65,7 @@ export interface UpdateSolutionInput {
 export function useSolutions(filters?: SolutionFilters) {
   return useQuery({
     queryKey: solutionsHubKeys.solutions.list(filters),
-    queryFn: () => solutionsService.getSolutions(filters),
+    queryFn: () => apiClient.get('/api/solutions', { params: filters as Record<string, any> }),
     ...QUERY_CONFIG.DYNAMIC_DATA,
   });
 }
@@ -76,7 +76,7 @@ export function useSolutions(filters?: SolutionFilters) {
 export function useSolution(id: string) {
   return useQuery({
     queryKey: solutionsHubKeys.solutions.detail(id),
-    queryFn: () => solutionsService.getSolutionById(id),
+    queryFn: () => apiClient.get(`/api/solutions/${id}`),
     enabled: !!id,
     ...QUERY_CONFIG.SEMI_STABLE_DATA,
   });
@@ -88,7 +88,7 @@ export function useSolution(id: string) {
 export function useSolutionStats() {
   return useQuery({
     queryKey: solutionsHubKeys.solutions.stats(),
-    queryFn: () => solutionsService.getSolutionStats(),
+    queryFn: () => apiClient.get('/api/solutions/stats'),
     ...QUERY_CONFIG.DASHBOARD_DATA,
   });
 }
@@ -105,8 +105,8 @@ export function useCreateSolution() {
 
   return useMutation({
     mutationFn: async (input: CreateSolutionInput) => {
-      const result = await solutionsService.createSolution(input);
-      return result as { id: string } & Record<string, unknown>;
+      const result = await apiClient.post<{ id: string } & Record<string, unknown>>('/api/solutions', input);
+      return result;
     },
     onSuccess: () => {
       // Invalidate solutions list and stats
@@ -123,7 +123,7 @@ export function useUpdateSolution() {
 
   return useMutation({
     mutationFn: ({ id, input }: { id: string; input: UpdateSolutionInput }) =>
-      solutionsService.updateSolution(id, input),
+      apiClient.patch<{ id?: string } | null>(`/api/solutions/${id}`, input),
     onSuccess: (data: { id?: string } | null) => {
       // Invalidate solutions list and update cache for specific solution
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.solutions.all });
@@ -141,7 +141,7 @@ export function useDeleteSolution() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (id: string) => solutionsService.deleteSolution(id),
+    mutationFn: (id: string) => apiClient.delete(`/api/solutions/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.solutions.all });
     },
