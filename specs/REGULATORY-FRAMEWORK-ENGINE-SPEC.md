@@ -4584,7 +4584,7 @@ The T10 section contains illustrative DDL for `regulatory_peer_benchmarks`, evid
 
 ### L2. Immutable Tables Have No UPDATE Triggers (Intentional)
 
-`regulatory_metric_value_history`, `regulatory_evidence_versions`, and `regulatory_simulations` are append-only by design. They have no `updated_at` column and no moddatetime trigger. This is intentional — they should never be updated after creation. The history immutability trigger (trg_history_immutable) enforces this at the DB level.
+`regulatory_metric_value_history` and `regulatory_evidence_versions` are append-only by design. `regulatory_simulations` is create-or-delete only (no UPDATE policy, but DELETE is supported for cleanup). All three have no `updated_at` column and no moddatetime trigger. This is intentional — they should never be updated after creation. The history immutability trigger (trg_history_immutable) enforces this for value history at the DB level.
 
 ### L3. auth_user_role() Helper (Not Used)
 
