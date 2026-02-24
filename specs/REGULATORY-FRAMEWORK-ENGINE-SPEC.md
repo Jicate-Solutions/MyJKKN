@@ -1882,13 +1882,15 @@ After all new tables built:       ~33/56 = 59%  (remaining 23: 22 QlM narratives
 
 **IMPORTANT for Overall category:** GO uses GUE (exam results) + GPHD (PhD graduates) ONLY. Placement/salary are NOT sub-parameters in Overall — they apply in discipline-specific rankings.
 
-**TLR sub-parameter details:**
+**TLR sub-parameter details (Overall category):**
 - SS = Student Strength including Doctoral Students (20 marks)
 - FSR = Faculty-student ratio, emphasis on permanent faculty (25 marks)
 - FQE = Faculty with PhD (or equivalent) and Experience (20 marks)
 - FRU = Financial Resources and their Utilisation (20 marks)
 - OE = Online Education: Online Completion of Syllabus & Exams and Swayam (10 marks) [NEP 2020]
 - MIR = Multiple Entry/exit, Indian Knowledge System, Regional Languages (5 marks) [NEP 2020] — also abbreviated MIRS in some documents
+- **Sum check:** SS(20) + FSR(25) + FQE(20) + FRU(20) + OE(10) + MIR(5) = **100 marks** ✓
+- **⚠️ VERIFY AT IMPLEMENTATION:** Some discipline-specific NIRF docs show FSR=30/FRU=30 for Engineering/Pharmacy/Colleges/Medical. If the official Overall document is updated to match (FSR=30/FRU=30), then OE+MIR must be absorbed into the base 4 sub-params. Check the NIRF 2025 Overall PDF at implementation time and update seed data accordingly. The engine's config-driven design handles this without code changes.
 
 **Footnotes from official document:**
 - For State Public Universities, FSR is 1:20
