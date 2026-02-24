@@ -179,6 +179,8 @@ function withAuth(handler: AuthenticatedHandler, options?: AuthOptions)
 
 **Key principle:** The handler never knows or cares which auth method was used. It gets `auth.user` and `auth.supabase` and works identically.
 
+**CORS:** `withAuth` must include CORS headers on all responses (including 401/403 errors) so that browser-based API key consumers and external tools get proper CORS. Reuse `corsHeaders` from `lib/api-keys/cors.ts`. The error responses inside `withAuth` (invalid key, expired, missing permission) must all include these headers.
+
 #### 0.3 Create JWT Impersonation Helper (Application Code)
 
 **File:** `lib/auth/impersonate.ts` (new)
