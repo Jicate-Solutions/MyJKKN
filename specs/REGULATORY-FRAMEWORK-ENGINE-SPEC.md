@@ -1207,8 +1207,10 @@ CREATE TABLE regulatory_dvv_queries (
 ALTER TABLE regulatory_dvv_queries ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "dvv_queries_read" ON regulatory_dvv_queries FOR SELECT USING (
-  institution_id = auth_institution_id()
-  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN ('super_admin','iqac_coordinator','institution_admin'))
+  (institution_id = auth_institution_id()
+    OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'))
+  AND EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN
+    ('super_admin','iqac_coordinator','institution_admin'))
 );
 
 CREATE POLICY "dvv_queries_insert" ON regulatory_dvv_queries FOR INSERT WITH CHECK (
