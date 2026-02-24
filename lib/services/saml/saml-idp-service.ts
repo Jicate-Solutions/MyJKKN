@@ -360,9 +360,15 @@ export class SamlIdpService {
 
       return samlResponse;
     } catch (error) {
-      console.error('[saml-idp] Failed to generate SAML response:', error);
+      // Propagate raw samlify error so it surfaces in the API response and logs
+      // (mirrors the same pattern used in parseAuthnRequest)
+      const rawMessage = error instanceof Error ? error.message : String(error);
+      console.error('[saml-idp] createLoginResponse threw (raw samlify error):', {
+        message: rawMessage,
+        stack: error instanceof Error ? error.stack : undefined,
+      });
       throw new SamlError(
-        'Failed to generate SAML response',
+        `Failed to generate SAML response: ${rawMessage}`,
         SamlStatusCode.RESPONDER,
         'response_generation_failed'
       );
