@@ -166,13 +166,24 @@ export class SamlIdpService {
       ? key
       : `-----BEGIN PRIVATE KEY-----\n${key}\n-----END PRIVATE KEY-----`;
 
+    console.log('[saml-idp] formatPrivateKey input:', {
+      inputFirstLine: pemKey.split('\n')[0],
+      inputLength: pemKey.length,
+    });
+
     // Convert to PKCS#1 (RSA PRIVATE KEY) which xml-crypto handles correctly
     try {
       const keyObj = createPrivateKey(pemKey);
-      return keyObj.export({ type: 'pkcs1', format: 'pem' }) as string;
+      const pkcs1Key = keyObj.export({ type: 'pkcs1', format: 'pem' }) as string;
+      console.log('[saml-idp] formatPrivateKey PKCS#1 conversion SUCCESS:', {
+        outputFirstLine: pkcs1Key.split('\n')[0],
+        outputLength: pkcs1Key.length,
+        asymmetricKeyType: keyObj.asymmetricKeyType,
+      });
+      return pkcs1Key;
     } catch (err) {
       // Conversion failed — return as-is and let samlify surface the error
-      console.error('[saml-idp] PKCS#1 conversion failed, using key as-is:', err);
+      console.error('[saml-idp] PKCS#1 conversion FAILED, using key as-is:', err);
       return pemKey;
     }
   }
