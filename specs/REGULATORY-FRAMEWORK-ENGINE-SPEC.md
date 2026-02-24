@@ -1319,8 +1319,18 @@ CREATE POLICY "evidence_update" ON regulatory_evidence FOR UPDATE
       OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'))
     AND EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN
       ('super_admin','institution_admin','iqac_coordinator'))
+  )
+  WITH CHECK (
+    (institution_id = auth_institution_id()
+      OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'))
+    AND EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN
+      ('super_admin','institution_admin','iqac_coordinator'))
   );
+-- WITH CHECK prevents mutation of institution_id to a different institution.
 -- No DELETE policy — use soft-delete (UPDATE is_deleted = true) instead
+-- NOTE: hod and staff CAN insert evidence but CANNOT update or soft-delete it.
+-- This is intentional: evidence uploaded for regulatory compliance should require
+-- IQAC coordinator review before modification/removal.
 
 -- ─── Submissions: controlled workflow, approval restricted ───
 -- T8: Generate reports = super_admin, institution_admin, iqac_coordinator
