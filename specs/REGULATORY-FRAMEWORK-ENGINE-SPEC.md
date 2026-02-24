@@ -961,8 +961,10 @@ CREATE TABLE regulatory_metric_value_history (
 -- 6. Evidence Documents
 CREATE TABLE regulatory_evidence (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  metric_id uuid REFERENCES regulatory_metrics(id),
-  criteria_id uuid REFERENCES regulatory_criteria(id),
+  metric_id uuid REFERENCES regulatory_metrics(id) ON DELETE RESTRICT,
+  criteria_id uuid REFERENCES regulatory_criteria(id) ON DELETE RESTRICT,
+  -- RESTRICT: evidence must be removed before its parent metric/criterion can be deleted.
+  -- This blocks the CASCADE chain from framework→criteria→metrics when evidence exists.
   submission_id uuid,  -- FK added after regulatory_submissions table exists (see ALTER TABLE below)
   institution_id uuid NOT NULL REFERENCES institutions(id),
   academic_year text NOT NULL CHECK (academic_year ~ '^\d{4}(-\d{2})?$'),
