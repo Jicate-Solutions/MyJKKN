@@ -97,10 +97,11 @@ export const GET = withApiKeyAuth(async (request, auth) => {
       const dateFrom = getStringParam(url, 'date_from') || new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0];
       const dateTo = getStringParam(url, 'date_to') || new Date().toISOString().split('T')[0];
 
-      const { data } = await supabase
+      const { data, error: fbError } = await supabase
         .from('mess_feedback').select('overall_rating, taste_rating, hygiene_rating, quantity_rating, variety_rating, is_complaint')
         .eq('institution_id', institutionId)
         .gte('date', dateFrom).lte('date', dateTo);
+      if (fbError) throw fbError;
 
       const items = data ?? [];
       const avg = (field: string) => {
