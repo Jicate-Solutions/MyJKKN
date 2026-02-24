@@ -765,6 +765,7 @@ Add rate limiting to `withAuth`:
 | `app/(routes)/solutions/pipeline/_components/pipeline-board.tsx` | Remove inline Supabase queries |
 | `app/(routes)/solutions/pipeline/analytics/_components/pipeline-analytics.tsx` | Remove inline Supabase queries |
 | `hooks/solutions/use-client-portal.ts` | Rewrite to use ClientPortalService via API |
+| `app/api/solutions/departments/*/route.ts` (7 files) | Migrate from bare `getAuthSession()` to `withAuth()` wrapper (fixes browser-client-on-server bug) |
 
 ---
 
