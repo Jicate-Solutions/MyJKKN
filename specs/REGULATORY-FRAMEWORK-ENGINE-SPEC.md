@@ -2804,8 +2804,8 @@ The API route calculates `score_delta` and `rank_estimate` server-side before st
 | Method | Endpoint | Service Method | Roles (T8) | Description |
 |--------|----------|---------------|------------|-------------|
 | GET | `/api/regulatory/governing-bodies` | `getGoverningBodies(filters)` | all with institution access | List governing bodies |
-| POST | `/api/regulatory/governing-bodies` | `createGoverningBody(data)` | super_admin, institution_admin, principal | Create governing body |
-| PUT | `/api/regulatory/governing-bodies/[id]` | `updateGoverningBody(id, data)` | super_admin, institution_admin, principal | Update body (members, mandate) |
+| POST | `/api/regulatory/governing-bodies` | `createGoverningBody(data)` | super_admin, institution_admin, iqac_coordinator, principal | Create governing body |
+| PUT | `/api/regulatory/governing-bodies/[id]` | `updateGoverningBody(id, data)` | super_admin, institution_admin, iqac_coordinator, principal | Update body (members, mandate) |
 | GET | `/api/regulatory/governing-bodies/[id]/meetings` | `getMeetings(bodyId, filters)` | all with institution access | List meetings for a body |
 | POST | `/api/regulatory/governing-bodies/[id]/meetings` | `createMeeting(bodyId, data)` | super_admin, institution_admin, iqac_coordinator, principal | Record a meeting |
 | PUT | `/api/regulatory/meetings/[id]` | `updateMeeting(id, data)` | super_admin, institution_admin, iqac_coordinator, principal | Update meeting (agenda, resolutions, action items) |
