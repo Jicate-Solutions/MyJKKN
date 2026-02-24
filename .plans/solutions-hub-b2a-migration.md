@@ -814,7 +814,7 @@ Counted from the phase-by-phase tables above:
 | Phase 0 | 3 new files (withAuth, impersonate, response) + 1 modified (upload fix) | — |
 | Phase 1 | 16 (solutions 3, clients 2, prospects 7, phases 4) | ~29 |
 | Phase 2 | 44 (software 13, training 8, content 7, financial 13, mous 3) | ~87 |
-| Phase 3 | 44 NEW (portals 22, discovery 4, publications 6, products 9, compliance+notifications 3) + 7 EXISTING dept tracker routes to refactor | ~53 + ~12 |
+| Phase 3 | 44 NEW (portals 22, discovery 4, publications 6, products 9, compliance+notifications 3) + 7 EXISTING dept tracker routes to refactor | ~53 new endpoints + ~12 from refactored dept routes |
 | Phase 4 | 1 utility file (api client helper — NOT a route) | — |
 | Phase 5 | 1 service file (client-portal-service — NOT a route) | — |
 | Phase 6 | 0 (docs only) | — |
