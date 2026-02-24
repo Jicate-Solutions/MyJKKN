@@ -1035,7 +1035,7 @@ CREATE TABLE regulatory_simulations (
   framework_id uuid NOT NULL REFERENCES regulatory_frameworks(id),
   institution_id uuid NOT NULL REFERENCES institutions(id),
   name text NOT NULL,                                -- "What if 5 more PhD faculty"
-  base_academic_year text NOT NULL,
+  base_academic_year text NOT NULL CHECK (base_academic_year ~ '^\d{4}(-\d{2})?$'),
   overrides jsonb NOT NULL DEFAULT '{}',             -- {metric_code: new_value, ...}
   calculated_score numeric,
   score_delta numeric,                               -- difference from base
