@@ -2826,7 +2826,7 @@ Additional entity-specific filters are documented per endpoint where applicable.
 |--------|----------|---------------|------------|-------------|
 | GET | `/api/regulatory/metric-values` | `getMetricValues(filters)` | super_admin, institution_admin, iqac_coordinator, principal, hod | List metric values with filters (institution_id, academic_year, framework_id via criteria chain) |
 | GET | `/api/regulatory/metric-values/[id]/history` | `getMetricHistory(id)` | super_admin, institution_admin, iqac_coordinator, principal, hod | Audit trail for a metric value |
-| POST | `/api/regulatory/metric-values` | `upsertMetricValue(data)` | super_admin, institution_admin, iqac_coordinator, hod | Create or update metric value (triggers history) |
+| POST | `/api/regulatory/metric-values` | `upsertMetricValue(data)` | super_admin, institution_admin, iqac_coordinator, hod | Create or update metric value (triggers history). **App-layer guard:** If the metric's `is_auto_calculable = true` AND the value already exists AND `is_auto_calculated = true`, this is an **override** — only super_admin, institution_admin, iqac_coordinator may proceed (hod is blocked). The API route must check the existing row and the metric definition before allowing the write. On override, the service must set `is_manually_overridden = true` and require `override_reason`. |
 | POST | `/api/regulatory/metric-values/refresh` | `refreshAutoMetrics(frameworkId, institutionId, year)` | super_admin, institution_admin, iqac_coordinator | Run all data connectors and refresh auto-calculated values |
 
 > **Implementation note — DataConnectorEngine Security (CRITICAL):**
