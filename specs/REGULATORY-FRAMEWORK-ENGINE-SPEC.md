@@ -375,7 +375,7 @@ CREATE INDEX idx_reg_evidence_filename_trgm ON regulatory_evidence USING GIN (fi
 -- Full-text search across evidence documents
 SELECT e.*, ts_rank(search_vector, query) AS relevance
 FROM regulatory_evidence e,
-     to_tsquery('english', 'placement & report') query
+     websearch_to_tsquery('english', 'placement report') query  -- use websearch_to_tsquery for user input (handles plain text, not & syntax)
 WHERE search_vector @@ query
   AND institution_id = auth_institution_id()
   AND is_deleted = false
