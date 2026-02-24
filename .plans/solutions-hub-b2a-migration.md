@@ -392,10 +392,17 @@ app/api/solutions/[resource]/stats/route.ts     → Aggregated stats
 
 Every route follows this template:
 ```typescript
+import { NextResponse } from 'next/server';
 import { withAuth } from '@/lib/auth/with-auth';
 import { SolutionsService } from '@/lib/services/solutions/solutions-service';
 import { paginatedResponse, errorResponse } from '@/lib/api/response';
 import { getPaginationParams, getSortParams, getStringParam } from '@/lib/api-keys/query-helpers';
+import { corsHeaders } from '@/lib/api-keys/cors';
+
+// CORS preflight — required in every route file (no global middleware)
+export async function OPTIONS() {
+  return NextResponse.json({}, { headers: corsHeaders });
+}
 
 export const GET = withAuth(async (request, auth) => {
   const url = new URL(request.url);
