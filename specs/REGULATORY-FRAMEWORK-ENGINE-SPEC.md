@@ -4081,7 +4081,9 @@ Tree structure is assembled in application code from these two flat result sets.
 
 2. **Batch-load then compute:** Load ALL metric values for the submission in a single query, build an in-memory Map<metric_code, numeric_value>, then evaluate formulas purely in application code:
    ```typescript
-   const values = await getMetricValues(frameworkId, institutionId, year); // 1 query
+   // 1 query: JOIN metric_values with metrics to get code (code lives on regulatory_metrics, not metric_values)
+   const values = await getMetricValuesWithCodes(frameworkId, institutionId, year);
+   // values = [{metric_code: '1.1.1', numeric_value: 42, ...}, ...] — code from JOIN
    const valueMap = new Map(values.map(v => [v.metric_code, v.numeric_value]));
    const order = framework.metadata.formula_order; // cached
    for (const code of order) {
