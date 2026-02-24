@@ -846,13 +846,22 @@ CREATE TABLE regulatory_frameworks (
   created_by uuid REFERENCES profiles(id),
   created_at timestamptz DEFAULT now(),
   updated_at timestamptz DEFAULT now(),
-  UNIQUE(institution_id, body, version, institution_type)
+  UNIQUE(institution_id, body, version, institution_type),
+  UNIQUE(institution_id, code)
+  -- NOTE: code is unique PER institution (not globally). Global templates (institution_id=NULL)
+  -- use a partial unique index below since PostgreSQL treats NULL != NULL in UNIQUE constraints.
+  -- When an institution copies a global template, it gets its own row with the same code but
+  -- a non-NULL institution_id — no conflict.
   -- NOTE: institution_type is nullable (NULL = universal, applies to all types).
   -- PostgreSQL treats NULL != NULL in UNIQUE constraints, so multiple (same body, version, NULL)
-  -- rows could exist. Mitigate with a partial unique index:
-  -- CREATE UNIQUE INDEX idx_frameworks_universal ON regulatory_frameworks
-  --   (institution_id, body, version) WHERE institution_type IS NULL;
+  -- rows could exist. Mitigate with partial unique indexes:
 );
+
+-- Partial unique indexes for NULL institution_id (global templates)
+CREATE UNIQUE INDEX idx_frameworks_global_code ON regulatory_frameworks (code)
+  WHERE institution_id IS NULL;
+CREATE UNIQUE INDEX idx_frameworks_universal ON regulatory_frameworks
+  (body, version) WHERE institution_type IS NULL AND institution_id IS NULL;
 
 -- 2. Criteria Tree (hierarchical — supports sub-criteria)
 CREATE TABLE regulatory_criteria (
