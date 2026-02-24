@@ -2781,10 +2781,19 @@ lib/utils/
 | POST | `/api/regulatory/submissions/[id]/report` | `generateSubmissionReport(id, format)` | super_admin, institution_admin, iqac_coordinator | Generate report (PDF for NAAC SSR/AQAR, CSV/JSON for NIRF, HTML for AICTE). `format` query param: `pdf` \| `csv` \| `json` \| `html` |
 
 **Submission Status State Machine (enforced at API route level):**
-```
-draft → data_collection → in_review → approved → submitted → accepted
-                                    ↘ returned (back to data_collection)
-```
+
+| From State | To State | Who Can Trigger | Notes |
+|------------|----------|-----------------|-------|
+| `draft` | `data_collection` | iqac_coordinator, institution_admin, super_admin | Start data collection |
+| `data_collection` | `in_review` | iqac_coordinator, institution_admin, super_admin | Submit for review |
+| `in_review` | `approved` | principal, institution_admin, super_admin | **Approval gate** — iqac_coordinator cannot approve |
+| `in_review` | `returned` | principal, institution_admin, super_admin | Internal review returned for corrections |
+| `approved` | `submitted` | institution_admin, super_admin | Mark as submitted to regulatory body |
+| `submitted` | `accepted` | institution_admin, super_admin | Regulatory body accepted submission |
+| `submitted` | `returned` | institution_admin, super_admin | Regulatory body returned (e.g., NAAC DVV) |
+| `returned` | `data_collection` | iqac_coordinator, institution_admin, super_admin | Restart data collection after corrections |
+
+**Terminal state:** `accepted` — no outgoing transitions.
 Invalid transitions return `409 Conflict`.
 
 ### Simulations API
