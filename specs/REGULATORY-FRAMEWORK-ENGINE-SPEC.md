@@ -2604,6 +2604,13 @@ export async function GET(request: NextRequest) {
     .eq('id', user.id)
     .single()
 
+  if (!profile) {
+    return NextResponse.json(
+      { success: false, error: 'UNAUTHORIZED', message: 'User profile not found' },
+      { status: 401 }
+    )
+  }
+
   // 3. Role check per T8 permission matrix
   const allowedRoles = ['super_admin', 'institution_admin', 'iqac_coordinator', 'principal', 'hod']
   if (!allowedRoles.includes(profile.role)) {
@@ -2618,11 +2625,16 @@ export async function GET(request: NextRequest) {
   const institutionId = profile.role === 'super_admin'
     ? searchParams.get('institution_id') || undefined   // super_admin can query any
     : profile.institution_id                             // others scoped to their own
+  const body = searchParams.get('body') || undefined
+  const status = searchParams.get('status') || undefined
+  const search = searchParams.get('search') || undefined
+  const page = parseInt(searchParams.get('page') || '1', 10)
+  const limit = parseInt(searchParams.get('limit') || '20', 10)
 
   // 5. Call service
   const result = await RegulatoryFrameworkService.getFrameworks({
     institution_id: institutionId,
-    ...otherFilters
+    body, status, search, page, limit,
   })
 
   // 6. Return envelope
