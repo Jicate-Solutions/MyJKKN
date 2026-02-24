@@ -4,6 +4,7 @@
 // ============================================================================
 
 import { createClientSupabaseClient } from '@/lib/supabase/client'
+import { validateId, sanitizeSearch, formatError } from './utils'
 
 /**
  * DDL: regulatory_course_syllabi columns:
