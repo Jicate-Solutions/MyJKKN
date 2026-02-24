@@ -9,6 +9,7 @@ import ChildAppIntegrationDocs from './_components/child-app-integration-docs';
 import { ApiModuleLayout } from '@/components/api-docs';
 import { organizationsModuleConfig } from '@/lib/data/api-endpoints/organizations';
 import { learnersModuleConfig } from '@/lib/data/api-endpoints/learners';
+import { campusLivingModuleConfig } from '@/lib/data/api-endpoints/campus-living';
 import {
   Breadcrumb,
   BreadcrumbItem,
