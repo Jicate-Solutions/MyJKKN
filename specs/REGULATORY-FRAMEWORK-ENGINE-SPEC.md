@@ -1159,9 +1159,9 @@ ALTER TABLE regulatory_evidence ADD CONSTRAINT fk_evidence_submission
 CREATE TABLE regulatory_submission_transitions (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   submission_id uuid NOT NULL REFERENCES regulatory_submissions(id) ON DELETE CASCADE,
-  from_status text NOT NULL,
-  to_status text NOT NULL,
-  transitioned_by uuid NOT NULL REFERENCES auth.users(id),
+  from_status text NOT NULL CHECK (from_status IN ('draft','data_collection','in_review','approved','submitted','accepted','returned','cancelled','dvv_revision')),
+  to_status text NOT NULL CHECK (to_status IN ('draft','data_collection','in_review','approved','submitted','accepted','returned','cancelled','dvv_revision')),
+  transitioned_by uuid NOT NULL REFERENCES profiles(id),  -- profiles, not auth.users (consistent with all other user FK refs)
   reason text,
   metadata jsonb NOT NULL DEFAULT '{}',
   created_at timestamptz NOT NULL DEFAULT now()
