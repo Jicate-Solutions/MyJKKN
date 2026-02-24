@@ -77,7 +77,6 @@ export default function MetricEntryPage() {
   const [dataTypeFilter, setDataTypeFilter] = useState<string>('all')
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editValue, setEditValue] = useState<string>('')
-  const [uploadDialogMetricId, setUploadDialogMetricId] = useState<string | null>(null)
 
   const {
     data: framework,
