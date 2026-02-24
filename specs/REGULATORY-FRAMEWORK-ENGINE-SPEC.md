@@ -912,7 +912,7 @@ CREATE TABLE regulatory_metric_values (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   metric_id uuid NOT NULL REFERENCES regulatory_metrics(id) ON DELETE CASCADE,
   institution_id uuid NOT NULL REFERENCES institutions(id),
-  academic_year text NOT NULL,                       -- "2025-26" or "2025" (calendar year for NIRF)
+  academic_year text NOT NULL CHECK (academic_year ~ '^\d{4}(-\d{2})?$'),  -- "2025-26" or "2025" (calendar year for NIRF)
   value text,                                        -- stored as text, parsed by data_type
   numeric_value numeric,                             -- pre-parsed for calculations (NULL if non-numeric)
   is_auto_calculated boolean DEFAULT false,
