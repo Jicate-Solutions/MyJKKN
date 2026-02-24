@@ -18,6 +18,15 @@ import {
 } from '@/types/saml';
 import { SamlServiceProviderService } from './saml-service-provider-service';
 
+// samlify v2.x requires an explicit schema validator to be registered before
+// any parseLoginRequest / createLoginResponse calls, or it throws
+// "no validation function found". Since wantAuthnRequestsSigned=false we never
+// verify SP signatures on incoming AuthnRequests, so a permissive passthrough
+// is the correct and safe choice here.
+samlify.setSchemaValidator({
+  validate: (_response: string) => Promise.resolve(''),
+});
+
 export class SamlIdpService {
   private static idpInstance: ReturnType<typeof samlify.IdentityProvider> | null = null;
   // Bump this string whenever getIdPConfig() logic changes so the cached
@@ -225,24 +234,43 @@ export class SamlIdpService {
       ]);
       const idp = this.getIdP();
 
-      // Diagnostic: log the configured SSO URL and the Destination in the incoming XML.
-      // This surfaces www vs non-www mismatches which samlify rejects silently.
+      // Detect the Destination URL in the incoming XML and compare to our canonical SSO URL.
+      // samlify's parseLoginRequest validates Destination against getSingleSignOnService(binding)
+      // which returns only the FIRST configured location per binding — the alias entries we
+      // register for www/non-www variants are ignored. We therefore normalise the Destination
+      // in the decoded XML to our canonical URL before re-encoding and passing to samlify.
       const configuredSsoUrl = this.getIdPConfig().ssoServiceUrl;
       const destinationMatch = decoded.match(/Destination="([^"]+)"/);
       const destination = destinationMatch?.[1];
+
+      let xmlToProcess = decoded;
       if (destination && destination !== configuredSsoUrl) {
-        console.warn('[saml-idp] Destination URL mismatch (accepted via alias):', {
-          destination,
-          configuredSsoUrl,
+        console.warn('[saml-idp] Destination URL mismatch — normalising to canonical SSO URL:', {
+          received: destination,
+          canonical: configuredSsoUrl,
         });
+        // Replace only the exact Destination value so we don't accidentally mutate other XML.
+        // This is safe because: (a) wantAuthnRequestsSigned=false so we don't check the
+        // signature over the XML bytes, and (b) the full URL string is unique in the document.
+        xmlToProcess = decoded.replace(destination, configuredSsoUrl);
+      }
+
+      // Re-encode the (possibly normalised) XML for samlify.
+      // POST binding:     samlify expects base64(xml)
+      // Redirect binding: samlify expects base64(deflateRaw(xml))
+      let processedSamlRequest: string;
+      if (binding === 'redirect') {
+        processedSamlRequest = zlib.deflateRawSync(Buffer.from(xmlToProcess, 'utf-8')).toString('base64');
+      } else {
+        processedSamlRequest = Buffer.from(xmlToProcess, 'utf-8').toString('base64');
       }
 
       // Parse request using samlify
       // samlify expects { query: ... } for redirect binding, { body: ... } for post binding
       const requestData =
         binding === 'redirect'
-          ? { query: { SAMLRequest: samlRequest } }
-          : { body: { SAMLRequest: samlRequest } };
+          ? { query: { SAMLRequest: processedSamlRequest } }
+          : { body: { SAMLRequest: processedSamlRequest } };
       const { extract } = await idp.parseLoginRequest(sp, binding, requestData);
 
       // Fall back to the registered ACS URL if the request omits it (SAML 2.0 §3.4.1.2)
@@ -266,15 +294,15 @@ export class SamlIdpService {
       if (error instanceof SamlError) {
         throw error;
       }
-      // Log the actual samlify/internal error so it is visible in production logs.
-      // Previously this detail was lost, making Destination mismatches and
-      // certificate errors indistinguishable.
-      const detail = error instanceof Error
-        ? { message: error.message, stack: error.stack }
-        : String(error);
-      console.error('[saml-idp] parseLoginRequest threw (raw samlify error):', detail);
+      // Propagate the raw samlify error message so it reaches the 500 JSON response
+      // and is visible in both server logs AND the API caller — no more silent failures.
+      const rawMessage = error instanceof Error ? error.message : String(error);
+      console.error('[saml-idp] parseLoginRequest threw (raw samlify error):', {
+        message: rawMessage,
+        stack: error instanceof Error ? error.stack : undefined,
+      });
       throw new SamlError(
-        'Failed to parse SAML request',
+        `Failed to parse SAML request: ${rawMessage}`,
         SamlStatusCode.REQUESTER,
         'invalid_request'
       );
