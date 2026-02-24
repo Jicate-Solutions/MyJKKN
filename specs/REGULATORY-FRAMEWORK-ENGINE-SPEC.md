@@ -2760,7 +2760,7 @@ lib/utils/
 | PUT | `/api/regulatory/evidence/[id]` | `updateEvidence(id, data)` | super_admin, institution_admin, iqac_coordinator | Update evidence metadata |
 | DELETE | `/api/regulatory/evidence/[id]` | `softDeleteEvidence(id)` | super_admin, institution_admin, iqac_coordinator | Soft-delete (set is_deleted=true) |
 | GET | `/api/regulatory/evidence/[id]/versions` | `getEvidenceVersions(id)` | all with institution access | Version history for an evidence document |
-| POST | `/api/regulatory/evidence/[id]/versions` | `addEvidenceVersion(id, data)` | super_admin, institution_admin, iqac_coordinator, hod, faculty | Add new version of evidence document |
+| POST | `/api/regulatory/evidence/[id]/versions` | `addEvidenceVersion(id, data)` | super_admin, institution_admin, iqac_coordinator, hod, staff | Add new version of evidence document |
 
 ### Submissions API
 
