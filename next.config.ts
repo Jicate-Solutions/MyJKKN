@@ -6,12 +6,16 @@ const nextConfig: NextConfig = {
 
   experimental: {
     // Optimize large package imports — tree-shake unused exports
+    // @supabase entries fix the Turbopack HMR race condition on first cold load
+    // (wrapper.mjs factory deletion bug: works on refresh but fails first time)
     optimizePackageImports: [
       'lucide-react',
       'react-icons',
       '@radix-ui/react-icons',
       'date-fns',
-      'react-hot-toast'
+      'react-hot-toast',
+      '@supabase/supabase-js',
+      '@supabase/ssr'
     ]
   },
 

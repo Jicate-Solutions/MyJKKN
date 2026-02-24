@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { toast } from 'react-hot-toast';
+import { FEATURE_FLAGS } from '@/lib/config/feature-flags';
 
 declare global {
   interface Window {
@@ -133,14 +134,19 @@ export function GoogleOneTap() {
           if (profileData.role === 'guest') {
             router.push('/guest');
           } else if (profileData.role === 'student') {
-            // Students are not allowed - sign out and stay on login page
-            await supabase.auth.signOut();
-            // Add reason to URL without redirecting
-            const newUrl = new URL(window.location.href);
-            newUrl.searchParams.set('reason', 'student_redirect');
-            window.history.replaceState({}, '', newUrl.toString());
-            window.location.reload();
-            return;
+            if (!FEATURE_FLAGS.ENABLE_STUDENT_PORTAL) {
+              // Feature disabled - block students (original behavior)
+              await supabase.auth.signOut();
+              const newUrl = new URL(window.location.href);
+              newUrl.searchParams.set('reason', 'student_redirect');
+              window.history.replaceState({}, '', newUrl.toString());
+              window.location.reload();
+              return;
+            } else {
+              // Feature enabled - allow students through to dashboard
+              router.push('/');
+              return;
+            }
           } else {
             router.push('/');
           }
