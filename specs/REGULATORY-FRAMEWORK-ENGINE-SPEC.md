@@ -18,15 +18,18 @@ MyJKKN has 39 modules and 300+ tables but **zero automated regulatory reporting*
 3. Generates submission-ready reports in required formats (PDF for NAAC SSR/AQAR, pre-filled data sheets for NIRF DCS portal entry, HTML for AICTE disclosure)
 4. Survives regulatory changes without code rewrites — admin reconfigures, not developer
 
-**Pre-configured Frameworks (15 total):**
+**Pre-configured Frameworks (21 total):**
 - NAAC 2022 Revised (7 criteria, 56 metrics)
-- NAAC Binary 2024 × 3 institution types (10 attributes, 60 metrics each)
+- NAAC Binary 2024 × 3 institution types (10 attributes, 60 metrics each) — with pass thresholds: University 540/900, Autonomous 450/900, Affiliated 360/900
+- NAAC MBGL 2024 × 3 institution types (post-Binary maturity grading, 5 levels: Basic → Global Excellence)
 - NIRF 2025 Overall + 6 discipline variants (Engineering, Pharmacy Cat A/B, Colleges, Dental, Medical/Nursing)
-- NBA SAR (Engineering + Pharmacy programs, 10 criteria, PO1-PO12)
+- NBA SAR (Engineering + Pharmacy programs, 10 criteria, PO1-PO11 per GAPC v4)
 - AICTE Mandatory Disclosure (9 categories, compliance checklist)
 - UGC-AISHE (9 data sections, export-only)
 
-**Key Architectural Decision:** ONE engine, MANY frameworks. All 15 pre-configured frameworks (1 NAAC Old + 3 NAAC Binary + 7 NIRF + 2 NBA + 1 AICTE + 1 AISHE) are database configurations, not separate modules. When rules change, change the config — not the code. The NAAC Binary Framework (2024) has institution-type-specific scoring — handled by creating 3 framework variants (University, Autonomous, Affiliated), each summing to 900 points but with different weight distributions. NIRF discipline rankings share the same 5 parameters but with different weights and sub-parameter selections — the engine handles this via per-framework metric configuration.
+**NAAC Two-Stage Process:** Under the 2024 reforms, NAAC accreditation is a two-stage process — (1) Binary threshold pass/fail, then (2) MBGL maturity grading for institutions that pass. Accreditation validity is 3 years (not 5 years as under the legacy system). The engine models each stage as a separate framework variant, with MBGL submissions requiring a prerequisite Binary submission in 'accepted' status.
+
+**Key Architectural Decision:** ONE engine, MANY frameworks. All 21 pre-configured frameworks (1 NAAC Old + 3 NAAC Binary + 3 NAAC MBGL + 7 NIRF + 2 NBA + 1 AICTE + 1 AISHE + 1 NAAC IIQA + 1 NAAC AQAR) are database configurations, not separate modules. When rules change, change the config — not the code. The NAAC Binary Framework (2024) has institution-type-specific scoring — handled by creating 3 framework variants (University, Autonomous, Affiliated), each summing to 900 points but with different weight distributions. NIRF discipline rankings share the same 5 parameters but with different weights and sub-parameter selections — the engine handles this via per-framework metric configuration.
 
 ---
 
@@ -71,7 +74,7 @@ Currently: **ALL done manually** — staff spends 3-6 months collecting data fro
 
 **Usage Triggers:**
 - **Annual:** NIRF submission (typically Jan-Mar), NAAC AQAR (end of academic year)
-- **Cyclical:** NAAC SSR (every 5 years), NBA SAR (every 3 years per program)
+- **Cyclical:** NAAC SSR (every 3 years under Binary+MBGL system; legacy 5-year cycle for institutions still under old grading), NBA SAR (every 3 years per program)
 - **Ongoing:** Metric monitoring, score simulation, evidence collection
 - **Ad-hoc:** When new regulatory body/version announced
 
@@ -148,6 +151,55 @@ Currently: **ALL done manually** — staff spends 3-6 months collecting data fro
 5. Set weights per criteria
 6. Save → framework immediately available for data collection
 7. No developer involvement required
+
+#### IIQA (Institutional Information for Quality Assessment) — NAAC Prerequisite
+
+IIQA is the FIRST step in NAAC accreditation. It must be submitted and ACCEPTED by NAAC before SSR preparation begins. The system models IIQA as:
+
+1. A separate submission type (framework variant `NAAC_IIQA`) with its own metrics
+2. A gatekeeper in the workflow: SSR submission cannot be created until IIQA is accepted
+3. The `prerequisite_submission_id` field on `regulatory_submissions` enforces this dependency
+
+**IIQA Data Points (27 items):**
+- Basic institutional information (name, address, establishment year)
+- Programs offered with intake capacity
+- Faculty count by designation
+- Student enrollment for past 5 years
+- Financial data summary
+- Accreditation history
+
+> **Schema addition (see Database Schema section):** Add `prerequisite_submission_id uuid REFERENCES regulatory_submissions(id)` to `regulatory_submissions`. The API must validate that prerequisite submissions are in 'accepted' status before allowing dependent submission creation.
+
+#### DVV (Data Verification and Validation) — Post-Submission Process
+
+DVV is NAAC's post-submission verification process. It is a multi-round exchange:
+1. NAAC DVV team reviews submitted QnM metrics
+2. Sends specific queries about data discrepancies
+3. Institution responds with clarifications and additional evidence
+4. May go through 2-3 rounds of queries
+
+The engine models DVV as:
+- A `dvv_revision` state in the submission workflow (between `submitted` and `accepted`)
+- Auto-refresh is BLOCKED during DVV revision to preserve submitted values
+- Only DVV-queried metrics can be edited in this state
+- Evidence versioning captures 'dvv_response' as the change_type
+
+> **Schema addition (see Database Schema section):**
+> - New table: `regulatory_dvv_queries` (id uuid PK, submission_id uuid REFERENCES regulatory_submissions(id), metric_id uuid REFERENCES regulatory_metrics(id), query_round integer NOT NULL DEFAULT 1, naac_query_text text NOT NULL, institution_response text, response_evidence_ids uuid[], status text NOT NULL CHECK(status IN ('open','responded','resolved','escalated')), queried_at timestamptz DEFAULT now(), responded_at timestamptz)
+> - New submission status: `dvv_revision` added between `submitted` and `accepted` in the status CHECK constraint and state machine
+
+#### Department-Level Data Collection Workflow
+
+Data collection for NAAC/NIRF is coordinated across 15-30 departments. The IQAC coordinator assigns metrics to department HODs with deadlines:
+
+1. IQAC coordinator creates a submission → status: `data_collection`
+2. IQAC assigns metrics to departments (bulk assignment with due dates)
+3. HODs see "My Assigned Metrics" on their dashboard
+4. HODs enter values and upload evidence for their metrics
+5. IQAC reviews completed metrics → approves or sends back
+6. Once all metrics are approved → submission moves to `in_review`
+
+> **Schema addition (see Database Schema section):** New table: `regulatory_metric_assignments` (id uuid PK, metric_value_id uuid REFERENCES regulatory_metric_values(id), assigned_to uuid REFERENCES auth.users(id), assigned_to_department text, assigned_by uuid REFERENCES auth.users(id), assigned_at timestamptz DEFAULT now(), due_date date, status text NOT NULL CHECK(status IN ('pending','in_progress','submitted','approved','rejected')), reviewer_notes text)
 
 ---
 
@@ -475,6 +527,19 @@ This is the core of the spec. The Regulatory Framework Engine connects to **15 e
     └──────────┘└────────┘└────────┘└──────────┘└────────┘└────────┘
 ```
 
+#### Academic Year → Date Range Resolution
+
+Data connectors inject `$2=start_date` and `$3=end_date`. The DataConnectorEngine resolves these from the `academic_year` text + the framework's `year_type`:
+
+| Year Type | Input | Start Date | End Date |
+|-----------|-------|------------|----------|
+| calendar | "2025" | 2025-01-01 | 2025-12-31 |
+| academic | "2025-26" | Institution's academic year start (default: June 1) | May 31 of following year |
+
+The academic year start month is configurable per institution. If the `institutions` table has an `academic_year_start_month` column, use it. Otherwise default to June (month 6).
+
+> **Schema addition (see Database Schema section):** Consider adding `academic_year_start_month integer DEFAULT 6` to the `institutions` table (outside this module's scope, but required for accurate connector queries).
+
 #### DETAILED DATA CONNECTOR SPECIFICATIONS
 
 Each connector defines: **Source Module → Source Table(s) → Key Columns → Regulatory Use**
@@ -520,6 +585,7 @@ Each connector defines: **Source Module → Source Table(s) → Key Columns → 
   - `staff.date_of_joining` → Experience calculation
   - `staff.department_id` → Department-wise faculty count
   - `staff.gender` → Faculty gender ratio (NIRF OI)
+  - `staff.pay_scale` → Faculty pay scale (AICTE mandatory disclosure requirement). **NOTE:** Consider adding `pay_scale text` to the `staff` table if not present — AICTE Category 3 (Faculty Information) requires pay scale for each faculty member.
   - `facilitator_development.workshops_attended` → FDP participation (NAAC)
   - `facilitator_development.industry_exposure_hours` → Industry interaction (NAAC Cr III)
   - `facilitator_development.current_stage` → Faculty development stage
@@ -1863,7 +1929,8 @@ Week 1: Database + API Layer Foundation
 ├── Day 5: API routes for metrics + metric-values (GET, POST upsert)
 │           + Service: RegulatoryMetricService
 │           + Hooks: useMetrics, useMetricValues, useUpsertMetricValue
-│           + Seed frameworks: NAAC 2022, NIRF Overall + 6 discipline, NAAC Binary × 3
+│           + Seed frameworks: NAAC 2022, NIRF Overall + 6 discipline, NAAC Binary × 3,
+│             NAAC MBGL × 3, NAAC IIQA, NAAC AQAR (21 total pre-configured frameworks)
 
 Week 2: Data Connectors + Evidence API
 ├── Day 1: API routes for data-connectors (GET, POST test, POST refresh)
@@ -1933,13 +2000,20 @@ Week 8: Admin Config UI
 Week 9: Advanced Features
 ├── Day 1-2: Cross-institution comparison view (super_admin)
 ├── Day 3-4: NBA program-level view (per-program submission)
+│             DVV query tracking UI (regulatory_dvv_queries CRUD + status workflow)
 ├── Day 5: Peer institution benchmarking data import (batch upload)
+│           Bulk metric value import: POST /api/regulatory/metric-values/bulk-import
+│           (CSV with columns: metric_code, academic_year, value, notes; validation + dry-run mode)
+│           Essential for loading historical 5-year data at system launch.
 
 Week 10: Polish & Handoff
 ├── Day 1: AICTE mandatory disclosure template + AISHE export
 ├── Day 2: Upload dialogs wired (evidence panel, metric table)
 │           File upload via Supabase Storage presigned URLs
 ├── Day 3: Performance optimization (connector caching, batch refresh)
+│           Deadline alert notifications integrated with MyJKKN notification system.
+│           Configure alert thresholds at 90, 60, 30, and 7 days before submission_deadline.
+│           Department metric assignment notifications (due date reminders for HODs).
 ├── Day 4-5: Documentation, admin training guide, UAT
 │             FOROMM.md creation for the module
 ```
@@ -1961,7 +2035,7 @@ Week 10: Polish & Handoff
 
 ## Pre-Built Framework Templates
 
-Ship with these frameworks pre-configured (seeded in migration):
+Ship with these 21 frameworks pre-configured (seeded in migration):
 
 ### NAAC 2022 Revised — Full Metric-Level Breakdown (7 Criteria, 56 Metrics)
 
@@ -2107,6 +2181,8 @@ After all new tables built:       ~33/56 = 59%  (remaining 23: 22 QlM narratives
 | OI (Outreach & Inclusivity) | 0.10 | RD(30), WD(30), ESCS(20), PCS(20) | DC-01, DC-09, DC-26 |
 | Perception (PR) | 0.10 | PR(100) — Academic Peers & Employers | External (NIRF-conducted survey) |
 
+**Perception Parameter (PR, 10% weight):** Perception metrics are `is_auto_calculable = false` with guidance: "Enter NIRF-published perception score after rankings are declared." The simulation engine uses last year's perception value as default for what-if analysis, since the institution cannot directly control this parameter — it is derived from NIRF's peer/employer survey.
+
 **IMPORTANT for Overall category:** GO uses GUE (exam results) + GPHD (PhD graduates) ONLY. Placement/salary are NOT sub-parameters in Overall — they apply in discipline-specific rankings.
 
 **TLR sub-parameter details (Overall category):**
@@ -2128,15 +2204,18 @@ After all new tables built:       ~33/56 = 59%  (remaining 23: 22 QlM narratives
 
 > **Source:** `NAAC Reforms 2024.pdf` — Binary Accreditation Framework Workshop (July 2024)
 > **Also:** `DrRadhakrishnanCommittee-FinalReport.pdf` — Ministry of Education (November 2023)
-> **Outcome:** Binary — Accredited / Awaiting Accreditation / Not Accredited + Level 1-5 progression
+> **Outcome:** Binary — Accredited / Awaiting Accreditation / Not Accredited. Institutions that pass Binary proceed to MBGL grading (Level 1-5)
 > **Total Score:** 900 points (all institution types sum to 900, but weight distribution differs)
+> **Validity:** 3 years (not 5 years as under the old system). Set `validity_period_years = 3` in the framework row.
 > **Key Difference from Old:** Institution-type-specific scoring — University, Autonomous College, and Affiliated College each get different max scores per attribute
 
 **Why 3 Framework Variants Are Needed:**
-The `regulatory_frameworks` table now has `institution_type` column. Seed 3 variants:
-- `NAAC Binary 2024` + `institution_type = 'university'`
-- `NAAC Binary 2024` + `institution_type = 'autonomous_college'` ← **JKKN institutions use this**
-- `NAAC Binary 2024` + `institution_type = 'affiliated_college'`
+The `regulatory_frameworks` table now has `institution_type` column. Seed 3 variants with pass thresholds:
+- `NAAC Binary 2024` + `institution_type = 'university'` — `pass_threshold = 540` (60% of 900)
+- `NAAC Binary 2024` + `institution_type = 'autonomous_college'` — `pass_threshold = 450` (50% of 900) ← **JKKN institutions use this**
+- `NAAC Binary 2024` + `institution_type = 'affiliated_college'` — `pass_threshold = 360` (40% of 900)
+
+> **Schema addition (see Database Schema section):** Add `pass_threshold numeric` to `regulatory_frameworks`. The dashboard and simulation must prominently display: current estimated score vs threshold, with a color-coded gap indicator (red = below threshold, green = above threshold).
 
 #### Attribute Summary (Scores: University / Autonomous / Affiliated)
 
@@ -2331,6 +2410,66 @@ The Dr. Radhakrishnan Committee Report (Nov 2023) recommends:
 - `onod_integration_status` — readiness for API-based data push
 - `data_validation_mode` — 'self_reported' | 'crowdsourced' | 'api_verified'
 
+#### NAAC MBGL (Maturity-Based Graded Level) — Post-Binary Assessment
+
+NAAC's 2024 reform introduces a two-stage process:
+1. **Binary Accreditation** — Threshold check (modeled above). Pass/Fail based on minimum scores.
+2. **MBGL Grading** — Maturity assessment for institutions that pass Binary. 5 levels:
+   - Level 1: Basic (threshold + 0-10%)
+   - Level 2: Developing (threshold + 10-25%)
+   - Level 3: Established (threshold + 25-50%)
+   - Level 4: Advanced (threshold + 50-75%)
+   - Level 5: Global Excellence (threshold + 75-100%)
+
+MBGL evaluates the SAME 10 attributes as Binary but with deeper rubric-based assessment of institutional maturity. The engine models MBGL as a separate framework variant (`NAAC_MBGL_2024_<institution_type>`) that:
+- Shares the same 10 attribute structure as Binary
+- Adds rubric-level scoring criteria per attribute (5-level maturity scale)
+- Stores MBGL level in submission metadata
+- Can only be created AFTER the institution's Binary submission is in 'accepted' status
+
+**Three MBGL Framework Variants:**
+```
+{ code: 'NAAC_MBGL_2024_UNIVERSITY', institution_type: 'university' }
+{ code: 'NAAC_MBGL_2024_AUTONOMOUS', institution_type: 'autonomous_college' }
+{ code: 'NAAC_MBGL_2024_AFFILIATED', institution_type: 'affiliated_college' }
+```
+
+> **Schema addition (see Database Schema section):** Add `assessment_phase text DEFAULT 'primary' CHECK (assessment_phase IN ('primary','mbgl'))` to `regulatory_frameworks`. Add `prerequisite_submission_id uuid REFERENCES regulatory_submissions(id)` to `regulatory_submissions`.
+
+#### NAAC Binary Pass Thresholds
+
+The `pass_threshold` field enables the dashboard and simulation to show a clear PASS/FAIL indicator. The score simulation prominently displays: current estimated score vs threshold, with a color-coded gap indicator (red below, green above).
+
+| Institution Type | Total Max Score | Pass Threshold | Pass % |
+|-----------------|----------------|----------------|--------|
+| University | 900 | 540 | 60% |
+| Autonomous College | 900 | 450 | 50% |
+| Affiliated College | 900 | 360 | 40% |
+
+> **Schema addition (see Database Schema section):** Add `pass_threshold numeric` to `regulatory_frameworks`. Set to 540 for NAAC Binary University, 450 for Autonomous, 360 for Affiliated.
+
+#### NAAC Accreditation Validity Periods
+
+Under the Binary+MBGL system (effective 2025), NAAC accreditation validity is **3 years**. Institutions accredited under the old system retain their 5-year validity until renewal.
+
+> **Schema addition (see Database Schema section):** Add `validity_period_years integer` to `regulatory_frameworks`. Set to 3 for NAAC Binary/MBGL, 3 for NBA, 1 for NIRF/AICTE/AISHE (annual submissions).
+
+#### NAAC Credibility Score
+
+NAAC Binary includes a credibility score (0.5-1.0 multiplier) based on stakeholder survey alignment. When stakeholder feedback (student satisfaction, alumni feedback, employer feedback) shows significant divergence from institution-reported metric values, the credibility score is reduced, which can lower the final accreditation outcome. The system should cross-reference NPS/satisfaction data against metric values to flag credibility risks. Model as a metadata field on NAAC Binary submissions: `metadata.credibility_score`.
+
+#### NAAC Extended Profile
+
+NAAC Extended Profile is modeled as a special criteria node at the top of the NAAC framework tree with `is_extended_profile = true` flag in criteria metadata. Its metrics serve as denominators for QnM calculations (e.g., total students, total faculty, total programs). The Extended Profile data is auto-populated from data connectors and shared across all criteria calculations.
+
+#### NAAC AQAR (Annual Quality Assurance Report)
+
+AQAR is modeled as a separate framework variant (`NAAC_AQAR_<year>`) with both quantitative metrics and narrative text fields (using `data_type='text'`). The report generator auto-computes year-over-year deltas by comparing current year metric values against previous year values from `regulatory_metric_value_history`. AQAR is mandatory annually for all NAAC-accredited institutions.
+
+```
+{ code: 'NAAC_AQAR_2025', framework_type: 'reporting' }
+```
+
 ---
 
 ### NIRF 2025 Discipline-Specific Rankings
@@ -2509,38 +2648,42 @@ regulatory_metrics (per criterion per framework):
 | 10 | Governance, Institutional Support & Financial Resources | 120 | DC-21: `institutional_budgets`, DC-33: `financial_audits` |
 | | **TOTAL** | **1000** | |
 
-#### Programme Outcomes (PO1–PO12 — Washington Accord)
+#### NBA Programme Outcomes (GAPC v4 — Effective January 2025)
 
-The engine must store and track attainment of these 12 POs per program:
+NBA mandated Graduate Attributes and Professional Competencies (GAPC) Version 4, restructuring from 12 to 11 Programme Outcomes. Sustainability and Ethics are no longer standalone POs but integrated into Design, Investigation, and Analysis.
 
-| PO | Description | Measured Via |
-|----|-------------|-------------|
-| PO1 | Engineering Knowledge | CO attainment in core courses |
-| PO2 | Problem Analysis | CO attainment + project evaluations |
-| PO3 | Design/Development of Solutions | Capstone projects, design courses |
-| PO4 | Conduct Investigations | Lab courses, research projects |
-| PO5 | Modern Tool Usage | Software/simulation lab performance |
-| PO6 | Engineer and Society | Humanities/ethics course COs |
-| PO7 | Environment and Sustainability | Environmental engineering COs |
-| PO8 | Ethics | Professional ethics course + activity |
-| PO9 | Individual and Team Work | Project courses, team assignments |
-| PO10 | Communication | Presentation scores, report quality |
-| PO11 | Project Management & Finance | Management course + capstone |
-| PO12 | Life-long Learning | Self-learning initiatives, MOOC completion |
+**Engineering (PO1-PO11):**
+
+| PO | Title | Description | Measured Via |
+|----|-------|-------------|-------------|
+| PO1 | Engineering Knowledge | Apply knowledge of mathematics, science, engineering fundamentals | CO attainment in core courses |
+| PO2 | Problem Analysis | Identify, formulate, and analyze complex engineering problems | CO attainment + project evaluations |
+| PO3 | Design/Development | Design solutions for complex problems with sustainability | Capstone projects, design courses |
+| PO4 | Investigation | Conduct investigations using research-based knowledge | Lab courses, research projects |
+| PO5 | Modern Tool Usage | Create, select, apply appropriate tools and techniques | Software/simulation lab performance |
+| PO6 | Engineer and Society | Apply reasoning to assess societal and legal issues | Humanities/society course COs |
+| PO7 | Environment and Sustainability | Understand impact and commit to sustainable development | Environmental + design course COs |
+| PO8 | Communication | Communicate effectively with engineering community and society | Presentation scores, report quality |
+| PO9 | Individual and Team Work | Function effectively as individual, member, and leader | Project courses, team assignments |
+| PO10 | Project Management and Finance | Apply engineering and management principles to projects | Management course + capstone |
+| PO11 | Life-long Learning | Engage in independent and life-long learning | Self-learning initiatives, MOOC completion |
+
+> **Schema note:** The `regulatory_course_syllabi.po_mapping` jsonb field must use PO1-PO11 keys (not PO1-PO12). The CO-PO attainment matrix generation must use 11 POs.
+> **Schema addition (see Database Schema section):** Add `gapc_version text DEFAULT 'v4'` to NBA framework metadata.
 
 **CO-PO Mapping:** The engine's existing `competency_catalog` + `course_competency_mapping` tables provide the foundation. Each Course Outcome maps to Programme Outcomes with correlation levels (1=Low, 2=Medium, 3=High). Attainment is computed from exam/assignment scores.
 
 #### NBA for Pharmacy Programs
 
 Same 10 criteria but with pharmacy-specific POs defined by Pharmacy Council of India (PCI). Key differences:
-- Pharmacy has **PhO1–PhO12** (Pharmaceutical Outcomes) instead of PO1–PO12
+- Pharmacy programme outcomes (PhO) structure to be confirmed against PCI's GAPC v4 alignment. **TODO:** Verify whether pharmacy shifted to 11 PhOs or retained separate structure. The old PhO1-PhO12 may no longer be valid.
 - PhOs emphasize patient care, drug safety, pharmaceutical ethics, and regulatory compliance
-- **TODO:** Obtain exact PCI PhO definitions for the seed data — currently a gap in this spec
+- **TODO:** Obtain exact PCI PhO definitions aligned with GAPC v4 for the seed data — currently a gap in this spec
 
 The engine stores these as a separate framework:
 ```
-{ code: 'NBA_SAR_ENGINEERING', metadata: { program_type: 'B.Tech' } }
-{ code: 'NBA_SAR_PHARMACY', metadata: { program_type: 'B.Pharm' } }
+{ code: 'NBA_SAR_ENGINEERING', metadata: { program_type: 'B.Tech', gapc_version: 'v4' } }
+{ code: 'NBA_SAR_PHARMACY', metadata: { program_type: 'B.Pharm', gapc_version: 'v4' } }
 ```
 
 ---
@@ -2612,7 +2755,7 @@ The engine stores these as a separate framework:
 
 | Report | Format | Sections | Auto-Generated? | Frequency |
 |--------|--------|----------|-----------------|-----------|
-| **SSR (Self-Study Report)** | PDF (200-300 pages) | Extended Profile + 7 Criteria sections + SWOC + Declaration | Partial — QnM data auto-filled, QlM narratives manual | Every 5 years (accreditation cycle) |
+| **SSR (Self-Study Report)** | PDF (200-300 pages) | Extended Profile + 7 Criteria sections + SWOC + Declaration | Partial — QnM data auto-filled, QlM narratives manual | Every 3 years (Binary+MBGL cycle); legacy 5-year cycle for institutions under old grading |
 | **AQAR (Annual Quality Assurance Report)** | PDF (40-60 pages) | Academic year summary, criterion-wise improvements, best practices | Partial — data summaries auto-generated | Annual (mandatory post-accreditation) |
 | **DVV Data** | Excel/CSV | QnM metric data with supporting evidence links | Full auto-generation from data connectors | As part of SSR submission |
 | **IIQA (Institutional Information for QA)** | Online form | Basic institutional data, readiness indicators | Full auto-fill | Pre-SSR submission |
@@ -3129,6 +3272,8 @@ Invalid transitions return `409 Conflict`.
 > - **`in_review → approved`:** Set `approved_at = now()`, `approved_by = caller.id`. If previously approved and returned, these columns are **overwritten** (not appended). For full audit trail of re-approvals, rely on the `regulatory_metric_value_history` table which captures all value changes with timestamps.
 > - **`approved → submitted`:** Set `submitted_at = now()`, `submitted_by = caller.id`. Same overwrite semantics as approved_at.
 > - **`submitted → returned`:** Do NOT clear submitted_at/submitted_by — they record the most recent submission attempt for reference during corrections.
+> - **`returned → dvv_revision`:** Do NOT reset scores or clear submitted values. Auto-refresh is DISABLED for submissions in `dvv_revision` status — the connector refresh endpoint must check submission status and reject refresh attempts with 409. Only metrics flagged in `regulatory_dvv_queries` as `status = 'open'` can be edited by the IQAC coordinator.
+> - **`dvv_revision → in_review`:** All open DVV queries must be in `responded` or `resolved` status before this transition is allowed. The API returns 422 if any queries remain `open`.
 
 **Rate limiting for expensive endpoints:**
 > The following endpoints are computationally expensive and MUST be rate-limited at the API route level:
@@ -3409,7 +3554,39 @@ lib/services/regulatory/             — Service layer (server-side only, Supaba
 │   --   framework. These limits prevent DoS via deep/wide dependency chains.
 │   -- Security: formulas are admin-authored config (not user input), but still evaluated
 │   --   via a safe expression parser (e.g., mathjs) — NEVER eval() or Function().
+│   --
+│   -- MULTI-YEAR TEMPORAL AGGREGATION:
+│   -- Many NAAC metrics require 5-year data (e.g., "Pass percentage over 5 years").
+│   -- NIRF requires 3-year averages for financial data. The formula engine supports
+│   -- temporal aggregation functions:
+│   --
+│   --   AVG_YEARS(code, n)  — Average of metric over last n years
+│   --     Example: AVG_YEARS('2.6.3', 5) = average pass % over 5 years
+│   --   SUM_YEARS(code, n)  — Sum of metric over last n years
+│   --     Example: SUM_YEARS('3.4.1', 5) = total extension programs over 5 years
+│   --   TREND(code, n)      — Year-over-year growth rate over n years
+│   --     Example: TREND('1.1.1', 5) = growth trend for enrollment
+│   --   LATEST(code)        — Most recent year's value (default behavior)
+│   --
+│   -- The report generator uses `data_window_years` on metrics to determine how many
+│   -- years of columnar data to display. Multi-year functions query
+│   -- regulatory_metric_values for the same metric_id across multiple academic_year values.
+│   --
+│   -- Schema addition (see Database Schema section): Add `data_window_years integer NOT NULL
+│   --   DEFAULT 1` to `regulatory_metrics`. Set to 5 for NAAC QnM metrics requiring 5-year
+│   --   data, 3 for NIRF financial averages, 1 for current-year-only metrics.
+│
 ├── score-calculator.ts              — Weighted score aggregation per framework type
+│   -- NAAC 2022 uses two-level GPA aggregation: Individual Metric (0-4 scale)
+│   --   → Key Indicator GPA → Criterion GPA → Overall CGPA.
+│   --   This is NOT simple weighted averaging. Store `scoring_methodology` in
+│   --   framework metadata: {method: 'naac_gpa', metric_scale: [0,4],
+│   --   aggregation: 'two_level_gpa'}.
+│   -- NAAC Binary 2024 uses direct point summation (0-900 scale).
+│   -- NIRF uses parameter-specific normalization functions (sigmoid/log).
+│   -- NBA uses criterion-wise weighted scores (0-1000 scale).
+│   -- The score-calculator reads `metadata.scoring_methodology` from the framework
+│   --   row to dispatch to the correct algorithm.
 ├── report-generator.ts              — PDF/CSV/JSON generation per regulatory body
 └── index.ts                         — Barrel export of all services + types
 
