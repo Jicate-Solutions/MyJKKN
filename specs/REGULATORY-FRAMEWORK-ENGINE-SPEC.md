@@ -4489,8 +4489,9 @@ Algorithm:
 ```
 Algorithm:
 1. Each criterion scored as percentage (0-100%)
-2. Total = SUM of (criterion score x criterion weight / 100)
-3. Minimum 60% required for accreditation
+2. **Per-criterion floor:** Each criterion must independently meet the minimum threshold (60%). A criterion below 60% results in non-accreditation regardless of total score.
+3. Total = SUM of (criterion score x criterion weight / 100)
+4. Overall minimum 60% required for accreditation (3-year); 75%+ for 6-year full accreditation
 
 ### Academic Year to Date Range Conversion
 
