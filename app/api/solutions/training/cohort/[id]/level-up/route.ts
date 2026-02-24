@@ -8,7 +8,7 @@ export async function OPTIONS() {
   return NextResponse.json({}, { headers: corsHeaders })
 }
 
-export const POST = withAuth(async (_req, context) => {
+export const POST = withAuth(async (_request, auth, context) => {
   const { id } = await context!.params!
 
   const result = await CohortService.levelUpCohortMember(id)
