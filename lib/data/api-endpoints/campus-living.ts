@@ -210,7 +210,7 @@ print(data["pagination"])  # Pagination info`,
       prompt:
         'Using the MyJKKN Campus Living API, fetch all active hostel blocks and display their names, gender designation, and occupancy statistics.',
       expectedOutput:
-        'A list of active hostel blocks with name, gender, total_rooms, total_beds, and occupied_beds.',
+        'A list of active hostel blocks with name, hostel_type, total_rooms, total_capacity, and current_occupancy.',
       tags: ['blocks', 'occupancy', 'basic-query'],
     },
     {
