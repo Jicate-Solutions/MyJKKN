@@ -319,7 +319,7 @@ export function useWithdrawFromSession() {
       sessionId: string;
       memberId: string;
     }) => {
-      return trainingService.removeAssignment(sessionId, memberId);
+      return apiClient.post(`/api/solutions/training/sessions/${sessionId}/unassign`, { cohort_member_id: memberId });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.cohortPortal.all });
