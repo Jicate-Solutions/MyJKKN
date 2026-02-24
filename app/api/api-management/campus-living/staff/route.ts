@@ -31,7 +31,7 @@ export const GET = withApiKeyAuth(async (request, auth) => {
   if (designation) query = query.eq('designation', designation);
   if (isActive) query = query.eq('is_active', isActive === 'true');
 
-  query = query.range(from, to).order('name', { ascending: true });
+  query = query.range(from, to).order('designation', { ascending: true });
 
   const { data, error, count } = await query;
   if (error) throw error;
