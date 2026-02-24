@@ -2788,6 +2788,8 @@ lib/utils/
 | POST | `/api/regulatory/metric-values` | `upsertMetricValue(data)` | super_admin, institution_admin, iqac_coordinator, hod | Create or update metric value (triggers history) |
 | POST | `/api/regulatory/metric-values/refresh` | `refreshAutoMetrics(frameworkId, institutionId, year)` | super_admin, institution_admin, iqac_coordinator | Run all data connectors and refresh auto-calculated values |
 
+> **Implementation note:** The refresh endpoint's service layer reads `regulatory_data_connectors.query_template`, which is restricted to `super_admin` at the RLS level. The `DataConnectorEngine` service MUST use a **service-role Supabase client** (bypasses RLS) to read connector templates, regardless of the calling user's role. This is safe because the API route already validates the caller's role before invoking the service.
+
 ### Evidence API
 
 | Method | Endpoint | Service Method | Roles (T8) | Description |
