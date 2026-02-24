@@ -2954,7 +2954,7 @@ The API route calculates `score_delta` and `rank_estimate` server-side before st
 
 | Method | Endpoint | Service Method | Roles (T8) | Description |
 |--------|----------|---------------|------------|-------------|
-| GET | `/api/regulatory/benchmarks` | `getBenchmarks(filters)` | all with institution access | List peer benchmarks |
+| GET | `/api/regulatory/benchmarks` | `getBenchmarks(filters)` | all with institution access | List peer benchmarks. **Query params:** `framework_id` (uuid), `academic_year` (text), `peer_institution_name` (text), `metric_code` (text). |
 | GET | `/api/regulatory/benchmarks/[id]` | `getBenchmarkById(id)` | all with institution access | Single benchmark detail |
 | GET | `/api/regulatory/benchmarks/peer-institutions` | `getPeerInstitutions(filters)` | all with institution access | Distinct peer institution list |
 | POST | `/api/regulatory/benchmarks` | `createBenchmark(data)` | super_admin, institution_admin, iqac_coordinator | Create benchmark entry |
