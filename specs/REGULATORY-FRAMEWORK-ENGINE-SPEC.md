@@ -2820,8 +2820,8 @@ The API route calculates `score_delta` and `rank_estimate` server-side before st
 |--------|----------|---------------|------------|-------------|
 | GET | `/api/regulatory/syllabi` | `getSyllabi(filters)` | all with institution access | List course syllabi |
 | GET | `/api/regulatory/syllabi/[id]` | `getSyllabusById(id)` | all with institution access | Single syllabus with CO-PO mapping |
-| POST | `/api/regulatory/syllabi` | `upsertSyllabus(data)` | super_admin, institution_admin, iqac_coordinator, hod, faculty | Create/update syllabus |
-| PUT | `/api/regulatory/syllabi/[id]/hours` | `updateCompletionHours(id, completedHours)` | super_admin, institution_admin, iqac_coordinator, hod, faculty | Update completed teaching hours |
+| POST | `/api/regulatory/syllabi` | `upsertSyllabus(data)` | super_admin, institution_admin, iqac_coordinator, hod, staff | Create/update syllabus |
+| PUT | `/api/regulatory/syllabi/[id]/hours` | `updateCompletionHours(id, completedHours)` | super_admin, institution_admin, iqac_coordinator, hod, staff | Update completed teaching hours |
 
 ### Benchmarks API
 
