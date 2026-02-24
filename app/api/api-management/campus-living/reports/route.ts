@@ -140,6 +140,6 @@ export const GET = withApiKeyAuth(async (request, auth) => {
     }
 
     default:
-      return errorResponse(`Unknown report_type: ${reportType}. Valid types: occupancy, attendance, maintenance, mess_feedback, leave`, 400);
+      return errorResponse('Unknown report_type. Valid values: occupancy, attendance, maintenance, mess_feedback, leave', 400);
   }
 }, { permission: 'read' });
