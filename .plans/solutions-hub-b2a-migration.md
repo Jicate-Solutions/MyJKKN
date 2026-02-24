@@ -766,7 +766,7 @@ Counted from the phase-by-phase tables above:
 | `lib/api/response.ts` | Standardized response helpers |
 | `lib/api/client.ts` | Internal API client for hooks |
 | `lib/services/solutions/client-portal-service.ts` | Service for client portal (replace bypass) |
-| ~62 route files under `app/api/solutions/` | API endpoints |
+| ~104 route files under `app/api/solutions/` | API endpoints (Phases 1-3) |
 
 ## Files to Modify
 
