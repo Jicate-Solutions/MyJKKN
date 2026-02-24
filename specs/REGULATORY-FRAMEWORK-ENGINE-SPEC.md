@@ -1576,46 +1576,76 @@ CREATE TRIGGER trg_benchmarks_updated_at BEFORE UPDATE ON regulatory_peer_benchm
 
 ### Phase 1: Foundation (Weeks 1-4) — P0
 
+> **Architecture:** All code follows Pattern A (Page → Hook → API Route → Service → DB).
+> API routes are built FIRST, then hooks, then pages. No direct Supabase calls in hooks.
+
 ```
-Week 1: Database & Core API
+Week 1: Database + API Layer Foundation
 ├── Day 1-2: Apply migration (15 new tables + 1 view + RLS + indexes + search extensions)
-├── Day 3-4: CRUD hooks for frameworks, criteria, metrics
-├── Day 5: Seed frameworks: NAAC 2022 (7 criteria, 56 metrics), NIRF Overall + 6 discipline variants, NAAC Binary × 3 institution types
+├── Day 3: Build shared utilities (regulatory-utils.ts) + API auth helper
+├── Day 4: API routes for frameworks (GET list, GET detail, POST, PUT, DELETE)
+│           + Service: RegulatoryFrameworkService + RegulatoryyCriteriaService
+│           + Hooks: useFrameworks, useFramework, useCreateFramework, etc.
+├── Day 5: API routes for metrics + metric-values (GET, POST upsert)
+│           + Service: RegulatoryMetricService
+│           + Hooks: useMetrics, useMetricValues, useUpsertMetricValue
+│           + Seed frameworks: NAAC 2022, NIRF Overall + 6 discipline, NAAC Binary × 3
 
-Week 2: Data Connectors
-├── Day 1-2: Build DC-01 through DC-05 (enrollment, faculty, publications, placement, admissions)
-├── Day 3-4: Build DC-06 through DC-10 (finance, academic, industry, welfare, quality)
-├── Day 5: Build DC-11 through DC-15 (competency, VAC, org, resources, social)
+Week 2: Data Connectors + Evidence API
+├── Day 1: API routes for data-connectors (GET, POST test, POST refresh)
+│           + Service: RegulatoryDataConnectorService + DataConnectorEngine
+├── Day 2-3: Build DC-01 through DC-10 connector SQL queries
+├── Day 4: Build DC-11 through DC-15 connector SQL queries
+├── Day 5: API routes for evidence (GET, POST upload, GET search, PUT, DELETE soft)
+│           + API routes for evidence versions (GET, POST)
+│           + Service: RegulatoryEvidenceService
+│           + Hooks: useEvidence, useSearchEvidence, useUploadEvidence
 
-Week 3: Metric Calculation Engine
-├── Day 1-2: Auto-refresh service — runs all connectors, populates metric_values
-├── Day 3-4: Formula engine — simple expression evaluator for derived metrics
-├── Day 5: Metric value history tracking + audit trail
+Week 3: Metric Engine + Governance API
+├── Day 1-2: Auto-refresh endpoint (POST /api/regulatory/metric-values/refresh)
+│             Runs all connectors → populates metric_values → records history
+├── Day 3: Formula engine — evaluates cross-metric formulas server-side
+├── Day 4: API routes for governing-bodies + meetings (GET, POST, PUT, approve)
+│           + Service: RegulatoryGovernanceService
+│           + Hooks: useGoverningBodies, useMeetings, etc.
+├── Day 5: API routes for peer-visits + syllabi (GET, POST, PUT)
+│           + Services + Hooks for both entities
 
-Week 4: Core UI
-├── Day 1-2: Framework list page + criteria tree viewer
-├── Day 3: Metric values page (auto/manual indicators, drill-down)
-├── Day 4: Manual entry form + evidence upload
-├── Day 5: Integration testing, seed NBA SAR + AICTE + UGC-AISHE frameworks
+Week 4: Core UI Pages + Sidebar Integration
+├── Day 1: Add sidebar entry (sidebarMenuLink.ts) + module layout wrapper
+│           + Dashboard page (calls GET /api/regulatory/dashboard/stats + deadlines)
+│           + Dashboard API routes + RegulatoryDashboardService
+├── Day 2: Framework list page + framework detail page (criteria tree, evidence panel)
+├── Day 3: Metrics page (inline value editing, auto/manual indicators)
+├── Day 4: Submissions API routes + page (status workflow, transition buttons)
+│           + Score calculation endpoint (POST, mutation-based)
+├── Day 5: Governance page (4-tab: bodies, meetings, syllabi, peer visits)
+│           + Seed NBA SAR + AICTE + UGC-AISHE frameworks
 ```
 
 ### Phase 2: Intelligence (Weeks 5-7) — P1
 
 ```
-Week 5: Dashboard & Completeness
-├── Day 1-2: Regulatory dashboard (score overview, completeness bars, deadlines)
-├── Day 3-4: Data source health check page (connector status, last refresh, errors)
-├── Day 5: Notification system (deadline reminders, stale data alerts)
+Week 5: Dashboard + Benchmarks + Evidence Search
+├── Day 1-2: Dashboard completeness chart (per-module data completeness API)
+│             Data source health page (connector status, last test, errors)
+├── Day 3-4: Benchmarks API routes + page (gap analysis chart, peer comparison)
+│             + Service: RegulatoryBenchmarkService
+│             + Hooks: useBenchmarks, useBenchmarkComparison, etc.
+├── Day 5: Evidence repository page (full-text search, fuzzy matching)
 
 Week 6: Score Simulation
-├── Day 1-2: NIRF score calculator (weighted aggregation across parameters)
-├── Day 3-4: What-if simulator UI (adjust metrics, see score/rank impact)
-├── Day 5: Year-over-year comparison view
+├── Day 1-2: Simulations API routes + service (server-side score computation)
+│             Criteria scores computed from metric_values (NOT from phantom fields)
+├── Day 3-4: Simulator UI (adjust metrics, see score/rank impact, save scenarios)
+├── Day 5: Year-over-year comparison view + historical trend charts
 
 Week 7: Report Generation
-├── Day 1-2: NAAC AQAR PDF template + generation engine
+├── Day 1-2: NAAC AQAR PDF template + generation engine (react-pdf / puppeteer)
+│             Report generation API route: POST /api/regulatory/submissions/[id]/report
 ├── Day 3-4: NIRF data export (portal-compatible CSV/JSON)
-├── Day 5: Submission workflow (draft → review → approve → submit)
+│             NAAC DVV data export (Excel with evidence links)
+├── Day 5: Submission workflow refinement + notification on status transitions
 ```
 
 ### Phase 3: Self-Service & Scale (Weeks 8-10) — P2
@@ -1629,12 +1659,15 @@ Week 8: Admin Config UI
 Week 9: Advanced Features
 ├── Day 1-2: Cross-institution comparison view (super_admin)
 ├── Day 3-4: NBA program-level view (per-program submission)
-├── Day 5: Peer institution benchmarking (manual peer data entry)
+├── Day 5: Peer institution benchmarking data import (batch upload)
 
 Week 10: Polish & Handoff
-├── Day 1-2: AICTE mandatory disclosure template + AISHE export
+├── Day 1: AICTE mandatory disclosure template + AISHE export
+├── Day 2: Upload dialogs wired (evidence panel, metric table)
+│           File upload via Supabase Storage presigned URLs
 ├── Day 3: Performance optimization (connector caching, batch refresh)
 ├── Day 4-5: Documentation, admin training guide, UAT
+│             FOROMM.md creation for the module
 ```
 
 ---
