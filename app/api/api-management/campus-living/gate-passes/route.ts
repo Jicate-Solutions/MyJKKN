@@ -31,8 +31,8 @@ export const GET = withApiKeyAuth(async (request, auth) => {
   if (passType) query = query.eq('pass_type', passType);
   if (blockId) query = query.eq('block_id', blockId);
   if (learnerId) query = query.eq('learner_id', learnerId);
-  if (dateFrom) query = query.gte('requested_date', dateFrom);
-  if (dateTo) query = query.lte('requested_date', dateTo);
+  if (dateFrom) query = query.gte('created_at', dateFrom);
+  if (dateTo) query = query.lte('created_at', dateTo);
 
   query = query.range(from, to).order('created_at', { ascending: false });
 
