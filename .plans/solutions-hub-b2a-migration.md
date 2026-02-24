@@ -896,7 +896,7 @@ Phase 6 ─── Documentation (after Phases 1-5)
 ## Verification Criteria (100% B2A Compliance)
 
 - [ ] **Zero bypasses**: No file in `app/(routes)/solutions/` imports `createClientSupabaseClient`
-- [ ] **Zero `as any` supabase casts**: All hooks use typed API client
+- [ ] **Zero `as any` supabase casts in solutions hooks**: `grep -r 'as any' hooks/solutions/` returns 0 supabase-related casts (hooks use typed API client, not raw Supabase)
 - [ ] **All hooks call API routes**: `grep -r 'from.*services/solutions' hooks/solutions/` returns 0 results
 - [ ] **Upload route authenticated**: `getAuthUser()` check present (NOT deprecated `getAuthSession()`)
 - [ ] **withAuth on all routes**: Every route file in `app/api/solutions/` uses `withAuth()`
