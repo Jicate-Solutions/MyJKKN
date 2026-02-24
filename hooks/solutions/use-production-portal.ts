@@ -51,7 +51,7 @@ export function useLearnerByUserId(userId: string | undefined) {
 export function useProductionLearner(learnerId: string | undefined) {
   return useQuery({
     queryKey: solutionsHubKeys.productionLearners.detail(learnerId || ''),
-    queryFn: () => productionService.getLearnerById(learnerId!),
+    queryFn: () => apiClient.get<ProductionLearner>(`/api/solutions/production-portal/learners/${learnerId}`),
     enabled: !!learnerId,
     ...QUERY_CONFIG.SEMI_STABLE_DATA,
   });
