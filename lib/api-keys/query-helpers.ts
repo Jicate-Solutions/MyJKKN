@@ -60,27 +60,6 @@ export function getDateRangeParams(url: URL): DateRangeParams {
 }
 
 /**
- * Sort parameters.
- */
-export interface SortParams {
-  sortBy: string;
-  ascending: boolean;
-}
-
-/**
- * Extract sort params from URL search params.
- * Defaults: sortBy='created_at', order='desc'.
- */
-export function getSortParams(
-  url: URL,
-  defaultSortBy: string = 'created_at'
-): SortParams {
-  const sortBy = url.searchParams.get('sort_by') ?? defaultSortBy;
-  const order = url.searchParams.get('order') ?? 'desc';
-  return { sortBy, ascending: order === 'asc' };
-}
-
-/**
  * Extract a single string param, returning undefined if not present.
  */
 export function getStringParam(url: URL, key: string): string | undefined {
