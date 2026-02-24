@@ -67,7 +67,7 @@ export async function GET(
     last_name: string | null;
     student_email: string | null;
     student_mobile: string | null;
-    status: string | null;
+    lifecycle_status: string | null;
     application_id: string | null;
     father_name: string | null;
     father_occupation: string | null;
@@ -115,9 +115,9 @@ export async function GET(
     const supabase = createServiceRoleClient();
 
     let query = supabase
-      .from('admissions')
+      .from('learners_profiles')
       .select(
-        'id, first_name, last_name, student_email, student_mobile, status, application_id, ' +
+        'id, first_name, last_name, student_email, student_mobile, lifecycle_status, application_id, ' +
         'father_name, father_occupation, father_mobile, mother_name, mother_occupation, mother_mobile, ' +
         'date_of_birth, gender, religion, community, caste, annual_income, ' +
         'last_school, board_of_study, quota, category, entry_type, ' +

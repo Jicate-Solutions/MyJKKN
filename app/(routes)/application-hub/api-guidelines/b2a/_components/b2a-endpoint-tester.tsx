@@ -221,9 +221,9 @@ export function B2AEndpointTesterDialog({
 
   return (
     <Dialog open={!!endpointId} onOpenChange={open => !open && onClose()}>
-      <DialogContent className='max-w-2xl max-h-[90vh] flex flex-col gap-0 p-0'>
+      <DialogContent className='max-w-2xl max-h-[90vh] flex flex-col gap-0 p-0 overflow-hidden'>
         {/* Header */}
-        <DialogHeader className='px-6 pt-6 pb-4 border-b'>
+        <DialogHeader className='px-6 pt-6 pb-4 border-b shrink-0'>
           <DialogTitle className='flex items-center gap-2 text-base'>
             <FlaskConical className='h-4 w-4 text-blue-500 shrink-0' />
             Try It
@@ -240,7 +240,7 @@ export function B2AEndpointTesterDialog({
         </DialogHeader>
 
         {endpoint && (
-          <ScrollArea className='flex-1 px-6 py-4'>
+          <div className='flex-1 min-h-0 overflow-y-auto px-6 py-4'>
             <div className='space-y-5'>
               {/* ── API Key ───────────────────────────────────────── */}
               <div className='space-y-1.5'>
@@ -425,7 +425,7 @@ export function B2AEndpointTesterDialog({
                 </>
               )}
             </div>
-          </ScrollArea>
+          </div>
         )}
       </DialogContent>
     </Dialog>
