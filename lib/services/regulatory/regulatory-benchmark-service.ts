@@ -66,10 +66,10 @@ export class RegulatoryBenchmarkService {
   static async getBenchmarks(filters: BenchmarkFilters = {}) {
     try {
       if (filters.institution_id !== undefined) {
-        this.validateId(filters.institution_id, 'institution_id filter')
+        validateId(filters.institution_id, 'institution_id filter')
       }
       if (filters.framework_id !== undefined) {
-        this.validateId(filters.framework_id, 'framework_id filter')
+        validateId(filters.framework_id, 'framework_id filter')
       }
 
       let query = (this.getSupabase() as any)
@@ -139,7 +139,7 @@ export class RegulatoryBenchmarkService {
    */
   static async getBenchmarkById(id: string) {
     try {
-      this.validateId(id, 'benchmark ID')
+      validateId(id, 'benchmark ID')
 
       const { data, error } = await (this.getSupabase() as any)
         .from('regulatory_peer_benchmarks')
@@ -175,8 +175,8 @@ export class RegulatoryBenchmarkService {
     academicYear: string
   ) {
     try {
-      this.validateId(institutionId, 'institution ID')
-      this.validateId(frameworkId, 'framework ID')
+      validateId(institutionId, 'institution ID')
+      validateId(frameworkId, 'framework ID')
 
       const { data, error } = await (this.getSupabase() as any)
         .from('regulatory_peer_benchmarks')
@@ -210,8 +210,8 @@ export class RegulatoryBenchmarkService {
    */
   static async createBenchmark(data: CreateBenchmarkData) {
     try {
-      this.validateId(data.institution_id, 'institution ID')
-      this.validateId(data.framework_id, 'framework ID')
+      validateId(data.institution_id, 'institution ID')
+      validateId(data.framework_id, 'framework ID')
 
       // Get current user
       const { data: { user } } = await this.getSupabase().auth.getUser()
@@ -263,8 +263,8 @@ export class RegulatoryBenchmarkService {
    */
   static async upsertBenchmark(data: CreateBenchmarkData) {
     try {
-      this.validateId(data.institution_id, 'institution ID')
-      this.validateId(data.framework_id, 'framework ID')
+      validateId(data.institution_id, 'institution ID')
+      validateId(data.framework_id, 'framework ID')
 
       // Get current user
       const { data: { user } } = await this.getSupabase().auth.getUser()
@@ -317,7 +317,7 @@ export class RegulatoryBenchmarkService {
    */
   static async updateBenchmark(id: string, data: UpdateBenchmarkData) {
     try {
-      this.validateId(id, 'benchmark ID')
+      validateId(id, 'benchmark ID')
 
       // Verify user is authenticated
       const { data: { user } } = await this.getSupabase().auth.getUser()
@@ -356,7 +356,7 @@ export class RegulatoryBenchmarkService {
    */
   static async deleteBenchmark(id: string) {
     try {
-      this.validateId(id, 'benchmark ID')
+      validateId(id, 'benchmark ID')
 
       // Verify user is authenticated
       const { data: { user } } = await this.getSupabase().auth.getUser()
@@ -387,8 +387,8 @@ export class RegulatoryBenchmarkService {
     academicYear: string
   ) {
     try {
-      this.validateId(institutionId, 'institution ID')
-      this.validateId(frameworkId, 'framework ID')
+      validateId(institutionId, 'institution ID')
+      validateId(frameworkId, 'framework ID')
 
       const { data, error } = await (this.getSupabase() as any)
         .from('regulatory_peer_benchmarks')
