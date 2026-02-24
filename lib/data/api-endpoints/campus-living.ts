@@ -4021,15 +4021,15 @@ const reportsEndpoint: ApiEndpoint = {
         summary: {
           total_blocks: 8,
           total_rooms: 400,
-          total_beds: 1600,
+          total_capacity: 1600,
           occupied_beds: 1420,
           occupancy_rate: 88.75,
         },
         data: [
           {
             block_name: 'Block A',
-            gender: 'male',
-            total_beds: 200,
+            hostel_type: 'boys',
+            total_capacity: 200,
             occupied_beds: 185,
             occupancy_rate: 92.5,
           },
