@@ -98,7 +98,7 @@ export class RegulatoryMetricService {
         query = query.in('criteria_id', criteriaIdsForFramework)
       }
       if (filters.search) {
-        const safe = this.sanitizeSearch(filters.search)
+        const safe = sanitizeSearch(filters.search)
         if (safe) {
           query = query.or(
             `name.ilike.%${safe}%,code.ilike.%${safe}%,description.ilike.%${safe}%`
