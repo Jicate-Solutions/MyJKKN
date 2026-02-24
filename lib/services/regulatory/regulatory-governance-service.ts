@@ -121,7 +121,7 @@ export class RegulatoryGovernanceService {
   static async getGoverningBodies(filters: GoverningBodyFilters = {}) {
     try {
       if (filters.institution_id !== undefined) {
-        this.validateId(filters.institution_id, 'institution_id filter')
+        validateId(filters.institution_id, 'institution_id filter')
       }
 
       let query = (this.getSupabase() as any)
@@ -174,7 +174,7 @@ export class RegulatoryGovernanceService {
    */
   static async createGoverningBody(data: CreateGoverningBodyData) {
     try {
-      this.validateId(data.institution_id, 'institution ID')
+      validateId(data.institution_id, 'institution ID')
 
       // Verify user is authenticated (RLS will enforce role, but fail-fast with clear error)
       const { data: { user } } = await this.getSupabase().auth.getUser()
@@ -219,7 +219,7 @@ export class RegulatoryGovernanceService {
    */
   static async updateGoverningBody(id: string, data: UpdateGoverningBodyData) {
     try {
-      this.validateId(id, 'governing body ID')
+      validateId(id, 'governing body ID')
 
       // Verify user is authenticated
       const { data: { user } } = await this.getSupabase().auth.getUser()
@@ -263,10 +263,10 @@ export class RegulatoryGovernanceService {
   static async getMeetings(filters: MeetingFilters = {}) {
     try {
       if (filters.body_id !== undefined) {
-        this.validateId(filters.body_id, 'body_id filter')
+        validateId(filters.body_id, 'body_id filter')
       }
       if (filters.institution_id !== undefined) {
-        this.validateId(filters.institution_id, 'institution_id filter')
+        validateId(filters.institution_id, 'institution_id filter')
       }
 
       let query = (this.getSupabase() as any)
@@ -323,8 +323,8 @@ export class RegulatoryGovernanceService {
    */
   static async createMeeting(data: CreateMeetingData) {
     try {
-      this.validateId(data.body_id, 'governing body ID')
-      this.validateId(data.institution_id, 'institution ID')
+      validateId(data.body_id, 'governing body ID')
+      validateId(data.institution_id, 'institution ID')
 
       // Verify user is authenticated
       const { data: { user } } = await this.getSupabase().auth.getUser()
@@ -370,7 +370,7 @@ export class RegulatoryGovernanceService {
    */
   static async updateMeeting(id: string, data: UpdateMeetingData) {
     try {
-      this.validateId(id, 'meeting ID')
+      validateId(id, 'meeting ID')
 
       // Verify user is authenticated
       const { data: { user } } = await this.getSupabase().auth.getUser()
@@ -410,7 +410,7 @@ export class RegulatoryGovernanceService {
    */
   static async approveMeeting(id: string) {
     try {
-      this.validateId(id, 'meeting ID')
+      validateId(id, 'meeting ID')
 
       // Get current user
       const { data: { user } } = await this.getSupabase().auth.getUser()
