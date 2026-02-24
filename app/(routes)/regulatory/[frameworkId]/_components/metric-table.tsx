@@ -65,7 +65,6 @@ export function MetricTable({ metrics, frameworkId, institutionId }: MetricTable
   const [dataTypeFilter, setDataTypeFilter] = useState<string>('all')
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editValue, setEditValue] = useState<string>('')
-  const [uploadDialogMetric, setUploadDialogMetric] = useState<MetricValue | null>(null)
 
   const updateMetricMutation = useUpdateMetricValue()
   const refreshAutoMutation = useRefreshAutoMetric()
