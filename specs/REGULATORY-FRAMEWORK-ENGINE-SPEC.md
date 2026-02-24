@@ -920,7 +920,8 @@ CREATE TABLE regulatory_frameworks (
   name text NOT NULL,                                -- "NAAC SSR 2022 Revised"
   body text NOT NULL CHECK (length(trim(body)) > 0), -- "NAAC", "NIRF", "NBA", "AICTE", "UGC"
   framework_type text NOT NULL DEFAULT 'accreditation' CHECK (framework_type IN ('accreditation','ranking','compliance','reporting')),
-  institution_type text,                             -- NULL = universal; 'university' | 'autonomous_college' | 'affiliated_college' (NAAC Binary has different weights per type)
+  institution_type text CHECK (institution_type IS NULL OR institution_type IN ('university','autonomous_college','affiliated_college')),
+  -- NULL = universal; 'university' | 'autonomous_college' | 'affiliated_college' (NAAC Binary has different weights per type)
   version text NOT NULL,                             -- "2022-rev", "2025"
   effective_from date,
   effective_to date,                                 -- NULL = currently active
