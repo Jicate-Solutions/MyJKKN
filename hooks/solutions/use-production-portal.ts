@@ -406,7 +406,7 @@ export function useAddLearnerEarnings() {
 
   return useMutation({
     mutationFn: ({ learnerId, amount }: { learnerId: string; amount: number }) =>
-      productionService.addEarnings(learnerId, amount),
+      apiClient.post<ProductionLearner>(`/api/solutions/production-portal/learners/${learnerId}/earnings`, { amount }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.productionLearners.all });
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.productionPortal.all });
