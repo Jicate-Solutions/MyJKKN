@@ -9,14 +9,18 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { solutionsHubKeys } from '@/lib/query-keys';
 import { QUERY_CONFIG } from '@/lib/config/query-config';
+import { apiClient } from '@/lib/api/client';
 import {
-  discoveryService,
-  type DiscoveryVisitFilters,
-  type CommunicationFilters,
-  type CreateDiscoveryVisitInput,
-  type UpdateDiscoveryVisitInput,
-  type CreateCommunicationInput,
-  type UpdateCommunicationInput,
+  COMMUNICATION_TYPE_LABELS,
+  COMMUNICATION_DIRECTION_LABELS,
+} from '@/lib/services/solutions/discovery-service';
+import type {
+  DiscoveryVisitFilters,
+  CommunicationFilters,
+  CreateDiscoveryVisitInput,
+  UpdateDiscoveryVisitInput,
+  CreateCommunicationInput,
+  UpdateCommunicationInput,
 } from '@/lib/services/solutions/discovery-service';
 import type {
   DiscoveryVisit,
@@ -52,7 +56,7 @@ export type {
 export function useDiscoveryVisits(filters?: DiscoveryVisitFilters) {
   return useQuery({
     queryKey: solutionsHubKeys.discoveryVisits.list(filters),
-    queryFn: () => discoveryService.getDiscoveryVisits(filters),
+    queryFn: () => apiClient.get('/api/solutions/discovery/visits', { params: filters as Record<string, any> }),
     ...QUERY_CONFIG.SEMI_STABLE_DATA,
   });
 }
@@ -63,7 +67,7 @@ export function useDiscoveryVisits(filters?: DiscoveryVisitFilters) {
 export function useDiscoveryVisit(id: string) {
   return useQuery({
     queryKey: solutionsHubKeys.discoveryVisits.detail(id),
-    queryFn: () => discoveryService.getDiscoveryVisitById(id),
+    queryFn: () => apiClient.get(`/api/solutions/discovery/visits/${id}`),
     enabled: !!id,
     ...QUERY_CONFIG.SEMI_STABLE_DATA,
   });
@@ -75,7 +79,7 @@ export function useDiscoveryVisit(id: string) {
 export function useClientDiscoveryVisits(clientId: string) {
   return useQuery({
     queryKey: solutionsHubKeys.discoveryVisits.byClient(clientId),
-    queryFn: () => discoveryService.getClientDiscoveryVisits(clientId),
+    queryFn: () => apiClient.get('/api/solutions/discovery/visits', { params: { client_id: clientId } }),
     enabled: !!clientId,
     ...QUERY_CONFIG.SEMI_STABLE_DATA,
   });
@@ -87,7 +91,7 @@ export function useClientDiscoveryVisits(clientId: string) {
 export function useRecentDiscoveryVisits(limit: number = 5) {
   return useQuery({
     queryKey: [...solutionsHubKeys.discoveryVisits.all, 'recent', limit],
-    queryFn: () => discoveryService.getRecentDiscoveryVisits(limit),
+    queryFn: () => apiClient.get('/api/solutions/discovery/visits', { params: { limit, recent: 'true' } }),
     ...QUERY_CONFIG.DASHBOARD_DATA,
   });
 }
@@ -98,7 +102,7 @@ export function useRecentDiscoveryVisits(limit: number = 5) {
 export function useDiscoveryVisitStats() {
   return useQuery({
     queryKey: [...solutionsHubKeys.discoveryVisits.all, 'stats'],
-    queryFn: () => discoveryService.getDiscoveryVisitStats(),
+    queryFn: () => apiClient.get('/api/solutions/discovery/visits', { params: { stats: 'true' } }),
     ...QUERY_CONFIG.DASHBOARD_DATA,
   });
 }
@@ -115,7 +119,7 @@ export function useCreateDiscoveryVisit() {
 
   return useMutation({
     mutationFn: (input: CreateDiscoveryVisitInput) =>
-      discoveryService.createDiscoveryVisit(input),
+      apiClient.post<DiscoveryVisit>('/api/solutions/discovery/visits', input),
     onSuccess: (data: DiscoveryVisit) => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.discoveryVisits.all });
       if (data?.client_id) {
@@ -135,7 +139,7 @@ export function useUpdateDiscoveryVisit() {
 
   return useMutation({
     mutationFn: ({ id, updates }: { id: string; updates: UpdateDiscoveryVisitInput }) =>
-      discoveryService.updateDiscoveryVisit(id, updates),
+      apiClient.patch<DiscoveryVisit>(`/api/solutions/discovery/visits/${id}`, updates),
     onSuccess: (data: DiscoveryVisit) => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.discoveryVisits.all });
       if (data?.id) {
@@ -152,7 +156,7 @@ export function useDeleteDiscoveryVisit() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (id: string) => discoveryService.deleteDiscoveryVisit(id),
+    mutationFn: (id: string) => apiClient.delete(`/api/solutions/discovery/visits/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.discoveryVisits.all });
     },
@@ -172,7 +176,7 @@ export function useLinkVisitToResult() {
     }: {
       visitId: string;
       solutionId: string;
-    }) => discoveryService.linkVisitToResult(visitId, solutionId),
+    }) => apiClient.patch<DiscoveryVisit>(`/api/solutions/discovery/visits/${visitId}`, { solution_id: solutionId }),
     onSuccess: (data: DiscoveryVisit) => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.discoveryVisits.all });
       if (data?.id) {
@@ -192,7 +196,7 @@ export function useLinkVisitToResult() {
 export function useCommunications(filters?: CommunicationFilters) {
   return useQuery({
     queryKey: solutionsHubKeys.communications.list(filters),
-    queryFn: () => discoveryService.getCommunications(filters),
+    queryFn: () => apiClient.get('/api/solutions/discovery/communications', { params: filters as Record<string, any> }),
     ...QUERY_CONFIG.DYNAMIC_DATA,
   });
 }
@@ -203,7 +207,7 @@ export function useCommunications(filters?: CommunicationFilters) {
 export function useCommunication(id: string) {
   return useQuery({
     queryKey: solutionsHubKeys.communications.detail(id),
-    queryFn: () => discoveryService.getCommunicationById(id),
+    queryFn: () => apiClient.get(`/api/solutions/discovery/communications/${id}`),
     enabled: !!id,
     ...QUERY_CONFIG.SEMI_STABLE_DATA,
   });
@@ -215,7 +219,7 @@ export function useCommunication(id: string) {
 export function useClientCommunications(clientId: string) {
   return useQuery({
     queryKey: solutionsHubKeys.communications.byClient(clientId),
-    queryFn: () => discoveryService.getClientCommunications(clientId),
+    queryFn: () => apiClient.get('/api/solutions/discovery/communications', { params: { client_id: clientId } }),
     enabled: !!clientId,
     ...QUERY_CONFIG.DYNAMIC_DATA,
   });
@@ -227,7 +231,7 @@ export function useClientCommunications(clientId: string) {
 export function useSolutionCommunications(solutionId: string) {
   return useQuery({
     queryKey: [...solutionsHubKeys.communications.all, 'solution', solutionId],
-    queryFn: () => discoveryService.getSolutionCommunications(solutionId),
+    queryFn: () => apiClient.get('/api/solutions/discovery/communications', { params: { solution_id: solutionId } }),
     enabled: !!solutionId,
     ...QUERY_CONFIG.DYNAMIC_DATA,
   });
@@ -245,7 +249,7 @@ export function useCreateCommunication() {
 
   return useMutation({
     mutationFn: (input: CreateCommunicationInput) =>
-      discoveryService.createCommunication(input),
+      apiClient.post<ClientCommunication>('/api/solutions/discovery/communications', input),
     onSuccess: (data: ClientCommunication) => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.communications.all });
       if (data?.client_id) {
@@ -265,7 +269,7 @@ export function useUpdateCommunication() {
 
   return useMutation({
     mutationFn: ({ id, input }: { id: string; input: UpdateCommunicationInput }) =>
-      discoveryService.updateCommunication(id, input),
+      apiClient.patch<ClientCommunication>(`/api/solutions/discovery/communications/${id}`, input),
     onSuccess: (data: ClientCommunication) => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.communications.all });
       if (data?.id) {
@@ -282,7 +286,7 @@ export function useDeleteCommunication() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (id: string) => discoveryService.deleteCommunication(id),
+    mutationFn: (id: string) => apiClient.delete(`/api/solutions/discovery/communications/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.communications.all });
     },
@@ -296,4 +300,4 @@ export function useDeleteCommunication() {
 export {
   COMMUNICATION_TYPE_LABELS,
   COMMUNICATION_DIRECTION_LABELS,
-} from '@/lib/services/solutions/discovery-service';
+};
