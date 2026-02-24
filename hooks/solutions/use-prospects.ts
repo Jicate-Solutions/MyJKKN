@@ -3,15 +3,16 @@
 /**
  * Solutions Hub - Prospect Pipeline Hooks
  * Purpose: React Query hooks for prospect CRUD, pipeline stage changes, activity logging, and stats.
+ * Connected to: /api/solutions/prospects routes
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { solutionsHubKeys } from '@/lib/query-keys';
 import { QUERY_CONFIG } from '@/lib/config/query-config';
-import {
-  prospectsService,
-  type ProspectFilters,
-  type UpdateProspectInput,
+import { apiClient } from '@/lib/api/client';
+import type {
+  ProspectFilters,
+  UpdateProspectInput,
 } from '@/lib/services/solutions/prospects-service';
 import type {
   Prospect,
@@ -31,7 +32,7 @@ export type { ProspectFilters, UpdateProspectInput };
 export function useProspects(filters?: ProspectFilters) {
   return useQuery({
     queryKey: solutionsHubKeys.prospects.list(filters),
-    queryFn: () => prospectsService.getProspects(filters),
+    queryFn: () => apiClient.get('/api/solutions/prospects', { params: filters as Record<string, any> }),
     ...QUERY_CONFIG.SEMI_STABLE_DATA,
   });
 }
@@ -39,7 +40,7 @@ export function useProspects(filters?: ProspectFilters) {
 export function useProspect(id: string) {
   return useQuery({
     queryKey: solutionsHubKeys.prospects.detail(id),
-    queryFn: () => prospectsService.getProspectById(id),
+    queryFn: () => apiClient.get(`/api/solutions/prospects/${id}`),
     enabled: !!id,
     ...QUERY_CONFIG.SEMI_STABLE_DATA,
   });
@@ -48,7 +49,7 @@ export function useProspect(id: string) {
 export function useProspectStats() {
   return useQuery({
     queryKey: solutionsHubKeys.prospects.stats(),
-    queryFn: () => prospectsService.getProspectStats(),
+    queryFn: () => apiClient.get('/api/solutions/prospects/stats'),
     ...QUERY_CONFIG.DYNAMIC_DATA,
   });
 }
@@ -56,7 +57,7 @@ export function useProspectStats() {
 export function usePipelineBoard() {
   return useQuery({
     queryKey: solutionsHubKeys.prospects.pipelineBoard(),
-    queryFn: () => prospectsService.getPipelineBoard(),
+    queryFn: () => apiClient.get('/api/solutions/prospects/pipeline'),
     ...QUERY_CONFIG.DYNAMIC_DATA,
   });
 }
@@ -64,7 +65,7 @@ export function usePipelineBoard() {
 export function useProspectActivities(prospectId: string) {
   return useQuery({
     queryKey: solutionsHubKeys.prospects.activities(prospectId),
-    queryFn: () => prospectsService.getProspectActivities(prospectId),
+    queryFn: () => apiClient.get(`/api/solutions/prospects/${prospectId}/activities`),
     enabled: !!prospectId,
     ...QUERY_CONFIG.DYNAMIC_DATA,
   });
@@ -73,7 +74,7 @@ export function useProspectActivities(prospectId: string) {
 export function usePipelineAnalytics() {
   return useQuery({
     queryKey: solutionsHubKeys.prospects.analytics(),
-    queryFn: () => prospectsService.getPipelineAnalytics(),
+    queryFn: () => apiClient.get('/api/solutions/prospects/analytics'),
     ...QUERY_CONFIG.SEMI_STABLE_DATA,
   });
 }
@@ -85,7 +86,7 @@ export function usePipelineAnalytics() {
 export function useCreateProspect() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (input: CreateProspectInput) => prospectsService.createProspect(input),
+    mutationFn: (input: CreateProspectInput) => apiClient.post<Prospect>('/api/solutions/prospects', input),
     onSuccess: (data: Prospect) => {
       if (data?.id) {
         queryClient.setQueryData(solutionsHubKeys.prospects.detail(data.id), data);
@@ -99,7 +100,7 @@ export function useUpdateProspect() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ id, input }: { id: string; input: UpdateProspectInput }) =>
-      prospectsService.updateProspect(id, input),
+      apiClient.patch<Prospect>(`/api/solutions/prospects/${id}`, input),
     onSuccess: (data: Prospect) => {
       if (data?.id) {
         queryClient.setQueryData(solutionsHubKeys.prospects.detail(data.id), data);
@@ -113,7 +114,7 @@ export function useUpdatePipelineStage() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ id, stage, lostReason }: { id: string; stage: PipelineStage; lostReason?: string }) =>
-      prospectsService.updatePipelineStage(id, stage, lostReason),
+      apiClient.patch<Prospect>(`/api/solutions/prospects/${id}/stage`, { stage, lostReason }),
     onSuccess: (data: Prospect) => {
       if (data?.id) {
         queryClient.setQueryData(solutionsHubKeys.prospects.detail(data.id), data);
@@ -130,7 +131,7 @@ export function useUpdatePipelineStage() {
 export function useDeleteProspect() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => prospectsService.deleteProspect(id),
+    mutationFn: (id: string) => apiClient.delete(`/api/solutions/prospects/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.prospects.all });
     },
@@ -140,7 +141,8 @@ export function useDeleteProspect() {
 export function useLogProspectActivity() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (input: CreateProspectActivityInput) => prospectsService.logActivity(input),
+    mutationFn: (input: CreateProspectActivityInput) =>
+      apiClient.post<ProspectActivity>(`/api/solutions/prospects/${input.prospect_id}/activities`, input),
     onSuccess: (data: ProspectActivity) => {
       queryClient.invalidateQueries({
         queryKey: solutionsHubKeys.prospects.activities(data.prospect_id),
@@ -158,7 +160,7 @@ export function useLogProspectActivity() {
 export function useProspectByClientId(clientId: string | undefined) {
   return useQuery({
     queryKey: ['prospect-by-client', clientId],
-    queryFn: () => prospectsService.getProspectByClientId(clientId!),
+    queryFn: () => apiClient.get('/api/solutions/prospects', { params: { client_id: clientId!, single: true } }),
     enabled: !!clientId,
   });
 }
@@ -167,7 +169,7 @@ export function useProspectByClientId(clientId: string | undefined) {
 export function useProspectsByClientId(clientId: string | undefined) {
   return useQuery({
     queryKey: ['prospects-by-client', clientId],
-    queryFn: () => prospectsService.getProspectsByClientId(clientId!),
+    queryFn: () => apiClient.get('/api/solutions/prospects', { params: { client_id: clientId!, all: true } }),
     enabled: !!clientId,
   });
 }
@@ -176,7 +178,7 @@ export function useProspectsByClientId(clientId: string | undefined) {
 export function useReadyToReengage() {
   return useQuery({
     queryKey: ['prospects-reengage'],
-    queryFn: () => prospectsService.getReadyToReengage(),
+    queryFn: () => apiClient.get('/api/solutions/prospects', { params: { ready_to_reengage: true } }),
   });
 }
 
@@ -184,7 +186,7 @@ export function useReadyToReengage() {
 export function useReactivateProspect() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => prospectsService.reactivateProspect(id),
+    mutationFn: (id: string) => apiClient.patch(`/api/solutions/prospects/${id}/stage`, { stage: 'lead' }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.prospects.all });
       queryClient.invalidateQueries({ queryKey: ['prospects-reengage'] });
@@ -198,6 +200,6 @@ export function useReactivateProspect() {
 export function useSourceConversionAnalytics() {
   return useQuery({
     queryKey: ['source-conversion-analytics'],
-    queryFn: () => prospectsService.getSourceConversionAnalytics(),
+    queryFn: () => apiClient.get('/api/solutions/prospects/analytics', { params: { type: 'source_conversion' } }),
   });
 }
