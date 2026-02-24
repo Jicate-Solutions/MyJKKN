@@ -8,16 +8,18 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { solutionsHubKeys } from '@/lib/query-keys';
 import { QUERY_CONFIG } from '@/lib/config/query-config';
+import { apiClient } from '@/lib/api/client';
 import {
-  bugsService,
   BUG_SEVERITY_LABELS,
   BUG_STATUS_LABELS,
-  type BugFilters,
-  type BugWithDetails,
-  type BugSeverity,
-  type BugStatus,
-  type CreateBugInput,
-  type UpdateBugInput,
+} from '@/lib/services/solutions';
+import type {
+  BugFilters,
+  BugWithDetails,
+  BugSeverity,
+  BugStatus,
+  CreateBugInput,
+  UpdateBugInput,
 } from '@/lib/services/solutions';
 import type { BugReport } from '@/lib/services/solutions/types';
 
@@ -38,7 +40,7 @@ export { BUG_SEVERITY_LABELS, BUG_STATUS_LABELS };
 export function useBugs(filters?: BugFilters) {
   return useQuery({
     queryKey: solutionsHubKeys.bugs.list(filters),
-    queryFn: () => bugsService.getBugs(filters),
+    queryFn: () => apiClient.get('/api/solutions/bugs', { params: filters as Record<string, any> }),
     ...QUERY_CONFIG.DYNAMIC_DATA,
   });
 }
@@ -49,7 +51,7 @@ export function useBugs(filters?: BugFilters) {
 export function useBug(id: string) {
   return useQuery({
     queryKey: solutionsHubKeys.bugs.detail(id),
-    queryFn: () => bugsService.getBugById(id),
+    queryFn: () => apiClient.get(`/api/solutions/bugs/${id}`),
     enabled: !!id,
     ...QUERY_CONFIG.SEMI_STABLE_DATA,
   });
@@ -61,7 +63,7 @@ export function useBug(id: string) {
 export function usePhaseBugs(phaseId: string) {
   return useQuery({
     queryKey: solutionsHubKeys.bugs.byPhase(phaseId),
-    queryFn: () => bugsService.getBugsByPhase(phaseId),
+    queryFn: () => apiClient.get('/api/solutions/bugs', { params: { phase_id: phaseId } }),
     enabled: !!phaseId,
     ...QUERY_CONFIG.DYNAMIC_DATA,
   });
@@ -73,7 +75,7 @@ export function usePhaseBugs(phaseId: string) {
 export function useIterationBugs(iterationId: string) {
   return useQuery({
     queryKey: solutionsHubKeys.bugs.byIteration(iterationId),
-    queryFn: () => bugsService.getBugsByIteration(iterationId),
+    queryFn: () => apiClient.get('/api/solutions/bugs', { params: { iteration_id: iterationId } }),
     enabled: !!iterationId,
     ...QUERY_CONFIG.DYNAMIC_DATA,
   });
@@ -85,7 +87,7 @@ export function useIterationBugs(iterationId: string) {
 export function useBugStats() {
   return useQuery({
     queryKey: solutionsHubKeys.bugs.stats(),
-    queryFn: () => bugsService.getBugStats(),
+    queryFn: () => apiClient.get('/api/solutions/bugs', { params: { stats: 'true' } }),
     ...QUERY_CONFIG.DASHBOARD_DATA,
   });
 }
@@ -96,7 +98,7 @@ export function useBugStats() {
 export function useOpenBugCount(phaseId: string) {
   return useQuery({
     queryKey: solutionsHubKeys.bugs.openCount(phaseId),
-    queryFn: () => bugsService.getOpenBugCountForPhase(phaseId),
+    queryFn: () => apiClient.get('/api/solutions/bugs', { params: { phase_id: phaseId, count_open: 'true' } }),
     enabled: !!phaseId,
     ...QUERY_CONFIG.DYNAMIC_DATA,
   });
@@ -113,7 +115,7 @@ export function useCreateBug() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (input: CreateBugInput) => bugsService.createBug(input),
+    mutationFn: (input: CreateBugInput) => apiClient.post<BugReport>('/api/solutions/bugs', input),
     onSuccess: (data: BugReport) => {
       // Invalidate bug lists
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.bugs.all });
@@ -140,7 +142,7 @@ export function useUpdateBug() {
 
   return useMutation({
     mutationFn: ({ id, input }: { id: string; input: UpdateBugInput }) =>
-      bugsService.updateBug(id, input),
+      apiClient.patch<BugReport>(`/api/solutions/bugs/${id}`, input),
     onSuccess: (data: BugReport) => {
       // Invalidate lists
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.bugs.all });
@@ -175,7 +177,7 @@ export function useResolveBug() {
       id: string;
       resolvedBy: string;
       resolutionNotes?: string;
-    }) => bugsService.resolveBug(id, resolvedBy, resolutionNotes),
+    }) => apiClient.patch<BugReport>(`/api/solutions/bugs/${id}/status`, { status: 'resolved', resolved_by: resolvedBy, resolution_notes: resolutionNotes }),
     onSuccess: (data: BugReport) => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.bugs.all });
 
@@ -199,7 +201,7 @@ export function useCloseBug() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (id: string) => bugsService.closeBug(id),
+    mutationFn: (id: string) => apiClient.patch<BugReport>(`/api/solutions/bugs/${id}/status`, { status: 'closed' }),
     onSuccess: (data: BugReport) => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.bugs.all });
 
@@ -223,7 +225,7 @@ export function useReopenBug() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (id: string) => bugsService.reopenBug(id),
+    mutationFn: (id: string) => apiClient.patch<BugReport>(`/api/solutions/bugs/${id}/status`, { status: 'open' }),
     onSuccess: (data: BugReport) => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.bugs.all });
 
@@ -247,7 +249,7 @@ export function useDeleteBug() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (id: string) => bugsService.deleteBug(id),
+    mutationFn: (id: string) => apiClient.delete(`/api/solutions/bugs/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.bugs.all });
     },
@@ -262,7 +264,7 @@ export function useChangeBugSeverity() {
 
   return useMutation({
     mutationFn: ({ id, severity }: { id: string; severity: BugSeverity }) =>
-      bugsService.updateBug(id, { severity }),
+      apiClient.patch<BugReport>(`/api/solutions/bugs/${id}`, { severity }),
     onSuccess: (data: BugReport) => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.bugs.all });
 
@@ -281,7 +283,7 @@ export function useChangeBugStatus() {
 
   return useMutation({
     mutationFn: ({ id, status }: { id: string; status: BugStatus }) =>
-      bugsService.updateBug(id, { status }),
+      apiClient.patch<BugReport>(`/api/solutions/bugs/${id}`, { status }),
     onSuccess: (data: BugReport) => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.bugs.all });
 
