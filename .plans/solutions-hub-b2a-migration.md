@@ -536,6 +536,7 @@ export const POST = withAuth(async (request, auth) => {
 
 **Route template for `[id]/route.ts` (detail, update, delete):**
 ```typescript
+import { NextResponse } from 'next/server';
 import { withAuth } from '@/lib/auth/with-auth';
 import { SolutionsService } from '@/lib/services/solutions/solutions-service';
 import { successApiResponse, errorResponse, noContentResponse } from '@/lib/api/response';
