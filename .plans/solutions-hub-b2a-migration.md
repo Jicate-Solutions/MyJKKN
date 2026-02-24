@@ -197,8 +197,14 @@ This avoids any server-side HTTP call for API key requests.
 **Session flow:**
 1. `const serverClient = await createServerSupabaseClient()` — **this is async** (internally `await`s `cookies()` from `next/headers`)
 2. Verify user via `const { data: { user } } = await serverClient.auth.getUser()` — reject 401 if no user
-3. Wrap handler: `return await BaseService.runWithClient(serverClient, async () => handler(request, auth, context))` — the `await` is mandatory (see Phase 0.4 warning about error handling)
-4. RLS enforced via user's JWT from cookies
+3. Fetch profile: `await serviceClient.from('profiles').select('*').eq('id', user.id).single()` — to populate `AuthUser` fields (role, institution_id, full_name). Use the `serverClient` for this, not a SERVICE_ROLE_KEY client, since the user is authenticated.
+4. Wrap handler: `return await BaseService.runWithClient(serverClient, async () => handler(request, auth, context))` — the `await` is mandatory (see Phase 0.4 warning about error handling)
+5. RLS enforced via user's JWT from cookies
+
+**Why `createServerSupabaseClient()` + `auth.getUser()` instead of the existing `getAuthUser()`?**
+`getAuthUser()` from `lib/supabase/server.ts` creates a server client AND calls `auth.getUser()` but does NOT return the client reference. `withAuth` needs BOTH the user AND the client (to inject into BaseService via `runWithClient`). So we call `createServerSupabaseClient()` separately to keep the client reference.
+
+**Cookie spoofing edge case:** If an external consumer sends BOTH a fake `sb-*-auth-token` cookie AND a valid Bearer API key, the cookie-first check will trigger Session flow → `getUser()` fails (fake cookie) → returns 401. The valid API key is never checked. This is correct security behavior (cookie presence = session attempt, which failed). If this causes confusion during testing, add a hint to the 401 body: `"Session authentication failed. If using API key auth, clear cookies and retry."`
 
 **API key flow:**
 1. SHA256 hash the token, look up in `api_keys` table (using SERVICE_ROLE_KEY client)
