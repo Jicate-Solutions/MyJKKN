@@ -3293,6 +3293,9 @@ lib/services/regulatory/             — Service layer (server-side only, Supaba
 │   -- Example: "(placed_count / eligible_count) * 100"
 │   -- Dependencies: formula_dependencies text[] lists metric codes the formula reads.
 │   -- Evaluation order: topological sort on dependency graph (detect cycles → error).
+│   -- Depth/scale limits: max dependency chain depth = 10 levels. Max total formula
+│   --   dependencies per framework = 500. Formula evaluation timeout = 10 seconds per
+│   --   framework. These limits prevent DoS via deep/wide dependency chains.
 │   -- Security: formulas are admin-authored config (not user input), but still evaluated
 │   --   via a safe expression parser (e.g., mathjs) — NEVER eval() or Function().
 ├── score-calculator.ts              — Weighted score aggregation per framework type
