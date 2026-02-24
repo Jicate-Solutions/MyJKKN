@@ -15,7 +15,7 @@ MyJKKN has 39 modules and 300+ tables but **zero automated regulatory reporting*
 
 1. Defines ANY accreditation/ranking body's criteria as database configuration (not code)
 2. Auto-pulls data from 15 existing MyJKKN module tables via **36 reusable Data Connectors** (DC-01 through DC-36; 15 existing + 21 new)
-3. Generates submission-ready reports in required formats (PDF for NAAC SSR/AQAR, CSV/JSON for NIRF portal, HTML for AICTE disclosure)
+3. Generates submission-ready reports in required formats (PDF for NAAC SSR/AQAR, pre-filled data sheets for NIRF DCS portal entry, HTML for AICTE disclosure)
 4. Survives regulatory changes without code rewrites — admin reconfigures, not developer
 
 **Pre-configured Frameworks (15 total):**
