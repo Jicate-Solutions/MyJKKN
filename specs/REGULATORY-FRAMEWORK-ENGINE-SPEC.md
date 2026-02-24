@@ -1696,6 +1696,40 @@ CREATE TRIGGER trg_syllabi_updated_at BEFORE UPDATE ON regulatory_course_syllabi
   FOR EACH ROW EXECUTE FUNCTION moddatetime(updated_at);
 CREATE TRIGGER trg_benchmarks_updated_at BEFORE UPDATE ON regulatory_peer_benchmarks
   FOR EACH ROW EXECUTE FUNCTION moddatetime(updated_at);
+
+-- ═══════════════════════════════════════════════
+-- IMMUTABILITY TRIGGERS (defense-in-depth — fires regardless of RLS bypass)
+-- ═══════════════════════════════════════════════
+
+-- Metric value history is append-only. This trigger prevents mutation even from service-role clients.
+CREATE OR REPLACE FUNCTION prevent_history_mutation()
+RETURNS trigger AS $$
+BEGIN
+  RAISE EXCEPTION 'regulatory_metric_value_history is append-only. UPDATE and DELETE are prohibited.';
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_history_immutable
+  BEFORE UPDATE OR DELETE ON regulatory_metric_value_history
+  FOR EACH ROW EXECUTE FUNCTION prevent_history_mutation();
+
+-- Evidence soft-delete protection. Only service-role clients can toggle is_deleted/deleted_at.
+CREATE OR REPLACE FUNCTION prevent_evidence_soft_delete_bypass()
+RETURNS trigger AS $$
+BEGIN
+  IF (OLD.is_deleted IS DISTINCT FROM NEW.is_deleted
+      OR OLD.deleted_at IS DISTINCT FROM NEW.deleted_at) THEN
+    IF current_setting('request.jwt.claim.role', true) != 'service_role' THEN
+      RAISE EXCEPTION 'Direct modification of is_deleted/deleted_at is prohibited. Use the soft-delete or restore API endpoint.';
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_evidence_soft_delete_guard
+  BEFORE UPDATE ON regulatory_evidence
+  FOR EACH ROW EXECUTE FUNCTION prevent_evidence_soft_delete_bypass();
 ```
 
 ---
