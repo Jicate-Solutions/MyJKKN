@@ -3125,7 +3125,7 @@ Fields referenced in page components that don't exist on DB rows. The Dashboard 
 **Problem:** Wrapped in `useQuery` — fires on mount, refocus, cache invalidation. Performs DB writes silently.
 **Fix:** Convert to `useMutation`. The submissions page should show a "Calculate Score" button that triggers it explicitly.
 
-### useRefreshAutoMetric No-Op
+### useRefreshAutoMetrics No-Op
 
 **Problem:** Only invalidates React Query cache — doesn't actually re-run data connectors.
 **Fix:** Must call `POST /api/regulatory/metric-values/refresh` which executes the data connector engine server-side.
