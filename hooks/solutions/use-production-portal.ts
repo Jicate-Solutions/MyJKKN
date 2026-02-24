@@ -391,7 +391,7 @@ export function useDeleteProductionLearner() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (id: string) => productionService.deleteLearner(id),
+    mutationFn: (id: string) => apiClient.delete(`/api/solutions/production-portal/learners/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.productionLearners.all });
     },
