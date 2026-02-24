@@ -1,5 +1,25 @@
 // hooks/regulatory/index.ts
 // Central export for all regulatory framework hooks
+//
+// ── Two-Tier Hook Architecture ──────────────────────────────────────────
+//
+// This module exposes two tiers of hooks:
+//
+// 1. CORE hooks (e.g. `useFrameworks`, `useSubmissions`)
+//    Return paginated `{ data, metadata }` responses from the service layer.
+//    These are the canonical data-fetching primitives.
+//
+// 2. ADAPTER hooks (e.g. `useRegulatoryFrameworks`, `useAllSubmissions`)
+//    Return flat arrays for page convenience, often with direct Supabase
+//    calls or post-processing that flattens joins.
+//
+// When building new pages, prefer core hooks for consistency; use adapters
+// only when a flat array significantly simplifies the UI layer.
+//
+// Naming convention:
+//   use{Entity}            → core   (paginated)
+//   useRegulatory{Entity}  → adapter (flat array)
+// ────────────────────────────────────────────────────────────────────────
 
 // Frameworks (NAAC, NBA, NIRF, etc.)
 export * from './use-frameworks'
