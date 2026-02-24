@@ -2781,7 +2781,7 @@ lib/utils/
 | GET | `/api/regulatory/frameworks/[id]/completeness` | `getFrameworkCompleteness(id, institutionId, year)` | super_admin, institution_admin, iqac_coordinator, principal, hod | Completeness % and metric breakdown |
 | POST | `/api/regulatory/frameworks` | `createFramework(data)` | super_admin | Create new framework definition |
 | PUT | `/api/regulatory/frameworks/[id]` | `updateFramework(id, data)` | super_admin | Update framework |
-| DELETE | `/api/regulatory/frameworks/[id]` | `deleteFramework(id)` | super_admin | Delete framework (if no submissions) |
+| DELETE | `/api/regulatory/frameworks/[id]` | `deleteFramework(id)` | super_admin | Delete framework. **Guard:** Reject with 409 if any submissions exist for this framework (check `regulatory_submissions` count). Also reject if framework status='active' — must archive first. |
 
 ### Criteria API
 
