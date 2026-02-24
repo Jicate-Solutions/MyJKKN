@@ -585,9 +585,18 @@ export const POST = withAuth(async (request, auth) => {
 
   // NOTE: No Zod validation in this project — services validate at the DB level.
   // If validation is desired, add Zod schemas to lib/services/solutions/types.ts.
+
+  // SECURITY: super_admin may have null institution_id in profiles.
+  // Creating records with null institution_id makes data invisible to all institutions.
+  // For POST operations, REQUIRE institution_id — either from auth context or from body.
+  const institutionId = auth.institutionId ?? body.institution_id;
+  if (!institutionId) {
+    return errorResponse('institution_id is required (super_admin must specify target institution)', 400);
+  }
+
   const result = await SolutionsService.createSolution({
     ...body,
-    institution_id: auth.institutionId,
+    institution_id: institutionId,
     created_by: auth.user.id,
   });
 
