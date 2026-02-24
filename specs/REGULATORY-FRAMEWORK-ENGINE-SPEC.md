@@ -4480,7 +4480,7 @@ Algorithm:
 Algorithm:
 1. Each sub-parameter value normalized using `f(x)` scaling function (sigmoid/logarithmic)
 2. Parameter score = SUM of normalized sub-parameter scores x sub-parameter marks
-3. Overall score = SUM of parameter scores x parameter weights (TLR 0.30, RPC 0.30, GO 0.20, OI 0.10, PR 0.10)
+3. Overall score = SUM of parameter scores x parameter weights (TLR 0.30, RP 0.30, GO 0.20, OI 0.10, PR 0.10)
 4. Exact `f(x)` cutoff values must be extracted from NIRF methodology PDF during implementation
 
 **NBA:**
