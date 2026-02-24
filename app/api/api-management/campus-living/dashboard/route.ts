@@ -34,17 +34,17 @@ export const GET = withApiKeyAuth(async (request, auth) => {
     supabase.from('hostel_allocations').select('*', { count: 'exact', head: true })
       .eq('institution_id', institutionId).eq('status', 'active'),
     supabase.from('hostel_leave_requests').select('*', { count: 'exact', head: true })
-      .eq('institution_id', institutionId).eq('status', 'pending'),
+      .eq('institution_id', institutionId).in('status', ['pending_parent', 'pending_warden', 'pending_chief']),
     supabase.from('hostel_gate_passes').select('*', { count: 'exact', head: true })
-      .eq('institution_id', institutionId).eq('status', 'pending'),
+      .eq('institution_id', institutionId).eq('status', 'requested'),
     supabase.from('hostel_incidents').select('*', { count: 'exact', head: true })
-      .eq('institution_id', institutionId).in('status', ['reported', 'investigating']),
+      .eq('institution_id', institutionId).in('status', ['reported', 'under_investigation']),
     supabase.from('hostel_maintenance_requests').select('*', { count: 'exact', head: true })
-      .eq('institution_id', institutionId).in('status', ['pending', 'in_progress']),
+      .eq('institution_id', institutionId).in('status', ['open', 'assigned', 'in_progress']),
     supabase.from('hostel_visitors').select('*', { count: 'exact', head: true })
       .eq('institution_id', institutionId).eq('status', 'checked_in'),
     supabase.from('hostel_cleaning_tasks').select('*', { count: 'exact', head: true })
-      .eq('institution_id', institutionId).eq('date', today).eq('status', 'pending'),
+      .eq('institution_id', institutionId).eq('date', today).eq('status', 'scheduled'),
     supabase.from('hostel_laundry_orders').select('*', { count: 'exact', head: true })
       .eq('institution_id', institutionId).in('status', ['collected', 'washing', 'ready']),
   ]);
