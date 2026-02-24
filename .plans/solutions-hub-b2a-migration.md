@@ -403,7 +403,16 @@ export abstract class BaseService {
     // If running inside withAuth (API route), use the injected client
     // Otherwise fall back to browser client singleton (hooks calling from browser)
     // On browser, clientOverride is null → always returns browser singleton
-    return clientOverride?.getStore() ?? supabase;
+    if (clientOverride) {
+      // SERVER: ALS exists
+      const store = clientOverride.getStore();
+      if (store) return store; // Inside runWithClient — correct
+      // ALS exists but no store → we're on the server but OUTSIDE runWithClient.
+      // This means a service was called from an API route WITHOUT withAuth wrapping.
+      // Log a warning — the browser singleton has NO auth context on server.
+      console.warn('[BaseService] Server-side service call without client injection — falling back to browser singleton (likely no auth context). Wrap the route handler with withAuth().');
+    }
+    return supabase; // Browser fallback (correct) or server fallback (warned above)
   }
 
   /**
