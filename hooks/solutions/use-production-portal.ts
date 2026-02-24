@@ -372,7 +372,7 @@ export function useUpdateProductionLearner() {
 
   return useMutation({
     mutationFn: ({ id, input }: { id: string; input: UpdateProductionLearnerInput }) =>
-      productionService.updateLearner(id, input),
+      apiClient.patch<ProductionLearner>(`/api/solutions/production-portal/learners/${id}`, input),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.productionLearners.all });
       // data is ProductionLearner from updateLearner - id is always present
