@@ -1363,8 +1363,10 @@ CREATE POLICY "metrics_modify" ON regulatory_metrics FOR UPDATE
 CREATE POLICY "metrics_delete" ON regulatory_metrics FOR DELETE
   USING (EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'));
 
--- Data connectors: readable by all, writable only by super_admin (contains query_template SQL)
-CREATE POLICY "connectors_read" ON regulatory_data_connectors FOR SELECT USING (true);
+-- Data connectors: RESTRICTED to super_admin (contains query_template SQL — exposing to other roles leaks DB schema)
+CREATE POLICY "connectors_read" ON regulatory_data_connectors FOR SELECT USING (
+  EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+);
 CREATE POLICY "connectors_write" ON regulatory_data_connectors FOR INSERT
   WITH CHECK (EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'));
 CREATE POLICY "connectors_modify" ON regulatory_data_connectors FOR UPDATE
