@@ -29,7 +29,7 @@ export const GET = withApiKeyAuth(async (request, auth) => {
     cleaningResult,
     laundryResult,
   ] = await Promise.all([
-    supabase.from('hostel_blocks').select('id, total_beds', { count: 'exact' })
+    supabase.from('hostel_blocks').select('id, total_capacity', { count: 'exact' })
       .eq('institution_id', institutionId),
     supabase.from('hostel_allocations').select('*', { count: 'exact', head: true })
       .eq('institution_id', institutionId).eq('status', 'active'),
