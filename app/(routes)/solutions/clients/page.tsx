@@ -65,12 +65,15 @@ export default function ClientsPage() {
   const { data: pipelineClientIds } = useQuery({
     queryKey: ['pipeline-client-ids'],
     queryFn: async () => {
-      const supabase = createClientSupabaseClient();
-      const { data } = await (supabase as any)
-        .from('sh_prospects')
-        .select('converted_client_id')
-        .not('converted_client_id', 'is', null);
-      return new Set((data || []).map((r: any) => r.converted_client_id));
+      const result = await apiClient.get<any>('/api/solutions/prospects', {
+        params: { limit: '1000' },
+      });
+      const prospects = Array.isArray(result) ? result : (result?.data || []);
+      return new Set(
+        prospects
+          .filter((r: any) => r.converted_client_id)
+          .map((r: any) => r.converted_client_id)
+      );
     },
   });
 
