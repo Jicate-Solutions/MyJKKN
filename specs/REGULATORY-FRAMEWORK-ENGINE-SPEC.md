@@ -5,7 +5,7 @@
 > **Based On:** FST Gap Analysis (SARAL ERP vs MyJKKN), Future-Proof Regulatory Architecture FST, Module Health Audit (8 review rounds, 301 bugs fixed)
 > **Total Effort Estimate:** 8-10 weeks
 > **Priority:** P0 (Critical — regulatory compliance)
-> **Architecture:** Pattern A mandatory — 66 API endpoints across 13 entity groups, 18 tables + 1 view, 58 RLS policies. Zero direct Supabase calls in hooks.
+> **Architecture:** Pattern A mandatory — 66 API endpoints across 13 entity groups, 18 tables + 2 views, 58 RLS policies. Zero direct Supabase calls in hooks.
 
 ---
 
@@ -888,7 +888,7 @@ Each connector defines: **Source Module → Source Table(s) → Key Columns → 
 
 ## Database Schema — New Tables
 
-> **Schema Summary:** 18 tables + 1 view, 58 RLS policies, 14 triggers, 32+ indexes.
+> **Schema Summary:** 18 tables + 2 views, 58 RLS policies, 14 triggers, 32+ indexes.
 
 ```sql
 -- ═══════════════════════════════════════════════
@@ -3023,7 +3023,7 @@ report-generator.ts
 │  Supabase Client (server-side) → PostgreSQL                            │
 │       │ RLS policies enforce institution_id scoping                     │
 │       ▼                                                                 │
-│  Database (18 tables + 1 view + 58 RLS policies)                       │
+│  Database (18 tables + 2 views + 58 RLS policies)                       │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
