@@ -421,7 +421,7 @@ export function useRemoveAssignment() {
     }: {
       sessionId: string;
       cohortMemberId: string;
-    }) => trainingService.removeAssignment(sessionId, cohortMemberId),
+    }) => apiClient.post(`/api/solutions/training/sessions/${sessionId}/unassign`, { cohort_member_id: cohortMemberId }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.trainingSessions.all });
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.cohortMembers.all });
