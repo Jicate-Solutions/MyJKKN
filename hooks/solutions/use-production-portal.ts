@@ -76,7 +76,7 @@ export function useMyStats(learnerId: string | undefined) {
     queryKey: solutionsHubKeys.productionPortal.stats(learnerId || ''),
     queryFn: async () => {
       // Get learner profile for total earnings
-      const learner = await productionService.getLearnerById(learnerId!);
+      const learner = await apiClient.get<ProductionLearner>(`/api/solutions/production-portal/learners/${learnerId}`);
       if (!learner) {
         return {
           totalAssignments: 0,
