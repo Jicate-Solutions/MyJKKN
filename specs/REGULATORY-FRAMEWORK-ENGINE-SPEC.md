@@ -1136,6 +1136,8 @@ CREATE TABLE regulatory_submissions (
   approved_by uuid REFERENCES profiles(id),
   portal_reference text,                             -- external submission ID/reference
   report_file_url text,                              -- generated report PDF
+  prerequisite_submission_id uuid REFERENCES regulatory_submissions(id), -- IIQA must be accepted before SSR; Binary before MBGL
+  created_by uuid NOT NULL DEFAULT auth.uid() REFERENCES profiles(id), -- who created the submission (audit trail)
   notes text,
   created_at timestamptz DEFAULT now(),
   updated_at timestamptz DEFAULT now(),
