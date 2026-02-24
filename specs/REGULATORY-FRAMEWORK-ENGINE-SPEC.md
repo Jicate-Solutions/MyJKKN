@@ -1327,7 +1327,9 @@ CREATE POLICY "submissions_read" ON regulatory_submissions FOR SELECT USING (
   (institution_id = auth_institution_id()
     OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'))
   AND EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN
-    ('super_admin','institution_admin','iqac_coordinator','principal'))
+    ('super_admin','institution_admin','iqac_coordinator','principal','hod'))
+  -- hod included for read: T8 grants "View dashboard" to hod, and the dashboard
+  -- shows active submission status. hod cannot write/transition submissions (no INSERT/UPDATE policy).
 );
 CREATE POLICY "submissions_insert" ON regulatory_submissions FOR INSERT
   WITH CHECK (
