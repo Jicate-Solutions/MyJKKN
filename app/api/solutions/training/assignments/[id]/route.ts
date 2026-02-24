@@ -8,9 +8,9 @@ export async function OPTIONS() {
   return NextResponse.json({}, { headers: corsHeaders })
 }
 
-export const PATCH = withAuth(async (req, context) => {
+export const PATCH = withAuth(async (request, auth, context) => {
   const { id } = await context!.params!
-  const body = await req.json()
+  const body = await request.json()
 
   const result = await CohortService.updateAssignment(id, body)
 
