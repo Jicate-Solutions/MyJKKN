@@ -2833,6 +2833,13 @@ lib/utils/
 | GET | `/api/regulatory/evidence/[id]/versions` | `getEvidenceVersions(id)` | all with institution access | Version history for an evidence document |
 | POST | `/api/regulatory/evidence/[id]/versions` | `addEvidenceVersion(id, data)` | super_admin, institution_admin, iqac_coordinator, hod, staff | Add new version of evidence document |
 
+**Evidence Upload Security Requirements:**
+> - **File type allowlist:** Only accept `pdf`, `jpg`, `jpeg`, `png`, `xlsx`, `xls`, `doc`, `docx`, `csv`. Reject all other MIME types.
+> - **File size limit:** 25 MB per file (configurable). Reject larger uploads before processing.
+> - **Content-Type validation:** Verify the actual file content matches the declared MIME type (magic bytes check). Do not trust the `Content-Type` header alone.
+> - **File name sanitization:** Strip path traversal characters (`../`, `..\\`), Unicode tricks, and null bytes from `file_name` before storing.
+> - **Storage:** Upload to Supabase Storage bucket `regulatory-evidence` with institution_id path prefix for isolation. Use presigned upload URLs to keep files out of API route memory.
+
 ### Submissions API
 
 | Method | Endpoint | Service Method | Roles (T8) | Description |
