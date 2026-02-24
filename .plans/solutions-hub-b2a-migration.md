@@ -862,7 +862,7 @@ Phase 6 ─── Documentation (after Phases 1-5)
 - [ ] **Zero bypasses**: No file in `app/(routes)/solutions/` imports `createClientSupabaseClient`
 - [ ] **Zero `as any` supabase casts**: All hooks use typed API client
 - [ ] **All hooks call API routes**: `grep -r 'from.*services/solutions' hooks/solutions/` returns 0 results
-- [ ] **Upload route authenticated**: `getAuthSession()` check present
+- [ ] **Upload route authenticated**: `getAuthUser()` check present (NOT deprecated `getAuthSession()`)
 - [ ] **withAuth on all routes**: Every route file in `app/api/solutions/` uses `withAuth()`
 - [ ] **Unified response envelope**: All routes return `{ data, metadata? }` shape
 - [ ] **API key auth works**: External consumers can authenticate with Bearer token
