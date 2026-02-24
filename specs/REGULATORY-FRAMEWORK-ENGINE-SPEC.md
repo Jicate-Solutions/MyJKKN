@@ -2824,7 +2824,7 @@ Additional entity-specific filters are documented per endpoint where applicable.
 
 | Method | Endpoint | Service Method | Roles (T8) | Description |
 |--------|----------|---------------|------------|-------------|
-| GET | `/api/regulatory/metrics` | `getMetrics(criteriaId)` | all authenticated | List metrics for a criterion |
+| GET | `/api/regulatory/metrics` | `getMetrics(criteriaId)` | all authenticated | List metrics for a criterion. **Required query param:** `criteria_id` (uuid). Optional: `is_auto_calculable` (boolean filter), `data_type` (text filter). |
 | GET | `/api/regulatory/metrics/[id]` | `getMetricById(id)` | all authenticated | Single metric with value history |
 | POST | `/api/regulatory/metrics` | `createMetric(data)` | super_admin | Add metric to criterion |
 | PUT | `/api/regulatory/metrics/[id]` | `updateMetric(id, data)` | super_admin | Update metric definition |
