@@ -1250,6 +1250,12 @@ ALTER TABLE regulatory_course_syllabi ENABLE ROW LEVEL SECURITY;
 --   SELECT role FROM profiles WHERE id = auth.uid() LIMIT 1
 -- $$ LANGUAGE sql STABLE SECURITY INVOKER;
 
+-- IMPORTANT: WITH CHECK on UPDATE policies
+-- All UPDATE policies on institution-scoped tables MUST include a WITH CHECK clause
+-- that verifies institution_id. Without WITH CHECK, a user could mutate institution_id
+-- to hijack a record to another tenant. PostgreSQL's USING clause validates the OLD row;
+-- WITH CHECK validates the NEW row after mutation.
+
 -- ─── Frameworks: super_admin only for write, all authenticated for read ───
 CREATE POLICY "frameworks_read" ON regulatory_frameworks FOR SELECT USING (
   institution_id IS NULL
