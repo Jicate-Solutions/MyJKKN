@@ -1061,7 +1061,8 @@ CREATE TABLE regulatory_evidence_versions (
 -- 11. Peer Team Visits (NAAC/NBA visit coordination and post-visit tracking)
 CREATE TABLE regulatory_peer_visits (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  submission_id uuid NOT NULL REFERENCES regulatory_submissions(id) ON DELETE RESTRICT,
+  submission_id uuid REFERENCES regulatory_submissions(id) ON DELETE RESTRICT,
+  -- Nullable: initial/exploratory visits (e.g., NAAC preliminary) may precede formal submissions.
   institution_id uuid NOT NULL REFERENCES institutions(id),
   visit_type text NOT NULL,                          -- naac_peer_team | nba_evaluator | aicte_expert
   status text NOT NULL DEFAULT 'scheduled',          -- scheduled | confirmed | in_progress | completed | postponed | cancelled
