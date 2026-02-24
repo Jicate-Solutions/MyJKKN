@@ -957,8 +957,8 @@ CREATE UNIQUE INDEX idx_frameworks_global_code ON regulatory_frameworks (code)
 -- NOTE: The original (body, version) uniqueness was too restrictive for discipline-specific
 -- frameworks like NIRF which share the same body+version but have different codes.
 -- All 7 NIRF 2025 variants have body='NIRF', version='2025' — only `code` distinguishes them.
-CREATE UNIQUE INDEX idx_frameworks_universal ON regulatory_frameworks
-  (body, code) WHERE institution_id IS NULL;
+-- NOTE: idx_frameworks_universal removed — idx_frameworks_global_code already enforces
+-- UNIQUE(code) WHERE institution_id IS NULL, which subsumes (body, code) uniqueness.
 CREATE UNIQUE INDEX idx_frameworks_global_typed ON regulatory_frameworks
   (body, version, institution_type) WHERE institution_type IS NOT NULL AND institution_id IS NULL;
 -- Prevents duplicate global templates like two (NAAC, 2024, autonomous_college) rows with NULL institution_id.
