@@ -192,15 +192,6 @@ export function MetricTable({ metrics, frameworkId, institutionId }: MetricTable
           </SelectContent>
         </Select>
 
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={handleRefreshAll}
-          disabled={refreshAutoMutation.isPending}
-        >
-          <RefreshCw className={`h-4 w-4 mr-2 ${refreshAutoMutation.isPending ? 'animate-spin' : ''}`} />
-          Refresh All Auto
-        </Button>
       </div>
 
       {/* Stats Summary */}
