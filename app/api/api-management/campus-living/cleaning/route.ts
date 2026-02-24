@@ -16,6 +16,7 @@ export const GET = withApiKeyAuth(async (request, auth) => {
   const institutionId = auth.institutionId;
   if (!institutionId) return errorResponse('API key must be associated with an organization', 400);
 
+  const { page, limit, from, to } = getPaginationParams(url);
   const type = getStringParam(url, 'type') || 'tasks';
 
   if (type === 'schedules') {
@@ -28,16 +29,15 @@ export const GET = withApiKeyAuth(async (request, auth) => {
       .eq('institution_id', institutionId);
 
     if (blockId) query = query.eq('block_id', blockId);
-    if (isActive !== null && isActive !== undefined) query = query.eq('is_active', isActive === 'true');
+    if (isActive !== undefined) query = query.eq('is_active', isActive === 'true');
 
-    query = query.order('created_at', { ascending: false });
+    query = query.range(from, to).order('created_at', { ascending: false });
     const { data, error, count } = await query;
     if (error) throw error;
-    return successApiResponse({ schedules: data ?? [], count: count ?? 0 });
+    return paginatedResponse(data ?? [], count ?? 0, page, limit);
   }
 
   // Default: tasks
-  const { page, limit, from, to } = getPaginationParams(url);
   const status = getStringParam(url, 'status');
   const blockId = getUuidParam(url, 'block_id');
   const cleaningType = getStringParam(url, 'cleaning_type');
