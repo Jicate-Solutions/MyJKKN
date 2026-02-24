@@ -5,7 +5,7 @@
 > **Based On:** FST Gap Analysis (SARAL ERP vs MyJKKN), Future-Proof Regulatory Architecture FST, Module Health Audit (8 review rounds, 301 bugs fixed)
 > **Total Effort Estimate:** 8-10 weeks
 > **Priority:** P0 (Critical — regulatory compliance)
-> **Architecture:** Pattern A mandatory — 66 API endpoints across 13 entity groups, 18 tables + 2 views, 58 RLS policies. Zero direct Supabase calls in hooks.
+> **Architecture:** Pattern A mandatory — 67 API endpoints across 13 entity groups, 18 tables + 2 views, 58 RLS policies. Zero direct Supabase calls in hooks.
 
 ---
 
