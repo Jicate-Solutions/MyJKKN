@@ -1580,6 +1580,7 @@ CREATE POLICY "evidence_insert" ON regulatory_evidence FOR INSERT
       OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'))
     AND EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN
       ('super_admin','institution_admin','iqac_coordinator','hod','staff'))
+    AND is_deleted = false  -- prevent inserting pre-deleted evidence (bypasses soft-delete audit trail)
   );
 CREATE POLICY "evidence_update" ON regulatory_evidence FOR UPDATE
   USING (
