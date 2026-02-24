@@ -637,7 +637,7 @@ export const GET = withAuth(async (request, auth) => {
 
 #### 3.9 Departments (7 existing routes — NEED FIX)
 
-**Pre-existing auth bug:** These routes call `getAuthSession()` for access control (correct), but then call `DepartmentTrackerService` methods which use `BaseService.supabase` → browser client singleton → no auth context on server → queries run as anonymous.
+**Pre-existing auth bug:** These routes call `getAuthSession()` for access control (the intent to check auth is correct, but `getAuthSession()` is deprecated — use `getAuthUser()` in the rewrite), then call `DepartmentTrackerService` methods which use `BaseService.supabase` → browser client singleton → no auth context on server → queries run as anonymous.
 
 **Fix:** After Phase 0.4 (AsyncLocalStorage injection), update these routes to use `withAuth` wrapper. The `withAuth` middleware injects the correct server client via `BaseService.runWithClient()`, which automatically fixes all `DepartmentTrackerService` calls. This is a thin refactor — replace manual `getAuthSession()` with `withAuth(handler)`.
 
