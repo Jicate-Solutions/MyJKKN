@@ -2991,10 +2991,8 @@ app/(routes)/regulatory/             — Page Routes (UI layer)
 │       └── gap-analysis-chart.tsx
 ├── evidence/
 │   └── page.tsx                     — Full-text evidence repository search
-├── data-sources/
-│   └── page.tsx                     — Connector health dashboard
-└── settings/
-    └── page.tsx                     — Year config, notification preferences
+└── data-connectors/
+    └── page.tsx                     — Connector health dashboard (nav label: "Data Sources")
 
 hooks/regulatory/                    — React Query hooks (fetch-based, Pattern A)
 ├── use-frameworks.ts                — useFrameworks, useFramework, useFrameworkTree, useFrameworkCompleteness, useCreateFramework, useUpdateFramework, useDeleteFramework
