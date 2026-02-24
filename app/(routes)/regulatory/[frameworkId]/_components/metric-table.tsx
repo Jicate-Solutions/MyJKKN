@@ -143,33 +143,6 @@ export function MetricTable({ metrics, frameworkId, institutionId }: MetricTable
     }
   }
 
-  const handleRefreshAll = async () => {
-    const autoMetrics = metrics.filter((m) => m.source_type === 'auto')
-    if (autoMetrics.length === 0) {
-      toast.error('No auto-calculated metrics to refresh')
-      return
-    }
-
-    const results = await Promise.allSettled(
-      autoMetrics.map((m) =>
-        refreshAutoMutation.mutateAsync({
-          metric_id: m.metric_id,
-          framework_id: frameworkId,
-          institution_id: institutionId,
-        })
-      )
-    )
-    const succeeded = results.filter((r) => r.status === 'fulfilled').length
-    const failed = results.filter((r) => r.status === 'rejected').length
-    if (failed === 0) {
-      toast.success(`Refreshed ${succeeded} auto metrics`)
-    } else if (succeeded === 0) {
-      toast.error('Failed to refresh auto metrics')
-    } else {
-      toast.error(`Refreshed ${succeeded}, but ${failed} failed`)
-    }
-  }
-
   const formatValue = (value: string | number | null, dataType: string, unit?: string) => {
     if (value == null || value === '') return '--'
     if (dataType === 'percentage') return `${value}%`
