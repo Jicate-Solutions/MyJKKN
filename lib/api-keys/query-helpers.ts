@@ -23,9 +23,9 @@ export interface PaginationParams {
  * Defaults: page=1, limit=50, max limit=200.
  */
 export function getPaginationParams(url: URL): PaginationParams {
-  const page = Math.max(1, parseInt(url.searchParams.get('page') || '1', 10));
+  const page = Math.max(1, parseInt(url.searchParams.get('page') || '1', 10) || 1);
   const limit = Math.min(
-    Math.max(1, parseInt(url.searchParams.get('limit') || '50', 10)),
+    Math.max(1, parseInt(url.searchParams.get('limit') || '50', 10) || 50),
     200
   );
   const from = (page - 1) * limit;
