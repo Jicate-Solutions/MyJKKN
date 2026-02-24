@@ -2663,6 +2663,17 @@ export const regulatoryKeys = {
   // ... other entities
 }
 
+// FrameworkFilters includes isSuperAdmin so the hook is self-contained
+interface FrameworkFilters {
+  institution_id?: string
+  body?: string
+  status?: string
+  search?: string
+  page?: number
+  limit?: number
+  isSuperAdmin?: boolean  // passed from page via usePermissions()
+}
+
 export function useFrameworks(filters: FrameworkFilters) {
   return useQuery({
     queryKey: regulatoryKeys.frameworks.list(filters),
@@ -2683,7 +2694,7 @@ export function useFrameworks(filters: FrameworkFilters) {
       const body = await res.json()  // envelope: { success, data, metadata }
       return body                    // return FULL envelope so pages can access .data AND .metadata
     },
-    enabled: !!filters.institution_id || isSuperAdmin,
+    enabled: !!filters.institution_id || !!filters.isSuperAdmin,
   })
 }
 
