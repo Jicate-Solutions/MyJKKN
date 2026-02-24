@@ -9,7 +9,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { solutionsHubKeys } from '@/lib/query-keys';
 import { QUERY_CONFIG } from '@/lib/config/query-config';
-import { buildersService } from '@/lib/services/solutions/builders-service';
+import { apiClient } from '@/lib/api/client';
 import type { CreateBuilderInput } from '@/lib/services/solutions/types';
 
 // ============================================
@@ -65,7 +65,7 @@ export interface CreateAssignmentInput {
 export function useBuilders(filters?: BuilderFilters) {
   return useQuery({
     queryKey: solutionsHubKeys.builders.list(filters),
-    queryFn: () => buildersService.getBuilders(filters),
+    queryFn: () => apiClient.get('/api/solutions/builders', { params: filters as Record<string, any> }),
     ...QUERY_CONFIG.SEMI_STABLE_DATA,
   });
 }
@@ -76,7 +76,7 @@ export function useBuilders(filters?: BuilderFilters) {
 export function useBuilder(id: string) {
   return useQuery({
     queryKey: solutionsHubKeys.builders.detail(id),
-    queryFn: () => buildersService.getBuilderById(id),
+    queryFn: () => apiClient.get(`/api/solutions/builders/${id}`),
     enabled: !!id,
     ...QUERY_CONFIG.SEMI_STABLE_DATA,
   });
@@ -88,7 +88,7 @@ export function useBuilder(id: string) {
 export function useBuilderStats() {
   return useQuery({
     queryKey: solutionsHubKeys.builders.stats(),
-    queryFn: () => buildersService.getBuilderStats(),
+    queryFn: () => apiClient.get('/api/solutions/builders/stats'),
     ...QUERY_CONFIG.DASHBOARD_DATA,
   });
 }
@@ -99,7 +99,7 @@ export function useBuilderStats() {
 export function useAvailableBuildersForPhase(phaseId: string) {
   return useQuery({
     queryKey: solutionsHubKeys.builders.available(phaseId),
-    queryFn: () => buildersService.getAvailableBuildersForPhase(phaseId),
+    queryFn: () => apiClient.get('/api/solutions/builders', { params: { available_for_phase: phaseId } }),
     enabled: !!phaseId,
     ...QUERY_CONFIG.DYNAMIC_DATA,
   });
@@ -115,7 +115,7 @@ export function useAvailableBuildersForPhase(phaseId: string) {
 export function usePendingAssignmentRequests() {
   return useQuery({
     queryKey: solutionsHubKeys.builderAssignments.pending(),
-    queryFn: () => buildersService.getPendingAssignmentRequests(),
+    queryFn: () => apiClient.get('/api/solutions/builders', { params: { pending_assignments: 'true' } }),
     ...QUERY_CONFIG.DYNAMIC_DATA,
   });
 }
@@ -126,7 +126,7 @@ export function usePendingAssignmentRequests() {
 export function useAssignmentsByStatus(status: AssignmentStatus) {
   return useQuery({
     queryKey: solutionsHubKeys.builderAssignments.byStatus(status),
-    queryFn: () => buildersService.getAssignmentsByStatus(status),
+    queryFn: () => apiClient.get('/api/solutions/builders', { params: { assignment_status: status } }),
     ...QUERY_CONFIG.DYNAMIC_DATA,
   });
 }
@@ -137,7 +137,7 @@ export function useAssignmentsByStatus(status: AssignmentStatus) {
 export function useCheckAssignmentApproval(phaseId: string) {
   return useQuery({
     queryKey: solutionsHubKeys.builderAssignments.approvalCheck(phaseId),
-    queryFn: () => buildersService.checkAssignmentApproval(phaseId),
+    queryFn: () => apiClient.get('/api/solutions/builders/assignments/approval-check', { params: { phase_id: phaseId } }),
     enabled: !!phaseId,
     staleTime: 0,
   });
@@ -149,7 +149,7 @@ export function useCheckAssignmentApproval(phaseId: string) {
 export function useSearchPeople(search: string) {
   return useQuery({
     queryKey: [...solutionsHubKeys.builders.all, 'search-people', search],
-    queryFn: () => buildersService.searchPeople(search),
+    queryFn: () => apiClient.get('/api/solutions/builders', { params: { search } }),
     enabled: search.trim().length >= 2,
     staleTime: 30_000,
   });
@@ -166,7 +166,7 @@ export function useCreateBuilder() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (input: CreateBuilderInput) => buildersService.createBuilder(input),
+    mutationFn: (input: CreateBuilderInput) => apiClient.post('/api/solutions/builders', input),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.builders.all });
     },
@@ -181,7 +181,7 @@ export function useUpdateBuilder() {
 
   return useMutation({
     mutationFn: ({ id, input }: { id: string; input: UpdateBuilderInput }) =>
-      buildersService.updateBuilder(id, input),
+      apiClient.patch<{ id?: string } | null>(`/api/solutions/builders/${id}`, input),
     onSuccess: (data: { id?: string } | null) => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.builders.all });
       if (data?.id) {
@@ -198,7 +198,7 @@ export function useDeleteBuilder() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (id: string) => buildersService.deleteBuilder(id),
+    mutationFn: (id: string) => apiClient.delete(`/api/solutions/builders/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.builders.all });
     },
@@ -216,7 +216,8 @@ export function useAddBuilderSkill() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (input: AddSkillInput) => buildersService.addBuilderSkill(input),
+    mutationFn: (input: AddSkillInput) =>
+      apiClient.post<{ builder_id?: string } | null>(`/api/solutions/builders/${input.builder_id}/skills`, input),
     onSuccess: (data: { builder_id?: string } | null) => {
       if (data?.builder_id) {
         queryClient.invalidateQueries({
@@ -241,7 +242,7 @@ export function useUpdateBuilderSkill() {
     }: {
       id: string;
       input: { proficiency_level: number };
-    }) => buildersService.updateBuilderSkill(id, input),
+    }) => apiClient.patch(`/api/solutions/builders/skills/${id}`, input),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.builders.all });
     },
@@ -255,7 +256,7 @@ export function useRemoveBuilderSkill() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (id: string) => buildersService.removeBuilderSkill(id),
+    mutationFn: (id: string) => apiClient.delete(`/api/solutions/builders/skills/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.builders.all });
     },
@@ -273,7 +274,8 @@ export function useRequestAssignment() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (input: CreateAssignmentInput) => buildersService.requestAssignment(input),
+    mutationFn: (input: CreateAssignmentInput) =>
+      apiClient.post<{ phase_id?: string; builder_id?: string } | null>('/api/solutions/builders/assignments', input),
     onSuccess: (data: { phase_id?: string; builder_id?: string } | null) => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.builderAssignments.all });
       if (data?.phase_id) {
@@ -298,7 +300,7 @@ export function useApproveAssignment() {
 
   return useMutation({
     mutationFn: ({ id, approverId }: { id: string; approverId: string }) =>
-      buildersService.approveAssignment(id, approverId),
+      apiClient.patch(`/api/solutions/builders/assignments/${id}`, { _action: 'approve', approved_by: approverId }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.builderAssignments.all });
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.phases.all });
@@ -314,7 +316,8 @@ export function useStartAssignment() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (id: string) => buildersService.startAssignment(id),
+    mutationFn: (id: string) =>
+      apiClient.patch(`/api/solutions/builders/assignments/${id}`, { _action: 'start' }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.builderAssignments.all });
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.phases.all });
@@ -330,7 +333,8 @@ export function useCompleteAssignment() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (id: string) => buildersService.completeAssignment(id),
+    mutationFn: (id: string) =>
+      apiClient.patch(`/api/solutions/builders/assignments/${id}`, { _action: 'complete' }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.builderAssignments.all });
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.phases.all });
@@ -346,7 +350,8 @@ export function useWithdrawAssignment() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (id: string) => buildersService.withdrawAssignment(id),
+    mutationFn: (id: string) =>
+      apiClient.patch(`/api/solutions/builders/assignments/${id}`, { _action: 'withdraw' }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.builderAssignments.all });
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.phases.all });
