@@ -123,9 +123,10 @@ export const GET = withApiKeyAuth(async (request, auth) => {
     }
 
     case 'leave': {
-      const { data } = await supabase
+      const { data, error: leaveError } = await supabase
         .from('hostel_leave_requests').select('status')
         .eq('institution_id', institutionId);
+      if (leaveError) throw leaveError;
 
       const items = data ?? [];
       const byStatus: Record<string, number> = {};
