@@ -1254,6 +1254,10 @@ CREATE POLICY "metric_assignments_insert" ON regulatory_metric_assignments FOR I
 CREATE POLICY "metric_assignments_update" ON regulatory_metric_assignments FOR UPDATE USING (
   assigned_to = auth.uid()
   OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN ('super_admin','iqac_coordinator','institution_admin'))
+)
+WITH CHECK (
+  institution_id = auth_institution_id()
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
 );
 
 CREATE INDEX idx_reg_metric_assignments_submission_status ON regulatory_metric_assignments(submission_id, status);
