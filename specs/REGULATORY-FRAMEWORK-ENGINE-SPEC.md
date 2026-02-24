@@ -3589,7 +3589,7 @@ The API route calculates `score_delta` and `rank_estimate` server-side before st
 
 > **UI Visibility Note (M21):** The Data Sources page is visible ONLY to `super_admin` in the sidebar (see sidebar config: `roles: ['super_admin']`). Non-admin users (staff, hod, iqac_coordinator, etc.) who somehow navigate to `/regulatory/data-connectors` see a read-only info card: *"Data is automatically populated from institutional systems. Contact your administrator for data source configuration."* The sidebar configuration MUST exclude this page for all non-super_admin roles. This is enforced both in the sidebar filter AND in the page component (show info card if role !== super_admin).
 
-**Total API Surface: 66 endpoints across 13 entity groups** (Frameworks, Criteria, Metrics, Metric Values, Evidence, Submissions, Simulations, Governance, Peer Visits, Syllabi, Benchmarks, Dashboard, Data Connectors).
+**Total API Surface: 67 endpoints across 13 entity groups** (Frameworks, Criteria, Metrics, Metric Values, Evidence, Submissions, Simulations, Governance, Peer Visits, Syllabi, Benchmarks, Dashboard, Data Connectors).
 
 ---
 
