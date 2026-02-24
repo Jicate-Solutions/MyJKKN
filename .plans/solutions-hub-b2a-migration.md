@@ -159,9 +159,9 @@ function withAuth(handler: AuthenticatedHandler, options?: AuthOptions)
 **Why cookies-first?** Supabase session JWTs and API keys both use `Authorization: Bearer <token>`. If we checked Bearer first, a browser request with a session JWT in the Authorization header would be hashed, looked up in `api_keys`, and fail with 401. By checking cookies first, browser sessions are handled correctly. API consumers (external scripts, cURL) never send cookies, so they fall through to Bearer → API key lookup. This is a clean, reliable disambiguation.
 
 **Session flow:**
-1. Call `createServerSupabaseClient()` (uses `cookies()` from `next/headers`)
-2. Verify user via `supabase.auth.getUser()`
-3. Wrap handler in `BaseService.runWithClient(serverClient, () => handler(...))` so all service calls use this server client
+1. `const serverClient = await createServerSupabaseClient()` — **this is async** (internally `await`s `cookies()` from `next/headers`)
+2. Verify user via `const { data: { user } } = await serverClient.auth.getUser()` — reject 401 if no user
+3. Wrap handler: `return await BaseService.runWithClient(serverClient, async () => handler(request, auth, context))` — the `await` is mandatory (see Phase 0.4 warning about error handling)
 4. RLS enforced via user's JWT from cookies
 
 **API key flow:**
