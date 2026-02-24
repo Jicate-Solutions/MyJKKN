@@ -3045,6 +3045,13 @@ overrides: Record<string, number>  // metric_code → overridden_numeric_value
 ```
 The API route calculates `score_delta` and `rank_estimate` server-side before storing.
 
+**Simulation overrides validation (MANDATORY):**
+> The API route MUST validate overrides before score calculation:
+> 1. Every key in `overrides` must map to an existing `regulatory_metrics.code` within the simulation's framework (join metrics → criteria → framework).
+> 2. Every value must be a finite number within the metric's `validation_min`/`validation_max` range (if defined).
+> 3. Reject with 400 if any override references a non-existent metric or an out-of-range value.
+> This prevents injection of metric codes from other frameworks and misleading simulation results.
+
 ### Governance API
 
 | Method | Endpoint | Service Method | Roles (T8) | Description |
