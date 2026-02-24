@@ -2997,7 +2997,7 @@ app/(routes)/regulatory/             — Page Routes (UI layer)
     └── page.tsx                     — Year config, notification preferences
 
 hooks/regulatory/                    — React Query hooks (fetch-based, Pattern A)
-├── use-frameworks.ts                — useFrameworks, useFramework, useFrameworkTree, useFrameworkCompleteness, useCreateFramework, useUpdateFramework
+├── use-frameworks.ts                — useFrameworks, useFramework, useFrameworkTree, useFrameworkCompleteness, useCreateFramework, useUpdateFramework, useDeleteFramework
 ├── use-criteria.ts                  — useCriteria, useCriterion, useCreateCriterion, useUpdateCriterion
 ├── use-metrics.ts                   — useMetrics, useMetric, useCreateMetric, useUpdateMetric
 ├── use-metric-values.ts             — useMetricValues, useMetricHistory, useUpsertMetricValue, useRefreshAutoMetrics
