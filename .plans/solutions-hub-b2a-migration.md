@@ -871,4 +871,5 @@ Phase 6 ─── Documentation (after Phases 1-5)
 - [ ] **JWT impersonation works**: API key auth creates a valid JWT via `SUPABASE_JWT_SECRET`, and `auth.uid()` returns the key owner's ID
 - [ ] **Dept tracker routes fixed**: All 7 existing routes migrated from bare `getAuthSession()` to `withAuth()` wrapper
 - [ ] **No browser client in API routes**: `createBrowserClient()` only used in browser context, never in API route server code
+- [ ] **OPTIONS on all routes**: Every route file exports an `OPTIONS` handler for CORS preflight
 - [ ] **Portal documented**: All endpoints listed at /application-hub/api-guidelines
