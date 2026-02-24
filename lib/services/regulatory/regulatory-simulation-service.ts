@@ -173,7 +173,7 @@ export class RegulatorySimulationService {
           const numValue = typeof value === 'number' ? value : parseFloat(String(value))
           if (!isNaN(numValue)) {
             // Check if key is a UUID (metric_id) or a code
-            const metricId = this.isValidUUID(key) ? key : codeToIdMap.get(key)
+            const metricId = isValidUUID(key) ? key : codeToIdMap.get(key)
             if (metricId) {
               overrideMap.set(metricId, numValue)
             }
