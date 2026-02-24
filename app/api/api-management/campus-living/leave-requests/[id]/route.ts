@@ -12,11 +12,14 @@ export const GET = withApiKeyAuth(async (request, auth, context) => {
   const params = await context?.params;
   const id = params?.id;
   if (!id) return errorResponse('Leave request ID is required', 400);
+  const institutionId = auth.institutionId;
+  if (!institutionId) return errorResponse('API key must be associated with an organization', 400);
 
   const { data, error } = await (auth.supabase as any)
     .from('hostel_leave_requests')
     .select('*')
     .eq('id', id)
+    .eq('institution_id', institutionId)
     .single();
 
   if (error) {
@@ -35,6 +38,8 @@ export const PATCH = withApiKeyAuth(async (request, auth, context) => {
   const params = await context?.params;
   const id = params?.id;
   if (!id) return errorResponse('Leave request ID is required', 400);
+  const institutionId = auth.institutionId;
+  if (!institutionId) return errorResponse('API key must be associated with an organization', 400);
 
   const body = await request.json();
   delete body.institution_id;
@@ -44,6 +49,7 @@ export const PATCH = withApiKeyAuth(async (request, auth, context) => {
     .from('hostel_leave_requests')
     .update(body)
     .eq('id', id)
+    .eq('institution_id', institutionId)
     .select()
     .single();
 
