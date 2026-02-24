@@ -2581,6 +2581,7 @@ Every API route must implement this pattern:
 ```typescript
 import { NextRequest, NextResponse } from 'next/server'
 import { getAuthUser } from '@/lib/supabase/server'
+import { createServerSupabaseClient } from '@/lib/supabase/server'
 import { RegulatoryFrameworkService } from '@/lib/services/regulatory'
 
 export async function GET(request: NextRequest) {
@@ -2595,6 +2596,7 @@ export async function GET(request: NextRequest) {
 
   // 2. Get user profile for role check
   // (use server-side Supabase to get profile — NOT passed from client)
+  const supabase = await createServerSupabaseClient()
   const { data: profile } = await supabase
     .from('profiles')
     .select('role, institution_id')
