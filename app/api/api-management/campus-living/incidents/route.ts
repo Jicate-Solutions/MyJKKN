@@ -8,7 +8,7 @@ export const OPTIONS = () => new NextResponse(null, { headers: corsHeaders });
 
 /**
  * GET /api/api-management/campus-living/incidents
- * Query params: page, limit, status, severity, category, block_id, date_from, date_to
+ * Query params: page, limit, status, severity, incident_type, block_id, date_from, date_to
  */
 export const GET = withApiKeyAuth(async (request, auth) => {
   const url = new URL(request.url);
