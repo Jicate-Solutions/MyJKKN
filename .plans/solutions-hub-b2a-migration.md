@@ -188,7 +188,10 @@ The existing `lib/api-keys/with-api-key-auth.ts` handles API-key-only auth for `
 **Latency optimization (IMPORTANT):** "Check cookies" does NOT mean "create a full server client and call `getUser()`" — that would add ~100-200ms of wasted latency for every API key request (GoTrue HTTP round-trip that returns no user). Instead, check for the **presence** of Supabase session cookies first:
 ```typescript
 const cookieStore = await cookies();
-const hasSessionCookie = cookieStore.getAll().some(c => c.name.startsWith('sb-') && c.name.endsWith('-auth-token'));
+// NOTE: Supabase splits large JWTs into chunked cookies: sb-xxx-auth-token.0, .1, etc.
+// Using .includes('-auth-token') catches BOTH the base cookie AND chunks.
+// .endsWith('-auth-token') would MISS chunked cookies — a subtle but critical bug.
+const hasSessionCookie = cookieStore.getAll().some(c => c.name.startsWith('sb-') && c.name.includes('-auth-token'));
 ```
 If `hasSessionCookie` is true → proceed to Session flow (create server client, call `getUser()`).
 If false → skip directly to Bearer header check → API key flow.
