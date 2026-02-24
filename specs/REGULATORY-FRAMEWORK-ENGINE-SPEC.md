@@ -1557,6 +1557,10 @@ CREATE POLICY "syllabi_update" ON regulatory_course_syllabi FOR UPDATE
       OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'))
     AND EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN
       ('super_admin','institution_admin','iqac_coordinator','hod','staff'))
+  )
+  WITH CHECK (
+    (institution_id = auth_institution_id()
+      OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'))
   );
 
 -- ─── Peer Benchmarks: institution-scoped, writable by IQAC/admin roles ───
