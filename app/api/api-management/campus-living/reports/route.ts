@@ -50,10 +50,11 @@ export const GET = withApiKeyAuth(async (request, auth) => {
       const dateFrom = getStringParam(url, 'date_from') || new Date(Date.now() - 7 * 86400000).toISOString().split('T')[0];
       const dateTo = getStringParam(url, 'date_to') || new Date().toISOString().split('T')[0];
 
-      const { data, count } = await supabase
+      const { data, count, error: attError } = await supabase
         .from('hostel_attendance').select('*', { count: 'exact' })
         .eq('institution_id', institutionId)
         .gte('date', dateFrom).lte('date', dateTo);
+      if (attError) throw attError;
 
       const present = (data ?? []).filter((r: any) => r.status === 'present').length;
 
