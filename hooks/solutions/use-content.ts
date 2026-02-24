@@ -9,17 +9,17 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { solutionsHubKeys } from '@/lib/query-keys';
 import { QUERY_CONFIG } from '@/lib/config/query-config';
-import {
-  contentService,
-  type ContentOrderFilters,
-  type DeliverableFilters,
-  type CreateContentOrderInput,
-  type UpdateContentOrderInput,
-  type CreateDeliverableInput,
-  type UpdateDeliverableInput,
-  type ContentOrderType,
-  type ContentDivision,
-  type DeliverableStatus,
+import { apiClient } from '@/lib/api/client';
+import type {
+  ContentOrderFilters,
+  DeliverableFilters,
+  CreateContentOrderInput,
+  UpdateContentOrderInput,
+  CreateDeliverableInput,
+  UpdateDeliverableInput,
+  ContentOrderType,
+  ContentDivision,
+  DeliverableStatus,
 } from '@/lib/services/solutions';
 
 // ============================================
@@ -48,7 +48,7 @@ export type {
 export function useContentOrders(filters?: ContentOrderFilters) {
   return useQuery({
     queryKey: solutionsHubKeys.contentOrders.list(filters),
-    queryFn: () => contentService.getOrders(filters),
+    queryFn: () => apiClient.get('/api/solutions/content/orders', { params: filters as Record<string, any> }),
     ...QUERY_CONFIG.DYNAMIC_DATA,
   });
 }
@@ -59,7 +59,7 @@ export function useContentOrders(filters?: ContentOrderFilters) {
 export function useContentOrder(id: string) {
   return useQuery({
     queryKey: solutionsHubKeys.contentOrders.detail(id),
-    queryFn: () => contentService.getOrderById(id),
+    queryFn: () => apiClient.get(`/api/solutions/content/orders/${id}`),
     enabled: !!id,
     ...QUERY_CONFIG.SEMI_STABLE_DATA,
   });
@@ -71,7 +71,7 @@ export function useContentOrder(id: string) {
 export function useContentOrderBySolution(solutionId: string) {
   return useQuery({
     queryKey: solutionsHubKeys.contentOrders.bySolution(solutionId),
-    queryFn: () => contentService.getOrderBySolutionId(solutionId),
+    queryFn: () => apiClient.get('/api/solutions/content/orders', { params: { solution_id: solutionId } }),
     enabled: !!solutionId,
     ...QUERY_CONFIG.SEMI_STABLE_DATA,
   });
@@ -83,7 +83,7 @@ export function useContentOrderBySolution(solutionId: string) {
 export function useOrdersByDivision(division: ContentDivision) {
   return useQuery({
     queryKey: solutionsHubKeys.contentOrders.byDivision(division),
-    queryFn: () => contentService.getOrdersByDivision(division),
+    queryFn: () => apiClient.get('/api/solutions/content/orders', { params: { division } }),
     enabled: !!division,
     ...QUERY_CONFIG.DYNAMIC_DATA,
   });
@@ -95,7 +95,7 @@ export function useOrdersByDivision(division: ContentDivision) {
 export function useContentOrderStats() {
   return useQuery({
     queryKey: solutionsHubKeys.contentOrders.stats(),
-    queryFn: () => contentService.getOrderStats(),
+    queryFn: () => apiClient.get('/api/solutions/content/orders', { params: { stats: 'true' } }),
     ...QUERY_CONFIG.DASHBOARD_DATA,
   });
 }
@@ -112,7 +112,7 @@ export function useCreateContentOrder() {
 
   return useMutation({
     mutationFn: (input: CreateContentOrderInput) =>
-      contentService.createOrder(input),
+      apiClient.post('/api/solutions/content/orders', input),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.contentOrders.all });
     },
@@ -127,7 +127,7 @@ export function useUpdateContentOrder() {
 
   return useMutation({
     mutationFn: ({ id, input }: { id: string; input: UpdateContentOrderInput }) =>
-      contentService.updateOrder(id, input),
+      apiClient.patch<{ id?: string }>(`/api/solutions/content/orders/${id}`, input),
     onSuccess: (data: { id?: string }) => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.contentOrders.all });
       if (data?.id) {
@@ -144,7 +144,7 @@ export function useDeleteContentOrder() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (id: string) => contentService.deleteOrder(id),
+    mutationFn: (id: string) => apiClient.delete(`/api/solutions/content/orders/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.contentOrders.all });
     },
@@ -161,7 +161,7 @@ export function useDeleteContentOrder() {
 export function useDeliverables(filters?: DeliverableFilters) {
   return useQuery({
     queryKey: solutionsHubKeys.contentDeliverables.list(filters),
-    queryFn: () => contentService.getDeliverables(filters),
+    queryFn: () => apiClient.get('/api/solutions/content/deliverables', { params: filters as Record<string, any> }),
     ...QUERY_CONFIG.DYNAMIC_DATA,
   });
 }
@@ -172,7 +172,7 @@ export function useDeliverables(filters?: DeliverableFilters) {
 export function useDeliverable(id: string) {
   return useQuery({
     queryKey: solutionsHubKeys.contentDeliverables.detail(id),
-    queryFn: () => contentService.getDeliverableById(id),
+    queryFn: () => apiClient.get(`/api/solutions/content/deliverables/${id}`),
     enabled: !!id,
     ...QUERY_CONFIG.SEMI_STABLE_DATA,
   });
@@ -184,7 +184,7 @@ export function useDeliverable(id: string) {
 export function useDeliverablesByOrder(orderId: string) {
   return useQuery({
     queryKey: solutionsHubKeys.contentDeliverables.byOrder(orderId),
-    queryFn: () => contentService.getDeliverablesByOrderId(orderId),
+    queryFn: () => apiClient.get('/api/solutions/content/deliverables', { params: { order_id: orderId } }),
     enabled: !!orderId,
     ...QUERY_CONFIG.DYNAMIC_DATA,
   });
@@ -202,7 +202,7 @@ export function useCreateDeliverable() {
 
   return useMutation({
     mutationFn: (input: CreateDeliverableInput) =>
-      contentService.createDeliverable(input),
+      apiClient.post<{ order_id?: string }>('/api/solutions/content/deliverables', input),
     onSuccess: (data: { order_id?: string }) => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.contentDeliverables.all });
       if (data?.order_id) {
@@ -222,7 +222,7 @@ export function useUpdateDeliverable() {
 
   return useMutation({
     mutationFn: ({ id, input }: { id: string; input: UpdateDeliverableInput }) =>
-      contentService.updateDeliverable(id, input),
+      apiClient.patch<{ id?: string }>(`/api/solutions/content/deliverables/${id}`, input),
     onSuccess: (data: { id?: string }) => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.contentDeliverables.all });
       if (data?.id) {
@@ -239,7 +239,7 @@ export function useDeleteDeliverable() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (id: string) => contentService.deleteDeliverable(id),
+    mutationFn: (id: string) => apiClient.delete(`/api/solutions/content/deliverables/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.contentDeliverables.all });
     },
@@ -254,7 +254,7 @@ export function useSubmitForReview() {
 
   return useMutation({
     mutationFn: ({ id, fileUrl, fileType }: { id: string; fileUrl: string; fileType?: string }) =>
-      contentService.submitForReview(id, fileUrl, fileType),
+      apiClient.post(`/api/solutions/content/deliverables/${id}/submit`, { file_url: fileUrl, file_type: fileType }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.contentDeliverables.all });
     },
@@ -269,7 +269,7 @@ export function useRequestRevision() {
 
   return useMutation({
     mutationFn: ({ id, notes }: { id: string; notes?: string }) =>
-      contentService.requestRevision(id, notes),
+      apiClient.post(`/api/solutions/content/deliverables/${id}/reject`, { notes }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.contentDeliverables.all });
     },
@@ -284,7 +284,7 @@ export function useApproveDeliverable() {
 
   return useMutation({
     mutationFn: ({ id, approvedBy }: { id: string; approvedBy: string }) =>
-      contentService.approveDeliverable(id, approvedBy),
+      apiClient.post(`/api/solutions/content/deliverables/${id}/approve`, { approved_by: approvedBy }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.contentDeliverables.all });
     },
@@ -299,7 +299,7 @@ export function useRejectDeliverable() {
 
   return useMutation({
     mutationFn: ({ id, notes }: { id: string; notes?: string }) =>
-      contentService.rejectDeliverable(id, notes),
+      apiClient.post(`/api/solutions/content/deliverables/${id}/reject`, { notes }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.contentDeliverables.all });
     },
@@ -312,7 +312,7 @@ export function useRejectDeliverable() {
 export function useDeliverableStats(orderId?: string) {
   return useQuery({
     queryKey: [...solutionsHubKeys.contentDeliverables.all, 'stats', orderId],
-    queryFn: () => contentService.getDeliverableStats(orderId),
+    queryFn: () => apiClient.get('/api/solutions/content/deliverables', { params: { order_id: orderId, stats: 'true' } }),
     enabled: !!orderId,
     ...QUERY_CONFIG.DASHBOARD_DATA,
   });
@@ -327,7 +327,7 @@ export function useMarkDelivered() {
 
   return useMutation({
     mutationFn: (id: string) =>
-      contentService.updateDeliverable(id, { status: 'approved' as DeliverableStatus }),
+      apiClient.patch(`/api/solutions/content/deliverables/${id}`, { status: 'approved' as DeliverableStatus }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.contentDeliverables.all });
     },
