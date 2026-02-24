@@ -25,7 +25,7 @@
 - ⚠️ Every service method needs an API route — Confidence: Low
   → REFRAMED: Only externally-useful operations need routes. Portal and admin operations can be session-only initially.
 - ⚠️ Hooks must switch from service calls to fetch() — Confidence: Medium
-  → For true B2A, yes. But services already work server-side via cookie forwarding, so Pattern B isn't broken — it's just not externally accessible.
+  → For true B2A, yes. Pattern B works in the **browser** (services use browser client with `document.cookie`). However, Pattern B is broken on the server — API routes that call services get the browser client singleton which has NO auth context (see Fundamentals point 6). This is why AsyncLocalStorage injection (Phase 0.4) is critical.
 - ⚠️ API key auth must preserve RLS — Confidence: High
   → This is non-negotiable. SERVICE_ROLE_KEY bypass is a security anti-pattern.
 
