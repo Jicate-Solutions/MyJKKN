@@ -233,8 +233,7 @@ Regulatory Compliance/
 │   └── Peer Visits        — NAAC/NBA visit coordination
 ├── Benchmarks/            — Peer institution comparison (manual data)
 ├── Evidence Repository/   — Full-text search across all evidence documents
-├── Data Sources/          — Data connector health check & status
-└── Settings/              — Year config, notification preferences
+└── Data Sources/          — Data connector health check & status
 ```
 
 **Dashboard Layout:**
