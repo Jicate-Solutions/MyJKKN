@@ -4461,7 +4461,7 @@ Algorithm:
 2. Key Indicator GPA = AVERAGE of its QnM metric scores
 3. Criterion GPA = WEIGHTED AVERAGE of its Key Indicator GPAs (weights from criteria)
 4. Overall CGPA = WEIGHTED AVERAGE of 7 Criterion GPAs
-5. Final grade: A++ (3.51-4.0), A+ (3.26-3.50), A (3.01-3.25), B++ (2.76-3.00), B+ (2.51-2.75), B (2.01-2.50), C (1.51-2.00)
+5. Final grade: A++ (3.76-4.0), A+ (3.51-3.75), A (3.26-3.50), B++ (2.76-3.25), B+ (2.51-2.75), B (2.01-2.50), C (1.51-2.00), D (≤1.50)
 
 **NAAC Binary 2024:**
 ```json
