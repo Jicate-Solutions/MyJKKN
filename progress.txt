@@ -3,17 +3,62 @@
 ## Current Session: 2026-02-24
 
 ### Working On
-- Solutions Hub B2A Migration — Phases 0-3 + 4.1 + 5.1 COMPLETE (Build Verified)
+- Solutions Hub B2A Migration — ALL PHASES COMPLETE (Build Verified)
 
 ### Completed This Session (2026-02-24)
 
-#### Solutions Hub B2A Migration — Massive Swarm Execution
+#### Solutions Hub B2A Migration — Full Completion (Phases 4.2 + 5.2-5.4)
+
+**Scope:** Completed the remaining B2A migration phases — migrating 24 hooks from browser-side service calls to fetch-based API client, eliminating 3 inline Supabase bypasses, and creating 13 new API routes for missing endpoints.
+
+**Method:** 3 sessions total. Session 1: Phases 0-3, 4.1, 5.1. Session 2: 6 hooks migrated manually. Session 3 (this): 18 hooks via 3 parallel agents + 3 bypass fixes + 13 new routes via 2 parallel agents.
+
+**Phase 4.2 — Hook Migration (24/24 hooks DONE):**
+All hooks in `hooks/solutions/` now use `apiClient` from `lib/api/client.ts`:
+- use-solutions, use-clients, use-prospects, use-mous (session 2)
+- use-compliance-dashboard, use-overdue-prospects, use-unified-earnings (session 2)
+- use-bugs, use-builders, use-builder-portal, use-content (agent batch 1+2)
+- use-deployments, use-discovery, use-earnings, use-iterations (agent batch 1+2)
+- use-payments, use-phases, use-products, use-publications (agent batch 1+2+3)
+- use-revenue-splits, use-training, use-cohort-portal (agent batch 2+3, manually fixed)
+- use-production-portal, use-client-portal (agent batch 3, manually fixed)
+- Only utility function imports remain (cohortService.getLevelInfo, trainingService.getProgramTypeLabel etc.)
+
+**Phase 5.2-5.4 — Inline Supabase Bypass Elimination (3/3 DONE):**
+- 5.2: `clients/page.tsx` — replaced createClientSupabaseClient with apiClient for pipeline-client-ids query
+- 5.3: `pipeline-board.tsx` — removed 3 local hooks with inline Supabase, imported from use-prospects + apiClient
+- 5.4: `pipeline-analytics.tsx` — removed 100+ line local useSourceConversionAnalytics, imported from hooks/solutions
+
+**13 New API Routes Created (to support hooks that had no server endpoint):**
+Production Portal Learner Admin (5):
+- production-portal/learners/route.ts (GET list, POST create)
+- production-portal/learners/[id]/route.ts (GET, PATCH, DELETE)
+- production-portal/learners/stats/route.ts (GET stats)
+- production-portal/learners/[id]/earnings/route.ts (POST add earnings)
+- production-portal/learners/[id]/skill-level/route.ts (PATCH)
+
+Training/Cohort (8):
+- training/sessions/[id]/unassign/route.ts (POST remove assignment)
+- training/sessions/[id]/can-claim/route.ts (GET self-claim check)
+- training/cohort/by-user/route.ts (GET member by user_id)
+- training/cohort/[id]/available-sessions/route.ts (GET)
+- training/cohort/[id]/assignments/route.ts (GET)
+- training/cohort/[id]/level-up/route.ts (POST)
+- training/cohort/[id]/earnings/route.ts (POST)
+- training/assignments/[id]/route.ts (PATCH update assignment)
+
+**Verification Results (ALL PASS):**
+- 24/24 hooks use apiClient (zero browser-side Supabase)
+- 0 createClientSupabaseClient in hooks/ or app/(routes)/solutions/
+- Only utility function imports remain (pure lookups, no DB access)
+- 124 total route files under app/api/solutions/ (111 original + 13 new)
+- Build: PASSES (zero TypeScript errors from migration)
+
+#### Previous Session Work — Phases 0-3, 4.1, 5.1
 
 **Scope:** Full Pattern B → Pattern A migration for Solutions Hub. Unified auth middleware, 111 API routes, JWT impersonation, AsyncLocalStorage client injection.
 
-**Method:** Team-lead built Phase 0 foundation (5 critical files), then spawned 8 parallel agents that created all route files simultaneously.
-
-**Phase 0 — Foundation (team-lead, all DONE):**
+**Phase 0 — Foundation (5 critical files):**
 - 0.1: Upload route security fix — getAuthUser(), UUID validation, folder allowlist, user ID in path
 - 0.3: JWT impersonation helper (lib/auth/impersonate.ts) — jose SignJWT, 60s expiry
 - 0.4: BaseService AsyncLocalStorage injection — conditional require, runWithClient()
@@ -40,31 +85,14 @@
 **Phase 4.1 — API Client Helper (lib/api/client.ts):** Done
 **Phase 5.1 — ClientPortalService:** Done (lib/services/solutions/client-portal-service.ts)
 
-**Verification Results (ALL PASS):**
-- 111 route files created under app/api/solutions/
-- 100% withAuth usage on all routes
-- 100% OPTIONS handlers for CORS preflight
-- 22/22 portal routes use allowApiKey: false
-- 7/7 dept tracker routes refactored to withAuth
-- Upload route secured with auth + UUID + allowlist
-- BaseService has AsyncLocalStorage + runWithClient
-- withAuth has cookies-first detection + PG error mapping
-- JWT impersonation uses jose, 60s expiry
-- Build: PASSES (compiled in 26.7s)
+**Remaining:**
+- Phase 6: API documentation (optional / not started)
 
-**Remaining (Phase 4.2 + Phase 5.2-5.4 + Phase 6):**
-- Phase 4.2: Migrate 24 hooks from service calls → fetch() API client
-- Phase 5.2-5.4: Eliminate remaining inline Supabase bypasses (3 pages)
-- Phase 6: API documentation
-
-**New Files Created (8 infrastructure + ~104 routes + 1 service = ~113):**
-- lib/auth/with-auth.ts, lib/auth/impersonate.ts
-- lib/api/response.ts, lib/api/client.ts
-- lib/services/solutions/client-portal-service.ts
-- ~104 route files under app/api/solutions/
-- 1 modified: lib/services/base-service.ts (AsyncLocalStorage)
-- 1 modified: app/api/upload/solutions-documents/route.ts (security)
-- 7 refactored: app/api/solutions/departments/*/route.ts
+**Total Files Created/Modified:**
+- 8 infrastructure files + 124 route files + 1 service = 133 new files
+- 24 hook files migrated
+- 3 page components fixed (bypass elimination)
+- 1 barrel export updated (hooks/solutions/index.ts)
 
 ---
 
