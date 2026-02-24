@@ -815,14 +815,15 @@ Counted from the phase-by-phase tables above:
 | Phase 1 | 16 (solutions 3, clients 2, prospects 7, phases 4) | ~29 |
 | Phase 2 | 44 (software 13, training 8, content 7, financial 13, mous 3) | ~87 |
 | Phase 3 | 44 NEW (portals 22, discovery 4, publications 6, products 9, compliance+notifications 3) + 7 EXISTING dept tracker routes to refactor | ~53 + ~12 |
-| Phase 4 | 1 (api client helper) | — |
-| Phase 5 | 1 (client-portal-service) | — |
+| Phase 4 | 1 utility file (api client helper — NOT a route) | — |
+| Phase 5 | 1 service file (client-portal-service — NOT a route) | — |
 | Phase 6 | 0 (docs only) | — |
 | **Existing** | **1** (upload route) — to be modified in Phase 0.1 | — |
-| **Total NEW** | **~106 route files** | **~169 endpoints** |
-| **Total (incl. refactored)** | **~113 route files** | **~181 endpoints** |
+| **Total NEW route files** | **~104** (Phase 1: 16 + Phase 2: 44 + Phase 3: 44) | **~169 endpoints** |
+| **Total NEW non-route files** | **2** (Phase 4 utility + Phase 5 service) | — |
+| **Total (incl. 7 refactored dept + 1 modified upload)** | **~112 files touched** | **~181 endpoints** |
 
-**Breakdown note:** The 7 existing dept tracker routes (Phase 3.9) are refactored from `getAuthSession()` to `withAuth()`, not created from scratch. The 1 upload route (Phase 0.1) is modified, not created. "~106 new" = Phase 1 (16) + Phase 2 (44) + Phase 3 new (44) + Phase 4 (1) + Phase 5 (1).
+**Breakdown note:** The 7 existing dept tracker routes (Phase 3.9) are refactored from `getAuthSession()` to `withAuth()`, not created from scratch. The 1 upload route (Phase 0.1) is modified, not created. Phase 0 creates 3 infrastructure files (withAuth, impersonate, response wrapper) listed in the "New Files" table below.
 
 **Note:** This is a large surface area. Consider implementing in priority order and gating external API access behind feature flags initially.
 
