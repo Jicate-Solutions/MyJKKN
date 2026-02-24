@@ -529,7 +529,8 @@ import { NextResponse } from 'next/server';
 import { withAuth } from '@/lib/auth/with-auth';
 import { SolutionsService } from '@/lib/services/solutions/solutions-service';
 import { paginatedResponse, createdResponse, errorResponse } from '@/lib/api/response';
-import { getPaginationParams, getSortParams, getStringParam } from '@/lib/api-keys/query-helpers';
+import { getPaginationParams, getStringParam } from '@/lib/api-keys/query-helpers';
+// NOTE: Also available: getSortParams, getDateRangeParams, getUuidParam — import as needed per route
 import { corsHeaders } from '@/lib/api-keys/cors'; // ← EXISTING file, do NOT create a new lib/api/cors.ts
 
 // CORS preflight — required in every route file (no global middleware)
