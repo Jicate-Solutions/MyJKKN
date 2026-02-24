@@ -3,22 +3,22 @@
 /**
  * Solutions Hub - Production Portal Hooks
  * Purpose: React Query hooks for production learner portal (talent-facing)
- * Connected to: production-service.ts, content-service.ts
+ * Connected to: /api/solutions/production-portal/* routes, /api/solutions/content/* routes
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { solutionsHubKeys } from '@/lib/query-keys';
 import { QUERY_CONFIG } from '@/lib/config/query-config';
-import {
-  productionService,
-  contentService,
-  type ContentDivision,
-  type ProductionLearner,
-  type ProductionLearnerFilters,
-  type CreateProductionLearnerInput,
-  type UpdateProductionLearnerInput,
-  type SkillLevel,
+import { apiClient } from '@/lib/api/client';
+import type {
+  ContentDivision,
+  ProductionLearner,
+  ProductionLearnerFilters,
+  CreateProductionLearnerInput,
+  UpdateProductionLearnerInput,
+  SkillLevel,
 } from '@/lib/services/solutions';
+import { productionService } from '@/lib/services/solutions';
 
 // Re-export types for consumers
 export type {
@@ -40,7 +40,7 @@ export type {
 export function useLearnerByUserId(userId: string | undefined) {
   return useQuery({
     queryKey: solutionsHubKeys.productionPortal.learner(userId || ''),
-    queryFn: () => productionService.getLearnerByUserId(userId!),
+    queryFn: () => apiClient.get<ProductionLearner>('/api/solutions/production-portal/profile'),
     enabled: !!userId,
     ...QUERY_CONFIG.USER_SESSION_DATA,
   });
@@ -90,7 +90,7 @@ export function useMyStats(learnerId: string | undefined) {
       }
 
       // Get all assignments for this learner
-      const assignments = await productionService.getAssignmentsByLearnerId(learnerId!);
+      const assignments = await apiClient.get<any[]>('/api/solutions/production-portal/my-work');
 
       // Calculate stats from assignments
       const completed = assignments.filter((a) => a.completed_at).length;
@@ -151,17 +151,16 @@ export function useAvailableWork(
     queryKey: solutionsHubKeys.productionPortal.availableWork(learnerId || '', division),
     queryFn: () => {
       if (division) {
-        return productionService.getAvailableDeliverablesForDivision(division);
+        return apiClient.get<any[]>('/api/solutions/production-portal/available-work', { params: { division } });
       }
       // If no division specified, get available work across all divisions
-      // ContentDivision: 'video' | 'design' | 'writing' | 'animation' | 'social' | 'other'
       return Promise.all([
-        productionService.getAvailableDeliverablesForDivision('video'),
-        productionService.getAvailableDeliverablesForDivision('design'),
-        productionService.getAvailableDeliverablesForDivision('writing'),
-        productionService.getAvailableDeliverablesForDivision('animation'),
-        productionService.getAvailableDeliverablesForDivision('social'),
-        productionService.getAvailableDeliverablesForDivision('other'),
+        apiClient.get<any[]>('/api/solutions/production-portal/available-work', { params: { division: 'video' } }),
+        apiClient.get<any[]>('/api/solutions/production-portal/available-work', { params: { division: 'design' } }),
+        apiClient.get<any[]>('/api/solutions/production-portal/available-work', { params: { division: 'writing' } }),
+        apiClient.get<any[]>('/api/solutions/production-portal/available-work', { params: { division: 'animation' } }),
+        apiClient.get<any[]>('/api/solutions/production-portal/available-work', { params: { division: 'social' } }),
+        apiClient.get<any[]>('/api/solutions/production-portal/available-work', { params: { division: 'other' } }),
       ]).then((results) => results.flat());
     },
     enabled: !!learnerId,
@@ -178,7 +177,7 @@ export function useAllAvailableWork() {
     queryFn: async () => {
       const divisions: ContentDivision[] = ['video', 'design', 'writing', 'animation', 'social', 'other'];
       const results = await Promise.all(
-        divisions.map((div) => productionService.getAvailableDeliverablesForDivision(div))
+        divisions.map((div) => apiClient.get<any[]>('/api/solutions/production-portal/available-work', { params: { division: div } }))
       );
       return results.flat();
     },
@@ -196,7 +195,7 @@ export function useAllAvailableWork() {
 export function useMyWork(learnerId: string | undefined) {
   return useQuery({
     queryKey: solutionsHubKeys.productionPortal.myWork(learnerId || ''),
-    queryFn: () => productionService.getAssignmentsByLearnerId(learnerId!),
+    queryFn: () => apiClient.get<any[]>('/api/solutions/production-portal/my-work'),
     enabled: !!learnerId,
     ...QUERY_CONFIG.DYNAMIC_DATA,
   });
@@ -209,7 +208,7 @@ export function useMyActiveWork(learnerId: string | undefined) {
   return useQuery({
     queryKey: solutionsHubKeys.productionPortal.myActiveWork(learnerId || ''),
     queryFn: async () => {
-      const assignments = await productionService.getAssignmentsByLearnerId(learnerId!);
+      const assignments = await apiClient.get<any[]>('/api/solutions/production-portal/my-work');
       return assignments.filter((a) => !a.completed_at);
     },
     enabled: !!learnerId,
@@ -228,14 +227,17 @@ export function useMyProductionEarnings(learnerId: string | undefined) {
   return useQuery({
     queryKey: solutionsHubKeys.productionPortal.earnings(learnerId || ''),
     queryFn: async () => {
-      const learner = await productionService.getLearnerById(learnerId!);
-      if (!learner) return { total: 0, assignments: [] };
+      const result = await apiClient.get<{
+        total_earnings: number;
+        orders_completed: number;
+        recent_assignments: any[];
+        earnings_from_assignments: number;
+      }>('/api/solutions/production-portal/earnings');
 
-      const assignments = await productionService.getAssignmentsByLearnerId(learnerId!);
-      const completedWithEarnings = assignments.filter((a) => a.completed_at && a.earnings);
+      const completedWithEarnings = (result.recent_assignments || []).filter((a: any) => a.completed_at && a.earnings);
 
       return {
-        total: learner.total_earnings || 0,
+        total: result.total_earnings || 0,
         assignments: completedWithEarnings,
       };
     },
@@ -258,12 +260,12 @@ export function useDeliverableForSubmission(
   return useQuery({
     queryKey: solutionsHubKeys.productionPortal.submission(deliverableId, learnerId || ''),
     queryFn: async () => {
-      const deliverable = await contentService.getDeliverableById(deliverableId);
+      const deliverable = await apiClient.get<any>(`/api/solutions/content/deliverables/${deliverableId}`);
       if (!deliverable) return null;
 
       // Check if learner is assigned to this deliverable
       const isAssigned = deliverable.assignments?.some(
-        (a) => a.learner_id === learnerId
+        (a: any) => a.learner_id === learnerId
       );
 
       return {
@@ -294,7 +296,7 @@ export function useClaimWork() {
     }: {
       deliverableId: string;
       learnerId: string;
-    }) => productionService.claimDeliverable(deliverableId, learnerId),
+    }) => apiClient.post('/api/solutions/production-portal/claim', { deliverable_id: deliverableId }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.productionPortal.all });
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.contentDeliverables.all });
@@ -317,7 +319,7 @@ export function useSubmitWork() {
       deliverableId: string;
       fileUrl: string;
       fileType?: string;
-    }) => contentService.submitForReview(deliverableId, fileUrl, fileType),
+    }) => apiClient.post(`/api/solutions/content/deliverables/${deliverableId}/submit`, { file_url: fileUrl, file_type: fileType }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.productionPortal.all });
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.contentDeliverables.all });
@@ -340,7 +342,7 @@ export function useCompleteAssignment() {
       assignmentId: string;
       earnings?: number;
       qualityRating?: number;
-    }) => productionService.completeAssignment(assignmentId, earnings, qualityRating),
+    }) => apiClient.post('/api/solutions/production-portal/submit', { assignment_id: assignmentId, earnings, quality_rating: qualityRating }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.productionPortal.all });
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.productionLearners.all });
