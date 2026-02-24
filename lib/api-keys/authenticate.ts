@@ -118,7 +118,7 @@ export async function authenticateApiKey(
   // 4. Look up key in database
   const { data: keyData, error: keyError } = await supabase
     .from('api_keys')
-    .select('id, name, key_value, is_active, expires_at, permissions, institution_id')
+    .select('id, name, key_value, is_active, expires_at, permissions')
     .eq('key_value', hashedKey)
     .eq('is_active', true)
     .single();
@@ -164,7 +164,7 @@ export async function authenticateApiKey(
     context: {
       keyId: keyData.id,
       keyName: keyData.name,
-      institutionId: keyData.institution_id ?? null,
+      institutionId: null,
       permissions,
       supabase,
     },
