@@ -263,13 +263,24 @@ This approach is reliable because PostgREST reads the JWT from the `Authorizatio
 
 ```typescript
 // lib/services/base-service.ts — additions to existing file
-import { AsyncLocalStorage } from 'node:async_hooks';
+
+// CRITICAL: base-service.ts is imported by 23 services, which are imported by
+// browser-side hooks. A top-level `import { AsyncLocalStorage } from 'node:async_hooks'`
+// would crash the browser bundle. Use conditional require instead.
+import type { AsyncLocalStorage as ALS } from 'node:async_hooks'; // type-only — erased at compile time
 
 // Request-scoped Supabase client override.
 // - Session auth: withAuth stores a createServerClient (with cookies) here
 // - API key auth: withAuth stores a createImpersonatedClient (with JWT) here
 // - Browser hooks: No override set → falls back to browser client singleton (correct)
-const clientOverride = new AsyncLocalStorage<any>();
+// - On browser: clientOverride is null → getter always returns browser singleton
+let clientOverride: ALS<any> | null = null;
+if (typeof window === 'undefined') {
+  // Server-only: dynamically require node:async_hooks
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { AsyncLocalStorage } = require('node:async_hooks');
+  clientOverride = new AsyncLocalStorage();
+}
 
 export abstract class BaseService {
   protected static get supabase(): any {
