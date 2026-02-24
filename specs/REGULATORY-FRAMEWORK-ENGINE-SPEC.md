@@ -2667,11 +2667,17 @@ export function useFrameworks(filters: FrameworkFilters) {
         const err = await res.json().catch(() => ({ message: 'Failed to fetch frameworks' }))
         throw new Error(err.message)
       }
-      return res.json()  // returns { success, data, metadata }
+      const body = await res.json()  // envelope: { success, data, metadata }
+      return body                    // return FULL envelope so pages can access .data AND .metadata
     },
     enabled: !!filters.institution_id || isSuperAdmin,
   })
 }
+
+// Page component usage:
+// const { data: result } = useFrameworks(filters)
+// const frameworks = result?.data          // T[] array
+// const total = result?.metadata?.total    // pagination info
 ```
 
 ### Super Admin Access Pattern (Unchanged)
