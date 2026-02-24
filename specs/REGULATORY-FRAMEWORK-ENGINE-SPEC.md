@@ -3885,7 +3885,7 @@ FROM regulatory_metrics;
 
 **API enforcement:** The metrics GET endpoints (`GET /metrics` and `GET /metrics/[id]`) MUST:
 - Use `regulatory_metrics_safe` view for non-super_admin queries
-- Only return `data_connector_id`, `data_connector_query`, `data_connector_mapping` when caller is super_admin
+- Only return `data_connector_id`, `data_connector_query` when caller is super_admin
 - The Data Sources page in the sidebar is already restricted to super_admin only (see Sidebar Navigation)
 
 #### Institution Scoping for Framework-Specific Criteria and Metrics (H9)
