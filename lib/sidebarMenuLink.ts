@@ -951,9 +951,9 @@ export function GetPages(pathname: string): MenuGroup[] {
               active: pathname === '/service-requests/my-requests'
             },
             {
-              href: '/service-requests/new',
-              label: 'New Request',
-              active: pathname === '/service-requests/new'
+              href: '/service-requests/all-services',
+              label: 'All Services',
+              active: pathname === '/service-requests/all-services'
             },
             {
               href: '/service-requests/approvals',
@@ -967,7 +967,7 @@ export function GetPages(pathname: string): MenuGroup[] {
             },
             {
               href: '/service-requests/types',
-              label: 'Manage Types',
+              label: 'Manage Services',
               active: pathname.startsWith('/service-requests/types')
             }
           ]

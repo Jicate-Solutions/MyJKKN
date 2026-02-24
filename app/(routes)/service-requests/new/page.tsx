@@ -62,8 +62,8 @@ export default function NewServiceRequestPage() {
         status: 'submitted',
       },
       {
-        onSuccess: () => {
-          router.push('/service-requests?tab=my-requests');
+        onSuccess: (data) => {
+          router.push(`/service-requests/${data.id}`);
         },
       }
     );
@@ -79,8 +79,8 @@ export default function NewServiceRequestPage() {
         status: 'draft',
       },
       {
-        onSuccess: () => {
-          router.push('/service-requests?tab=my-requests');
+        onSuccess: (data) => {
+          router.push(`/service-requests/${data.id}`);
         },
       }
     );

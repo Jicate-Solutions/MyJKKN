@@ -328,7 +328,9 @@ export function ServiceTypeForm({ initialData, onSubmit, isSubmitting }: Service
                 type="number"
                 min={1}
                 placeholder="Optional"
-                {...register('validity_period_days', { valueAsNumber: true })}
+                {...register('validity_period_days', {
+                  setValueAs: (v) => (v === '' || v === null || v === undefined) ? null : Number(v),
+                })}
               />
             </div>
           </div>
@@ -433,7 +435,13 @@ export function ServiceTypeForm({ initialData, onSubmit, isSubmitting }: Service
           <CardTitle>Request Form</CardTitle>
         </CardHeader>
         <CardContent>
-          <FieldBuilder fields={fields} onChange={setFields} />
+          <FieldBuilder
+            fields={fields}
+            onChange={(newFields) => {
+              setFields(newFields);
+              setValue('fields', newFields, { shouldValidate: false });
+            }}
+          />
           {errors.fields && (
             <p className="text-xs text-red-500 mt-2">{errors.fields.message}</p>
           )}
@@ -488,7 +496,10 @@ export function ServiceTypeForm({ initialData, onSubmit, isSubmitting }: Service
           {/* Approval Steps */}
           <ApprovalStepBuilder
             steps={approvalSteps}
-            onChange={setApprovalSteps}
+            onChange={(newSteps) => {
+              setApprovalSteps(newSteps);
+              setValue('approval_steps', newSteps, { shouldValidate: false });
+            }}
             availableRoles={rolesData?.map((r) => r.role_key) || []}
             workflowType={watch('approval_workflow_type') as ApprovalWorkflowType}
           />

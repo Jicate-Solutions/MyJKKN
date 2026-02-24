@@ -89,6 +89,8 @@ export default function MyRequestsPage() {
               <RequestDataTable
                 data={requestsData.data}
                 showRequester={false}
+                showEdit={true}
+                showCancel={true}
               />
             ) : (
               <div className="flex flex-col items-center justify-center py-12">

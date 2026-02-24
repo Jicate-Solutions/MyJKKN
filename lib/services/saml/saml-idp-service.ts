@@ -20,14 +20,20 @@ import { SamlServiceProviderService } from './saml-service-provider-service';
 
 export class SamlIdpService {
   private static idpInstance: ReturnType<typeof samlify.IdentityProvider> | null = null;
+  // Bump this string whenever getIdPConfig() logic changes so the cached
+  // idpInstance is invalidated on the next request without requiring a cold start.
+  private static readonly IDP_CACHE_VERSION = 'v2-decode-base64-pem';
+  private static idpCacheKey: string | null = null;
 
   /**
    * Get or create SAML IdP instance
    */
   private static getIdP(): ReturnType<typeof samlify.IdentityProvider> {
-    if (this.idpInstance) {
+    if (this.idpInstance && this.idpCacheKey === SamlIdpService.IDP_CACHE_VERSION) {
       return this.idpInstance;
     }
+    // Cache miss — build a fresh instance (first call, or version bump after a fix)
+    this.idpInstance = null;
 
     const config: SamlIdpConfig = this.getIdPConfig();
 
@@ -71,6 +77,7 @@ export class SamlIdpService {
       nameIDFormat: [config.nameIdFormat || NameIdFormat.EMAIL],
       signingCert: this.formatCertificate(config.certificate),
     });
+    this.idpCacheKey = SamlIdpService.IDP_CACHE_VERSION;
 
     return this.idpInstance;
   }
@@ -91,12 +98,27 @@ export class SamlIdpService {
       );
     }
 
+    // Env vars are stored as base64-encoded PEM files (i.e. the value is
+    // base64("-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n")).
+    // Without decoding first, formatPrivateKey wraps the encoded blob inside a
+    // SECOND set of PEM headers — an invalid double-wrapped key that node-forge
+    // rejects during samlify's IdentityProvider() construction, which surfaces
+    // as the generic "Failed to parse SAML request" error on every SSO attempt.
+    const decodePemIfNeeded = (val: string): string => {
+      if (val.trimStart().startsWith('-----BEGIN ')) return val; // already raw PEM
+      try {
+        const decoded = Buffer.from(val, 'base64').toString('utf-8');
+        if (decoded.trimStart().startsWith('-----BEGIN ')) return decoded;
+      } catch { /* not valid base64 — use as-is and let samlify surface the error */ }
+      return val;
+    };
+
     return {
       entityId: process.env.SAML_IDP_ENTITY_ID || `${baseUrl}/saml/metadata`,
       ssoServiceUrl: `${baseUrl}/api/saml/sso`,
       sloServiceUrl: `${baseUrl}/api/saml/slo`,
-      certificate: certificate,
-      privateKey: privateKey,
+      certificate: decodePemIfNeeded(certificate),
+      privateKey: decodePemIfNeeded(privateKey),
       nameIdFormat: NameIdFormat.EMAIL,
       signatureAlgorithm: 'sha256',
     };

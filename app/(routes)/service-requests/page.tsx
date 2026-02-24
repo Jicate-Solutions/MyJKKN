@@ -162,6 +162,8 @@ export default function ServiceRequestsHubPage() {
                   <RequestDataTable
                     data={myRequestsData.data}
                     showRequester={false}
+                    showEdit={true}
+                    showCancel={true}
                   />
                 ) : (
                   <div className="flex flex-col items-center justify-center py-12">
