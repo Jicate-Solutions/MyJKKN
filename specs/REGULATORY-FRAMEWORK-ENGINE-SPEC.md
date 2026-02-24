@@ -3115,6 +3115,14 @@ lib/services/regulatory/             — Service layer (server-side only, Supaba
 ├── regulatory-data-connector-service.ts — Connector CRUD + test + refresh (NEW — was planned as data-connector-engine.ts)
 ├── data-connector-engine.ts         — Executes connector SQL, populates metric values
 ├── formula-engine.ts                — Evaluates metric formulas (cross-metric references)
+│   -- Formula syntax: JavaScript-like arithmetic expressions.
+│   -- Variables: metric codes (e.g., "1.1.1") resolved to their numeric_value.
+│   -- Operators: +, -, *, /, (, ), Math.min(), Math.max(), Math.round()
+│   -- Example: "(placed_count / eligible_count) * 100"
+│   -- Dependencies: formula_dependencies text[] lists metric codes the formula reads.
+│   -- Evaluation order: topological sort on dependency graph (detect cycles → error).
+│   -- Security: formulas are admin-authored config (not user input), but still evaluated
+│   --   via a safe expression parser (e.g., mathjs) — NEVER eval() or Function().
 ├── score-calculator.ts              — Weighted score aggregation per framework type
 ├── report-generator.ts              — PDF/CSV/JSON generation per regulatory body
 └── index.ts                         — Barrel export of all services + types
