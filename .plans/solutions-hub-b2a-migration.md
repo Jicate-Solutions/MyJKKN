@@ -1053,4 +1053,7 @@ Phase 6 ─── Documentation (after Phases 1-5)
 - [ ] **Dept tracker routes fixed**: All 7 existing routes migrated from bare `getAuthSession()` to `withAuth()` wrapper
 - [ ] **No browser client in API routes**: `createBrowserClient()` only used in browser context, never in API route server code
 - [ ] **OPTIONS on all routes**: Every route file exports an `OPTIONS` handler for CORS preflight
+- [ ] **institution_id passed to list queries**: All GET (list) handlers pass `auth.institutionId` to service filter objects
+- [ ] **JWT never logged**: `withAuth` error handlers do NOT include impersonated JWT tokens in `console.error()` messages
+- [ ] **ESLint return-await guard**: `return await runWithClient(...)` line has eslint-disable comment or project-level `@typescript-eslint/return-await` configured
 - [ ] **Portal documented**: All endpoints listed at /application-hub/api-guidelines
