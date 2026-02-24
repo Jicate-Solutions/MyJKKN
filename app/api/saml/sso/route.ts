@@ -68,13 +68,23 @@ async function handleSamlSso(
     } = await supabase.auth.getUser();
 
     if (authError || !authUser) {
-      // User not authenticated - redirect to login with return URL.
-      // Use /auth/login (the actual page path).
-      // Status 302 (not default 307) so the browser downgrades POST → GET,
-      // preventing "405 Method Not Allowed" on the login page.
-      // Use `redirectedFrom` to match the param name the login page reads.
+      // User not authenticated — redirect to login, then back to SSO.
+      //
+      // For HTTP-POST binding the SAMLRequest lives in the form body which is
+      // consumed and gone after formData() is called. `request.url` therefore
+      // contains no SAMLRequest. We re-encode it as a query param so it
+      // survives the login redirect. On return the GET handler processes it via
+      // redirect-binding; parseAuthnRequest's DEFLATE fallback handles raw
+      // base64 (POST-binding format) transparently.
+      //
+      // Status 302 (not default 307): 302 lets the browser downgrade POST→GET
+      // so the user lands on the login page with a GET, not a POST (405).
+      const callbackUrl = new URL('/api/saml/sso', request.url);
+      callbackUrl.searchParams.set('SAMLRequest', samlRequest);
+      if (relayState) callbackUrl.searchParams.set('RelayState', relayState);
+
       const loginUrl = new URL('/auth/login', request.url);
-      loginUrl.searchParams.set('redirectedFrom', request.url);
+      loginUrl.searchParams.set('redirectedFrom', callbackUrl.toString());
       return NextResponse.redirect(loginUrl, { status: 302 });
     }
 
