@@ -349,7 +349,7 @@ print(block)`,
       prompt:
         'Using the MyJKKN Campus Living API, fetch a specific block and list all rooms with their availability status.',
       expectedOutput:
-        'Block details with a list of rooms showing room_number, floor, room_type, total_beds, occupied_beds, and status.',
+        'Block details with a list of rooms showing room_number, floor, room_type, capacity, current_occupancy, and status.',
       tags: ['blocks', 'rooms', 'availability'],
     },
   ],
