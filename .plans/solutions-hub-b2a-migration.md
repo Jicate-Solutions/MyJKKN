@@ -569,7 +569,7 @@ export const GET = withAuth(async (request, auth) => {
 | `/api/solutions/cohort-portal/earnings/route.ts` | GET | CohortService |
 | `/api/solutions/cohort-portal/claim/route.ts` | POST | CohortService |
 
-#### 3.3 Client Portal (replaces bypass hook)
+#### 3.3 Client Portal (replaces bypass hook, `allowApiKey: false`)
 
 | Route | Methods | Service |
 |-------|---------|---------|
