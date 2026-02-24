@@ -273,20 +273,17 @@ export function useStartSubmission() {
 
 // ---------------------------------------------------------------------------
 // useCalculateScore — compute total weighted score for a submission
-// Uses the service which also persists score to DB
+// Uses the service which also persists score to DB.
+// This is a MUTATION (not a query) because it writes to the database
+// (updates calculated_score and grade on the submission row).
 // ---------------------------------------------------------------------------
-export function useCalculateScore(submissionId: string): UseQueryResult<any, Error> {
-  const { profile, isLoading: authLoading } = useAuth()
-  const { isSuperAdmin } = usePermissions()
-
-  return useQuery({
-    queryKey: submissionKeys.score(submissionId),
-    queryFn: () => RegulatorySubmissionService.calculateSubmissionScore(submissionId),
-    enabled:
-      !authLoading &&
-      !!profile &&
-      !!submissionId &&
-      (isSuperAdmin || !!profile?.institution_id),
-    ...QUERY_CONFIG.SEMI_STABLE_DATA
+export function useCalculateScore() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (submissionId: string) => RegulatorySubmissionService.calculateSubmissionScore(submissionId),
+    onSuccess: (_data, submissionId) => {
+      queryClient.invalidateQueries({ queryKey: ['regulatory-submissions', 'detail', submissionId] })
+      queryClient.invalidateQueries({ queryKey: ['regulatory-submissions', 'list'] })
+    },
   })
 }

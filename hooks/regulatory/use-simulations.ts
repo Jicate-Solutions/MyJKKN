@@ -175,7 +175,7 @@ export function useSimulationData(
         id: c.id,
         code: c.code,
         name: c.name,
-        weight: c.weightage || c.weight || 0,
+        weight: c.weight || 0,
         max_score: c.max_score || 100,
         current_score: c.score || criteriaScoreMap.get(c.id) || 0,
       }))
