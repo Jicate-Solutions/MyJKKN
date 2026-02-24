@@ -2814,7 +2814,7 @@ Additional entity-specific filters are documented per endpoint where applicable.
 
 | Method | Endpoint | Service Method | Roles (T8) | Description |
 |--------|----------|---------------|------------|-------------|
-| GET | `/api/regulatory/criteria` | `getCriteria(frameworkId)` | all authenticated | List criteria for a framework |
+| GET | `/api/regulatory/criteria` | `getCriteria(frameworkId)` | all authenticated | List criteria for a framework. **Required query param:** `framework_id` (uuid). Optional: `parent_criteria_id` (uuid, filter to children of a specific parent — NULL returns top-level only). |
 | GET | `/api/regulatory/criteria/[id]` | `getCriterionById(id)` | all authenticated | Single criterion with children |
 | POST | `/api/regulatory/criteria` | `createCriterion(data)` | super_admin | Add criterion to framework |
 | PUT | `/api/regulatory/criteria/[id]` | `updateCriterion(id, data)` | super_admin | Update criterion |
