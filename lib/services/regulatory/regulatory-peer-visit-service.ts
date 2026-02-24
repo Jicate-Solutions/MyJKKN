@@ -4,6 +4,7 @@
 // ============================================================================
 
 import { createClientSupabaseClient } from '@/lib/supabase/client'
+import { validateId, formatError } from './utils'
 
 /**
  * DDL: regulatory_peer_visits columns:
