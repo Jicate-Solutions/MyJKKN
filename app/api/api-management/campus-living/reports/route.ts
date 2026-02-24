@@ -50,21 +50,28 @@ export const GET = withApiKeyAuth(async (request, auth) => {
       const dateFrom = getStringParam(url, 'date_from') || new Date(Date.now() - 7 * 86400000).toISOString().split('T')[0];
       const dateTo = getStringParam(url, 'date_to') || new Date().toISOString().split('T')[0];
 
-      const { data, count, error: attError } = await supabase
-        .from('hostel_attendance').select('*', { count: 'exact' })
-        .eq('institution_id', institutionId)
-        .gte('date', dateFrom).lte('date', dateTo);
-      if (attError) throw attError;
+      // Use head-only count queries to avoid PostgREST 1000-row default limit
+      const [totalResult, presentResult] = await Promise.all([
+        supabase.from('hostel_attendance').select('*', { count: 'exact', head: true })
+          .eq('institution_id', institutionId)
+          .gte('date', dateFrom).lte('date', dateTo),
+        supabase.from('hostel_attendance').select('*', { count: 'exact', head: true })
+          .eq('institution_id', institutionId).eq('status', 'present')
+          .gte('date', dateFrom).lte('date', dateTo),
+      ]);
+      if (totalResult.error) throw totalResult.error;
+      if (presentResult.error) throw presentResult.error;
 
-      const present = (data ?? []).filter((r: any) => r.status === 'present').length;
+      const total = totalResult.count ?? 0;
+      const present = presentResult.count ?? 0;
 
       return successApiResponse({
         report_type: 'attendance',
         period: { from: dateFrom, to: dateTo },
-        total_records: count ?? 0,
+        total_records: total,
         present,
-        absent: (count ?? 0) - present,
-        attendance_rate: (count ?? 0) > 0 ? Math.round((present / (count ?? 1)) * 100) : 0,
+        absent: total - present,
+        attendance_rate: total > 0 ? Math.round((present / total) * 100) : 0,
       });
     }
 
