@@ -1401,7 +1401,7 @@ CREATE POLICY "evidence_versions_insert" ON regulatory_evidence_versions FOR INS
            OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'))
     )
     AND EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN
-      ('super_admin','institution_admin','iqac_coordinator','hod','faculty'))
+      ('super_admin','institution_admin','iqac_coordinator','hod','staff'))
   );
 -- No UPDATE or DELETE on evidence versions — immutable revision trail for DVV/PDV audit
 
