@@ -18,7 +18,8 @@
 - [x] `withApiKeyAuth` exists but uses SERVICE_ROLE_KEY → bypasses ALL RLS
 - [x] Zero external API routes for core CRUD (only dept tracker has 7 routes)
 - [x] Upload route has NO auth — anyone can upload files
-- [x] BaseService uses `createClientSupabaseClient()` (browser cookies) — works in both client and API route contexts because `@supabase/ssr` reads cookies server-side too
+- [x] BaseService uses `createClientSupabaseClient()` which calls `createBrowserClient()` from `@supabase/ssr` — this ONLY works in browser context (reads `document.cookie`). In API routes, `document` is undefined, so the client has NO auth context — queries execute as anonymous/anon-key-only
+- [x] **PRE-EXISTING BUG:** All 7 existing dept tracker API routes call `DepartmentTrackerService` → `BaseService.supabase` → browser client singleton → no user JWT on server → RLS evaluates `auth.uid()` as NULL. These routes may silently return empty results or fail depending on table RLS policies
 
 **What are we ASSUMING (unverified)?**
 - ⚠️ Every service method needs an API route — Confidence: Low
