@@ -841,7 +841,7 @@ CREATE TABLE regulatory_frameworks (
   description text,
   submission_portal_url text,                        -- e.g., https://nirfrankings.in
   submission_deadline date,
-  code text NOT NULL UNIQUE,                            -- unique short code: 'NIRF_2025_OVERALL', 'NAAC_BINARY_2024', 'NBA_SAR_ENGINEERING'
+  code text NOT NULL,                                    -- short code: 'NIRF_2025_OVERALL', 'NAAC_BINARY_2024', 'NBA_SAR_ENGINEERING'
   metadata jsonb DEFAULT '{}',                       -- body-specific config (includes program_type for NBA: {"program_type":"B.Tech"})
   created_by uuid REFERENCES profiles(id),
   created_at timestamptz DEFAULT now(),
