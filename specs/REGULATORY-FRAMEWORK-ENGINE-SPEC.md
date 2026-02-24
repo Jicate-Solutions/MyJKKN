@@ -1321,13 +1321,15 @@ CREATE POLICY "evidence_insert" ON regulatory_evidence FOR INSERT
   );
 CREATE POLICY "evidence_update" ON regulatory_evidence FOR UPDATE
   USING (
-    (institution_id = auth_institution_id()
+    is_deleted = false  -- prevent blind writes to soft-deleted records
+    AND (institution_id = auth_institution_id()
       OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'))
     AND EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN
       ('super_admin','institution_admin','iqac_coordinator'))
   )
   WITH CHECK (
-    (institution_id = auth_institution_id()
+    is_deleted = false  -- prevent restoring via UPDATE (must use restore endpoint)
+    AND (institution_id = auth_institution_id()
       OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'))
     AND EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN
       ('super_admin','institution_admin','iqac_coordinator'))
