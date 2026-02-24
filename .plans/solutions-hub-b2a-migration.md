@@ -602,7 +602,13 @@ export const PATCH = withAuth(async (request, auth, context) => {
   const { id } = await context!.params!;
   const body = await request.json();
 
-  const result = await SolutionsService.updateSolution(id, body, auth.institutionId ?? undefined);
+  // SECURITY: Field allowlisting — strip dangerous/immutable fields from body.
+  // Without this, an attacker can set institution_id, created_by, is_active, etc.
+  // Each route should define its own allowlist based on the entity's mutable fields.
+  // Example allowlist (customize per entity):
+  const { institution_id, created_by, created_at, id: _id, ...safeBody } = body;
+
+  const result = await SolutionsService.updateSolution(id, safeBody, auth.institutionId ?? undefined);
   return successApiResponse(result);
 }, { requiredPermission: 'write' });
 
