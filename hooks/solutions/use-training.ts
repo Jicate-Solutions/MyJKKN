@@ -276,7 +276,10 @@ export function useSessionsByProgram(programId: string) {
 export function useCanSelfClaimSession(sessionId: string) {
   return useQuery({
     queryKey: solutionsHubKeys.trainingSessions.canSelfClaim(sessionId),
-    queryFn: () => trainingService.canSelfClaimSession(sessionId),
+    queryFn: async () => {
+      const result = await apiClient.get<{ canClaim: boolean }>(`/api/solutions/training/sessions/${sessionId}/can-claim`);
+      return result.canClaim;
+    },
     enabled: !!sessionId,
     staleTime: 0,
   });
