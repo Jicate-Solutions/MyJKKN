@@ -301,6 +301,8 @@ export function createImpersonatedClient(userId: string) {
 
 This approach is reliable because PostgREST reads the JWT from the `Authorization` header on EVERY request, so `auth.uid()` and all derived RLS functions work correctly across all queries made by the impersonated client.
 
+**SECURITY: Never log the impersonated JWT.** The token is server-side only (never sent to the original client) and travels over TLS to Supabase, so interception risk is minimal. But if it appears in error logs, an attacker with log access could impersonate ANY user for 60 seconds. Ensure error handlers in `withAuth` do NOT include the JWT in `console.error()` messages.
+
 #### 0.4 BaseService Client Injection via AsyncLocalStorage
 
 **File:** `lib/services/base-service.ts`
