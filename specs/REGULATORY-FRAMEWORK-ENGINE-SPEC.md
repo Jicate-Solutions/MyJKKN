@@ -1383,6 +1383,7 @@ CREATE POLICY "connectors_delete" ON regulatory_data_connectors FOR DELETE
   USING (EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'));
 
 -- Value history: append-only audit trail, scoped through parent metric_value's institution_id
+-- READ restricted to roles that can "View metric values" per T8
 CREATE POLICY "value_history_read" ON regulatory_metric_value_history FOR SELECT USING (
   EXISTS (
     SELECT 1 FROM regulatory_metric_values mv
@@ -1390,14 +1391,21 @@ CREATE POLICY "value_history_read" ON regulatory_metric_value_history FOR SELECT
     AND (mv.institution_id = auth_institution_id()
          OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'))
   )
+  AND EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN
+    ('super_admin','institution_admin','iqac_coordinator','principal','hod'))
 );
+-- INSERT restricted to roles that can write metric values (service-layer writes only)
 CREATE POLICY "value_history_insert" ON regulatory_metric_value_history FOR INSERT
-  WITH CHECK (EXISTS (
-    SELECT 1 FROM regulatory_metric_values mv
-    WHERE mv.id = metric_value_id
-    AND (mv.institution_id = auth_institution_id()
-         OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'))
-  ));
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM regulatory_metric_values mv
+      WHERE mv.id = metric_value_id
+      AND (mv.institution_id = auth_institution_id()
+           OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'))
+    )
+    AND EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN
+      ('super_admin','institution_admin','iqac_coordinator','hod'))
+  );
 -- No UPDATE or DELETE policies on history = immutable audit trail
 
 -- ─── Evidence Versions: append-only version history linked to parent evidence ───
