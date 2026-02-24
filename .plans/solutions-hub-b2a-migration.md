@@ -60,7 +60,7 @@ API Key User → HTTP → /api/solutions/...                → withAuth(apiKey)
 |-----------|------|---------|--------|
 | `withAuth` | Unified auth middleware | Does not exist | Detect session vs API key, create right client |
 | `BaseService` | Supabase query layer | Module-level singleton client | Accept injected client for API key context |
-| API routes | HTTP endpoints | 8 (dept tracker only) | ~75 endpoints across ~45 route files |
+| API routes | HTTP endpoints | 8 (dept tracker only) | ~181 endpoints across ~109 route files |
 | Hooks | React Query wrappers | Call services directly | Call fetch() to API routes |
 | Response envelope | Standardized output | Inconsistent | Unified: `{ data, metadata?, error? }` |
 
