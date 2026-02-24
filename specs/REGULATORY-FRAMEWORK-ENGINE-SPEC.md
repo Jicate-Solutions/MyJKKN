@@ -3387,6 +3387,7 @@ GROUP BY audit_type;
 - `NIRF Guide Book.txt` — Transforming Tamil Nadu's Higher Education: A Guide to NIRF
 - NIRF 2025 Official Framework PDFs — [Engineering](https://www.nirfindia.org/nirfpdfcdn/2025/framework/Engineering.pdf), [Pharmacy](https://www.nirfindia.org/nirfpdfcdn/2025/framework/Pharmacy.pdf), [Colleges](https://www.nirfindia.org/nirfpdfcdn/2025/framework/Colleges.pdf), [Dental](https://www.nirfindia.org/nirfpdfcdn/2025/framework/Dental.pdf)
 - NBA Accreditation Manual (Tier-I, Washington Accord aligned) — criteria and Programme Outcomes for engineering/pharmacy programs
+  - **NOTE:** NBA mandated GAPC (Graduate Attributes and Professional Competencies) Version 4 from January 2025. The NBA SAR framework seed data MUST use GAPC v4 attributes. Verify latest NBA circulars at implementation time for any post-v4 updates.
 
 **JKKN-specific NIRF strategy documents (from vault):**
 - `/Users/omm/Vaults/JKKNKB/NIRF/Engineering.md` — JKKN Engineering NIRF strategy with formulas and sub-parameter marks
