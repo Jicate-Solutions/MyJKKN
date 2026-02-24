@@ -8,7 +8,7 @@ import type {
   ComplianceDashboardData,
   ComplianceFilters
 } from '@/types/compliance';
-import { ComplianceService } from '@/lib/services/solutions/compliance-service';
+import { apiClient } from '@/lib/api/client';
 
 export const complianceKeys = {
   all: ['compliance'] as const,
@@ -21,7 +21,7 @@ export function useComplianceDashboard(
 ): UseQueryResult<ComplianceDashboardData, Error> {
   return useQuery({
     queryKey: complianceKeys.dashboard(filters),
-    queryFn: () => ComplianceService.getDashboardData(filters),
+    queryFn: () => apiClient.get<ComplianceDashboardData>('/api/solutions/compliance/dashboard', { params: filters as Record<string, any> }),
     staleTime: 5 * 60 * 1000, // 5 minutes
     refetchOnWindowFocus: false
   });
