@@ -3129,7 +3129,7 @@ Fields referenced in page components that don't exist on DB rows. The Dashboard 
 | Metrics | `metric.previous_value` | Compute: value from previous academic_year for same metric |
 | Metrics | `metric.score` | Compute: weighted score contribution from metric value |
 | Submissions | `sub.due_date` | Map to `framework.submission_deadline` via framework join |
-| Submissions | `sub.assigned_to_name` | NOT in schema — either add `assigned_to` column or remove from UI |
+| Submissions | `sub.assigned_to_name` | **Remove from UI.** Submissions are institution-level (not assigned to individuals). The `created_by` FK tracks who created it. |
 | Simulations | `sim.total_original` | Compute in `createSimulation()` and store in `metadata` JSONB |
 | Simulations | `sim.total_simulated` | Compute in `createSimulation()` and store in `metadata` JSONB |
 
