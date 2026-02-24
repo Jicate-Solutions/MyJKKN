@@ -982,7 +982,7 @@ CREATE TABLE regulatory_submissions (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   framework_id uuid NOT NULL REFERENCES regulatory_frameworks(id),
   institution_id uuid NOT NULL REFERENCES institutions(id),
-  academic_year text NOT NULL,
+  academic_year text NOT NULL CHECK (academic_year ~ '^\d{4}(-\d{2})?$'),
   status text NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','data_collection','in_review','approved','submitted','accepted','returned')),
   completeness_percentage numeric DEFAULT 0,
   auto_populated_count integer DEFAULT 0,
