@@ -41,7 +41,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const limit = Math.min(100, Math.max(1, parseInt(url.searchParams.get('limit') ?? '20', 10) || 20));
   const status = url.searchParams.get('status');
 
-  const VALID_STATUSES = ['pending', 'approved', 'enrolled', 'rejected'];
+  const VALID_STATUSES = ['enquiry', 'pending', 'approved', 'rejected', 'waitlisted', 'active', 'inactive', 'exited', 'graduated', 'alumni'];
   const offset = (page - 1) * limit;
 
   // Step 5: Fetch data
@@ -51,7 +51,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     last_name: string | null;
     student_email: string;
     student_mobile: string;
-    status: string;
+    lifecycle_status: string;
     application_id: string | null;
     created_at: string;
   };
@@ -65,9 +65,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const supabase = createServiceRoleClient();
 
     let query = supabase
-      .from('admissions')
+      .from('learners_profiles')
       .select(
-        'id, first_name, last_name, student_email, student_mobile, status, application_id, created_at',
+        'id, first_name, last_name, student_email, student_mobile, lifecycle_status, application_id, created_at',
         { count: 'exact' }
       );
 
@@ -76,7 +76,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     }
 
     if (status && VALID_STATUSES.includes(status)) {
-      query = query.eq('status', status);
+      query = query.eq('lifecycle_status', status);
     }
 
     query = query

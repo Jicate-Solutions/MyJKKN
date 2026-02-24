@@ -70,7 +70,6 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     institution_id: string;
     section_id: string;
     timetable_id: string;
-    marked_by: string;
     period_slot_id: string | null;
     created_at: string;
     updated_at: string;
@@ -87,7 +86,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     let query = supabase
       .from('student_attendance')
       .select(
-        'id, attendance_date, institution_id, section_id, timetable_id, marked_by, period_slot_id, created_at, updated_at',
+        'id, attendance_date, institution_id, section_id, timetable_id, period_slot_id, created_at, updated_at',
         { count: 'exact' }
       )
       .eq('attendance_date', dateParam);

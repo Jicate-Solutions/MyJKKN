@@ -51,7 +51,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     const buildQuery = (statusFilter?: string) => {
       let q = supabase
-        .from('admissions')
+        .from('learners_profiles')
         .select('id', { count: 'exact', head: true });
 
       if (institutionId) {
@@ -59,7 +59,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       }
 
       if (statusFilter) {
-        q = q.eq('status', statusFilter);
+        q = q.eq('lifecycle_status', statusFilter);
       }
 
       return q;
@@ -70,7 +70,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         buildQuery(),
         buildQuery('pending'),
         buildQuery('approved'),
-        buildQuery('enrolled'),
+        buildQuery('active'),   // 'active' = enrolled in learners_profiles lifecycle
         buildQuery('rejected'),
       ]);
 
