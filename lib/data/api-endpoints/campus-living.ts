@@ -220,7 +220,7 @@ print(data["pagination"])  # Pagination info`,
       prompt:
         'Using the MyJKKN Campus Living API, fetch all hostel blocks and calculate the occupancy rate for each block to identify under-utilized or over-crowded blocks.',
       expectedOutput:
-        'A breakdown of each block with occupancy percentage calculated from occupied_beds / total_beds.',
+        'A breakdown of each block with occupancy percentage calculated from current_occupancy / total_capacity.',
       tags: ['blocks', 'analytics', 'occupancy'],
     },
   ],
