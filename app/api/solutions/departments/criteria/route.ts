@@ -1,28 +1,18 @@
-// app/api/solutions/departments/criteria/route.ts
-// API route to get eligibility criteria rules
+import { NextResponse } from 'next/server'
+import { withAuth } from '@/lib/auth/with-auth'
+import { DepartmentTrackerService } from '@/lib/services/solutions/department-tracker-service'
+import { successApiResponse } from '@/lib/api/response'
+import { corsHeaders } from '@/lib/api-keys/cors'
 
-import { NextResponse } from 'next/server';
-import { getAuthSession } from '@/lib/supabase/server';
-import { DepartmentTrackerService } from '@/lib/services/solutions/department-tracker-service';
-
-export async function GET(request: Request) {
-  try {
-    const { session, error: sessionError } = await getAuthSession();
-    if (sessionError || !session) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    const { searchParams } = new URL(request.url);
-    const activeOnly = searchParams.get('active_only') !== 'false';
-
-    const criteria = await DepartmentTrackerService.getEligibilityCriteria(activeOnly);
-
-    return NextResponse.json(criteria);
-  } catch (error) {
-    console.error('[API] Error in GET /api/solutions/departments/criteria:', error);
-    return NextResponse.json(
-      { error: 'Internal Server Error' },
-      { status: 500 }
-    );
-  }
+export async function OPTIONS() {
+  return NextResponse.json({}, { headers: corsHeaders })
 }
+
+export const GET = withAuth(async (request) => {
+  const { searchParams } = new URL(request.url)
+  const activeOnly = searchParams.get('active_only') !== 'false'
+
+  const criteria = await DepartmentTrackerService.getEligibilityCriteria(activeOnly)
+
+  return successApiResponse(criteria)
+}, { requiredPermission: 'read' })
