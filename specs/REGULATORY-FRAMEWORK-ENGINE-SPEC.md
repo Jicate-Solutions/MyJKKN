@@ -4124,7 +4124,7 @@ Tree structure is assembled in application code from these two flat result sets.
 1. **Global semaphore:** Use a fixed set of 5 advisory lock hash values as a global semaphore:
    ```sql
    -- Try to acquire one of 5 global refresh slots
-   SELECT pg_try_advisory_xact_lock(hashtext('global-refresh-slot-' || (random() * 4)::int::text));
+   SELECT pg_try_advisory_xact_lock(hashtext('global-refresh-slot-' || floor(random() * 5)::int::text));
    ```
    If all 5 slots are occupied, return 429 Too Many Requests: "Maximum concurrent refreshes reached. Try again in a few minutes."
 
