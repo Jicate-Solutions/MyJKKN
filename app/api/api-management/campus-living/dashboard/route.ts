@@ -49,6 +49,12 @@ export const GET = withApiKeyAuth(async (request, auth) => {
       .eq('institution_id', institutionId).in('status', ['collected', 'washing', 'ready']),
   ]);
 
+  // Fail fast if any critical query errored (prevents silently reporting 0s)
+  const firstError = [blocksResult, allocationsResult, leaveResult, gatePassResult,
+    incidentsResult, maintenanceResult, visitorsResult, cleaningResult, laundryResult]
+    .find(r => r.error);
+  if (firstError?.error) throw firstError.error;
+
   const totalBeds = (blocksResult.data ?? []).reduce((sum: number, b: any) => sum + (b.total_beds || 0), 0);
   const occupiedBeds = allocationsResult.count ?? 0;
 
