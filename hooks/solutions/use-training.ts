@@ -3,16 +3,17 @@
 /**
  * Solutions Hub - Training Hooks
  * Purpose: React Query hooks for training programs, sessions, and cohort members
- * Migrated from: JKKN-Solutions-Hub/src/hooks/use-training.ts
+ * Connected to: /api/solutions/training/* routes
  *
- * Services Used:
- * - trainingService: Training programs and sessions CRUD
- * - cohortService: Cohort members management
+ * Services Used (utility functions only):
+ * - trainingService: getProgramTypeLabel, getSessionStatusInfo
+ * - cohortService: getLevelInfo, getTrackDisplayLabel
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { solutionsHubKeys } from '@/lib/query-keys';
 import { QUERY_CONFIG } from '@/lib/config/query-config';
+import { apiClient } from '@/lib/api/client';
 import { trainingService, cohortService } from '@/lib/services/solutions';
 import type {
   ProgramType,
@@ -150,7 +151,7 @@ export interface UpdateCohortMemberInput {
 export function useTrainingPrograms(filters?: TrainingProgramFilters) {
   return useQuery({
     queryKey: solutionsHubKeys.trainingPrograms.list(filters),
-    queryFn: () => trainingService.getPrograms(filters),
+    queryFn: () => apiClient.get<TrainingProgram[]>('/api/solutions/training/programs', { params: filters as Record<string, any> }),
     ...QUERY_CONFIG.SEMI_STABLE_DATA,
   });
 }
@@ -161,7 +162,7 @@ export function useTrainingPrograms(filters?: TrainingProgramFilters) {
 export function useTrainingProgram(id: string) {
   return useQuery({
     queryKey: solutionsHubKeys.trainingPrograms.detail(id),
-    queryFn: () => trainingService.getProgramById(id),
+    queryFn: () => apiClient.get<TrainingProgram>(`/api/solutions/training/programs/${id}`),
     enabled: !!id,
     ...QUERY_CONFIG.SEMI_STABLE_DATA,
   });
@@ -173,7 +174,7 @@ export function useTrainingProgram(id: string) {
 export function useTrainingProgramBySolution(solutionId: string) {
   return useQuery({
     queryKey: solutionsHubKeys.trainingPrograms.bySolution(solutionId),
-    queryFn: () => trainingService.getProgramBySolutionId(solutionId),
+    queryFn: () => apiClient.get<TrainingProgram[]>('/api/solutions/training/programs', { params: { solution_id: solutionId } }),
     enabled: !!solutionId,
     ...QUERY_CONFIG.SEMI_STABLE_DATA,
   });
@@ -191,7 +192,7 @@ export function useCreateTrainingProgram() {
 
   return useMutation({
     mutationFn: (input: CreateTrainingProgramInput) =>
-      trainingService.createProgram(input),
+      apiClient.post<TrainingProgram>('/api/solutions/training/programs', input),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.trainingPrograms.all });
     },
@@ -206,7 +207,7 @@ export function useUpdateTrainingProgram() {
 
   return useMutation({
     mutationFn: ({ id, input }: { id: string; input: UpdateTrainingProgramInput }) =>
-      trainingService.updateProgram(id, input),
+      apiClient.patch<TrainingProgram>(`/api/solutions/training/programs/${id}`, input),
     onSuccess: (data: TrainingProgram) => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.trainingPrograms.all });
       if (data?.id) {
@@ -223,7 +224,7 @@ export function useDeleteTrainingProgram() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (id: string) => trainingService.deleteProgram(id),
+    mutationFn: (id: string) => apiClient.delete(`/api/solutions/training/programs/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.trainingPrograms.all });
     },
@@ -240,7 +241,7 @@ export function useDeleteTrainingProgram() {
 export function useTrainingSessions(filters?: TrainingSessionFilters) {
   return useQuery({
     queryKey: solutionsHubKeys.trainingSessions.list(filters),
-    queryFn: () => trainingService.getSessions(filters),
+    queryFn: () => apiClient.get<TrainingSession[]>('/api/solutions/training/sessions', { params: filters as Record<string, any> }),
     ...QUERY_CONFIG.DYNAMIC_DATA,
   });
 }
@@ -251,7 +252,7 @@ export function useTrainingSessions(filters?: TrainingSessionFilters) {
 export function useTrainingSession(id: string) {
   return useQuery({
     queryKey: solutionsHubKeys.trainingSessions.detail(id),
-    queryFn: () => trainingService.getSessionById(id),
+    queryFn: () => apiClient.get<TrainingSession>(`/api/solutions/training/sessions/${id}`),
     enabled: !!id,
     ...QUERY_CONFIG.SEMI_STABLE_DATA,
   });
@@ -263,7 +264,7 @@ export function useTrainingSession(id: string) {
 export function useSessionsByProgram(programId: string) {
   return useQuery({
     queryKey: solutionsHubKeys.trainingSessions.byProgram(programId),
-    queryFn: () => trainingService.getSessionsByProgramId(programId),
+    queryFn: () => apiClient.get<TrainingSession[]>('/api/solutions/training/sessions', { params: { program_id: programId } }),
     enabled: !!programId,
     ...QUERY_CONFIG.SEMI_STABLE_DATA,
   });
@@ -287,9 +288,11 @@ export function useCanSelfClaimSession(sessionId: string) {
 export function useUpcomingTrainingSessions() {
   return useQuery({
     queryKey: [...solutionsHubKeys.trainingSessions.all, 'upcoming'],
-    queryFn: () => trainingService.getSessions({
-      status: 'scheduled',
-      from_date: new Date().toISOString(),
+    queryFn: () => apiClient.get<TrainingSession[]>('/api/solutions/training/sessions', {
+      params: {
+        status: 'scheduled',
+        from_date: new Date().toISOString(),
+      },
     }),
     ...QUERY_CONFIG.DYNAMIC_DATA,
   });
@@ -307,7 +310,7 @@ export function useCreateTrainingSession() {
 
   return useMutation({
     mutationFn: (input: CreateTrainingSessionInput) =>
-      trainingService.createSession(input),
+      apiClient.post<TrainingSession>('/api/solutions/training/sessions', input),
     onSuccess: (data: TrainingSession) => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.trainingSessions.all });
       if (data?.program_id) {
@@ -327,7 +330,7 @@ export function useUpdateTrainingSession() {
 
   return useMutation({
     mutationFn: ({ id, input }: { id: string; input: UpdateTrainingSessionInput }) =>
-      trainingService.updateSession(id, input),
+      apiClient.patch<TrainingSession>(`/api/solutions/training/sessions/${id}`, input),
     onSuccess: (data: TrainingSession) => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.trainingSessions.all });
       if (data?.id) {
@@ -344,7 +347,7 @@ export function useDeleteTrainingSession() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (id: string) => trainingService.deleteSession(id),
+    mutationFn: (id: string) => apiClient.delete(`/api/solutions/training/sessions/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.trainingSessions.all });
     },
@@ -353,7 +356,7 @@ export function useDeleteTrainingSession() {
 
 /**
  * Claim a session (cohort member self-claim)
- * Business Rule: ≤2L self-claim allowed, >2L needs MD approval
+ * Business Rule: <=2L self-claim allowed, >2L needs MD approval
  */
 export function useClaimSession() {
   const queryClient = useQueryClient();
@@ -367,7 +370,7 @@ export function useClaimSession() {
       sessionId: string;
       cohortMemberId: string;
       role?: CohortRole;
-    }) => trainingService.claimSession(sessionId, cohortMemberId, role),
+    }) => apiClient.post(`/api/solutions/training/sessions/${sessionId}/claim`, { cohort_member_id: cohortMemberId, role }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.trainingSessions.all });
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.cohortMembers.all });
@@ -393,7 +396,7 @@ export function useAssignSession() {
       cohortMemberId: string;
       assignedById: string;
       role?: CohortRole;
-    }) => trainingService.assignSession(sessionId, cohortMemberId, assignedById, role),
+    }) => apiClient.post(`/api/solutions/training/sessions/${sessionId}/assign`, { cohort_member_id: cohortMemberId, assigned_by: assignedById, role }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.trainingSessions.all });
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.cohortMembers.all });
@@ -439,7 +442,7 @@ export function useCompleteSession() {
       sessionId: string;
       attendanceCount?: number;
       notes?: string;
-    }) => trainingService.completeSession(sessionId, attendanceCount, notes),
+    }) => apiClient.patch<TrainingSession>(`/api/solutions/training/sessions/${sessionId}`, { status: 'completed', attendance_count: attendanceCount, notes }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.trainingSessions.all });
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.cohortMembers.all });
@@ -460,7 +463,7 @@ export function useCompleteSession() {
 export function useCohortMembers(filters?: CohortMemberFilters) {
   return useQuery({
     queryKey: solutionsHubKeys.cohortMembers.list(filters),
-    queryFn: () => cohortService.getCohortMembers(filters),
+    queryFn: () => apiClient.get<CohortMember[]>('/api/solutions/training/cohort', { params: filters as Record<string, any> }),
     ...QUERY_CONFIG.SEMI_STABLE_DATA,
   });
 }
@@ -471,7 +474,7 @@ export function useCohortMembers(filters?: CohortMemberFilters) {
 export function useCohortMember(id: string) {
   return useQuery({
     queryKey: solutionsHubKeys.cohortMembers.detail(id),
-    queryFn: () => cohortService.getCohortMemberById(id),
+    queryFn: () => apiClient.get<CohortMember>(`/api/solutions/training/cohort/${id}`),
     enabled: !!id,
     ...QUERY_CONFIG.SEMI_STABLE_DATA,
   });
@@ -496,7 +499,7 @@ export function useCohortMemberByUser(userId: string) {
 export function useCohortMemberStats() {
   return useQuery({
     queryKey: solutionsHubKeys.cohortMembers.stats(),
-    queryFn: () => cohortService.getCohortStats(),
+    queryFn: () => apiClient.get('/api/solutions/training/cohort', { params: { stats: 'true' } }),
     ...QUERY_CONFIG.DASHBOARD_DATA,
   });
 }
@@ -537,7 +540,7 @@ export function useCreateCohortMember() {
 
   return useMutation({
     mutationFn: (input: CreateCohortMemberInput) =>
-      cohortService.createCohortMember(input),
+      apiClient.post<CohortMember>('/api/solutions/training/cohort', input),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.cohortMembers.all });
     },
@@ -552,7 +555,7 @@ export function useUpdateCohortMember() {
 
   return useMutation({
     mutationFn: ({ id, input }: { id: string; input: UpdateCohortMemberInput }) =>
-      cohortService.updateCohortMember(id, input),
+      apiClient.patch<CohortMember>(`/api/solutions/training/cohort/${id}`, input),
     onSuccess: (data: CohortMember) => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.cohortMembers.all });
       if (data?.id) {
@@ -569,7 +572,7 @@ export function useDeleteCohortMember() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (id: string) => cohortService.deleteCohortMember(id),
+    mutationFn: (id: string) => apiClient.delete(`/api/solutions/training/cohort/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.cohortMembers.all });
     },
@@ -577,7 +580,7 @@ export function useDeleteCohortMember() {
 }
 
 /**
- * Level up a cohort member (0→1→2→3)
+ * Level up a cohort member (0->1->2->3)
  * Levels: 0=Observer, 1=Co-Lead, 2=Lead, 3=Master Trainer
  */
 export function useLevelUpCohortMember() {
