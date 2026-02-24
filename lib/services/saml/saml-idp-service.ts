@@ -6,6 +6,7 @@
 
 import * as samlify from 'samlify';
 import * as zlib from 'zlib';
+import { createPrivateKey } from 'crypto';
 import {
   SamlIdpConfig,
   SamlSpConfig,
@@ -31,7 +32,7 @@ export class SamlIdpService {
   private static idpInstance: ReturnType<typeof samlify.IdentityProvider> | null = null;
   // Bump this string whenever getIdPConfig() logic changes so the cached
   // idpInstance is invalidated on the next request without requiring a cold start.
-  private static readonly IDP_CACHE_VERSION = 'v3-universal-pem-detect';
+  private static readonly IDP_CACHE_VERSION = 'v4-pkcs1-convert';
   private static idpCacheKey: string | null = null;
 
   /**
@@ -148,27 +149,32 @@ export class SamlIdpService {
   }
 
   /**
-   * Format private key for samlify
+   * Format private key for samlify — always returns PKCS#1 PEM.
    *
-   * If the key already contains any PEM block (-----BEGIN ... / -----END ...)
-   * return it untouched — this covers PKCS#8 ("BEGIN PRIVATE KEY"), PKCS#1
-   * ("BEGIN RSA PRIVATE KEY"), EC ("BEGIN EC PRIVATE KEY"), and any other
-   * standard PEM type without needing to enumerate them all.
+   * xml-crypto (used internally by samlify for XML signing) strips PEM headers
+   * and reconstructs them as "-----BEGIN RSA PRIVATE KEY-----" (PKCS#1).
+   * When the DER body is actually PKCS#8, OpenSSL 3.x throws
+   * "DECODER routines::unsupported" because the headers claim PKCS#1 but the
+   * DER body is PKCS#8.
    *
-   * Only when the value has no PEM headers (raw base64 DER body) do we wrap
-   * it — and only with PKCS#8 headers, which is what Node.js crypto expects
-   * for an unwrapped key body.
-   *
-   * IMPORTANT: do NOT check for a specific type name (e.g. "BEGIN PRIVATE KEY"
-   * alone). That substring is absent from "BEGIN RSA PRIVATE KEY", so PKCS#1
-   * keys would be double-wrapped and OpenSSL would throw
-   * "DECODER routines::unsupported".
+   * Fix: always export as PKCS#1 via Node.js crypto so samlify receives the
+   * format it expects, regardless of what format the env var was generated in.
    */
   private static formatPrivateKey(key: string): string {
-    if (key.includes('-----BEGIN ') && key.includes('-----END ')) {
-      return key;
+    // Ensure raw DER base64 gets wrapped so crypto.createPrivateKey can parse it
+    const pemKey = (key.includes('-----BEGIN ') && key.includes('-----END '))
+      ? key
+      : `-----BEGIN PRIVATE KEY-----\n${key}\n-----END PRIVATE KEY-----`;
+
+    // Convert to PKCS#1 (RSA PRIVATE KEY) which xml-crypto handles correctly
+    try {
+      const keyObj = createPrivateKey(pemKey);
+      return keyObj.export({ type: 'pkcs1', format: 'pem' }) as string;
+    } catch (err) {
+      // Conversion failed — return as-is and let samlify surface the error
+      console.error('[saml-idp] PKCS#1 conversion failed, using key as-is:', err);
+      return pemKey;
     }
-    return `-----BEGIN PRIVATE KEY-----\n${key}\n-----END PRIVATE KEY-----`;
   }
 
   /**
