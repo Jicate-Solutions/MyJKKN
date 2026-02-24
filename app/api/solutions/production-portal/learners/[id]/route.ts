@@ -3,7 +3,6 @@ import { withAuth } from '@/lib/auth/with-auth'
 import { ProductionService } from '@/lib/services/solutions/production-service'
 import { successApiResponse, errorResponse, noContentResponse } from '@/lib/api/response'
 import { corsHeaders } from '@/lib/api-keys/cors'
-import { getUuidParam } from '@/lib/api-keys/query-helpers'
 
 export async function OPTIONS() {
   return NextResponse.json({}, { headers: corsHeaders })
