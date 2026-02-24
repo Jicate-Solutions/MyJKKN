@@ -489,7 +489,7 @@ export function useCohortMember(id: string) {
 export function useCohortMemberByUser(userId: string) {
   return useQuery({
     queryKey: solutionsHubKeys.cohortMembers.byUser(userId),
-    queryFn: () => cohortService.getCohortMemberByUserId(userId),
+    queryFn: () => apiClient.get<CohortMember>('/api/solutions/training/cohort/by-user', { params: { user_id: userId } }),
     enabled: !!userId,
     ...QUERY_CONFIG.USER_SESSION_DATA,
   });
