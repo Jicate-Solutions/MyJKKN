@@ -81,7 +81,7 @@ API Key User → HTTP → /api/solutions/...                → withAuth(apiKey)
 
 **High Leverage:**
 1. 🎯 `withAuth` middleware (Rank 5 — Rules of the system) — One file enables the entire migration. Every API route wraps with `withAuth(handler)`. Auth logic written once, used everywhere.
-2. 🎯 BaseService client injection (Rank 10 — Structure of flows) — Adding `withClient(supabase)` to BaseService lets services work with any auth context without rewriting query logic.
+2. 🎯 BaseService client injection (Rank 10 — Structure of flows) — Adding `runWithClient(client, fn)` to BaseService lets services work with any auth context without rewriting query logic.
 
 **Medium Leverage:**
 3. Response envelope standardization — Consistent `{ data, metadata }` shape across all routes
