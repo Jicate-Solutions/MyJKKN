@@ -3687,7 +3687,9 @@ app/api/regulatory/                  — API Routes (Pattern A server layer)
 │       ├── route.ts                 — GET (detail)
 │       ├── status/route.ts          — PUT (transition status)
 │       ├── calculate-score/route.ts — POST (calculate & persist)
-│       └── report/route.ts         — POST (generate PDF/CSV/JSON/HTML report)
+│       └── report/
+│           ├── route.ts             — POST (generate PDF/xlsx/JSON/HTML report)
+│           └── status/route.ts      — GET (poll async report generation status)
 ├── simulations/
 │   ├── route.ts                     — GET (list), POST (create)
 │   └── [id]/route.ts               — DELETE
