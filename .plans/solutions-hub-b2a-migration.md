@@ -547,7 +547,9 @@ export const GET = withAuth(async (request, auth) => {
 
 ### Phase 3: Portal & Analytics Routes
 
-#### 3.1 Builder Portal (session-only initially)
+**IMPORTANT: Portal routes are session-only.** Sections 3.1–3.4 are internal user portals. They MUST use `withAuth(handler, { allowApiKey: false })` to reject API key requests. The `allowApiKey` option defaults to `true` in the withAuth spec (line 147), so omitting it would accidentally expose portal endpoints to external API consumers.
+
+#### 3.1 Builder Portal (session-only initially, `allowApiKey: false`)
 
 | Route | Methods | Service |
 |-------|---------|---------|
