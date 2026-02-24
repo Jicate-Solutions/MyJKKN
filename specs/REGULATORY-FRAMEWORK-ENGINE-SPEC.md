@@ -1407,7 +1407,14 @@ CREATE POLICY "criteria_modify" ON regulatory_criteria FOR UPDATE
 CREATE POLICY "criteria_delete" ON regulatory_criteria FOR DELETE
   USING (EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'));
 
-CREATE POLICY "metrics_read" ON regulatory_metrics FOR SELECT USING (true);
+CREATE POLICY "metrics_read" ON regulatory_metrics FOR SELECT USING (
+  EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid())
+);
+-- NOTE: All authenticated users can read metric definitions (regulatory criteria are public knowledge).
+-- The `data_connector_query` column contains raw SQL that exposes DB schema. The API layer strips
+-- this field for non-super_admin (see "Data Connector Query Security Note" in Service Architecture).
+-- Defense-in-depth: Consider creating a `regulatory_metrics_safe` view that excludes
+-- `data_connector_query` and `data_connector_id`, and have the API query the view for non-admin roles.
 CREATE POLICY "metrics_write" ON regulatory_metrics FOR INSERT
   WITH CHECK (EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'));
 CREATE POLICY "metrics_modify" ON regulatory_metrics FOR UPDATE
