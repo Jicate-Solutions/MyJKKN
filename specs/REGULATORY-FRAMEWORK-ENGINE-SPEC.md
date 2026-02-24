@@ -2983,7 +2983,7 @@ The API route calculates `score_delta` and `rank_estimate` server-side before st
 | POST | `/api/regulatory/data-connectors/[id]/test` | `testDataConnector(id, institutionId)` | super_admin | Execute connector query and return sample results |
 | POST | `/api/regulatory/data-connectors/[id]/refresh` | `refreshConnectorMetrics(id, institutionId, year)` | super_admin | Run connector and update all linked metric_values |
 
-**Total API Surface: 64 endpoints across 13 entity groups** (Frameworks, Criteria, Metrics, Metric Values, Evidence, Submissions, Simulations, Governance, Peer Visits, Syllabi, Benchmarks, Dashboard, Data Connectors).
+**Total API Surface: 66 endpoints across 13 entity groups** (Frameworks, Criteria, Metrics, Metric Values, Evidence, Submissions, Simulations, Governance, Peer Visits, Syllabi, Benchmarks, Dashboard, Data Connectors).
 
 ---
 
