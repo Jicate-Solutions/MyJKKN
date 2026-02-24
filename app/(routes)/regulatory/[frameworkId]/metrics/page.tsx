@@ -218,15 +218,6 @@ export default function MetricEntryPage() {
               <RefreshCw className={`h-4 w-4 mr-2 ${metricsLoading ? 'animate-spin' : ''}`} />
               Refresh
             </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleBulkRefresh}
-              disabled={bulkRefreshMutation.isPending}
-            >
-              <Zap className={`h-4 w-4 mr-2 ${bulkRefreshMutation.isPending ? 'animate-pulse' : ''}`} />
-              Refresh All Auto
-            </Button>
             <Button variant="outline" size="sm">
               <Download className="h-4 w-4 mr-2" />
               Export
