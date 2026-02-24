@@ -48,7 +48,7 @@ export const PATCH = withApiKeyAuth(async (request, auth) => {
   const body = await request.json();
   const { id, ...updates } = body;
 
-  if (!id) return errorResponse('Checklist ID is required', 400);
+  if (!id || !isValidUuid(id)) return errorResponse('Valid checklist UUID is required', 400);
   delete updates.institution_id;
 
   const { data, error } = await (auth.supabase as any)
