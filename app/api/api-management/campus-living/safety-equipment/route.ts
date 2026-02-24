@@ -36,7 +36,7 @@ export const PATCH = withApiKeyAuth(async (request, auth) => {
   if (!institutionId) return errorResponse('API key must be associated with an organization', 400);
   const body = await request.json();
   const { id, ...updateData } = body;
-  if (!id) return errorResponse('Equipment ID is required in request body', 400);
+  if (!id || !isValidUuid(id)) return errorResponse('Valid equipment UUID is required in request body', 400);
   delete updateData.institution_id;
   const { data, error } = await (auth.supabase as any)
     .from('hostel_safety_equipment')
