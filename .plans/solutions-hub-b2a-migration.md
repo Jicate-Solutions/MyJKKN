@@ -222,6 +222,8 @@ This avoids any server-side HTTP call for API key requests.
 
 **Key principle:** The handler never knows or cares which auth method was used. It gets `auth.user` and `auth.supabase` and works identically.
 
+**Terminology mapping:** The `api_keys` table has a column `organization_id`. The `profiles` table has `institution_id`. These refer to the same concept (the institution/org the user belongs to). In `AuthContext`, we use `institutionId` — for session auth, it comes from `profiles.institution_id`; for API key auth, it comes from the profile lookup on `created_by` (prefer `profiles.institution_id` over `api_keys.organization_id` since profiles is the source of truth for user scoping).
+
 **CORS:** `withAuth` must include CORS headers on all responses (including 401/403 errors) so that browser-based API key consumers and external tools get proper CORS. Reuse `corsHeaders` from `lib/api-keys/cors.ts`. The error responses inside `withAuth` (invalid key, expired, missing permission) must all include these headers.
 
 **OPTIONS handler (CRITICAL for CORS preflight):** There is NO global CORS middleware in this project — no `middleware.ts` at project root. Every existing `api-management` route exports its own OPTIONS handler. All new route files MUST also export OPTIONS:
