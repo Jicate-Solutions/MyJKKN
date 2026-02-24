@@ -281,9 +281,13 @@ export abstract class BaseService {
    * For session auth: passes createServerClient (reads cookies from request)
    * For API key auth: passes createImpersonatedClient (JWT for key owner)
    *
+   * CRITICAL: When using in a try/catch with async callbacks, the caller MUST
+   * use `return await runWithClient(...)` not `return runWithClient(...)`.
+   * Without `await`, errors from the async callback escape the try/catch entirely.
+   *
    * @example
-   * // In withAuth middleware:
-   * return BaseService.runWithClient(auth.supabase, async () => {
+   * // In withAuth middleware — note the `await`:
+   * return await BaseService.runWithClient(auth.supabase, async () => {
    *   return handler(request, auth, context);
    * });
    */
