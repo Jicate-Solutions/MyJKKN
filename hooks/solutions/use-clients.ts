@@ -9,10 +9,10 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { solutionsHubKeys } from '@/lib/query-keys';
 import { QUERY_CONFIG } from '@/lib/config/query-config';
-import {
-  clientsService,
-  type ClientFilters,
-  type UpdateClientInput,
+import { apiClient } from '@/lib/api/client';
+import type {
+  ClientFilters,
+  UpdateClientInput,
 } from '@/lib/services/solutions/clients-service';
 import type { CreateClientInput, SourceType, PartnerStatus } from '@/lib/services/solutions/types';
 
@@ -29,7 +29,7 @@ export type { ClientFilters, UpdateClientInput, CreateClientInput, SourceType, P
 export function useClients(filters?: ClientFilters) {
   return useQuery({
     queryKey: solutionsHubKeys.clients.list(filters),
-    queryFn: () => clientsService.getClients(filters),
+    queryFn: () => apiClient.get('/api/solutions/clients', { params: filters as Record<string, any> }),
     ...QUERY_CONFIG.SEMI_STABLE_DATA,
   });
 }
@@ -40,7 +40,7 @@ export function useClients(filters?: ClientFilters) {
 export function useClient(id: string) {
   return useQuery({
     queryKey: solutionsHubKeys.clients.detail(id),
-    queryFn: () => clientsService.getClientById(id),
+    queryFn: () => apiClient.get(`/api/solutions/clients/${id}`),
     enabled: !!id,
     ...QUERY_CONFIG.SEMI_STABLE_DATA,
   });
@@ -52,7 +52,7 @@ export function useClient(id: string) {
 export function useClientIndustries() {
   return useQuery({
     queryKey: solutionsHubKeys.clients.industries(),
-    queryFn: () => clientsService.getClientIndustries(),
+    queryFn: () => apiClient.get('/api/solutions/clients', { params: { distinct: 'industry' } }),
     ...QUERY_CONFIG.STABLE_DATA,
   });
 }
@@ -69,8 +69,7 @@ export function useCreateClient() {
 
   return useMutation({
     mutationFn: async (input: CreateClientInput) => {
-      const result = await clientsService.createClient(input);
-      return result as { id: string } & Record<string, unknown>;
+      return apiClient.post<{ id: string } & Record<string, unknown>>('/api/solutions/clients', input);
     },
     onSuccess: (data) => {
       // Pre-populate the detail cache so the redirect page has data immediately
@@ -90,7 +89,7 @@ export function useUpdateClient() {
 
   return useMutation({
     mutationFn: ({ id, updates }: { id: string; updates: UpdateClientInput }) =>
-      clientsService.updateClient(id, updates),
+      apiClient.patch(`/api/solutions/clients/${id}`, updates),
     onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.clients.all });
       if (data?.id) {
@@ -107,7 +106,7 @@ export function useDeactivateClient() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (id: string) => clientsService.deactivateClient(id),
+    mutationFn: (id: string) => apiClient.delete(`/api/solutions/clients/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.clients.all });
     },
@@ -121,7 +120,7 @@ export function useReactivateClient() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (id: string) => clientsService.reactivateClient(id),
+    mutationFn: (id: string) => apiClient.patch(`/api/solutions/clients/${id}`, { is_active: true }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.clients.all });
     },
@@ -135,7 +134,7 @@ export function useIncrementReferralCount() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (id: string) => clientsService.incrementReferralCount(id),
+    mutationFn: (id: string) => apiClient.patch(`/api/solutions/clients/${id}`, { _action: 'increment_referral' }),
     onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.clients.all });
       if (data?.id) {
