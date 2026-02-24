@@ -153,7 +153,7 @@ export class RegulatorySyllabusService {
         }
       }
     } catch (error) {
-      console.error('[RegulatorySyllabusService] Error fetching syllabi:', this.formatError(error))
+      console.error('[RegulatorySyllabusService] Error fetching syllabi:', formatError(error))
       throw error
     }
   }
@@ -186,7 +186,7 @@ export class RegulatorySyllabusService {
 
       return data
     } catch (error) {
-      console.error('[RegulatorySyllabusService] Error fetching syllabus:', this.formatError(error))
+      console.error('[RegulatorySyllabusService] Error fetching syllabus:', formatError(error))
       throw error
     }
   }
@@ -253,7 +253,7 @@ export class RegulatorySyllabusService {
 
       return result
     } catch (error) {
-      console.error('[RegulatorySyllabusService] Error upserting syllabus:', this.formatError(error))
+      console.error('[RegulatorySyllabusService] Error upserting syllabus:', formatError(error))
       throw error
     }
   }
@@ -290,7 +290,7 @@ export class RegulatorySyllabusService {
 
       return data
     } catch (error) {
-      console.error('[RegulatorySyllabusService] Error updating completion hours:', this.formatError(error))
+      console.error('[RegulatorySyllabusService] Error updating completion hours:', formatError(error))
       throw error
     }
   }
