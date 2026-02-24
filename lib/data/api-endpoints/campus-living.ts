@@ -108,19 +108,19 @@ const blocksListEndpoint: ApiEndpoint = {
   category: 'Blocks',
   title: 'List Hostel Blocks',
   description:
-    'Retrieve a paginated list of hostel blocks with optional filtering by gender and status.',
+    'Retrieve a paginated list of hostel blocks with optional filtering by hostel type and status.',
   method: 'GET',
   path: '/api/api-management/campus-living/blocks',
   authentication: commonAuthentication,
   queryParameters: [
     ...paginationParams,
     {
-      name: 'gender',
+      name: 'hostel_type',
       type: 'string',
       required: false,
-      description: 'Filter by gender designation of the block',
-      example: 'male',
-      enum: ['male', 'female'],
+      description: 'Filter by hostel type (boys, girls, or mixed)',
+      example: 'boys',
+      enum: ['boys', 'girls', 'mixed'],
     },
     {
       name: 'status',
