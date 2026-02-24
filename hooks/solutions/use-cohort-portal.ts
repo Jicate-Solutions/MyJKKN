@@ -3,13 +3,15 @@
 /**
  * Solutions Hub - Cohort Portal Hooks
  * Purpose: React Query hooks for cohort member portal (talent-facing)
- * Connected to: cohort-service.ts, training-service.ts
+ * Connected to: /api/solutions/cohort-portal/* routes, /api/solutions/training/* routes
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { solutionsHubKeys } from '@/lib/query-keys';
 import { QUERY_CONFIG } from '@/lib/config/query-config';
-import { cohortService, trainingService, earningsService, type CohortTrack } from '@/lib/services/solutions';
+import { apiClient } from '@/lib/api/client';
+import { cohortService, type CohortTrack } from '@/lib/services/solutions';
+import type { TrainingSession, CohortAssignment } from '@/lib/services/solutions/types';
 
 // Re-export types
 export type { CohortTrack };
@@ -24,7 +26,7 @@ export type { CohortTrack };
 export function useCohortProfile(userId: string) {
   return useQuery({
     queryKey: solutionsHubKeys.cohortPortal.profile(userId),
-    queryFn: () => cohortService.getCohortMemberByUserId(userId),
+    queryFn: () => apiClient.get('/api/solutions/cohort-portal/profile'),
     enabled: !!userId,
     ...QUERY_CONFIG.USER_SESSION_DATA,
   });
@@ -36,7 +38,7 @@ export function useCohortProfile(userId: string) {
 export function useCohortMemberById(memberId: string) {
   return useQuery({
     queryKey: solutionsHubKeys.cohortPortal.member(memberId),
-    queryFn: () => cohortService.getCohortMemberById(memberId),
+    queryFn: () => apiClient.get(`/api/solutions/training/cohort/${memberId}`),
     enabled: !!memberId,
     ...QUERY_CONFIG.SEMI_STABLE_DATA,
   });
@@ -52,7 +54,7 @@ export function useCohortMemberById(memberId: string) {
 export function useAvailableSessions(memberId: string, level?: number) {
   return useQuery({
     queryKey: solutionsHubKeys.cohortPortal.availableSessions(memberId, level),
-    queryFn: () => cohortService.getAvailableSessionsForMember(memberId),
+    queryFn: () => apiClient.get<TrainingSession[]>('/api/solutions/cohort-portal/sessions'),
     enabled: !!memberId,
     ...QUERY_CONFIG.DYNAMIC_DATA,
   });
@@ -65,10 +67,10 @@ export function useMySchedule(memberId: string) {
   return useQuery({
     queryKey: solutionsHubKeys.cohortPortal.schedule(memberId),
     queryFn: async () => {
-      const assignments = await cohortService.getAssignmentsByMemberId(memberId);
+      const assignments = await apiClient.get<CohortAssignment[]>('/api/solutions/cohort-portal/sessions', { params: { view: 'assignments' } });
       // Get session details for each assignment
       const sessionsPromises = assignments.map(async (assignment) => {
-        const session = await trainingService.getSessionById(assignment.session_id);
+        const session = await apiClient.get<TrainingSession>(`/api/solutions/training/sessions/${assignment.session_id}`);
         return {
           ...assignment,
           session,
@@ -88,12 +90,12 @@ export function useUpcomingSessions(memberId: string) {
   return useQuery({
     queryKey: solutionsHubKeys.cohortPortal.upcoming(memberId),
     queryFn: async () => {
-      const assignments = await cohortService.getAssignmentsByMemberId(memberId);
+      const assignments = await apiClient.get<CohortAssignment[]>('/api/solutions/cohort-portal/sessions', { params: { view: 'assignments' } });
       const now = new Date();
 
       // Get session details and filter for upcoming
       const sessionsPromises = assignments.map(async (assignment) => {
-        const session = await trainingService.getSessionById(assignment.session_id);
+        const session = await apiClient.get<TrainingSession>(`/api/solutions/training/sessions/${assignment.session_id}`);
         return {
           ...assignment,
           session,
@@ -117,11 +119,11 @@ export function useCompletedSessions(memberId: string) {
   return useQuery({
     queryKey: solutionsHubKeys.cohortPortal.completed(memberId),
     queryFn: async () => {
-      const assignments = await cohortService.getAssignmentsByMemberId(memberId);
+      const assignments = await apiClient.get<CohortAssignment[]>('/api/solutions/cohort-portal/sessions', { params: { view: 'assignments' } });
 
       // Get session details and filter for completed
       const sessionsPromises = assignments.map(async (assignment) => {
-        const session = await trainingService.getSessionById(assignment.session_id);
+        const session = await apiClient.get<TrainingSession>(`/api/solutions/training/sessions/${assignment.session_id}`);
         return {
           ...assignment,
           session,
@@ -149,16 +151,17 @@ export function useMyCohortEarnings(memberId: string) {
   return useQuery({
     queryKey: solutionsHubKeys.cohortPortal.earnings(memberId),
     queryFn: async () => {
-      const earnings = await earningsService.getEarningsByRecipient('cohort_member', memberId);
-      const member = await cohortService.getCohortMemberById(memberId);
+      const result = await apiClient.get<{ total_earnings: number; assignments: any[] }>('/api/solutions/cohort-portal/earnings');
+      const member = await apiClient.get<any>(`/api/solutions/training/cohort/${memberId}`);
 
+      const entries = result.assignments || [];
       return {
         total: member?.total_earnings || 0,
-        entries: earnings,
+        entries,
         byStatus: {
-          pending: earnings.filter((e) => e.status === 'pending').reduce((sum, e) => sum + e.amount, 0),
-          processed: earnings.filter((e) => e.status === 'processed').reduce((sum, e) => sum + e.amount, 0),
-          paid: earnings.filter((e) => e.status === 'paid').reduce((sum, e) => sum + e.amount, 0),
+          pending: entries.filter((e: any) => e.status === 'pending').reduce((sum: number, e: any) => sum + (e.amount || 0), 0),
+          processed: entries.filter((e: any) => e.status === 'processed').reduce((sum: number, e: any) => sum + (e.amount || 0), 0),
+          paid: entries.filter((e: any) => e.status === 'paid').reduce((sum: number, e: any) => sum + (e.amount || 0), 0),
         },
       };
     },
@@ -178,7 +181,7 @@ export function useLevelProgress(memberId: string) {
   return useQuery({
     queryKey: solutionsHubKeys.cohortPortal.levelProgress(memberId),
     queryFn: async () => {
-      const member = await cohortService.getCohortMemberById(memberId);
+      const member = await apiClient.get<any>(`/api/solutions/training/cohort/${memberId}`);
       if (!member) return null;
 
       const LEVEL_ORDER = ['observer', 'co_lead', 'lead', 'master'];
@@ -237,16 +240,16 @@ export function useDashboardStats(memberId: string) {
   return useQuery({
     queryKey: solutionsHubKeys.cohortPortal.dashboard(memberId),
     queryFn: async () => {
-      const member = await cohortService.getCohortMemberById(memberId);
+      const member = await apiClient.get<any>(`/api/solutions/training/cohort/${memberId}`);
       if (!member) return null;
 
-      const assignments = await cohortService.getAssignmentsByMemberId(memberId);
+      const assignments = await apiClient.get<CohortAssignment[]>('/api/solutions/cohort-portal/sessions', { params: { view: 'assignments' } });
       const now = new Date();
 
       // Count upcoming sessions
       const upcomingSessions = await Promise.all(
         assignments.map(async (a) => {
-          const session = await trainingService.getSessionById(a.session_id);
+          const session = await apiClient.get<TrainingSession>(`/api/solutions/training/sessions/${a.session_id}`);
           return session;
         })
       );
@@ -293,7 +296,7 @@ export function useClaimSessionMutation() {
       memberId: string;
       role: 'observer' | 'co_lead' | 'lead';
     }) => {
-      return trainingService.claimSession(sessionId, memberId, role);
+      return apiClient.post('/api/solutions/cohort-portal/claim', { session_id: sessionId, role });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.cohortPortal.all });
