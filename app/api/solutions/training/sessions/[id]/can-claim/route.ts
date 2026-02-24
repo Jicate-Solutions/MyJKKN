@@ -8,7 +8,7 @@ export async function OPTIONS() {
   return NextResponse.json({}, { headers: corsHeaders })
 }
 
-export const GET = withAuth(async (_req, context) => {
+export const GET = withAuth(async (_request, auth, context) => {
   const { id } = await context!.params!
 
   const result = await TrainingService.canSelfClaimSession(id)
