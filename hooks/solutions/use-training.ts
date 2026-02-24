@@ -513,7 +513,7 @@ export function useCohortMemberStats() {
 export function useAvailableSessionsForMember(memberId: string) {
   return useQuery({
     queryKey: solutionsHubKeys.cohortMembers.availableSessions(memberId),
-    queryFn: () => cohortService.getAvailableSessionsForMember(memberId),
+    queryFn: () => apiClient.get(`/api/solutions/training/cohort/${memberId}/available-sessions`),
     enabled: !!memberId,
     ...QUERY_CONFIG.DYNAMIC_DATA,
   });
