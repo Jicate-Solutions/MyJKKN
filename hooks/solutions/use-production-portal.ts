@@ -357,7 +357,7 @@ export function useCreateProductionLearner() {
 
   return useMutation({
     mutationFn: (input: CreateProductionLearnerInput) =>
-      productionService.createLearner(input),
+      apiClient.post<ProductionLearner>('/api/solutions/production-portal/learners', input),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.productionLearners.all });
     },
