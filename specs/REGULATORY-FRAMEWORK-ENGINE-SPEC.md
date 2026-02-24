@@ -2973,6 +2973,13 @@ Additional entity-specific filters are documented per endpoint where applicable.
 **Terminal state:** `accepted` — no outgoing transitions.
 Invalid transitions return `409 Conflict`.
 
+**Score and timestamp behavior on transitions:**
+> - **`returned → data_collection`:** Set `calculated_score = NULL` and `completeness_percentage = 0` to force recalculation after corrections. Evidence may have changed during the return cycle.
+> - **`data_collection → in_review`:** No score reset — the current calculated_score is the "submitted for review" snapshot.
+> - **`in_review → approved`:** Set `approved_at = now()`, `approved_by = caller.id`. If previously approved and returned, these columns are **overwritten** (not appended). For full audit trail of re-approvals, rely on the `regulatory_metric_value_history` table which captures all value changes with timestamps.
+> - **`approved → submitted`:** Set `submitted_at = now()`, `submitted_by = caller.id`. Same overwrite semantics as approved_at.
+> - **`submitted → returned`:** Do NOT clear submitted_at/submitted_by — they record the most recent submission attempt for reference during corrections.
+
 **Rate limiting for expensive endpoints:**
 > The following endpoints are computationally expensive and MUST be rate-limited at the API route level:
 > - `POST /metric-values/refresh` — max 1 concurrent per institution (queued, not rejected)
