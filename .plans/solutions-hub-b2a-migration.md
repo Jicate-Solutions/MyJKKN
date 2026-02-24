@@ -151,10 +151,12 @@ interface AuthOptions {
 function withAuth(handler: AuthenticatedHandler, options?: AuthOptions)
 ```
 
-**Auth detection order:**
-1. Check `Authorization: Bearer <token>` header → API key flow
-2. Check cookies → Session flow
+**Auth detection order (CRITICAL — cookies first, not Bearer first):**
+1. Check cookies (via `next/headers`) → Session flow (browser users always send cookies)
+2. If no session cookie, check `Authorization: Bearer <token>` header → API key flow
 3. Neither → 401
+
+**Why cookies-first?** Supabase session JWTs and API keys both use `Authorization: Bearer <token>`. If we checked Bearer first, a browser request with a session JWT in the Authorization header would be hashed, looked up in `api_keys`, and fail with 401. By checking cookies first, browser sessions are handled correctly. API consumers (external scripts, cURL) never send cookies, so they fall through to Bearer → API key lookup. This is a clean, reliable disambiguation.
 
 **Session flow:**
 1. Call `createServerSupabaseClient()` (uses `cookies()` from `next/headers`)
