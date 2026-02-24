@@ -422,7 +422,7 @@ export function useUpdateLearnerSkillLevel() {
 
   return useMutation({
     mutationFn: ({ learnerId, skillLevel }: { learnerId: string; skillLevel: SkillLevel }) =>
-      productionService.updateSkillLevel(learnerId, skillLevel),
+      apiClient.patch<ProductionLearner>(`/api/solutions/production-portal/learners/${learnerId}/skill-level`, { skill_level: skillLevel }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.productionLearners.all });
     },
