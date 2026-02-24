@@ -3431,7 +3431,7 @@ $$;
 > - **File size limit:** 25 MB per file (configurable). Reject larger uploads before processing.
 > - **Content-Type validation:** Verify the actual file content matches the declared MIME type (magic bytes check). Do not trust the `Content-Type` header alone.
 > - **File name sanitization:** Strip path traversal characters (`../`, `..\\`), Unicode tricks, and null bytes from `file_name` before storing.
-> - **Storage:** Upload to Supabase Storage bucket `regulatory-evidence` with institution_id path prefix for isolation. Use presigned upload URLs to keep files out of API route memory.
+> - **Storage:** Upload to Supabase Storage bucket `regulatory-evidence` with path: `{institution_id}/{academic_year}/{filename}` for isolation and year-based partitioning (matches Performance Architecture storage path). Use presigned upload URLs to keep files out of API route memory.
 
 #### CRITICAL: Evidence Soft-Delete and Restore Both Require Service-Role Client
 
