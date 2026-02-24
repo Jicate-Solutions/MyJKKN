@@ -135,9 +135,18 @@ export class SamlIdpService {
 
   /**
    * Format private key for samlify
+   *
+   * Supports both PKCS#8 ("BEGIN PRIVATE KEY") and PKCS#1/RSA
+   * ("BEGIN RSA PRIVATE KEY") PEM formats. Both are valid for Node.js crypto
+   * and samlify. If neither header is present the value is a raw base64 key
+   * body — wrap it with PKCS#8 headers.
+   *
+   * NOTE: do NOT check only for "BEGIN PRIVATE KEY" — that substring is absent
+   * from "BEGIN RSA PRIVATE KEY", so PKCS#1 keys would be double-wrapped and
+   * OpenSSL would throw "DECODER routines::unsupported".
    */
   private static formatPrivateKey(key: string): string {
-    if (key.includes('BEGIN PRIVATE KEY')) {
+    if (key.includes('BEGIN PRIVATE KEY') || key.includes('BEGIN RSA PRIVATE KEY')) {
       return key;
     }
     return `-----BEGIN PRIVATE KEY-----\n${key}\n-----END PRIVATE KEY-----`;
