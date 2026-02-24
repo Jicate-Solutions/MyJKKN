@@ -364,14 +364,15 @@ export const GET = withAuth(async (request, auth) => {
   const url = new URL(request.url);
   const filters = extractFilters(url); // pagination, search, sort
 
-  // Use service with auth-context client
-  const result = await BaseService.runWithClient(auth.supabase, () =>
-    SomeService.list(filters)
-  );
+  // auth.supabase is already injected via BaseService.runWithClient() inside withAuth
+  // All service calls automatically use the correct client (session or impersonated)
+  const result = await SomeService.list(filters);
 
   return listResponse(result.data, result.metadata);
 }, { requiredPermission: 'read' });
 ```
+
+**NOTE:** The handler does NOT need to call `BaseService.runWithClient()` — `withAuth` already wraps the entire handler execution in `runWithClient`. Service calls inside the handler transparently use the correct auth-context client.
 
 #### 1.1 Solutions CRUD
 
