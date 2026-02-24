@@ -995,6 +995,7 @@ CREATE TABLE regulatory_submissions (
   manual_entry_count integer DEFAULT 0,
   total_metrics_count integer DEFAULT 0,
   calculated_score numeric,                          -- estimated total score
+  last_calculated_at timestamptz,                    -- when calculate-score last ran (UI staleness indicator)
   submitted_at timestamptz,
   submitted_by uuid REFERENCES profiles(id),
   approved_at timestamptz,
