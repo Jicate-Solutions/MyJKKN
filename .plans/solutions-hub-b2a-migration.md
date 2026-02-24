@@ -812,5 +812,8 @@ Phase 6 ─── Documentation (after Phases 1-5)
 - [ ] **Unified response envelope**: All routes return `{ data, metadata? }` shape
 - [ ] **API key auth works**: External consumers can authenticate with Bearer token
 - [ ] **RLS preserved for API keys**: API key queries are scoped to key owner's permissions
-- [ ] **Service role not used in routes**: `SUPABASE_SERVICE_ROLE_KEY` only in withAuth (for impersonation setup) and upload (for storage)
+- [ ] **Service role not used in routes**: `SUPABASE_SERVICE_ROLE_KEY` only in withAuth (for API key lookup) and upload (for storage)
+- [ ] **JWT impersonation works**: API key auth creates a valid JWT via `SUPABASE_JWT_SECRET`, and `auth.uid()` returns the key owner's ID
+- [ ] **Dept tracker routes fixed**: All 7 existing routes migrated from bare `getAuthSession()` to `withAuth()` wrapper
+- [ ] **No browser client in API routes**: `createBrowserClient()` only used in browser context, never in API route server code
 - [ ] **Portal documented**: All endpoints listed at /application-hub/api-guidelines
