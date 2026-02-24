@@ -635,12 +635,12 @@ Convert ALL hooks from calling services directly to calling `/api/solutions/` ro
 **Before (Pattern B):**
 ```typescript
 // hooks/solutions/use-solutions.ts
-import { solutionsService } from '@/lib/services/solutions';
+import { solutionsService } from '@/lib/services/solutions/solutions-service';
 
 export function useSolutions(filters) {
   return useQuery({
     queryKey: solutionsHubKeys.solutions.list(filters),
-    queryFn: () => solutionsService.list(filters),
+    queryFn: () => solutionsService.getSolutions(filters),
   });
 }
 ```
