@@ -67,15 +67,40 @@ export function getStringParam(url: URL, key: string): string | undefined {
 }
 
 /**
+ * UUID format regex (v4-compatible, case-insensitive).
+ */
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Validate a string as a UUID. Useful for path params from [id] routes.
+ */
+export function isValidUuid(value: string): boolean {
+  return UUID_REGEX.test(value);
+}
+
+/**
  * Extract a UUID param with basic format validation.
  * Returns undefined if not present or invalid.
  */
 export function getUuidParam(url: URL, key: string): string | undefined {
   const value = url.searchParams.get(key);
   if (!value) return undefined;
-  // Basic UUID v4 format check
-  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)) {
+  if (UUID_REGEX.test(value)) {
     return value;
   }
   return undefined;
+}
+
+/**
+ * Strip protected fields from a request body before INSERT.
+ * Prevents mass assignment of server-controlled columns.
+ */
+const PROTECTED_INSERT_FIELDS = ['id', 'institution_id', 'created_at', 'updated_at', 'created_by'];
+
+export function sanitizeBody(body: Record<string, any>): Record<string, any> {
+  const clean = { ...body };
+  for (const field of PROTECTED_INSERT_FIELDS) {
+    delete clean[field];
+  }
+  return clean;
 }
