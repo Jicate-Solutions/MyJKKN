@@ -34,7 +34,7 @@ export class RegulatoryFrameworkService {
   static async getFrameworks(filters: RegulatoryFrameworkFilters = {}) {
     try {
       if (filters.institution_id !== undefined) {
-        this.validateId(filters.institution_id, 'institution_id filter')
+        validateId(filters.institution_id, 'institution_id filter')
       }
 
       let query = (this.getSupabase() as any)
@@ -98,7 +98,7 @@ export class RegulatoryFrameworkService {
    */
   static async getFrameworkById(id: string) {
     try {
-      this.validateId(id, 'framework ID')
+      validateId(id, 'framework ID')
 
       const { data, error } = await (this.getSupabase() as any)
         .from('regulatory_frameworks')
@@ -127,7 +127,7 @@ export class RegulatoryFrameworkService {
    */
   static async getFrameworkTree(id: string) {
     try {
-      this.validateId(id, 'framework ID')
+      validateId(id, 'framework ID')
 
       // Fetch framework
       const { data: framework, error: frameworkError } = await (this.getSupabase() as any)
@@ -208,9 +208,9 @@ export class RegulatoryFrameworkService {
     academicYear?: string
   ) {
     try {
-      this.validateId(frameworkId, 'framework ID')
+      validateId(frameworkId, 'framework ID')
       if (institutionId !== undefined) {
-        this.validateId(institutionId, 'institution ID')
+        validateId(institutionId, 'institution ID')
       }
 
       // Get all criteria for this framework
