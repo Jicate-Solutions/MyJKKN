@@ -328,4 +328,31 @@ All 108 findings were addressed in a single session using a 5-agent parallel swa
 | **Merge conflicts** | Peer visits roles + DVV visit type | 1 (resolved) | — | — |
 | **TOTAL** | All 12C + 25H + 38M + 20L | **108** | **+917 net** | 3 commits |
 
-**Final spec:** 4,501 lines | 17 tables + 1 view | 52 RLS policies | 66 API endpoints | 21 frameworks
+**After Round 5:** 4,501 lines | 17 tables + 1 view | 52 RLS policies | 66 API endpoints | 21 frameworks
+
+---
+
+## ROUND 6: VERIFICATION AUDIT + FIX PASS
+
+5 parallel auditors verified every finding. Found 12 gaps (2 MISSING, 4 PARTIAL, 6 count/DDL mismatches).
+3 parallel fix agents addressed all 12 in a single pass:
+
+| Fix | Category | What Changed |
+|-----|----------|--------------|
+| DDL: dvv_queries table | MISSING | Added CREATE TABLE (12 cols, 3 RLS, 1 index) |
+| DDL: metric_assignments table | MISSING | Added CREATE TABLE (12 cols, 3 RLS, 2 indexes) |
+| Framework count | MISMATCH | 21 → 20 (arithmetic: 1+3+3+7+2+1+1+1+1=20) |
+| Table count | MISMATCH | 17 → 18 (added 2 new tables) |
+| RLS count | MISMATCH | 52 → 58 (6 new policies from new tables) |
+| `submitted` status | MISMATCH | Documented in workflow descriptions |
+| M3: Connector partial success | PARTIAL | Added per-connector status JSON response format |
+| M5: 0 vs null vs error | PARTIAL | Added metric value interpretation table + derived status field |
+| M9: Cross-framework evidence | PARTIAL | Added validation rules for metric_id/criteria_id |
+| M13: Benchmark metric_code | PARTIAL | Added framework validation join path |
+| M21: Data sources visibility | MISSING | Documented super_admin-only sidebar + info card for others |
+| M31: Meetings API nesting | MISSING | Documented mixed pattern (nested create, flat update) |
+| L7: History growth | PARTIAL | Corrected to ~131K/yr, added 7-year retention policy |
+
+**Final spec (after Round 6):** 4,609 lines | 18 tables + 1 view | 58 RLS policies | 66 API endpoints | 20 frameworks
+
+**Audit score: 108/108 findings verified after Round 6.**
