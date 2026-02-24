@@ -2861,6 +2861,8 @@ Additional entity-specific filters are documented per endpoint where applicable.
 | DELETE | `/api/regulatory/evidence/[id]` | `softDeleteEvidence(id)` | super_admin, institution_admin, iqac_coordinator | Soft-delete (set is_deleted=true) |
 | GET | `/api/regulatory/evidence/[id]/versions` | `getEvidenceVersions(id)` | all with institution access | Version history for an evidence document |
 | POST | `/api/regulatory/evidence/[id]/versions` | `addEvidenceVersion(id, data)` | super_admin, institution_admin, iqac_coordinator, hod, staff | Add new version of evidence document |
+| GET | `/api/regulatory/evidence/deleted` | `getDeletedEvidence(filters)` | super_admin, institution_admin, iqac_coordinator | List soft-deleted evidence (within 30-day recovery window). **Implementation:** Service uses service-role client to bypass the `is_deleted = false` RLS filter. Filter: `is_deleted = true AND deleted_at > now() - interval '30 days'`. |
+| PUT | `/api/regulatory/evidence/[id]/restore` | `restoreEvidence(id)` | super_admin, institution_admin, iqac_coordinator | Restore soft-deleted evidence (set `is_deleted = false`, `deleted_at = null`). Fails with 410 Gone if `deleted_at` is older than 30 days. **Implementation:** Service uses service-role client to bypass RLS for the lookup, then updates via regular client. |
 
 **Evidence Upload Security Requirements:**
 > - **File type allowlist:** Only accept `pdf`, `jpg`, `jpeg`, `png`, `xlsx`, `xls`, `doc`, `docx`, `csv`. Reject all other MIME types.
