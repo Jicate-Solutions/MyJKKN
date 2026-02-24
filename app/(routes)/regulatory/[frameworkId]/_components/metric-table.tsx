@@ -340,14 +340,7 @@ export function MetricTable({ metrics, frameworkId, institutionId }: MetricTable
                             <RefreshCw className={`h-3.5 w-3.5 ${refreshAutoMutation.isPending ? 'animate-spin' : ''}`} />
                           </Button>
                         )}
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 w-7 p-0"
-                          onClick={() => setUploadDialogMetric(metric)}
-                        >
-                          <Upload className="h-3.5 w-3.5" />
-                        </Button>
+                        {/* TODO: Implement evidence upload when Supabase Storage bucket is configured */}
                       </div>
                     </TableCell>
                   </TableRow>
