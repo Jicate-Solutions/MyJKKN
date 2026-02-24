@@ -120,6 +120,14 @@ API Key User → HTTP → /api/solutions/...                → withAuth(apiKey)
 2. Extract user ID from auth user for audit trail
 3. Keep SERVICE_ROLE_KEY for storage operations (required for upload)
 4. Add user.id to file path: `${folderName}/${entityId}/${user.id}/${fileName}`
+5. SECURITY: Validate entityId is a UUID — reject 400 if not
+   (prevents path traversal via entityId like "../../other-entity")
+   Use: /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(entityId)
+6. SECURITY: Validate folderName against an allowlist of known folder names
+   (prevents arbitrary directory creation in storage bucket)
+7. RECOMMENDED: Verify the user has access to the entity they're uploading for
+   (e.g., check sh_solutions.institution_id matches user's institution)
+   This prevents cross-entity file uploads by authenticated users.
 ```
 
 #### 0.2 Create `withAuth` Unified Auth Middleware
