@@ -755,7 +755,7 @@ export const apiClient = {
 #### 5.2 Fix `clients/page.tsx` (1 inline query)
 
 **Current:** Inline `useQuery` fetching `sh_prospects.converted_client_id` to determine pipeline vs direct clients
-**Fix:** Add a `GET /api/solutions/prospects/converted-ids` route OR add a `isPipelineClient` field to the clients list response by joining in the service layer
+**Fix (DECIDED):** Add an `isPipelineClient` boolean field to the clients list response by joining `sh_prospects.converted_client_id` in `ClientsService.getClients()`. This is better than a separate route because: (1) it avoids an extra HTTP round-trip from the page, (2) the join is cheap (indexed FK), (3) the data is always needed when listing clients. Do NOT create a separate `/prospects/converted-ids` route.
 
 #### 5.3 Fix `pipeline/_components/pipeline-board.tsx` (2 inline queries)
 
