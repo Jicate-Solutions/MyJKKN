@@ -55,16 +55,16 @@ export const GET = withApiKeyAuth(async (request, auth) => {
     .find(r => r.error);
   if (firstError?.error) throw firstError.error;
 
-  const totalBeds = (blocksResult.data ?? []).reduce((sum: number, b: any) => sum + (b.total_beds || 0), 0);
+  const totalCapacity = (blocksResult.data ?? []).reduce((sum: number, b: any) => sum + (b.total_capacity || 0), 0);
   const occupiedBeds = allocationsResult.count ?? 0;
 
   return successApiResponse({
     occupancy: {
       total_blocks: blocksResult.count ?? 0,
-      total_beds: totalBeds,
+      total_capacity: totalCapacity,
       occupied: occupiedBeds,
-      vacant: totalBeds - occupiedBeds,
-      rate_percent: totalBeds > 0 ? Math.round((occupiedBeds / totalBeds) * 100) : 0,
+      vacant: totalCapacity - occupiedBeds,
+      rate_percent: totalCapacity > 0 ? Math.round((occupiedBeds / totalCapacity) * 100) : 0,
     },
     pending_actions: {
       leave_requests: leaveResult.count ?? 0,
