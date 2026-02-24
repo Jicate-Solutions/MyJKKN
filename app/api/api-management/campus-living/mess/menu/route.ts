@@ -30,15 +30,16 @@ export const GET = withApiKeyAuth(async (request, auth) => {
 
   if (blockId) query = query.eq('block_id', blockId);
   if (mealType) query = query.eq('meal_type', mealType);
-  if (weekStartDate) query = query.eq('week_start_date', weekStartDate);
-  if (status) query = query.eq('status', status);
-  if (current === 'true') {
+  if (weekStartDate) {
+    query = query.eq('week_start_date', weekStartDate);
+  } else if (current === 'true') {
     const today = new Date();
     const dayOfWeek = today.getUTCDay();
     const monday = new Date(today);
     monday.setUTCDate(today.getUTCDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1));
     query = query.eq('week_start_date', monday.toISOString().split('T')[0]);
   }
+  if (status) query = query.eq('status', status);
 
   query = query.range(from, to).order('week_start_date', { ascending: false }).order('day_of_week').order('meal_type');
   const { data, error, count } = await query;
