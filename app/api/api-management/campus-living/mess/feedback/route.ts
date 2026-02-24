@@ -30,7 +30,7 @@ export const GET = withApiKeyAuth(async (request, auth) => {
 
   if (learnerId) query = query.eq('learner_id', learnerId);
   if (mealType) query = query.eq('meal_type', mealType);
-  if (isComplaint !== null && isComplaint !== undefined) query = query.eq('is_complaint', isComplaint === 'true');
+  if (isComplaint) query = query.eq('is_complaint', isComplaint === 'true');
   if (catererId) query = query.eq('caterer_id', catererId);
   if (dateFrom) query = query.gte('date', dateFrom);
   if (dateTo) query = query.lte('date', dateTo);
