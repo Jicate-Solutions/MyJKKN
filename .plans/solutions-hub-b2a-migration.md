@@ -304,7 +304,33 @@ export function createImpersonatedClient(userId: string) {
 }
 ```
 
-**Dependencies:**
+**Dependencies — PREFER `jose` over `jsonwebtoken`:**
+The project already has `jose` (v6.0.12) installed and used in 4+ files (`lib/services/lti/lti-jwt-service.ts`, etc.). Using `jsonwebtoken` would add a SECOND JWT library. **Recommended:** use `jose` instead. This makes `createImpersonatedClient` async:
+
+```typescript
+import { SignJWT } from 'jose';
+
+export async function createImpersonatedClient(userId: string) {
+  const jwtSecret = process.env.SUPABASE_JWT_SECRET;
+  if (!jwtSecret) throw new Error('SUPABASE_JWT_SECRET is required');
+
+  const token = await new SignJWT({ sub: userId, role: 'authenticated', iss: 'supabase' })
+    .setProtectedHeader({ alg: 'HS256' })
+    .setIssuedAt()
+    .setExpirationTime('60s')
+    .sign(new TextEncoder().encode(jwtSecret));
+
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    { global: { headers: { Authorization: `Bearer ${token}` } }, auth: { autoRefreshToken: false, persistSession: false } }
+  );
+}
+```
+
+`withAuth` API key flow becomes: `const impersonatedClient = await createImpersonatedClient(created_by)` — a trivial change since withAuth is already async.
+
+**Fallback (if `jose` API is problematic):**
 - `bun add jsonwebtoken && bun add -d @types/jsonwebtoken`
 
 **Environment variable (CRITICAL PREREQUISITE):**
