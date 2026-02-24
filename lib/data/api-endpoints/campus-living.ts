@@ -4245,13 +4245,2309 @@ print(dashboard["today"])  # Today's activity`,
 };
 
 // =============================================================================
+// HEALTH CASES BY ID ENDPOINTS (GET + PATCH)
+// =============================================================================
+
+const healthCasesByIdGetEndpoint: ApiEndpoint = {
+  id: 'campus-living-health-cases-by-id-get',
+  module: 'campus-living' as any,
+  category: 'Health & Safety',
+  title: 'Get Health Case by ID',
+  description:
+    'Retrieve detailed information about a specific health case by its unique ID.',
+  method: 'GET',
+  path: '/api/api-management/campus-living/health-cases/[id]',
+  authentication: commonAuthentication,
+  pathParameters: [
+    {
+      name: 'id',
+      type: 'string',
+      required: true,
+      description: 'Unique UUID of the health case',
+      example: 'hc10e840-e29b-41d4-a716-446655440001',
+    },
+  ],
+  successResponses: [
+    {
+      statusCode: 200,
+      description: 'Successfully retrieved health case details',
+      contentType: 'json',
+      example: {
+        id: 'hc10e840-e29b-41d4-a716-446655440001',
+        learner_id: 'cc0e8400-e29b-41d4-a716-446655440007',
+        learner_name: 'Rahul Sharma',
+        condition: 'Fever and cold',
+        severity: 'moderate',
+        status: 'active',
+        reported_by: 'Dr. Ramesh Kumar',
+        treatment: 'Prescribed paracetamol and rest',
+        notes: 'Monitor temperature every 4 hours',
+        reported_at: '2024-09-14T08:00:00Z',
+        resolved_at: null,
+        created_at: '2024-09-14T08:00:00Z',
+        updated_at: '2024-09-14T10:00:00Z',
+      },
+    },
+  ],
+  errorResponses: [
+    ...commonErrors,
+    {
+      statusCode: 404,
+      errorCode: 'NOT_FOUND',
+      message: 'Health case not found',
+      example: {
+        error: 'Health case not found',
+      },
+    },
+  ],
+  codeExamples: [
+    {
+      language: 'javascript',
+      label: 'JavaScript (Fetch)',
+      code: `const healthCaseId = 'hc10e840-e29b-41d4-a716-446655440001';
+const response = await fetch(\`https://www.jkkn.ai/api/api-management/campus-living/health-cases/\${healthCaseId}\`, {
+  method: 'GET',
+  headers: {
+    'Authorization': 'Bearer your_api_key_here',
+    'Content-Type': 'application/json'
+  }
+});
+
+const healthCase = await response.json();
+console.log(healthCase);`,
+    },
+    {
+      language: 'curl',
+      label: 'cURL',
+      code: `curl -X GET "https://www.jkkn.ai/api/api-management/campus-living/health-cases/hc10e840-e29b-41d4-a716-446655440001" \\
+  -H "Authorization: Bearer your_api_key_here" \\
+  -H "Content-Type: application/json"`,
+    },
+    {
+      language: 'python',
+      label: 'Python (Requests)',
+      code: `import requests
+
+health_case_id = "hc10e840-e29b-41d4-a716-446655440001"
+url = f"https://www.jkkn.ai/api/api-management/campus-living/health-cases/{health_case_id}"
+headers = {
+    "Authorization": "Bearer your_api_key_here",
+    "Content-Type": "application/json"
+}
+
+response = requests.get(url, headers=headers)
+health_case = response.json()
+print(health_case)`,
+    },
+  ],
+  aiPrompts: [
+    {
+      title: 'Get Full Health Case Details',
+      category: 'data-retrieval',
+      complexity: 'beginner',
+      prompt:
+        'Using the MyJKKN Campus Living API, fetch a specific health case by ID to review the condition, treatment plan, and current status.',
+      expectedOutput:
+        'Health case details with condition, severity, treatment, notes, and timestamps.',
+      tags: ['health', 'single-record', 'details'],
+    },
+  ],
+  tags: ['health', 'by-id', 'details'],
+  notes: [
+    'Returns all fields from the hostel_health_cases table for the specified record',
+    'Contains sensitive medical information - ensure proper authorization',
+    'Returns 404 if the health case does not exist or belongs to a different organization',
+  ],
+  relatedEndpoints: ['campus-living-health-cases-list', 'campus-living-health-cases-by-id-patch'],
+};
+
+const healthCasesByIdPatchEndpoint: ApiEndpoint = {
+  id: 'campus-living-health-cases-by-id-patch',
+  module: 'campus-living' as any,
+  category: 'Health & Safety',
+  title: 'Update Health Case',
+  description:
+    'Update a specific health case record. Use this to update status, add treatment notes, change severity, or mark as resolved.',
+  method: 'PATCH',
+  path: '/api/api-management/campus-living/health-cases/[id]',
+  authentication: writeAuthentication,
+  pathParameters: [
+    {
+      name: 'id',
+      type: 'string',
+      required: true,
+      description: 'Unique UUID of the health case to update',
+      example: 'hc10e840-e29b-41d4-a716-446655440001',
+    },
+  ],
+  requestBody: {
+    contentType: 'application/json',
+    schema: [
+      {
+        name: 'status',
+        type: 'string',
+        required: false,
+        description: 'Updated status of the health case',
+        example: 'resolved',
+        enum: ['active', 'recovering', 'resolved', 'referred'],
+      },
+      {
+        name: 'severity',
+        type: 'string',
+        required: false,
+        description: 'Updated severity level',
+        example: 'mild',
+        enum: ['mild', 'moderate', 'severe', 'critical'],
+      },
+      {
+        name: 'treatment',
+        type: 'string',
+        required: false,
+        description: 'Updated treatment details',
+        example: 'Condition improved. Continuing medication for 2 more days.',
+      },
+      {
+        name: 'notes',
+        type: 'string',
+        required: false,
+        description: 'Additional notes or observations',
+        example: 'Temperature normalized. Student can resume classes tomorrow.',
+      },
+    ],
+    example: {
+      status: 'resolved',
+      severity: 'mild',
+      treatment: 'Condition improved. Continuing medication for 2 more days.',
+      notes: 'Temperature normalized. Student can resume classes tomorrow.',
+    },
+  },
+  successResponses: [
+    {
+      statusCode: 200,
+      description: 'Health case updated successfully',
+      contentType: 'json',
+      example: {
+        id: 'hc10e840-e29b-41d4-a716-446655440001',
+        learner_id: 'cc0e8400-e29b-41d4-a716-446655440007',
+        condition: 'Fever and cold',
+        severity: 'mild',
+        status: 'resolved',
+        treatment: 'Condition improved. Continuing medication for 2 more days.',
+        notes: 'Temperature normalized. Student can resume classes tomorrow.',
+        resolved_at: '2024-09-16T10:00:00Z',
+        created_at: '2024-09-14T08:00:00Z',
+        updated_at: '2024-09-16T10:00:00Z',
+      },
+    },
+  ],
+  errorResponses: [
+    ...commonErrors,
+    {
+      statusCode: 404,
+      errorCode: 'NOT_FOUND',
+      message: 'Health case not found',
+      example: {
+        error: 'Health case not found',
+      },
+    },
+  ],
+  codeExamples: [
+    {
+      language: 'javascript',
+      label: 'JavaScript (Fetch)',
+      code: `const healthCaseId = 'hc10e840-e29b-41d4-a716-446655440001';
+const response = await fetch(\`https://www.jkkn.ai/api/api-management/campus-living/health-cases/\${healthCaseId}\`, {
+  method: 'PATCH',
+  headers: {
+    'Authorization': 'Bearer your_api_key_here',
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    status: 'resolved',
+    notes: 'Temperature normalized. Student can resume classes tomorrow.'
+  })
+});
+
+const updatedCase = await response.json();
+console.log(updatedCase);`,
+    },
+    {
+      language: 'curl',
+      label: 'cURL',
+      code: `curl -X PATCH "https://www.jkkn.ai/api/api-management/campus-living/health-cases/hc10e840-e29b-41d4-a716-446655440001" \\
+  -H "Authorization: Bearer your_api_key_here" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "status": "resolved",
+    "notes": "Temperature normalized. Student can resume classes tomorrow."
+  }'`,
+    },
+    {
+      language: 'python',
+      label: 'Python (Requests)',
+      code: `import requests
+
+health_case_id = "hc10e840-e29b-41d4-a716-446655440001"
+url = f"https://www.jkkn.ai/api/api-management/campus-living/health-cases/{health_case_id}"
+headers = {
+    "Authorization": "Bearer your_api_key_here",
+    "Content-Type": "application/json"
+}
+payload = {
+    "status": "resolved",
+    "notes": "Temperature normalized. Student can resume classes tomorrow."
+}
+
+response = requests.patch(url, headers=headers, json=payload)
+updated_case = response.json()
+print(updated_case)`,
+    },
+  ],
+  aiPrompts: [
+    {
+      title: 'Resolve a Health Case',
+      category: 'automation',
+      complexity: 'beginner',
+      prompt:
+        'Using the MyJKKN Campus Living API, update a health case to mark it as resolved and add final treatment notes.',
+      expectedOutput:
+        'Updated health case with status "resolved", updated treatment notes, and resolved_at timestamp.',
+      tags: ['health', 'update', 'resolve'],
+    },
+  ],
+  tags: ['health', 'update', 'write', 'by-id'],
+  notes: [
+    'Requires an API key with write permission',
+    'The id and institution_id fields cannot be modified via this endpoint',
+    'Only the fields provided in the request body are updated (partial update)',
+    'Returns 404 if the health case does not exist or belongs to a different organization',
+  ],
+  relatedEndpoints: ['campus-living-health-cases-list', 'campus-living-health-cases-by-id-get'],
+};
+
+// =============================================================================
+// INSPECTIONS BY ID ENDPOINTS (GET + PATCH)
+// =============================================================================
+
+const inspectionsByIdGetEndpoint: ApiEndpoint = {
+  id: 'campus-living-inspections-by-id-get',
+  module: 'campus-living' as any,
+  category: 'Health & Safety',
+  title: 'Get Inspection by ID',
+  description:
+    'Retrieve detailed information about a specific hostel inspection by its unique ID.',
+  method: 'GET',
+  path: '/api/api-management/campus-living/inspections/[id]',
+  authentication: commonAuthentication,
+  pathParameters: [
+    {
+      name: 'id',
+      type: 'string',
+      required: true,
+      description: 'Unique UUID of the inspection',
+      example: 'is10e840-e29b-41d4-a716-446655440001',
+    },
+  ],
+  successResponses: [
+    {
+      statusCode: 200,
+      description: 'Successfully retrieved inspection details',
+      contentType: 'json',
+      example: {
+        id: 'is10e840-e29b-41d4-a716-446655440001',
+        inspection_type: 'room',
+        block_id: 'b10e8400-e29b-41d4-a716-446655440001',
+        status: 'completed',
+        scheduled_date: '2024-09-15',
+        completed_date: '2024-09-15',
+        inspector_name: 'Dr. Ramesh Kumar',
+        score: 85,
+        remarks: 'Overall cleanliness good. Minor issues in floor 3.',
+        findings: 'Rooms A-301 and A-305 need attention. Common area well maintained.',
+        created_at: '2024-09-10T00:00:00Z',
+        updated_at: '2024-09-15T16:00:00Z',
+      },
+    },
+  ],
+  errorResponses: [
+    ...commonErrors,
+    {
+      statusCode: 404,
+      errorCode: 'NOT_FOUND',
+      message: 'Inspection not found',
+      example: {
+        error: 'Inspection not found',
+      },
+    },
+  ],
+  codeExamples: [
+    {
+      language: 'javascript',
+      label: 'JavaScript (Fetch)',
+      code: `const inspectionId = 'is10e840-e29b-41d4-a716-446655440001';
+const response = await fetch(\`https://www.jkkn.ai/api/api-management/campus-living/inspections/\${inspectionId}\`, {
+  method: 'GET',
+  headers: {
+    'Authorization': 'Bearer your_api_key_here',
+    'Content-Type': 'application/json'
+  }
+});
+
+const inspection = await response.json();
+console.log(inspection);`,
+    },
+    {
+      language: 'curl',
+      label: 'cURL',
+      code: `curl -X GET "https://www.jkkn.ai/api/api-management/campus-living/inspections/is10e840-e29b-41d4-a716-446655440001" \\
+  -H "Authorization: Bearer your_api_key_here" \\
+  -H "Content-Type: application/json"`,
+    },
+    {
+      language: 'python',
+      label: 'Python (Requests)',
+      code: `import requests
+
+inspection_id = "is10e840-e29b-41d4-a716-446655440001"
+url = f"https://www.jkkn.ai/api/api-management/campus-living/inspections/{inspection_id}"
+headers = {
+    "Authorization": "Bearer your_api_key_here",
+    "Content-Type": "application/json"
+}
+
+response = requests.get(url, headers=headers)
+inspection = response.json()
+print(inspection)`,
+    },
+  ],
+  aiPrompts: [
+    {
+      title: 'Review Inspection Details and Findings',
+      category: 'data-retrieval',
+      complexity: 'beginner',
+      prompt:
+        'Using the MyJKKN Campus Living API, fetch a specific inspection by ID to review its score, findings, and remarks.',
+      expectedOutput:
+        'Inspection details with inspection_type, score, findings, remarks, and completion status.',
+      tags: ['inspections', 'single-record', 'review'],
+    },
+  ],
+  tags: ['inspections', 'by-id', 'details'],
+  notes: [
+    'Returns all fields from the hostel_inspections table for the specified record',
+    'Returns 404 if the inspection does not exist or belongs to a different organization',
+    'Score is on a scale of 0-100',
+  ],
+  relatedEndpoints: ['campus-living-inspections-list', 'campus-living-inspections-by-id-patch'],
+};
+
+const inspectionsByIdPatchEndpoint: ApiEndpoint = {
+  id: 'campus-living-inspections-by-id-patch',
+  module: 'campus-living' as any,
+  category: 'Health & Safety',
+  title: 'Update Inspection',
+  description:
+    'Update a specific inspection record. Use this to update status, add scores, remarks, or mark as completed.',
+  method: 'PATCH',
+  path: '/api/api-management/campus-living/inspections/[id]',
+  authentication: writeAuthentication,
+  pathParameters: [
+    {
+      name: 'id',
+      type: 'string',
+      required: true,
+      description: 'Unique UUID of the inspection to update',
+      example: 'is10e840-e29b-41d4-a716-446655440001',
+    },
+  ],
+  requestBody: {
+    contentType: 'application/json',
+    schema: [
+      {
+        name: 'status',
+        type: 'string',
+        required: false,
+        description: 'Updated inspection status',
+        example: 'completed',
+        enum: ['scheduled', 'in_progress', 'completed', 'cancelled'],
+      },
+      {
+        name: 'score',
+        type: 'number',
+        required: false,
+        description: 'Inspection score (0-100)',
+        example: 85,
+      },
+      {
+        name: 'remarks',
+        type: 'string',
+        required: false,
+        description: 'Inspector remarks or summary',
+        example: 'Overall cleanliness good. Minor issues in floor 3.',
+      },
+      {
+        name: 'completed_date',
+        type: 'string',
+        required: false,
+        description: 'Date the inspection was completed (YYYY-MM-DD)',
+        example: '2024-09-15',
+      },
+    ],
+    example: {
+      status: 'completed',
+      score: 85,
+      remarks: 'Overall cleanliness good. Minor issues in floor 3.',
+      completed_date: '2024-09-15',
+    },
+  },
+  successResponses: [
+    {
+      statusCode: 200,
+      description: 'Inspection updated successfully',
+      contentType: 'json',
+      example: {
+        id: 'is10e840-e29b-41d4-a716-446655440001',
+        inspection_type: 'room',
+        block_id: 'b10e8400-e29b-41d4-a716-446655440001',
+        status: 'completed',
+        scheduled_date: '2024-09-15',
+        completed_date: '2024-09-15',
+        score: 85,
+        remarks: 'Overall cleanliness good. Minor issues in floor 3.',
+        created_at: '2024-09-10T00:00:00Z',
+        updated_at: '2024-09-15T16:00:00Z',
+      },
+    },
+  ],
+  errorResponses: [
+    ...commonErrors,
+    {
+      statusCode: 404,
+      errorCode: 'NOT_FOUND',
+      message: 'Inspection not found',
+      example: {
+        error: 'Inspection not found',
+      },
+    },
+  ],
+  codeExamples: [
+    {
+      language: 'javascript',
+      label: 'JavaScript (Fetch)',
+      code: `const inspectionId = 'is10e840-e29b-41d4-a716-446655440001';
+const response = await fetch(\`https://www.jkkn.ai/api/api-management/campus-living/inspections/\${inspectionId}\`, {
+  method: 'PATCH',
+  headers: {
+    'Authorization': 'Bearer your_api_key_here',
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    status: 'completed',
+    score: 85,
+    remarks: 'Overall cleanliness good. Minor issues in floor 3.'
+  })
+});
+
+const updatedInspection = await response.json();
+console.log(updatedInspection);`,
+    },
+    {
+      language: 'curl',
+      label: 'cURL',
+      code: `curl -X PATCH "https://www.jkkn.ai/api/api-management/campus-living/inspections/is10e840-e29b-41d4-a716-446655440001" \\
+  -H "Authorization: Bearer your_api_key_here" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "status": "completed",
+    "score": 85,
+    "remarks": "Overall cleanliness good. Minor issues in floor 3."
+  }'`,
+    },
+    {
+      language: 'python',
+      label: 'Python (Requests)',
+      code: `import requests
+
+inspection_id = "is10e840-e29b-41d4-a716-446655440001"
+url = f"https://www.jkkn.ai/api/api-management/campus-living/inspections/{inspection_id}"
+headers = {
+    "Authorization": "Bearer your_api_key_here",
+    "Content-Type": "application/json"
+}
+payload = {
+    "status": "completed",
+    "score": 85,
+    "remarks": "Overall cleanliness good. Minor issues in floor 3."
+}
+
+response = requests.patch(url, headers=headers, json=payload)
+updated_inspection = response.json()
+print(updated_inspection)`,
+    },
+  ],
+  aiPrompts: [
+    {
+      title: 'Complete an Inspection with Score',
+      category: 'automation',
+      complexity: 'beginner',
+      prompt:
+        'Using the MyJKKN Campus Living API, mark an inspection as completed by updating its status, score, and remarks.',
+      expectedOutput:
+        'Updated inspection with status "completed", score, remarks, and completed_date.',
+      tags: ['inspections', 'update', 'complete'],
+    },
+  ],
+  tags: ['inspections', 'update', 'write', 'by-id'],
+  notes: [
+    'Requires an API key with write permission',
+    'The id and institution_id fields cannot be modified via this endpoint',
+    'Only the fields provided in the request body are updated (partial update)',
+    'Score should be between 0 and 100',
+  ],
+  relatedEndpoints: ['campus-living-inspections-list', 'campus-living-inspections-by-id-get'],
+};
+
+// =============================================================================
+// LAUNDRY BY ID ENDPOINTS (GET + PATCH)
+// =============================================================================
+
+const laundryByIdGetEndpoint: ApiEndpoint = {
+  id: 'campus-living-laundry-by-id-get',
+  module: 'campus-living' as any,
+  category: 'Housekeeping',
+  title: 'Get Laundry Order by ID',
+  description:
+    'Retrieve detailed information about a specific laundry order by its unique ID.',
+  method: 'GET',
+  path: '/api/api-management/campus-living/laundry/[id]',
+  authentication: commonAuthentication,
+  pathParameters: [
+    {
+      name: 'id',
+      type: 'string',
+      required: true,
+      description: 'Unique UUID of the laundry order',
+      example: 'ld10e840-e29b-41d4-a716-446655440001',
+    },
+  ],
+  successResponses: [
+    {
+      statusCode: 200,
+      description: 'Successfully retrieved laundry order details',
+      contentType: 'json',
+      example: {
+        id: 'ld10e840-e29b-41d4-a716-446655440001',
+        learner_id: 'cc0e8400-e29b-41d4-a716-446655440007',
+        item_count: 8,
+        status: 'ready',
+        submitted_at: '2024-09-14T08:00:00Z',
+        ready_at: '2024-09-15T16:00:00Z',
+        collected_at: null,
+        remarks: 'One shirt has a stain that could not be removed',
+        created_at: '2024-09-14T08:00:00Z',
+        updated_at: '2024-09-15T16:00:00Z',
+      },
+    },
+  ],
+  errorResponses: [
+    ...commonErrors,
+    {
+      statusCode: 404,
+      errorCode: 'NOT_FOUND',
+      message: 'Laundry order not found',
+      example: {
+        error: 'Laundry order not found',
+      },
+    },
+  ],
+  codeExamples: [
+    {
+      language: 'javascript',
+      label: 'JavaScript (Fetch)',
+      code: `const laundryId = 'ld10e840-e29b-41d4-a716-446655440001';
+const response = await fetch(\`https://www.jkkn.ai/api/api-management/campus-living/laundry/\${laundryId}\`, {
+  method: 'GET',
+  headers: {
+    'Authorization': 'Bearer your_api_key_here',
+    'Content-Type': 'application/json'
+  }
+});
+
+const laundryOrder = await response.json();
+console.log(laundryOrder);`,
+    },
+    {
+      language: 'curl',
+      label: 'cURL',
+      code: `curl -X GET "https://www.jkkn.ai/api/api-management/campus-living/laundry/ld10e840-e29b-41d4-a716-446655440001" \\
+  -H "Authorization: Bearer your_api_key_here" \\
+  -H "Content-Type: application/json"`,
+    },
+    {
+      language: 'python',
+      label: 'Python (Requests)',
+      code: `import requests
+
+laundry_id = "ld10e840-e29b-41d4-a716-446655440001"
+url = f"https://www.jkkn.ai/api/api-management/campus-living/laundry/{laundry_id}"
+headers = {
+    "Authorization": "Bearer your_api_key_here",
+    "Content-Type": "application/json"
+}
+
+response = requests.get(url, headers=headers)
+laundry_order = response.json()
+print(laundry_order)`,
+    },
+  ],
+  aiPrompts: [
+    {
+      title: 'Track a Specific Laundry Order',
+      category: 'data-retrieval',
+      complexity: 'beginner',
+      prompt:
+        'Using the MyJKKN Campus Living API, fetch a specific laundry order by ID to check its current status and any remarks.',
+      expectedOutput:
+        'Laundry order details with item_count, status, submitted_at, ready_at, and remarks.',
+      tags: ['laundry', 'single-record', 'tracking'],
+    },
+  ],
+  tags: ['laundry', 'by-id', 'details'],
+  notes: [
+    'Returns all fields from the hostel_laundry_orders table for the specified record',
+    'Returns 404 if the laundry order does not exist or belongs to a different organization',
+    'Status flow: submitted -> in_progress -> ready -> collected',
+  ],
+  relatedEndpoints: ['campus-living-laundry-list', 'campus-living-laundry-by-id-patch'],
+};
+
+const laundryByIdPatchEndpoint: ApiEndpoint = {
+  id: 'campus-living-laundry-by-id-patch',
+  module: 'campus-living' as any,
+  category: 'Housekeeping',
+  title: 'Update Laundry Order',
+  description:
+    'Update a specific laundry order. Use this to advance status (e.g., mark as ready or collected), update item count, or add remarks.',
+  method: 'PATCH',
+  path: '/api/api-management/campus-living/laundry/[id]',
+  authentication: writeAuthentication,
+  pathParameters: [
+    {
+      name: 'id',
+      type: 'string',
+      required: true,
+      description: 'Unique UUID of the laundry order to update',
+      example: 'ld10e840-e29b-41d4-a716-446655440001',
+    },
+  ],
+  requestBody: {
+    contentType: 'application/json',
+    schema: [
+      {
+        name: 'status',
+        type: 'string',
+        required: false,
+        description: 'Updated laundry order status',
+        example: 'collected',
+        enum: ['submitted', 'in_progress', 'ready', 'collected', 'cancelled'],
+      },
+      {
+        name: 'item_count',
+        type: 'number',
+        required: false,
+        description: 'Updated item count (if items were miscounted)',
+        example: 7,
+      },
+      {
+        name: 'remarks',
+        type: 'string',
+        required: false,
+        description: 'Remarks or notes about the order',
+        example: 'One shirt has a stain that could not be removed',
+      },
+    ],
+    example: {
+      status: 'collected',
+      remarks: 'All items collected by student',
+    },
+  },
+  successResponses: [
+    {
+      statusCode: 200,
+      description: 'Laundry order updated successfully',
+      contentType: 'json',
+      example: {
+        id: 'ld10e840-e29b-41d4-a716-446655440001',
+        learner_id: 'cc0e8400-e29b-41d4-a716-446655440007',
+        item_count: 8,
+        status: 'collected',
+        submitted_at: '2024-09-14T08:00:00Z',
+        ready_at: '2024-09-15T16:00:00Z',
+        collected_at: '2024-09-16T09:00:00Z',
+        remarks: 'All items collected by student',
+        created_at: '2024-09-14T08:00:00Z',
+        updated_at: '2024-09-16T09:00:00Z',
+      },
+    },
+  ],
+  errorResponses: [
+    ...commonErrors,
+    {
+      statusCode: 404,
+      errorCode: 'NOT_FOUND',
+      message: 'Laundry order not found',
+      example: {
+        error: 'Laundry order not found',
+      },
+    },
+  ],
+  codeExamples: [
+    {
+      language: 'javascript',
+      label: 'JavaScript (Fetch)',
+      code: `const laundryId = 'ld10e840-e29b-41d4-a716-446655440001';
+const response = await fetch(\`https://www.jkkn.ai/api/api-management/campus-living/laundry/\${laundryId}\`, {
+  method: 'PATCH',
+  headers: {
+    'Authorization': 'Bearer your_api_key_here',
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    status: 'collected',
+    remarks: 'All items collected by student'
+  })
+});
+
+const updatedOrder = await response.json();
+console.log(updatedOrder);`,
+    },
+    {
+      language: 'curl',
+      label: 'cURL',
+      code: `curl -X PATCH "https://www.jkkn.ai/api/api-management/campus-living/laundry/ld10e840-e29b-41d4-a716-446655440001" \\
+  -H "Authorization: Bearer your_api_key_here" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "status": "collected",
+    "remarks": "All items collected by student"
+  }'`,
+    },
+    {
+      language: 'python',
+      label: 'Python (Requests)',
+      code: `import requests
+
+laundry_id = "ld10e840-e29b-41d4-a716-446655440001"
+url = f"https://www.jkkn.ai/api/api-management/campus-living/laundry/{laundry_id}"
+headers = {
+    "Authorization": "Bearer your_api_key_here",
+    "Content-Type": "application/json"
+}
+payload = {
+    "status": "collected",
+    "remarks": "All items collected by student"
+}
+
+response = requests.patch(url, headers=headers, json=payload)
+updated_order = response.json()
+print(updated_order)`,
+    },
+  ],
+  aiPrompts: [
+    {
+      title: 'Mark Laundry Order as Collected',
+      category: 'automation',
+      complexity: 'beginner',
+      prompt:
+        'Using the MyJKKN Campus Living API, update a laundry order status to "collected" when the student picks up their clothes.',
+      expectedOutput:
+        'Updated laundry order with status "collected" and collected_at timestamp.',
+      tags: ['laundry', 'update', 'collected'],
+    },
+  ],
+  tags: ['laundry', 'update', 'write', 'by-id'],
+  notes: [
+    'Requires an API key with write permission',
+    'The id and institution_id fields cannot be modified via this endpoint',
+    'Only the fields provided in the request body are updated (partial update)',
+    'Status should follow the expected flow: submitted -> in_progress -> ready -> collected',
+  ],
+  relatedEndpoints: ['campus-living-laundry-list', 'campus-living-laundry-by-id-get'],
+};
+
+// =============================================================================
+// LEAVE REQUESTS BY ID ENDPOINTS (GET + PATCH)
+// =============================================================================
+
+const leaveByIdGetEndpoint: ApiEndpoint = {
+  id: 'campus-living-leave-by-id-get',
+  module: 'campus-living' as any,
+  category: 'Leave Requests',
+  title: 'Get Leave Request by ID',
+  description:
+    'Retrieve detailed information about a specific leave request by its unique ID.',
+  method: 'GET',
+  path: '/api/api-management/campus-living/leave-requests/[id]',
+  authentication: commonAuthentication,
+  pathParameters: [
+    {
+      name: 'id',
+      type: 'string',
+      required: true,
+      description: 'Unique UUID of the leave request',
+      example: 'lv10e840-e29b-41d4-a716-446655440001',
+    },
+  ],
+  successResponses: [
+    {
+      statusCode: 200,
+      description: 'Successfully retrieved leave request details',
+      contentType: 'json',
+      example: {
+        id: 'lv10e840-e29b-41d4-a716-446655440001',
+        learner_id: 'cc0e8400-e29b-41d4-a716-446655440007',
+        leave_type: 'weekend',
+        reason: 'Family function',
+        from_date: '2024-09-14',
+        to_date: '2024-09-15',
+        status: 'approved',
+        approved_by: 'Dr. Ramesh Kumar',
+        parent_phone: '9876543210',
+        destination: 'Chennai',
+        created_at: '2024-09-12T10:00:00Z',
+        updated_at: '2024-09-12T14:00:00Z',
+      },
+    },
+  ],
+  errorResponses: [
+    ...commonErrors,
+    {
+      statusCode: 404,
+      errorCode: 'NOT_FOUND',
+      message: 'Leave request not found',
+      example: {
+        error: 'Leave request not found',
+      },
+    },
+  ],
+  codeExamples: [
+    {
+      language: 'javascript',
+      label: 'JavaScript (Fetch)',
+      code: `const leaveId = 'lv10e840-e29b-41d4-a716-446655440001';
+const response = await fetch(\`https://www.jkkn.ai/api/api-management/campus-living/leave-requests/\${leaveId}\`, {
+  method: 'GET',
+  headers: {
+    'Authorization': 'Bearer your_api_key_here',
+    'Content-Type': 'application/json'
+  }
+});
+
+const leaveRequest = await response.json();
+console.log(leaveRequest);`,
+    },
+    {
+      language: 'curl',
+      label: 'cURL',
+      code: `curl -X GET "https://www.jkkn.ai/api/api-management/campus-living/leave-requests/lv10e840-e29b-41d4-a716-446655440001" \\
+  -H "Authorization: Bearer your_api_key_here" \\
+  -H "Content-Type: application/json"`,
+    },
+    {
+      language: 'python',
+      label: 'Python (Requests)',
+      code: `import requests
+
+leave_id = "lv10e840-e29b-41d4-a716-446655440001"
+url = f"https://www.jkkn.ai/api/api-management/campus-living/leave-requests/{leave_id}"
+headers = {
+    "Authorization": "Bearer your_api_key_here",
+    "Content-Type": "application/json"
+}
+
+response = requests.get(url, headers=headers)
+leave_request = response.json()
+print(leave_request)`,
+    },
+  ],
+  aiPrompts: [
+    {
+      title: 'Review a Leave Request',
+      category: 'data-retrieval',
+      complexity: 'beginner',
+      prompt:
+        'Using the MyJKKN Campus Living API, fetch a specific leave request by ID to review the details before approving or rejecting it.',
+      expectedOutput:
+        'Leave request details with leave_type, reason, from_date, to_date, status, and destination.',
+      tags: ['leave', 'single-record', 'review'],
+    },
+  ],
+  tags: ['leave-requests', 'by-id', 'details'],
+  notes: [
+    'Returns all fields from the hostel_leave_requests table for the specified record',
+    'Returns 404 if the leave request does not exist or belongs to a different organization',
+    'Useful for reviewing a leave request before approving or rejecting via PATCH',
+  ],
+  relatedEndpoints: ['campus-living-leave-list', 'campus-living-leave-by-id-patch'],
+};
+
+const leaveByIdPatchEndpoint: ApiEndpoint = {
+  id: 'campus-living-leave-by-id-patch',
+  module: 'campus-living' as any,
+  category: 'Leave Requests',
+  title: 'Update Leave Request',
+  description:
+    'Update a specific leave request. Use this to approve, reject, or cancel a leave request.',
+  method: 'PATCH',
+  path: '/api/api-management/campus-living/leave-requests/[id]',
+  authentication: writeAuthentication,
+  pathParameters: [
+    {
+      name: 'id',
+      type: 'string',
+      required: true,
+      description: 'Unique UUID of the leave request to update',
+      example: 'lv10e840-e29b-41d4-a716-446655440001',
+    },
+  ],
+  requestBody: {
+    contentType: 'application/json',
+    schema: [
+      {
+        name: 'status',
+        type: 'string',
+        required: false,
+        description: 'Updated leave request status (approve, reject, or cancel)',
+        example: 'approved',
+        enum: ['pending', 'approved', 'rejected', 'cancelled'],
+      },
+      {
+        name: 'approved_by',
+        type: 'string',
+        required: false,
+        description: 'Name of the person approving or rejecting the request',
+        example: 'Dr. Ramesh Kumar',
+      },
+      {
+        name: 'rejection_reason',
+        type: 'string',
+        required: false,
+        description: 'Reason for rejecting the leave request (required when status is rejected)',
+        example: 'Insufficient notice period',
+      },
+    ],
+    example: {
+      status: 'approved',
+      approved_by: 'Dr. Ramesh Kumar',
+    },
+  },
+  successResponses: [
+    {
+      statusCode: 200,
+      description: 'Leave request updated successfully',
+      contentType: 'json',
+      example: {
+        id: 'lv10e840-e29b-41d4-a716-446655440001',
+        learner_id: 'cc0e8400-e29b-41d4-a716-446655440007',
+        leave_type: 'weekend',
+        reason: 'Family function',
+        from_date: '2024-09-14',
+        to_date: '2024-09-15',
+        status: 'approved',
+        approved_by: 'Dr. Ramesh Kumar',
+        created_at: '2024-09-12T10:00:00Z',
+        updated_at: '2024-09-12T14:00:00Z',
+      },
+    },
+  ],
+  errorResponses: [
+    ...commonErrors,
+    {
+      statusCode: 404,
+      errorCode: 'NOT_FOUND',
+      message: 'Leave request not found',
+      example: {
+        error: 'Leave request not found',
+      },
+    },
+  ],
+  codeExamples: [
+    {
+      language: 'javascript',
+      label: 'JavaScript (Fetch)',
+      code: `const leaveId = 'lv10e840-e29b-41d4-a716-446655440001';
+const response = await fetch(\`https://www.jkkn.ai/api/api-management/campus-living/leave-requests/\${leaveId}\`, {
+  method: 'PATCH',
+  headers: {
+    'Authorization': 'Bearer your_api_key_here',
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    status: 'approved',
+    approved_by: 'Dr. Ramesh Kumar'
+  })
+});
+
+const updatedLeave = await response.json();
+console.log(updatedLeave);`,
+    },
+    {
+      language: 'curl',
+      label: 'cURL',
+      code: `curl -X PATCH "https://www.jkkn.ai/api/api-management/campus-living/leave-requests/lv10e840-e29b-41d4-a716-446655440001" \\
+  -H "Authorization: Bearer your_api_key_here" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "status": "approved",
+    "approved_by": "Dr. Ramesh Kumar"
+  }'`,
+    },
+    {
+      language: 'python',
+      label: 'Python (Requests)',
+      code: `import requests
+
+leave_id = "lv10e840-e29b-41d4-a716-446655440001"
+url = f"https://www.jkkn.ai/api/api-management/campus-living/leave-requests/{leave_id}"
+headers = {
+    "Authorization": "Bearer your_api_key_here",
+    "Content-Type": "application/json"
+}
+payload = {
+    "status": "approved",
+    "approved_by": "Dr. Ramesh Kumar"
+}
+
+response = requests.patch(url, headers=headers, json=payload)
+updated_leave = response.json()
+print(updated_leave)`,
+    },
+  ],
+  aiPrompts: [
+    {
+      title: 'Approve or Reject a Leave Request',
+      category: 'automation',
+      complexity: 'beginner',
+      prompt:
+        'Using the MyJKKN Campus Living API, approve a pending leave request by updating its status and recording the approver.',
+      expectedOutput:
+        'Updated leave request with status "approved" and approved_by field populated.',
+      tags: ['leave', 'update', 'approval'],
+    },
+  ],
+  tags: ['leave-requests', 'update', 'write', 'by-id', 'approval'],
+  notes: [
+    'Requires an API key with write permission',
+    'The id and institution_id fields cannot be modified via this endpoint',
+    'Only the fields provided in the request body are updated (partial update)',
+    'When rejecting, provide a rejection_reason for transparency',
+    'Only wardens and admins should approve/reject leave requests',
+  ],
+  relatedEndpoints: ['campus-living-leave-list', 'campus-living-leave-by-id-get'],
+};
+
+// =============================================================================
+// ONBOARDING ENDPOINTS (GET + PATCH)
+// =============================================================================
+
+const onboardingListEndpoint: ApiEndpoint = {
+  id: 'campus-living-onboarding-list',
+  module: 'campus-living' as any,
+  category: 'Onboarding',
+  title: 'List Onboarding Checklists',
+  description:
+    'Retrieve a paginated list of onboarding checklists for hostel residents with optional filtering by learner and status.',
+  method: 'GET',
+  path: '/api/api-management/campus-living/onboarding',
+  authentication: commonAuthentication,
+  queryParameters: [
+    ...paginationParams,
+    {
+      name: 'learner_id',
+      type: 'string',
+      required: false,
+      description: 'Filter by learner UUID to get a specific student\'s onboarding checklist',
+      example: 'cc0e8400-e29b-41d4-a716-446655440007',
+    },
+    {
+      name: 'status',
+      type: 'string',
+      required: false,
+      description: 'Filter by onboarding status',
+      example: 'in_progress',
+      enum: ['not_started', 'in_progress', 'completed'],
+    },
+  ],
+  successResponses: [
+    {
+      statusCode: 200,
+      description: 'Paginated list of onboarding checklists',
+      contentType: 'json',
+      example: {
+        data: [
+          {
+            id: 'ob10e840-e29b-41d4-a716-446655440001',
+            learner_id: 'cc0e8400-e29b-41d4-a716-446655440007',
+            status: 'in_progress',
+            items_completed: 5,
+            items_total: 8,
+            document_submitted: true,
+            room_assigned: true,
+            id_card_issued: false,
+            mess_registered: true,
+            orientation_attended: true,
+            created_at: '2024-08-01T00:00:00Z',
+            updated_at: '2024-08-05T10:00:00Z',
+          },
+        ],
+        count: 50,
+        pagination: {
+          page: 1,
+          limit: 50,
+          total: 50,
+          totalPages: 1,
+        },
+      },
+    },
+  ],
+  errorResponses: commonErrors,
+  codeExamples: [
+    {
+      language: 'javascript',
+      label: 'JavaScript (Fetch)',
+      code: `const response = await fetch('https://www.jkkn.ai/api/api-management/campus-living/onboarding?page=1&limit=50&status=in_progress', {
+  method: 'GET',
+  headers: {
+    'Authorization': 'Bearer your_api_key_here',
+    'Content-Type': 'application/json'
+  }
+});
+
+const data = await response.json();
+console.log(data.data); // Array of onboarding checklists
+console.log(data.pagination); // Pagination info`,
+    },
+    {
+      language: 'curl',
+      label: 'cURL',
+      code: `curl -X GET "https://www.jkkn.ai/api/api-management/campus-living/onboarding?page=1&limit=50&status=in_progress" \\
+  -H "Authorization: Bearer your_api_key_here" \\
+  -H "Content-Type: application/json"`,
+    },
+    {
+      language: 'python',
+      label: 'Python (Requests)',
+      code: `import requests
+
+url = "https://www.jkkn.ai/api/api-management/campus-living/onboarding"
+headers = {
+    "Authorization": "Bearer your_api_key_here",
+    "Content-Type": "application/json"
+}
+params = {"page": 1, "limit": 50, "status": "in_progress"}
+
+response = requests.get(url, headers=headers, params=params)
+data = response.json()
+print(data["data"])  # Array of onboarding checklists
+print(data["pagination"])  # Pagination info`,
+    },
+  ],
+  aiPrompts: [
+    {
+      title: 'Track Incomplete Onboarding',
+      category: 'data-retrieval',
+      complexity: 'beginner',
+      prompt:
+        'Using the MyJKKN Campus Living API, fetch all in-progress onboarding checklists to identify students who have not completed their hostel check-in process.',
+      expectedOutput:
+        'A list of incomplete onboarding checklists with items_completed, items_total, and specific task statuses.',
+      tags: ['onboarding', 'tracking', 'incomplete'],
+    },
+  ],
+  tags: ['onboarding', 'pagination', 'filtering', 'checklist'],
+  notes: [
+    'Onboarding checklists track the hostel check-in process for new residents',
+    'Status: not_started, in_progress, completed',
+    'Each checklist contains boolean fields for individual onboarding tasks',
+    'Results are ordered by created_at in descending order',
+  ],
+};
+
+const onboardingPatchEndpoint: ApiEndpoint = {
+  id: 'campus-living-onboarding-patch',
+  module: 'campus-living' as any,
+  category: 'Onboarding',
+  title: 'Update Onboarding Checklist',
+  description:
+    'Update a specific onboarding checklist item. Provide the checklist ID in the request body along with the fields to update.',
+  method: 'PATCH',
+  path: '/api/api-management/campus-living/onboarding',
+  authentication: writeAuthentication,
+  requestBody: {
+    contentType: 'application/json',
+    schema: [
+      {
+        name: 'id',
+        type: 'string',
+        required: true,
+        description: 'UUID of the onboarding checklist to update',
+        example: 'ob10e840-e29b-41d4-a716-446655440001',
+      },
+      {
+        name: 'status',
+        type: 'string',
+        required: false,
+        description: 'Updated onboarding status',
+        example: 'completed',
+        enum: ['not_started', 'in_progress', 'completed'],
+      },
+      {
+        name: 'document_submitted',
+        type: 'boolean',
+        required: false,
+        description: 'Whether documents have been submitted',
+        example: true,
+      },
+      {
+        name: 'id_card_issued',
+        type: 'boolean',
+        required: false,
+        description: 'Whether hostel ID card has been issued',
+        example: true,
+      },
+      {
+        name: 'mess_registered',
+        type: 'boolean',
+        required: false,
+        description: 'Whether student is registered for mess',
+        example: true,
+      },
+      {
+        name: 'orientation_attended',
+        type: 'boolean',
+        required: false,
+        description: 'Whether student attended orientation',
+        example: true,
+      },
+    ],
+    example: {
+      id: 'ob10e840-e29b-41d4-a716-446655440001',
+      id_card_issued: true,
+      status: 'completed',
+    },
+  },
+  successResponses: [
+    {
+      statusCode: 200,
+      description: 'Onboarding checklist updated successfully',
+      contentType: 'json',
+      example: {
+        id: 'ob10e840-e29b-41d4-a716-446655440001',
+        learner_id: 'cc0e8400-e29b-41d4-a716-446655440007',
+        status: 'completed',
+        document_submitted: true,
+        room_assigned: true,
+        id_card_issued: true,
+        mess_registered: true,
+        orientation_attended: true,
+        created_at: '2024-08-01T00:00:00Z',
+        updated_at: '2024-08-06T10:00:00Z',
+      },
+    },
+  ],
+  errorResponses: [
+    ...commonErrors,
+    {
+      statusCode: 400,
+      errorCode: 'VALIDATION_ERROR',
+      message: 'Checklist ID is required',
+      example: {
+        error: 'Checklist ID is required',
+      },
+    },
+    {
+      statusCode: 404,
+      errorCode: 'NOT_FOUND',
+      message: 'Checklist not found',
+      example: {
+        error: 'Checklist not found',
+      },
+    },
+  ],
+  codeExamples: [
+    {
+      language: 'javascript',
+      label: 'JavaScript (Fetch)',
+      code: `const response = await fetch('https://www.jkkn.ai/api/api-management/campus-living/onboarding', {
+  method: 'PATCH',
+  headers: {
+    'Authorization': 'Bearer your_api_key_here',
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    id: 'ob10e840-e29b-41d4-a716-446655440001',
+    id_card_issued: true,
+    status: 'completed'
+  })
+});
+
+const updatedChecklist = await response.json();
+console.log(updatedChecklist);`,
+    },
+    {
+      language: 'curl',
+      label: 'cURL',
+      code: `curl -X PATCH "https://www.jkkn.ai/api/api-management/campus-living/onboarding" \\
+  -H "Authorization: Bearer your_api_key_here" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "id": "ob10e840-e29b-41d4-a716-446655440001",
+    "id_card_issued": true,
+    "status": "completed"
+  }'`,
+    },
+    {
+      language: 'python',
+      label: 'Python (Requests)',
+      code: `import requests
+
+url = "https://www.jkkn.ai/api/api-management/campus-living/onboarding"
+headers = {
+    "Authorization": "Bearer your_api_key_here",
+    "Content-Type": "application/json"
+}
+payload = {
+    "id": "ob10e840-e29b-41d4-a716-446655440001",
+    "id_card_issued": True,
+    "status": "completed"
+}
+
+response = requests.patch(url, headers=headers, json=payload)
+updated_checklist = response.json()
+print(updated_checklist)`,
+    },
+  ],
+  aiPrompts: [
+    {
+      title: 'Complete Onboarding Checklist Item',
+      category: 'automation',
+      complexity: 'beginner',
+      prompt:
+        'Using the MyJKKN Campus Living API, update an onboarding checklist to mark specific items as completed and update the overall status.',
+      expectedOutput:
+        'Updated onboarding checklist with the modified fields and updated_at timestamp.',
+      tags: ['onboarding', 'update', 'checklist'],
+    },
+  ],
+  tags: ['onboarding', 'update', 'write', 'checklist'],
+  notes: [
+    'Requires an API key with write permission',
+    'The checklist ID must be provided in the request body (not as a URL parameter)',
+    'The institution_id field cannot be modified via this endpoint',
+    'Only the fields provided in the request body are updated (partial update)',
+  ],
+  relatedEndpoints: ['campus-living-onboarding-list'],
+};
+
+// =============================================================================
+// STAFF ENDPOINTS
+// =============================================================================
+
+const staffListEndpoint: ApiEndpoint = {
+  id: 'campus-living-staff-list',
+  module: 'campus-living' as any,
+  category: 'Staff',
+  title: 'List Hostel Staff',
+  description:
+    'Retrieve a paginated list of hostel wardens and staff with optional filtering by block, designation, and active status. Includes assigned block information.',
+  method: 'GET',
+  path: '/api/api-management/campus-living/staff',
+  authentication: commonAuthentication,
+  queryParameters: [
+    ...paginationParams,
+    {
+      name: 'block_id',
+      type: 'string',
+      required: false,
+      description: 'Filter by assigned hostel block UUID',
+      example: 'b10e8400-e29b-41d4-a716-446655440001',
+    },
+    {
+      name: 'designation',
+      type: 'string',
+      required: false,
+      description: 'Filter by staff designation',
+      example: 'Chief Warden',
+      enum: ['Chief Warden', 'Warden', 'Assistant Warden', 'Hostel Manager', 'Security'],
+    },
+    {
+      name: 'is_active',
+      type: 'string',
+      required: false,
+      description: 'Filter by active status (true or false)',
+      example: 'true',
+      enum: ['true', 'false'],
+    },
+  ],
+  successResponses: [
+    {
+      statusCode: 200,
+      description: 'Paginated list of hostel staff',
+      contentType: 'json',
+      example: {
+        data: [
+          {
+            id: 'st10e840-e29b-41d4-a716-446655440001',
+            name: 'Dr. Ramesh Kumar',
+            phone: '9876543210',
+            email: 'ramesh.kumar@jkkn.ac.in',
+            designation: 'Chief Warden',
+            block_id: 'b10e8400-e29b-41d4-a716-446655440001',
+            is_active: true,
+            hostel_blocks: {
+              id: 'b10e8400-e29b-41d4-a716-446655440001',
+              name: 'Block A',
+              code: 'BLK-A',
+            },
+            created_at: '2024-01-01T00:00:00Z',
+            updated_at: '2024-01-01T00:00:00Z',
+          },
+        ],
+        count: 15,
+        pagination: {
+          page: 1,
+          limit: 50,
+          total: 15,
+          totalPages: 1,
+        },
+      },
+    },
+  ],
+  errorResponses: commonErrors,
+  codeExamples: [
+    {
+      language: 'javascript',
+      label: 'JavaScript (Fetch)',
+      code: `const response = await fetch('https://www.jkkn.ai/api/api-management/campus-living/staff?page=1&limit=50&is_active=true', {
+  method: 'GET',
+  headers: {
+    'Authorization': 'Bearer your_api_key_here',
+    'Content-Type': 'application/json'
+  }
+});
+
+const data = await response.json();
+console.log(data.data); // Array of hostel staff
+console.log(data.pagination); // Pagination info`,
+    },
+    {
+      language: 'curl',
+      label: 'cURL',
+      code: `curl -X GET "https://www.jkkn.ai/api/api-management/campus-living/staff?page=1&limit=50&is_active=true" \\
+  -H "Authorization: Bearer your_api_key_here" \\
+  -H "Content-Type: application/json"`,
+    },
+    {
+      language: 'python',
+      label: 'Python (Requests)',
+      code: `import requests
+
+url = "https://www.jkkn.ai/api/api-management/campus-living/staff"
+headers = {
+    "Authorization": "Bearer your_api_key_here",
+    "Content-Type": "application/json"
+}
+params = {"page": 1, "limit": 50, "is_active": "true"}
+
+response = requests.get(url, headers=headers, params=params)
+data = response.json()
+print(data["data"])  # Array of hostel staff
+print(data["pagination"])  # Pagination info`,
+    },
+  ],
+  aiPrompts: [
+    {
+      title: 'Get Warden Directory for a Block',
+      category: 'data-retrieval',
+      complexity: 'beginner',
+      prompt:
+        'Using the MyJKKN Campus Living API, fetch all active wardens assigned to a specific hostel block to build a contact directory.',
+      expectedOutput:
+        'A list of active staff with name, phone, email, designation, and assigned block details.',
+      tags: ['staff', 'wardens', 'directory'],
+    },
+  ],
+  tags: ['staff', 'wardens', 'pagination', 'filtering'],
+  notes: [
+    'Staff data comes from the hostel_wardens table',
+    'Includes joined hostel_blocks data (id, name, code) for each staff member',
+    'Designations include: Chief Warden, Warden, Assistant Warden, Hostel Manager, Security',
+    'Results are ordered by name in ascending order',
+    'Use is_active=true to get only currently active staff members',
+  ],
+};
+
+// =============================================================================
+// SAFETY EQUIPMENT ENDPOINTS (GET + PATCH)
+// =============================================================================
+
+const safetyEquipmentListEndpoint: ApiEndpoint = {
+  id: 'campus-living-safety-equipment-list',
+  module: 'campus-living' as any,
+  category: 'Health & Safety',
+  title: 'List Safety Equipment',
+  description:
+    'Retrieve a paginated list of safety equipment records (fire extinguishers, first aid kits, etc.) with optional filtering by type, status, and block.',
+  method: 'GET',
+  path: '/api/api-management/campus-living/safety-equipment',
+  authentication: commonAuthentication,
+  queryParameters: [
+    ...paginationParams,
+    {
+      name: 'type',
+      type: 'string',
+      required: false,
+      description: 'Filter by equipment type',
+      example: 'fire_extinguisher',
+      enum: ['fire_extinguisher', 'first_aid_kit', 'smoke_detector', 'emergency_light', 'cctv', 'other'],
+    },
+    {
+      name: 'status',
+      type: 'string',
+      required: false,
+      description: 'Filter by equipment status',
+      example: 'operational',
+      enum: ['operational', 'needs_maintenance', 'expired', 'replaced'],
+    },
+    {
+      name: 'block_id',
+      type: 'string',
+      required: false,
+      description: 'Filter by hostel block UUID',
+      example: 'b10e8400-e29b-41d4-a716-446655440001',
+    },
+  ],
+  successResponses: [
+    {
+      statusCode: 200,
+      description: 'Paginated list of safety equipment',
+      contentType: 'json',
+      example: {
+        data: [
+          {
+            id: 'se10e840-e29b-41d4-a716-446655440001',
+            equipment_type: 'fire_extinguisher',
+            location: 'Block A - Floor 1 Corridor',
+            block_id: 'b10e8400-e29b-41d4-a716-446655440001',
+            status: 'operational',
+            last_inspected: '2024-09-01',
+            next_inspection_due: '2024-12-01',
+            serial_number: 'FE-2024-001',
+            created_at: '2024-01-01T00:00:00Z',
+            updated_at: '2024-09-01T00:00:00Z',
+          },
+        ],
+        count: 40,
+        pagination: {
+          page: 1,
+          limit: 50,
+          total: 40,
+          totalPages: 1,
+        },
+      },
+    },
+  ],
+  errorResponses: commonErrors,
+  codeExamples: [
+    {
+      language: 'javascript',
+      label: 'JavaScript (Fetch)',
+      code: `const response = await fetch('https://www.jkkn.ai/api/api-management/campus-living/safety-equipment?page=1&limit=50&status=needs_maintenance', {
+  method: 'GET',
+  headers: {
+    'Authorization': 'Bearer your_api_key_here',
+    'Content-Type': 'application/json'
+  }
+});
+
+const data = await response.json();
+console.log(data.data); // Array of safety equipment
+console.log(data.pagination); // Pagination info`,
+    },
+    {
+      language: 'curl',
+      label: 'cURL',
+      code: `curl -X GET "https://www.jkkn.ai/api/api-management/campus-living/safety-equipment?page=1&limit=50&status=needs_maintenance" \\
+  -H "Authorization: Bearer your_api_key_here" \\
+  -H "Content-Type: application/json"`,
+    },
+    {
+      language: 'python',
+      label: 'Python (Requests)',
+      code: `import requests
+
+url = "https://www.jkkn.ai/api/api-management/campus-living/safety-equipment"
+headers = {
+    "Authorization": "Bearer your_api_key_here",
+    "Content-Type": "application/json"
+}
+params = {"page": 1, "limit": 50, "status": "needs_maintenance"}
+
+response = requests.get(url, headers=headers, params=params)
+data = response.json()
+print(data["data"])  # Array of safety equipment
+print(data["pagination"])  # Pagination info`,
+    },
+  ],
+  aiPrompts: [
+    {
+      title: 'Audit Safety Equipment Expiry',
+      category: 'analysis',
+      complexity: 'intermediate',
+      prompt:
+        'Using the MyJKKN Campus Living API, fetch all safety equipment and identify items that are expired or due for inspection soon, generating a maintenance priority list.',
+      expectedOutput:
+        'A prioritized list of safety equipment sorted by next_inspection_due date, highlighting expired and needs_maintenance items.',
+      tags: ['safety', 'equipment', 'audit', 'compliance'],
+    },
+  ],
+  tags: ['safety-equipment', 'health-safety', 'pagination', 'filtering'],
+  notes: [
+    'Safety equipment records track physical safety devices installed across hostel blocks',
+    'Equipment types include fire extinguishers, first aid kits, smoke detectors, emergency lights, and CCTV cameras',
+    'Status: operational (working), needs_maintenance (requires service), expired (past service date), replaced (decommissioned)',
+    'Regular inspection tracking via last_inspected and next_inspection_due fields',
+  ],
+};
+
+const safetyEquipmentPatchEndpoint: ApiEndpoint = {
+  id: 'campus-living-safety-equipment-patch',
+  module: 'campus-living' as any,
+  category: 'Health & Safety',
+  title: 'Update Safety Equipment',
+  description:
+    'Update a safety equipment record. Use this to update inspection dates, status, or maintenance notes after a safety audit.',
+  method: 'PATCH',
+  path: '/api/api-management/campus-living/safety-equipment',
+  authentication: writeAuthentication,
+  requestBody: {
+    contentType: 'application/json',
+    schema: [
+      {
+        name: 'id',
+        type: 'string',
+        required: true,
+        description: 'UUID of the safety equipment record to update',
+        example: 'se10e840-e29b-41d4-a716-446655440001',
+      },
+      {
+        name: 'status',
+        type: 'string',
+        required: false,
+        description: 'Updated equipment status',
+        example: 'operational',
+        enum: ['operational', 'needs_maintenance', 'expired', 'replaced'],
+      },
+      {
+        name: 'last_inspected',
+        type: 'string',
+        required: false,
+        description: 'Date of last inspection (YYYY-MM-DD)',
+        example: '2024-09-15',
+      },
+      {
+        name: 'next_inspection_due',
+        type: 'string',
+        required: false,
+        description: 'Date of next inspection due (YYYY-MM-DD)',
+        example: '2024-12-15',
+      },
+      {
+        name: 'notes',
+        type: 'string',
+        required: false,
+        description: 'Maintenance or inspection notes',
+        example: 'Pressure gauge checked. Fully functional.',
+      },
+    ],
+    example: {
+      id: 'se10e840-e29b-41d4-a716-446655440001',
+      status: 'operational',
+      last_inspected: '2024-09-15',
+      next_inspection_due: '2024-12-15',
+      notes: 'Pressure gauge checked. Fully functional.',
+    },
+  },
+  successResponses: [
+    {
+      statusCode: 200,
+      description: 'Safety equipment record updated successfully',
+      contentType: 'json',
+      example: {
+        id: 'se10e840-e29b-41d4-a716-446655440001',
+        equipment_type: 'fire_extinguisher',
+        location: 'Block A - Floor 1 Corridor',
+        status: 'operational',
+        last_inspected: '2024-09-15',
+        next_inspection_due: '2024-12-15',
+        notes: 'Pressure gauge checked. Fully functional.',
+        created_at: '2024-01-01T00:00:00Z',
+        updated_at: '2024-09-15T10:00:00Z',
+      },
+    },
+  ],
+  errorResponses: [
+    ...commonErrors,
+    {
+      statusCode: 400,
+      errorCode: 'VALIDATION_ERROR',
+      message: 'Equipment ID is required',
+      example: {
+        error: 'Equipment ID is required',
+      },
+    },
+    {
+      statusCode: 404,
+      errorCode: 'NOT_FOUND',
+      message: 'Safety equipment not found',
+      example: {
+        error: 'Safety equipment not found',
+      },
+    },
+  ],
+  codeExamples: [
+    {
+      language: 'javascript',
+      label: 'JavaScript (Fetch)',
+      code: `const response = await fetch('https://www.jkkn.ai/api/api-management/campus-living/safety-equipment', {
+  method: 'PATCH',
+  headers: {
+    'Authorization': 'Bearer your_api_key_here',
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    id: 'se10e840-e29b-41d4-a716-446655440001',
+    status: 'operational',
+    last_inspected: '2024-09-15',
+    next_inspection_due: '2024-12-15'
+  })
+});
+
+const updatedEquipment = await response.json();
+console.log(updatedEquipment);`,
+    },
+    {
+      language: 'curl',
+      label: 'cURL',
+      code: `curl -X PATCH "https://www.jkkn.ai/api/api-management/campus-living/safety-equipment" \\
+  -H "Authorization: Bearer your_api_key_here" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "id": "se10e840-e29b-41d4-a716-446655440001",
+    "status": "operational",
+    "last_inspected": "2024-09-15",
+    "next_inspection_due": "2024-12-15"
+  }'`,
+    },
+    {
+      language: 'python',
+      label: 'Python (Requests)',
+      code: `import requests
+
+url = "https://www.jkkn.ai/api/api-management/campus-living/safety-equipment"
+headers = {
+    "Authorization": "Bearer your_api_key_here",
+    "Content-Type": "application/json"
+}
+payload = {
+    "id": "se10e840-e29b-41d4-a716-446655440001",
+    "status": "operational",
+    "last_inspected": "2024-09-15",
+    "next_inspection_due": "2024-12-15"
+}
+
+response = requests.patch(url, headers=headers, json=payload)
+updated_equipment = response.json()
+print(updated_equipment)`,
+    },
+  ],
+  aiPrompts: [
+    {
+      title: 'Log Safety Equipment Inspection',
+      category: 'automation',
+      complexity: 'beginner',
+      prompt:
+        'Using the MyJKKN Campus Living API, update a safety equipment record after completing an inspection by setting the last_inspected date and scheduling the next inspection.',
+      expectedOutput:
+        'Updated safety equipment record with new last_inspected, next_inspection_due, and status.',
+      tags: ['safety', 'equipment', 'inspection', 'update'],
+    },
+  ],
+  tags: ['safety-equipment', 'update', 'write', 'health-safety'],
+  notes: [
+    'Requires an API key with write permission',
+    'The equipment ID must be provided in the request body',
+    'The institution_id field cannot be modified via this endpoint',
+    'Only the fields provided in the request body are updated (partial update)',
+    'Dates should be in YYYY-MM-DD format',
+  ],
+  relatedEndpoints: ['campus-living-safety-equipment-list'],
+};
+
+// =============================================================================
+// EMERGENCY CONTACTS ENDPOINTS (GET + POST + DELETE)
+// =============================================================================
+
+const emergencyContactsListEndpoint: ApiEndpoint = {
+  id: 'campus-living-emergency-contacts-list',
+  module: 'campus-living' as any,
+  category: 'Health & Safety',
+  title: 'List Emergency Contacts',
+  description:
+    'Retrieve a paginated list of emergency contacts for the hostel including wardens, medical staff, security, and external emergency services.',
+  method: 'GET',
+  path: '/api/api-management/campus-living/emergency-contacts',
+  authentication: commonAuthentication,
+  queryParameters: [
+    ...paginationParams,
+    {
+      name: 'category',
+      type: 'string',
+      required: false,
+      description: 'Filter by contact category',
+      example: 'medical',
+      enum: ['medical', 'security', 'warden', 'fire', 'police', 'ambulance', 'administration', 'other'],
+    },
+    {
+      name: 'block_id',
+      type: 'string',
+      required: false,
+      description: 'Filter by hostel block UUID (for block-specific contacts)',
+      example: 'b10e8400-e29b-41d4-a716-446655440001',
+    },
+  ],
+  successResponses: [
+    {
+      statusCode: 200,
+      description: 'Paginated list of emergency contacts',
+      contentType: 'json',
+      example: {
+        data: [
+          {
+            id: 'ec10e840-e29b-41d4-a716-446655440001',
+            name: 'Dr. Ramesh Kumar',
+            phone: '9876543210',
+            alternate_phone: '9876543211',
+            category: 'warden',
+            designation: 'Chief Warden',
+            block_id: 'b10e8400-e29b-41d4-a716-446655440001',
+            block_name: 'Block A',
+            is_primary: true,
+            available_hours: '24/7',
+            created_at: '2024-01-01T00:00:00Z',
+            updated_at: '2024-01-01T00:00:00Z',
+          },
+          {
+            id: 'ec10e840-e29b-41d4-a716-446655440002',
+            name: 'City Hospital Ambulance',
+            phone: '108',
+            alternate_phone: null,
+            category: 'ambulance',
+            designation: 'Emergency Services',
+            block_id: null,
+            block_name: null,
+            is_primary: true,
+            available_hours: '24/7',
+            created_at: '2024-01-01T00:00:00Z',
+            updated_at: '2024-01-01T00:00:00Z',
+          },
+        ],
+        count: 20,
+        pagination: {
+          page: 1,
+          limit: 50,
+          total: 20,
+          totalPages: 1,
+        },
+      },
+    },
+  ],
+  errorResponses: commonErrors,
+  codeExamples: [
+    {
+      language: 'javascript',
+      label: 'JavaScript (Fetch)',
+      code: `const response = await fetch('https://www.jkkn.ai/api/api-management/campus-living/emergency-contacts?page=1&limit=50&category=medical', {
+  method: 'GET',
+  headers: {
+    'Authorization': 'Bearer your_api_key_here',
+    'Content-Type': 'application/json'
+  }
+});
+
+const data = await response.json();
+console.log(data.data); // Array of emergency contacts
+console.log(data.pagination); // Pagination info`,
+    },
+    {
+      language: 'curl',
+      label: 'cURL',
+      code: `curl -X GET "https://www.jkkn.ai/api/api-management/campus-living/emergency-contacts?page=1&limit=50&category=medical" \\
+  -H "Authorization: Bearer your_api_key_here" \\
+  -H "Content-Type: application/json"`,
+    },
+    {
+      language: 'python',
+      label: 'Python (Requests)',
+      code: `import requests
+
+url = "https://www.jkkn.ai/api/api-management/campus-living/emergency-contacts"
+headers = {
+    "Authorization": "Bearer your_api_key_here",
+    "Content-Type": "application/json"
+}
+params = {"page": 1, "limit": 50, "category": "medical"}
+
+response = requests.get(url, headers=headers, params=params)
+data = response.json()
+print(data["data"])  # Array of emergency contacts
+print(data["pagination"])  # Pagination info`,
+    },
+  ],
+  aiPrompts: [
+    {
+      title: 'Build Emergency Contact Directory',
+      category: 'data-retrieval',
+      complexity: 'beginner',
+      prompt:
+        'Using the MyJKKN Campus Living API, fetch all emergency contacts and organize them by category to create a printable emergency directory for hostel notice boards.',
+      expectedOutput:
+        'A categorized list of emergency contacts with name, phone, category, designation, and available_hours.',
+      tags: ['emergency', 'contacts', 'directory', 'safety'],
+    },
+  ],
+  tags: ['emergency-contacts', 'health-safety', 'pagination', 'filtering'],
+  notes: [
+    'Emergency contacts include both internal staff (wardens, security) and external services (ambulance, police, fire)',
+    'Contacts with block_id are specific to that block; contacts without block_id are institution-wide',
+    'is_primary indicates the first point of contact for that category',
+    'Results are ordered by category and is_primary (primary contacts first)',
+  ],
+};
+
+const emergencyContactsCreateEndpoint: ApiEndpoint = {
+  id: 'campus-living-emergency-contacts-create',
+  module: 'campus-living' as any,
+  category: 'Health & Safety',
+  title: 'Create Emergency Contact',
+  description:
+    'Add a new emergency contact to the hostel directory.',
+  method: 'POST',
+  path: '/api/api-management/campus-living/emergency-contacts',
+  authentication: writeAuthentication,
+  requestBody: {
+    contentType: 'application/json',
+    schema: [
+      {
+        name: 'name',
+        type: 'string',
+        required: true,
+        description: 'Full name or service name of the emergency contact',
+        example: 'Dr. Priya Sharma',
+      },
+      {
+        name: 'phone',
+        type: 'string',
+        required: true,
+        description: 'Primary phone number',
+        example: '9876543220',
+      },
+      {
+        name: 'alternate_phone',
+        type: 'string',
+        required: false,
+        description: 'Alternate phone number',
+        example: '9876543221',
+      },
+      {
+        name: 'category',
+        type: 'string',
+        required: true,
+        description: 'Category of the emergency contact',
+        example: 'medical',
+        enum: ['medical', 'security', 'warden', 'fire', 'police', 'ambulance', 'administration', 'other'],
+      },
+      {
+        name: 'designation',
+        type: 'string',
+        required: false,
+        description: 'Designation or role',
+        example: 'Hostel Doctor',
+      },
+      {
+        name: 'block_id',
+        type: 'string',
+        required: false,
+        description: 'UUID of the block this contact is assigned to (omit for institution-wide contacts)',
+        example: 'b10e8400-e29b-41d4-a716-446655440001',
+      },
+      {
+        name: 'is_primary',
+        type: 'boolean',
+        required: false,
+        description: 'Whether this is the primary contact for the category',
+        example: true,
+      },
+      {
+        name: 'available_hours',
+        type: 'string',
+        required: false,
+        description: 'Hours of availability',
+        example: '8:00 AM - 8:00 PM',
+      },
+    ],
+    example: {
+      name: 'Dr. Priya Sharma',
+      phone: '9876543220',
+      category: 'medical',
+      designation: 'Hostel Doctor',
+      is_primary: true,
+      available_hours: '8:00 AM - 8:00 PM',
+    },
+  },
+  successResponses: [
+    {
+      statusCode: 201,
+      description: 'Emergency contact created successfully',
+      contentType: 'json',
+      example: {
+        id: 'ec10e840-e29b-41d4-a716-446655440003',
+        name: 'Dr. Priya Sharma',
+        phone: '9876543220',
+        category: 'medical',
+        designation: 'Hostel Doctor',
+        is_primary: true,
+        available_hours: '8:00 AM - 8:00 PM',
+        block_id: null,
+        created_at: '2024-09-15T10:00:00Z',
+        updated_at: '2024-09-15T10:00:00Z',
+      },
+    },
+  ],
+  errorResponses: [
+    ...commonErrors,
+    {
+      statusCode: 400,
+      errorCode: 'VALIDATION_ERROR',
+      message: 'Invalid request body',
+      example: {
+        error: 'name, phone, and category are required',
+      },
+    },
+  ],
+  codeExamples: [
+    {
+      language: 'javascript',
+      label: 'JavaScript (Fetch)',
+      code: `const response = await fetch('https://www.jkkn.ai/api/api-management/campus-living/emergency-contacts', {
+  method: 'POST',
+  headers: {
+    'Authorization': 'Bearer your_api_key_here',
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    name: 'Dr. Priya Sharma',
+    phone: '9876543220',
+    category: 'medical',
+    designation: 'Hostel Doctor',
+    is_primary: true,
+    available_hours: '8:00 AM - 8:00 PM'
+  })
+});
+
+const newContact = await response.json();
+console.log(newContact);`,
+    },
+    {
+      language: 'curl',
+      label: 'cURL',
+      code: `curl -X POST "https://www.jkkn.ai/api/api-management/campus-living/emergency-contacts" \\
+  -H "Authorization: Bearer your_api_key_here" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "name": "Dr. Priya Sharma",
+    "phone": "9876543220",
+    "category": "medical",
+    "designation": "Hostel Doctor",
+    "is_primary": true,
+    "available_hours": "8:00 AM - 8:00 PM"
+  }'`,
+    },
+    {
+      language: 'python',
+      label: 'Python (Requests)',
+      code: `import requests
+
+url = "https://www.jkkn.ai/api/api-management/campus-living/emergency-contacts"
+headers = {
+    "Authorization": "Bearer your_api_key_here",
+    "Content-Type": "application/json"
+}
+payload = {
+    "name": "Dr. Priya Sharma",
+    "phone": "9876543220",
+    "category": "medical",
+    "designation": "Hostel Doctor",
+    "is_primary": True,
+    "available_hours": "8:00 AM - 8:00 PM"
+}
+
+response = requests.post(url, headers=headers, json=payload)
+new_contact = response.json()
+print(new_contact)`,
+    },
+  ],
+  aiPrompts: [
+    {
+      title: 'Add a New Emergency Contact',
+      category: 'automation',
+      complexity: 'beginner',
+      prompt:
+        'Using the MyJKKN Campus Living API, add a new medical emergency contact for the hostel with their phone number and availability.',
+      expectedOutput:
+        'A newly created emergency contact record with name, phone, category, and available_hours.',
+      tags: ['emergency', 'contacts', 'create'],
+    },
+  ],
+  tags: ['emergency-contacts', 'create', 'write', 'health-safety'],
+  notes: [
+    'Requires an API key with write permission',
+    'Block-specific contacts should include block_id; institution-wide contacts can omit it',
+    'Setting is_primary=true marks this as the first contact to call for the category',
+    'available_hours is a free-text field (e.g., "24/7", "8:00 AM - 8:00 PM")',
+  ],
+  relatedEndpoints: ['campus-living-emergency-contacts-list', 'campus-living-emergency-contacts-delete'],
+};
+
+const emergencyContactsDeleteEndpoint: ApiEndpoint = {
+  id: 'campus-living-emergency-contacts-delete',
+  module: 'campus-living' as any,
+  category: 'Health & Safety',
+  title: 'Delete Emergency Contact',
+  description:
+    'Remove an emergency contact from the hostel directory. Pass the contact ID as a query parameter.',
+  method: 'DELETE',
+  path: '/api/api-management/campus-living/emergency-contacts',
+  authentication: writeAuthentication,
+  queryParameters: [
+    {
+      name: 'id',
+      type: 'string',
+      required: true,
+      description: 'UUID of the emergency contact to delete',
+      example: 'ec10e840-e29b-41d4-a716-446655440003',
+    },
+  ],
+  successResponses: [
+    {
+      statusCode: 200,
+      description: 'Emergency contact deleted successfully',
+      contentType: 'json',
+      example: {
+        success: true,
+        message: 'Emergency contact deleted successfully',
+      },
+    },
+  ],
+  errorResponses: [
+    ...commonErrors,
+    {
+      statusCode: 400,
+      errorCode: 'VALIDATION_ERROR',
+      message: 'Contact ID is required',
+      example: {
+        error: 'Contact ID is required',
+      },
+    },
+    {
+      statusCode: 404,
+      errorCode: 'NOT_FOUND',
+      message: 'Emergency contact not found',
+      example: {
+        error: 'Emergency contact not found',
+      },
+    },
+  ],
+  codeExamples: [
+    {
+      language: 'javascript',
+      label: 'JavaScript (Fetch)',
+      code: `const contactId = 'ec10e840-e29b-41d4-a716-446655440003';
+const response = await fetch(\`https://www.jkkn.ai/api/api-management/campus-living/emergency-contacts?id=\${contactId}\`, {
+  method: 'DELETE',
+  headers: {
+    'Authorization': 'Bearer your_api_key_here',
+    'Content-Type': 'application/json'
+  }
+});
+
+const result = await response.json();
+console.log(result);`,
+    },
+    {
+      language: 'curl',
+      label: 'cURL',
+      code: `curl -X DELETE "https://www.jkkn.ai/api/api-management/campus-living/emergency-contacts?id=ec10e840-e29b-41d4-a716-446655440003" \\
+  -H "Authorization: Bearer your_api_key_here" \\
+  -H "Content-Type: application/json"`,
+    },
+    {
+      language: 'python',
+      label: 'Python (Requests)',
+      code: `import requests
+
+url = "https://www.jkkn.ai/api/api-management/campus-living/emergency-contacts"
+headers = {
+    "Authorization": "Bearer your_api_key_here",
+    "Content-Type": "application/json"
+}
+params = {"id": "ec10e840-e29b-41d4-a716-446655440003"}
+
+response = requests.delete(url, headers=headers, params=params)
+result = response.json()
+print(result)`,
+    },
+  ],
+  aiPrompts: [
+    {
+      title: 'Remove Outdated Emergency Contact',
+      category: 'automation',
+      complexity: 'beginner',
+      prompt:
+        'Using the MyJKKN Campus Living API, delete an emergency contact that is no longer valid from the hostel directory.',
+      expectedOutput:
+        'A success response confirming the contact has been removed.',
+      tags: ['emergency', 'contacts', 'delete'],
+    },
+  ],
+  tags: ['emergency-contacts', 'delete', 'write', 'health-safety'],
+  notes: [
+    'Requires an API key with write permission',
+    'This is a permanent deletion - the contact cannot be recovered',
+    'The contact ID is passed as a query parameter, not in the URL path',
+    'Returns 404 if the contact does not exist or belongs to a different organization',
+  ],
+  relatedEndpoints: ['campus-living-emergency-contacts-list', 'campus-living-emergency-contacts-create'],
+};
+
+// =============================================================================
 // MODULE CONFIGURATION
 // =============================================================================
 
 export const campusLivingModuleConfig: ApiModuleConfig = {
   moduleName: 'Campus Living',
   moduleDescription:
-    'Complete API for hostel management including blocks, rooms, allocations, leave requests, gate passes, incidents, visitors, attendance, health cases, inspections, maintenance, cleaning, laundry, mess management, reports, and dashboard.',
+    'Complete API for hostel management including blocks, rooms, allocations, leave requests, gate passes, incidents, visitors, attendance, health cases, inspections, safety equipment, emergency contacts, maintenance, cleaning, laundry, onboarding, staff, mess management, reports, and dashboard.',
   baseUrl: 'https://www.jkkn.ai',
   endpoints: [
     // Blocks (2)
@@ -4268,9 +6564,11 @@ export const campusLivingModuleConfig: ApiModuleConfig = {
     // Residents (2)
     residentsListEndpoint,
     residentsByIdEndpoint,
-    // Leave Requests (2)
+    // Leave Requests (4)
     leaveListEndpoint,
     leaveCreateEndpoint,
+    leaveByIdGetEndpoint,
+    leaveByIdPatchEndpoint,
     // Gate Passes (2)
     gatePassesListEndpoint,
     gatePassesCreateEndpoint,
@@ -4282,15 +6580,31 @@ export const campusLivingModuleConfig: ApiModuleConfig = {
     visitorsCreateEndpoint,
     // Attendance (1)
     attendanceListEndpoint,
-    // Health & Safety (2)
+    // Health & Safety (7)
     healthCasesListEndpoint,
+    healthCasesByIdGetEndpoint,
+    healthCasesByIdPatchEndpoint,
     inspectionsListEndpoint,
+    inspectionsByIdGetEndpoint,
+    inspectionsByIdPatchEndpoint,
+    safetyEquipmentListEndpoint,
+    safetyEquipmentPatchEndpoint,
+    emergencyContactsListEndpoint,
+    emergencyContactsCreateEndpoint,
+    emergencyContactsDeleteEndpoint,
     // Maintenance (2)
     maintenanceListEndpoint,
     maintenanceCreateEndpoint,
-    // Housekeeping (2)
+    // Housekeeping (4)
     cleaningListEndpoint,
     laundryListEndpoint,
+    laundryByIdGetEndpoint,
+    laundryByIdPatchEndpoint,
+    // Onboarding (2)
+    onboardingListEndpoint,
+    onboardingPatchEndpoint,
+    // Staff (1)
+    staffListEndpoint,
     // Mess Management (4)
     messMenuListEndpoint,
     messAttendanceListEndpoint,

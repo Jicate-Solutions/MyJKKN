@@ -57,7 +57,6 @@ import {
   useFrameworkCriteria,
   useUpdateMetricValue,
   useRefreshAutoMetric,
-  useBulkRefreshAutoMetrics,
 } from '@/hooks/regulatory'
 import toast from 'react-hot-toast'
 
