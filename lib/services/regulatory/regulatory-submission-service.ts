@@ -99,7 +99,7 @@ export class RegulatorySubmissionService {
         }
       }
     } catch (error) {
-      console.error('[RegulatorySubmissionService] Error fetching submissions:', this.formatError(error))
+      console.error('[RegulatorySubmissionService] Error fetching submissions:', formatError(error))
       throw error
     }
   }
@@ -174,14 +174,14 @@ export class RegulatorySubmissionService {
           }
         } catch (completenessError) {
           // Don't fail the whole request if completeness calc fails
-          console.warn('[RegulatorySubmissionService] Completeness calc failed:', this.formatError(completenessError))
+          console.warn('[RegulatorySubmissionService] Completeness calc failed:', formatError(completenessError))
           data._completeness = null
         }
       }
 
       return data
     } catch (error) {
-      console.error('[RegulatorySubmissionService] Error fetching submission:', this.formatError(error))
+      console.error('[RegulatorySubmissionService] Error fetching submission:', formatError(error))
       throw error
     }
   }
@@ -228,7 +228,7 @@ export class RegulatorySubmissionService {
 
       return result
     } catch (error) {
-      console.error('[RegulatorySubmissionService] Error creating submission:', this.formatError(error))
+      console.error('[RegulatorySubmissionService] Error creating submission:', formatError(error))
       throw error
     }
   }
@@ -309,7 +309,7 @@ export class RegulatorySubmissionService {
 
       return data
     } catch (error) {
-      console.error('[RegulatorySubmissionService] Error updating submission status:', this.formatError(error))
+      console.error('[RegulatorySubmissionService] Error updating submission status:', formatError(error))
       throw error
     }
   }
@@ -449,7 +449,7 @@ export class RegulatorySubmissionService {
         grade
       }
     } catch (error) {
-      console.error('[RegulatorySubmissionService] Error calculating score:', this.formatError(error))
+      console.error('[RegulatorySubmissionService] Error calculating score:', formatError(error))
       throw error
     }
   }
