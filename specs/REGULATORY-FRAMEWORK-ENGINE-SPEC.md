@@ -3037,8 +3037,10 @@ app/api/regulatory/                  — API Routes (Pattern A server layer)
 ├── evidence/
 │   ├── route.ts                     — GET (list), POST (upload)
 │   ├── search/route.ts              — GET (full-text search)
+│   ├── deleted/route.ts             — GET (list soft-deleted, 30-day window)
 │   └── [id]/
 │       ├── route.ts                 — PUT (update), DELETE (soft-delete)
+│       ├── restore/route.ts         — PUT (restore soft-deleted evidence)
 │       └── versions/route.ts        — GET (list), POST (add version)
 ├── submissions/
 │   ├── route.ts                     — GET (list), POST (create)
