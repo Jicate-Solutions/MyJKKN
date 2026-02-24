@@ -8,12 +8,12 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { solutionsHubKeys } from '@/lib/query-keys';
 import { QUERY_CONFIG } from '@/lib/config/query-config';
-import {
-  iterationsService,
-  type IterationFilters,
-  type IterationWithBugs,
-  type CreateIterationServiceInput,
-  type UpdateIterationInput,
+import { apiClient } from '@/lib/api/client';
+import type {
+  IterationFilters,
+  IterationWithBugs,
+  CreateIterationServiceInput,
+  UpdateIterationInput,
 } from '@/lib/services/solutions';
 import type { PrototypeIteration } from '@/lib/services/solutions/types';
 
@@ -34,7 +34,7 @@ export type CreateIterationInput = CreateIterationServiceInput;
 export function useIterations(filters?: IterationFilters) {
   return useQuery({
     queryKey: solutionsHubKeys.iterations.list(filters),
-    queryFn: () => iterationsService.getIterations(filters),
+    queryFn: () => apiClient.get('/api/solutions/iterations', { params: filters as Record<string, any> }),
     ...QUERY_CONFIG.DYNAMIC_DATA,
   });
 }
@@ -45,7 +45,7 @@ export function useIterations(filters?: IterationFilters) {
 export function useIteration(id: string) {
   return useQuery({
     queryKey: solutionsHubKeys.iterations.detail(id),
-    queryFn: () => iterationsService.getIterationById(id),
+    queryFn: () => apiClient.get(`/api/solutions/iterations/${id}`),
     enabled: !!id,
     ...QUERY_CONFIG.SEMI_STABLE_DATA,
   });
@@ -57,7 +57,7 @@ export function useIteration(id: string) {
 export function usePhaseIterations(phaseId: string) {
   return useQuery({
     queryKey: solutionsHubKeys.iterations.byPhase(phaseId),
-    queryFn: () => iterationsService.getIterationsByPhase(phaseId),
+    queryFn: () => apiClient.get('/api/solutions/iterations', { params: { phase_id: phaseId } }),
     enabled: !!phaseId,
     ...QUERY_CONFIG.SEMI_STABLE_DATA,
   });
@@ -69,7 +69,7 @@ export function usePhaseIterations(phaseId: string) {
 export function useLatestIteration(phaseId: string) {
   return useQuery({
     queryKey: solutionsHubKeys.iterations.latest(phaseId),
-    queryFn: () => iterationsService.getLatestIteration(phaseId),
+    queryFn: () => apiClient.get('/api/solutions/iterations', { params: { phase_id: phaseId, latest: 'true' } }),
     enabled: !!phaseId,
     ...QUERY_CONFIG.SEMI_STABLE_DATA,
   });
@@ -81,7 +81,7 @@ export function useLatestIteration(phaseId: string) {
 export function useIterationStats() {
   return useQuery({
     queryKey: solutionsHubKeys.iterations.stats(),
-    queryFn: () => iterationsService.getIterationStats(),
+    queryFn: () => apiClient.get('/api/solutions/iterations', { params: { stats: 'true' } }),
     ...QUERY_CONFIG.DASHBOARD_DATA,
   });
 }
@@ -92,7 +92,7 @@ export function useIterationStats() {
 export function useNextVersionNumber(phaseId: string) {
   return useQuery({
     queryKey: [...solutionsHubKeys.iterations.byPhase(phaseId), 'next-version'],
-    queryFn: () => iterationsService.getNextVersionNumber(phaseId),
+    queryFn: () => apiClient.get('/api/solutions/iterations', { params: { phase_id: phaseId, next_version: 'true' } }),
     enabled: !!phaseId,
     staleTime: 0, // Always fetch fresh
   });
@@ -109,7 +109,7 @@ export function useCreateIteration() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (input: CreateIterationInput) => iterationsService.createIteration(input),
+    mutationFn: (input: CreateIterationInput) => apiClient.post<PrototypeIteration>('/api/solutions/iterations', input),
     onSuccess: (data: PrototypeIteration) => {
       // Invalidate iteration lists
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.iterations.all });
@@ -139,7 +139,7 @@ export function useUpdateIteration() {
 
   return useMutation({
     mutationFn: ({ id, input }: { id: string; input: UpdateIterationInput }) =>
-      iterationsService.updateIteration(id, input),
+      apiClient.patch<PrototypeIteration>(`/api/solutions/iterations/${id}`, input),
     onSuccess: (data: PrototypeIteration) => {
       // Invalidate lists
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.iterations.all });
@@ -167,7 +167,7 @@ export function useCompleteIteration() {
 
   return useMutation({
     mutationFn: ({ id, feedback }: { id: string; feedback?: string }) =>
-      iterationsService.completeIteration(id, feedback),
+      apiClient.patch<PrototypeIteration>(`/api/solutions/iterations/${id}`, { status: 'approved', feedback }),
     onSuccess: (data: PrototypeIteration) => {
       // Invalidate iteration caches
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.iterations.all });
@@ -197,7 +197,7 @@ export function useDeleteIteration() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (id: string) => iterationsService.deleteIteration(id),
+    mutationFn: (id: string) => apiClient.delete(`/api/solutions/iterations/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.iterations.all });
       queryClient.invalidateQueries({ queryKey: solutionsHubKeys.bugs.all }); // Bugs deleted too
@@ -213,7 +213,7 @@ export function useAddIterationFeedback() {
 
   return useMutation({
     mutationFn: ({ id, feedback }: { id: string; feedback: string }) =>
-      iterationsService.updateIteration(id, { feedback }),
+      apiClient.patch<PrototypeIteration>(`/api/solutions/iterations/${id}`, { feedback }),
     onSuccess: (data: PrototypeIteration) => {
       if (data?.id) {
         queryClient.setQueryData(solutionsHubKeys.iterations.detail(data.id), data);
