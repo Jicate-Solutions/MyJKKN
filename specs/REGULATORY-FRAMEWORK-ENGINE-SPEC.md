@@ -4058,12 +4058,30 @@ Tree structure is assembled in application code from these two flat result sets.
 **Refresh strategy:**
 1. The metric-values UPSERT endpoint (`POST /metric-values`) MUST update the parent submission's counters:
    ```sql
+   -- NOTE: PostgreSQL SET clauses evaluate against OLD row values, NOT the values being set by
+   -- sibling SET clauses. Use subexpressions to compute derived values from fresh subqueries:
    UPDATE regulatory_submissions
-   SET auto_populated_count = (SELECT COUNT(*) FROM regulatory_metric_values WHERE ... AND is_auto_calculated = true),
-       manual_entry_count = (SELECT COUNT(*) FROM regulatory_metric_values WHERE ... AND is_auto_calculated = false),
-       completeness_percentage = (auto_populated_count + manual_entry_count)::numeric / NULLIF(total_metrics_count, 0) * 100,
+   SET auto_populated_count = (SELECT COUNT(*) FROM regulatory_metric_values mv
+         JOIN regulatory_metrics m ON mv.metric_id = m.id
+         JOIN regulatory_criteria c ON m.criteria_id = c.id
+         WHERE c.framework_id = rs.framework_id AND mv.institution_id = rs.institution_id
+         AND mv.academic_year = rs.academic_year AND mv.is_auto_calculated = true),
+       manual_entry_count = (SELECT COUNT(*) FROM regulatory_metric_values mv
+         JOIN regulatory_metrics m ON mv.metric_id = m.id
+         JOIN regulatory_criteria c ON m.criteria_id = c.id
+         WHERE c.framework_id = rs.framework_id AND mv.institution_id = rs.institution_id
+         AND mv.academic_year = rs.academic_year AND mv.is_auto_calculated = false),
+       completeness_percentage = (
+         (SELECT COUNT(*) FROM regulatory_metric_values mv
+           JOIN regulatory_metrics m ON mv.metric_id = m.id
+           JOIN regulatory_criteria c ON m.criteria_id = c.id
+           WHERE c.framework_id = rs.framework_id AND mv.institution_id = rs.institution_id
+           AND mv.academic_year = rs.academic_year)::numeric
+         / NULLIF(total_metrics_count, 0) * 100
+       ),
        updated_at = now()
-   WHERE id = <submission_id>;
+   FROM regulatory_submissions rs
+   WHERE regulatory_submissions.id = rs.id AND rs.id = <submission_id>;
    ```
 
 2. The dashboard stats endpoint reads ONLY from `regulatory_submissions` (no joins to metrics/values).
