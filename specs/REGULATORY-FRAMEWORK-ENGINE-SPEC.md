@@ -1399,7 +1399,11 @@ CREATE POLICY "simulations_delete" ON regulatory_simulations FOR DELETE
   );
 
 -- Criteria & metrics: readable by all, writable only by super_admin (framework definitions)
-CREATE POLICY "criteria_read" ON regulatory_criteria FOR SELECT USING (true);
+CREATE POLICY "criteria_read" ON regulatory_criteria FOR SELECT USING (
+  EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid())
+);
+-- Requires authentication but not institution scoping — criteria definitions are
+-- framework metadata, not institution-specific data.
 CREATE POLICY "criteria_write" ON regulatory_criteria FOR INSERT
   WITH CHECK (EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'));
 CREATE POLICY "criteria_modify" ON regulatory_criteria FOR UPDATE
