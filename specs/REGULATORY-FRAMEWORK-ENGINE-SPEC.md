@@ -2963,6 +2963,7 @@ Additional entity-specific filters are documented per endpoint where applicable.
 > 4. **Parameterized execution:** All query_template SQL uses `$1`, `$2`, `$3` positional parameters — NEVER string interpolation. The engine binds parameters via `supabase.rpc()` or `pg` parameterized query.
 > 5. **Timeout:** Each connector query MUST have a `statement_timeout` (e.g., 30 seconds) to prevent long-running queries from degrading the database.
 > 6. **Rate limiting:** The refresh endpoint should be queued (max 1 concurrent refresh per institution) to prevent database overload during batch operations.
+> 7. **Table allowlist:** The DataConnectorEngine SHOULD maintain an allowlist of tables that connectors can query (the source tables documented in DC-01 through DC-36). The SQL validator should verify that all table references in `query_template` are in the allowlist. This prevents a compromised super_admin from reading sensitive tables (`profiles`, `auth.users`, etc.) via crafted connectors. The test endpoint (`POST /data-connectors/[id]/test`) should return only the first 5 rows and column metadata, not full result sets.
 
 ### Evidence API
 
