@@ -2958,7 +2958,7 @@ The API route calculates `score_delta` and `rank_estimate` server-side before st
 | POST | `/api/regulatory/benchmarks` | `createBenchmark(data)` | super_admin, institution_admin, iqac_coordinator | Create benchmark entry |
 | PUT | `/api/regulatory/benchmarks/[id]` | `updateBenchmark(id, data)` | super_admin, institution_admin, iqac_coordinator | Update benchmark |
 | DELETE | `/api/regulatory/benchmarks/[id]` | `deleteBenchmark(id)` | super_admin, institution_admin, iqac_coordinator | Delete benchmark |
-| GET | `/api/regulatory/benchmarks/comparison` | `getBenchmarkComparison(frameworkId, year)` | super_admin, institution_admin, iqac_coordinator, principal | Gap analysis across peer institutions |
+| GET | `/api/regulatory/benchmarks/comparison` | `getBenchmarkComparison(frameworkId, year)` | super_admin, institution_admin, iqac_coordinator, principal | Gap analysis across peer institutions. **Note:** principal has READ access to comparison data (per T8 "View dashboard" which includes benchmark insights) but CANNOT create/edit/delete benchmark entries (T8 "Manage peer benchmarks" excludes principal). **Required query params:** `framework_id` (uuid), `academic_year` (text). Optional: `peer_institution_name` (text filter). |
 
 ### Dashboard API
 
