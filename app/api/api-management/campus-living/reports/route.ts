@@ -24,7 +24,7 @@ export const GET = withApiKeyAuth(async (request, auth) => {
   switch (reportType) {
     case 'occupancy': {
       const { data: blocks, error: blocksError } = await supabase
-        .from('hostel_blocks').select('id, name, gender, total_rooms, total_beds')
+        .from('hostel_blocks').select('id, name, hostel_type, total_rooms, total_capacity')
         .eq('institution_id', institutionId);
       if (blocksError) throw blocksError;
 
@@ -33,15 +33,15 @@ export const GET = withApiKeyAuth(async (request, auth) => {
         .eq('institution_id', institutionId).eq('status', 'active');
       if (allocError) throw allocError;
 
-      const totalBeds = (blocks ?? []).reduce((sum: number, b: any) => sum + (b.total_beds || 0), 0);
+      const totalCapacity = (blocks ?? []).reduce((sum: number, b: any) => sum + (b.total_capacity || 0), 0);
 
       return successApiResponse({
         report_type: 'occupancy',
         total_blocks: blocks?.length ?? 0,
-        total_beds: totalBeds,
+        total_capacity: totalCapacity,
         occupied_beds: totalAllocations ?? 0,
-        vacant_beds: totalBeds - (totalAllocations ?? 0),
-        occupancy_rate: totalBeds > 0 ? Math.round(((totalAllocations ?? 0) / totalBeds) * 100) : 0,
+        vacant_beds: totalCapacity - (totalAllocations ?? 0),
+        occupancy_rate: totalCapacity > 0 ? Math.round(((totalAllocations ?? 0) / totalCapacity) * 100) : 0,
         blocks: blocks ?? [],
       });
     }
