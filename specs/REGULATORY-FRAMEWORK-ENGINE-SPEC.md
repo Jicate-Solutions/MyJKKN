@@ -2534,7 +2534,7 @@ report-generator.ts
 │  Supabase Client (server-side) → PostgreSQL                            │
 │       │ RLS policies enforce institution_id scoping                     │
 │       ▼                                                                 │
-│  Database (15 tables + 1 view + 47 RLS policies)                       │
+│  Database (15 tables + 1 view + 48 RLS policies)                       │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
