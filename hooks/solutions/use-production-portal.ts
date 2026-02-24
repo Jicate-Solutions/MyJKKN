@@ -63,7 +63,7 @@ export function useProductionLearner(learnerId: string | undefined) {
 export function useProductionLearners(filters?: ProductionLearnerFilters) {
   return useQuery({
     queryKey: solutionsHubKeys.productionLearners.list(filters),
-    queryFn: () => productionService.getLearners(filters),
+    queryFn: () => apiClient.get('/api/solutions/production-portal/learners', { params: filters as Record<string, any> }),
     ...QUERY_CONFIG.DYNAMIC_DATA,
   });
 }
