@@ -49,10 +49,10 @@ export class RegulatorySimulationService {
   static async getSimulations(filters: SimulationFilters = {}) {
     try {
       if (filters.framework_id !== undefined) {
-        this.validateId(filters.framework_id, 'framework_id filter')
+        validateId(filters.framework_id, 'framework_id filter')
       }
       if (filters.institution_id !== undefined) {
-        this.validateId(filters.institution_id, 'institution_id filter')
+        validateId(filters.institution_id, 'institution_id filter')
       }
 
       let query = (this.getSupabase() as any)
@@ -107,8 +107,8 @@ export class RegulatorySimulationService {
    */
   static async createSimulation(data: CreateSimulationData) {
     try {
-      this.validateId(data.framework_id, 'framework ID')
-      this.validateId(data.institution_id, 'institution ID')
+      validateId(data.framework_id, 'framework ID')
+      validateId(data.institution_id, 'institution ID')
 
       // Get current user
       const { data: { user } } = await this.getSupabase().auth.getUser()
