@@ -529,6 +529,61 @@ This is intentionally separate from `lib/api-keys/response-helpers.ts` — the t
 
 **Pre-existing CORS issue (out of scope but noted):** The current `corsHeaders` sets BOTH `Access-Control-Allow-Credentials: 'true'` AND `Access-Control-Allow-Origin: '*'`. Per the CORS spec, browsers reject this combination — you cannot use `*` with credentials. This doesn't affect API key consumers (non-browser), but WILL affect browser-based cross-origin requests that include cookies. For development this is fine; for production, `getCorsHeadersWithOrigin(origin)` should be used instead of `corsHeaders`. This is NOT part of the B2A migration — it's a pre-existing issue affecting all api-management routes too.
 
+#### 0.6 Observability & Error Mapping (SRE-Critical)
+
+**Why this matters:** Without structured logging, silent auth failures (expired JWT, missing profile, bad API key) are invisible in production. The SRE review flagged this as the #1 operational risk — you won't know the system is failing until users complain.
+
+**Error code mapping (regression prevention):**
+The existing `withApiKeyAuth` (`lib/api-keys/with-api-key-auth.ts`) maps Postgres error codes to HTTP status codes. `withAuth` MUST replicate this — without it, ALL database errors return generic 500 (losing diagnostic information):
+
+```typescript
+// Copy this mapping into withAuth's catch block
+const PG_ERROR_MAP: Record<string, { status: number; message: string }> = {
+  '23505': { status: 409, message: 'Resource already exists (unique violation)' },
+  '23502': { status: 400, message: 'Required field missing (not-null violation)' },
+  '23503': { status: 400, message: 'Referenced resource not found (FK violation)' },
+  '42501': { status: 403, message: 'Insufficient privileges' },
+  '22P02': { status: 400, message: 'Invalid input syntax' },
+};
+
+// In withAuth catch block:
+if (error?.code && PG_ERROR_MAP[error.code]) {
+  const mapped = PG_ERROR_MAP[error.code];
+  return errorResponse(mapped.message, mapped.status);
+}
+```
+
+**Structured logging (minimal viable):**
+```typescript
+// On auth success (withAuth — after determining auth method):
+console.log(JSON.stringify({
+  event: 'auth', method: authMethod,
+  userId: auth.user.id, institutionId: auth.institutionId,
+  route: request.nextUrl.pathname, status: 'success',
+}));
+
+// On auth failure:
+console.warn(JSON.stringify({
+  event: 'auth_failure',
+  reason: 'expired_key' | 'no_session' | 'missing_profile' | 'permission_denied',
+  route: request.nextUrl.pathname,
+  // NEVER log: token value, JWT, API key hash, or Authorization header
+}));
+```
+
+**Caching recommendation (for scale — skip for Phase 1 launch):**
+API key lookups + profile fetches add 2-3 PostgREST round-trips per request. At scale (>100 req/s), add an in-memory TTL cache:
+```typescript
+const cache = new Map<string, { data: any; expires: number }>();
+const TTL = 60_000; // 60 seconds
+function cached<T>(key: string, fetcher: () => Promise<T>): Promise<T> {
+  const entry = cache.get(key);
+  if (entry && Date.now() < entry.expires) return entry.data;
+  return fetcher().then(data => { cache.set(key, { data, expires: Date.now() + TTL }); return data; });
+}
+```
+Use for: API key hash → key row, user ID → profile row. Cache invalidation: TTL-based (60s) is sufficient — API keys and profiles rarely change. **For Phase 1 launch, skip caching** — optimize only if latency becomes measurable.
+
 ---
 
 ### Phase 1: Core CRUD Routes
