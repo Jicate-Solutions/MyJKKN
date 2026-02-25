@@ -51,3 +51,6 @@ tmpclaude-*
 
 # git worktrees
 .worktrees/
+docs/features/mathswork/SAML_PRIVATE_KEY_B64.txt
+docs/features/mathswork/SAML_PUBLIC_CERTIFICATE_B64.txt
+docs/features/mathswork/myjkkn-saml-private.pem
