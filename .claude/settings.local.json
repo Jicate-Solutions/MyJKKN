@@ -230,7 +230,11 @@
       "mcp__vercel__list_projects",
       "mcp__vercel__list_teams",
       "mcp__vercel__get_runtime_logs",
-      "Bash(git:*)"
+      "Bash(git:*)",
+      "mcp__vercel__get_project",
+      "WebFetch(domain:www.jkkn.ai)",
+      "Bash(which openssl 2>/dev/null && openssl version 2>&1)",
+      "Bash(echo Certificate file updated:*)"
     ],
     "deny": [],
     "ask": []
