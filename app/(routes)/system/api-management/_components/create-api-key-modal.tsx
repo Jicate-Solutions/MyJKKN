@@ -106,7 +106,8 @@ export function CreateApiKeyModal({
           permissions: {
             read: true,
             write: !values.read_only
-          }
+          },
+          organization_id: values.organization_id || null
         })
       });
 
