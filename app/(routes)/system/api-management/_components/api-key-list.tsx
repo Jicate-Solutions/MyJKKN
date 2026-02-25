@@ -67,6 +67,7 @@ export function ApiKeyList({
             />
           </TableHead>
           <TableHead>Name</TableHead>
+          <TableHead className="hidden lg:table-cell">Scope</TableHead>
           <TableHead>Status</TableHead>
           <TableHead className="hidden md:table-cell">Last Used</TableHead>
           <TableHead className="hidden md:table-cell">Expires</TableHead>
