@@ -32,6 +32,8 @@ export interface CreateApiKeyInput {
   expires_at?: string | null;
   permissions?: ApiKeyPermissions;
   metadata?: ApiKeyMetadata;
+  /** Institution to scope this key to (required for campus-living and other scoped modules) */
+  organization_id?: string | null;
 }
 
 export interface UpdateApiKeyInput {
