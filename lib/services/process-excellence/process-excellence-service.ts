@@ -36,6 +36,15 @@ export class ProcessExcellenceService {
   private static supabase: any = createClientSupabaseClient();
 
   /**
+   * Get the Supabase client to use.
+   * If an external client is passed (e.g. server-side), use it.
+   * Otherwise fall back to the internal client-side client.
+   */
+  private static getClient(externalClient?: any): any {
+    return externalClient || this.supabase;
+  }
+
+  /**
    * SECURITY: Validate institution access
    * Ensures user has permission to access the requested institution's data
    * @throws Error if institution_id is invalid or user lacks access
@@ -72,10 +81,12 @@ export class ProcessExcellenceService {
   // =============================================
 
   static async getProcessDefinitions(
-    filters: ProcessDefinitionFilters
+    filters: ProcessDefinitionFilters,
+    supabase?: any
   ): Promise<ProcessDefinitionListResponse> {
     try {
-      let query = this.supabase
+      const client = this.getClient(supabase);
+      let query = client
         .from('process_definitions')
         .select(
           `
@@ -140,9 +151,10 @@ export class ProcessExcellenceService {
     }
   }
 
-  static async getProcessDefinition(id: string, institutionId?: string): Promise<ProcessDefinition> {
+  static async getProcessDefinition(id: string, institutionId?: string, supabase?: any): Promise<ProcessDefinition> {
     try {
-      let query = this.supabase
+      const client = this.getClient(supabase);
+      let query = client
         .from('process_definitions')
         .select(
           `
@@ -180,17 +192,20 @@ export class ProcessExcellenceService {
   }
 
   static async createProcessDefinition(
-    definition: CreateProcessDefinitionDto
+    definition: CreateProcessDefinitionDto,
+    userId?: string,
+    supabase?: any
   ): Promise<ProcessDefinition> {
     try {
-      const user = (await this.supabase.auth.getUser()).data.user;
+      const client = this.getClient(supabase);
+      const resolvedUserId = userId || (await client.auth.getUser()).data.user?.id;
 
-      const { data, error } = await this.supabase
+      const { data, error } = await client
         .from('process_definitions')
         .insert({
           ...definition,
-          created_by: user?.id,
-          updated_by: user?.id
+          created_by: resolvedUserId,
+          updated_by: resolvedUserId
         })
         .select(
           `
@@ -217,16 +232,19 @@ export class ProcessExcellenceService {
 
   static async updateProcessDefinition(
     id: string,
-    updates: UpdateProcessDefinitionDto
+    updates: UpdateProcessDefinitionDto,
+    userId?: string,
+    supabase?: any
   ): Promise<ProcessDefinition> {
     try {
-      const user = (await this.supabase.auth.getUser()).data.user;
+      const client = this.getClient(supabase);
+      const resolvedUserId = userId || (await client.auth.getUser()).data.user?.id;
 
-      const { data, error } = await this.supabase
+      const { data, error } = await client
         .from('process_definitions')
         .update({
           ...updates,
-          updated_by: user?.id
+          updated_by: resolvedUserId
         })
         .eq('id', id)
         .select(
@@ -249,9 +267,10 @@ export class ProcessExcellenceService {
     }
   }
 
-  static async deleteProcessDefinition(id: string): Promise<void> {
+  static async deleteProcessDefinition(id: string, supabase?: any): Promise<void> {
     try {
-      const { error } = await this.supabase
+      const client = this.getClient(supabase);
+      const { error } = await client
         .from('process_definitions')
         .delete()
         .eq('id', id);
@@ -271,10 +290,12 @@ export class ProcessExcellenceService {
   // =============================================
 
   static async getProcessInstances(
-    filters: ProcessInstanceFilters
+    filters: ProcessInstanceFilters,
+    supabase?: any
   ): Promise<ProcessInstanceListResponse> {
     try {
-      let query = this.supabase
+      const client = this.getClient(supabase);
+      let query = client
         .from('process_instances')
         .select(
           `
@@ -350,9 +371,10 @@ export class ProcessExcellenceService {
     }
   }
 
-  static async getProcessInstance(id: string, institutionId?: string): Promise<ProcessInstance> {
+  static async getProcessInstance(id: string, institutionId?: string, supabase?: any): Promise<ProcessInstance> {
     try {
-      let query = this.supabase
+      const client = this.getClient(supabase);
+      let query = client
         .from('process_instances')
         .select(
           `
@@ -390,12 +412,14 @@ export class ProcessExcellenceService {
   }
 
   static async startProcessInstance(
-    params: StartProcessInstanceDto
+    params: StartProcessInstanceDto,
+    supabase?: any
   ): Promise<ProcessInstance> {
     try {
+      const client = this.getClient(supabase);
       const now = new Date().toISOString();
 
-      const { data, error } = await this.supabase
+      const { data, error } = await client
         .from('process_instances')
         .insert({
           ...params,
@@ -437,12 +461,14 @@ export class ProcessExcellenceService {
     instanceId: string,
     newStage: string,
     isValueAdd?: boolean,
-    institutionId?: string
+    institutionId?: string,
+    supabase?: any
   ): Promise<ProcessInstance> {
     try {
+      const client = this.getClient(supabase);
       // RACE CONDITION FIX: Use a transaction-like approach with optimistic locking
       // Get current instance with version check
-      let query = this.supabase
+      let query = client
         .from('process_instances')
         .select('*, process:process_definitions!inner(institution_id)')
         .eq('id', instanceId);
@@ -481,7 +507,7 @@ export class ProcessExcellenceService {
       });
 
       // Use the original updated_at as optimistic lock
-      let updateQuery = this.supabase
+      let updateQuery = client
         .from('process_instances')
         .update({
           current_stage: newStage,
@@ -515,10 +541,11 @@ export class ProcessExcellenceService {
     }
   }
 
-  static async completeProcess(instanceId: string): Promise<ProcessInstance> {
+  static async completeProcess(instanceId: string, supabase?: any): Promise<ProcessInstance> {
     try {
+      const client = this.getClient(supabase);
       // Get current instance with process details
-      const { data: instance, error: fetchError } = await this.supabase
+      const { data: instance, error: fetchError } = await client
         .from('process_instances')
         .select('*, process:process_definitions(*)')
         .eq('id', instanceId)
@@ -571,7 +598,7 @@ export class ProcessExcellenceService {
         }
       }
 
-      const { data, error } = await this.supabase
+      const { data, error } = await client
         .from('process_instances')
         .update({
           completed_at: now,
@@ -605,10 +632,12 @@ export class ProcessExcellenceService {
 
   static async getInstanceByReference(
     referenceType: string,
-    referenceId: string
+    referenceId: string,
+    supabase?: any
   ): Promise<ProcessInstance | null> {
     try {
-      const { data, error } = await this.supabase
+      const client = this.getClient(supabase);
+      const { data, error } = await client
         .from('process_instances')
         .select(
           `
@@ -639,10 +668,12 @@ export class ProcessExcellenceService {
   // =============================================
 
   static async getWasteIncidents(
-    filters: WasteIncidentFilters
+    filters: WasteIncidentFilters,
+    supabase?: any
   ): Promise<WasteIncidentListResponse> {
     try {
-      let query = this.supabase
+      const client = this.getClient(supabase);
+      let query = client
         .from('waste_incidents')
         .select(
           `
@@ -725,9 +756,10 @@ export class ProcessExcellenceService {
     }
   }
 
-  static async getWasteIncident(id: string): Promise<WasteIncident> {
+  static async getWasteIncident(id: string, supabase?: any): Promise<WasteIncident> {
     try {
-      const { data, error } = await this.supabase
+      const client = this.getClient(supabase);
+      const { data, error } = await client
         .from('waste_incidents')
         .select(
           `
@@ -758,16 +790,19 @@ export class ProcessExcellenceService {
   }
 
   static async reportWaste(
-    incident: CreateWasteIncidentDto
+    incident: CreateWasteIncidentDto,
+    userId?: string,
+    supabase?: any
   ): Promise<WasteIncident> {
     try {
-      const user = (await this.supabase.auth.getUser()).data.user;
+      const client = this.getClient(supabase);
+      const resolvedUserId = userId || (await client.auth.getUser()).data.user?.id;
 
-      const { data, error } = await this.supabase
+      const { data, error } = await client
         .from('waste_incidents')
         .insert({
           ...incident,
-          reported_by: user?.id,
+          reported_by: resolvedUserId,
           status: 'open'
         })
         .select(
@@ -794,20 +829,23 @@ export class ProcessExcellenceService {
 
   static async updateWasteIncident(
     id: string,
-    updates: UpdateWasteIncidentDto
+    updates: UpdateWasteIncidentDto,
+    userId?: string,
+    supabase?: any
   ): Promise<WasteIncident> {
     try {
-      const user = (await this.supabase.auth.getUser()).data.user;
+      const client = this.getClient(supabase);
+      const resolvedUserId = userId || (await client.auth.getUser()).data.user?.id;
 
       const updateData: Record<string, unknown> = { ...updates };
 
       // If resolving, set resolved_at and resolved_by
       if (updates.status === 'resolved') {
         updateData.resolved_at = new Date().toISOString();
-        updateData.resolved_by = user?.id;
+        updateData.resolved_by = resolvedUserId;
       }
 
-      const { data, error } = await this.supabase
+      const { data, error } = await client
         .from('waste_incidents')
         .update(updateData)
         .eq('id', id)
@@ -833,9 +871,10 @@ export class ProcessExcellenceService {
     }
   }
 
-  static async deleteWasteIncident(id: string): Promise<void> {
+  static async deleteWasteIncident(id: string, supabase?: any): Promise<void> {
     try {
-      const { error } = await this.supabase
+      const client = this.getClient(supabase);
+      const { error } = await client
         .from('waste_incidents')
         .delete()
         .eq('id', id);
@@ -855,10 +894,12 @@ export class ProcessExcellenceService {
   // =============================================
 
   static async getProcessAudits(
-    filters: ProcessAuditFilters
+    filters: ProcessAuditFilters,
+    supabase?: any
   ): Promise<ProcessAuditListResponse> {
     try {
-      let query = this.supabase
+      const client = this.getClient(supabase);
+      let query = client
         .from('process_audits')
         .select(
           `
@@ -933,9 +974,10 @@ export class ProcessExcellenceService {
     }
   }
 
-  static async getProcessAudit(id: string): Promise<ProcessAudit> {
+  static async getProcessAudit(id: string, supabase?: any): Promise<ProcessAudit> {
     try {
-      const { data, error } = await this.supabase
+      const client = this.getClient(supabase);
+      const { data, error } = await client
         .from('process_audits')
         .select(
           `
@@ -965,13 +1007,16 @@ export class ProcessExcellenceService {
   }
 
   static async createProcessAudit(
-    audit: CreateProcessAuditDto
+    audit: CreateProcessAuditDto,
+    userId?: string,
+    supabase?: any
   ): Promise<ProcessAudit> {
     try {
-      const user = (await this.supabase.auth.getUser()).data.user;
+      const client = this.getClient(supabase);
+      const resolvedUserId = userId || (await client.auth.getUser()).data.user?.id;
 
       // Generate audit metrics using database function
-      const { data: metricsResult, error: metricsError } = await this.supabase
+      const { data: metricsResult, error: metricsError } = await client
         .rpc('generate_process_audit_metrics', {
           p_institution_id: audit.institution_id,
           p_process_id: audit.process_id,
@@ -991,11 +1036,11 @@ export class ProcessExcellenceService {
         waste_breakdown: {}
       };
 
-      const { data, error } = await this.supabase
+      const { data, error } = await client
         .from('process_audits')
         .insert({
           ...audit,
-          auditor_id: audit.auditor_id || user?.id,
+          auditor_id: audit.auditor_id || resolvedUserId,
           total_instances: metrics.total_instances,
           avg_cycle_hours: metrics.avg_cycle_hours,
           avg_value_add_ratio: metrics.avg_value_add_ratio,
@@ -1027,9 +1072,11 @@ export class ProcessExcellenceService {
 
   static async updateProcessAudit(
     id: string,
-    updates: UpdateProcessAuditDto
+    updates: UpdateProcessAuditDto,
+    supabase?: any
   ): Promise<ProcessAudit> {
     try {
+      const client = this.getClient(supabase);
       const updateData: Record<string, unknown> = { ...updates };
 
       // If finalizing, set finalized_at
@@ -1037,7 +1084,7 @@ export class ProcessExcellenceService {
         updateData.finalized_at = new Date().toISOString();
       }
 
-      const { data, error } = await this.supabase
+      const { data, error } = await client
         .from('process_audits')
         .update(updateData)
         .eq('id', id)
@@ -1063,9 +1110,10 @@ export class ProcessExcellenceService {
     }
   }
 
-  static async deleteProcessAudit(id: string): Promise<void> {
+  static async deleteProcessAudit(id: string, supabase?: any): Promise<void> {
     try {
-      const { error } = await this.supabase
+      const client = this.getClient(supabase);
+      const { error } = await client
         .from('process_audits')
         .delete()
         .eq('id', id);
@@ -1085,11 +1133,13 @@ export class ProcessExcellenceService {
   // =============================================
 
   static async getProcessMetrics(
-    filters: ProcessMetricsFilters
+    filters: ProcessMetricsFilters,
+    supabase?: any
   ): Promise<ProcessMetrics[]> {
     try {
+      const client = this.getClient(supabase);
       // Get completed instances with process details
-      let query = this.supabase
+      let query = client
         .from('process_instances')
         .select(
           `
@@ -1114,7 +1164,7 @@ export class ProcessExcellenceService {
       }
 
       // Get waste incidents
-      const { data: wasteData, error: wasteError } = await this.supabase
+      const { data: wasteData, error: wasteError } = await client
         .from('waste_incidents')
         .select('process_id')
         .eq('institution_id', filters.institution_id);
@@ -1179,10 +1229,12 @@ export class ProcessExcellenceService {
 
   static async getWasteAnalytics(
     institutionId: string,
-    processId?: string
+    processId?: string,
+    supabase?: any
   ): Promise<WasteAnalytics> {
     try {
-      let query = this.supabase
+      const client = this.getClient(supabase);
+      let query = client
         .from('waste_incidents')
         .select('*, process:process_definitions(id, name)')
         .eq('institution_id', institutionId);
@@ -1280,18 +1332,20 @@ export class ProcessExcellenceService {
   }
 
   static async getDashboard(
-    institutionId: string
+    institutionId: string,
+    supabase?: any
   ): Promise<ProcessExcellenceDashboard> {
     try {
+      const client = this.getClient(supabase);
       // Get process definitions count
-      const { count: totalProcesses } = await this.supabase
+      const { count: totalProcesses } = await client
         .from('process_definitions')
         .select('*', { count: 'exact', head: true })
         .eq('institution_id', institutionId)
         .eq('is_active', true);
 
       // Get active instances
-      const { data: activeInstances, count: activeCount } = await this.supabase
+      const { data: activeInstances, count: activeCount } = await client
         .from('process_instances')
         .select('sla_status, process:process_definitions!inner(institution_id)', {
           count: 'exact'
@@ -1304,7 +1358,7 @@ export class ProcessExcellenceService {
         ) || [];
 
       // Get completed instances for metrics
-      const { data: completedInstances } = await this.supabase
+      const { data: completedInstances } = await client
         .from('process_instances')
         .select(
           'value_add_ratio, sla_status, process:process_definitions!inner(institution_id)'
@@ -1335,19 +1389,19 @@ export class ProcessExcellenceService {
           : 0;
 
       // Get waste incidents
-      const { count: totalWaste } = await this.supabase
+      const { count: totalWaste } = await client
         .from('waste_incidents')
         .select('*', { count: 'exact', head: true })
         .eq('institution_id', institutionId);
 
-      const { count: openWaste } = await this.supabase
+      const { count: openWaste } = await client
         .from('waste_incidents')
         .select('*', { count: 'exact', head: true })
         .eq('institution_id', institutionId)
         .eq('status', 'open');
 
       // Get waste breakdown
-      const { data: wasteBreakdown } = await this.supabase
+      const { data: wasteBreakdown } = await client
         .from('waste_incidents')
         .select(
           'waste_category, estimated_time_lost_hours, estimated_cost_impact'

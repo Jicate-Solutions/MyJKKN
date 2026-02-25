@@ -2,11 +2,17 @@
 // GET ROI data for campaigns
 
 import { NextRequest, NextResponse } from 'next/server';
+import { getAuthUser } from '@/lib/supabase/server';
 import { CampaignROIService } from '@/lib/services/admission/campaign-roi-service';
 import type { AttributionChannel } from '@/lib/services/admission/campaign-roi-service';
 
 export async function GET(req: NextRequest) {
   try {
+    const { user, error: authError } = await getAuthUser();
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     const { searchParams } = new URL(req.url);
     const institutionId = searchParams.get('institution_id');
     const view = searchParams.get('view'); // 'summary' | 'channels' | 'funnel' | default (campaigns)

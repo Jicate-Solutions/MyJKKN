@@ -2,11 +2,17 @@
 // CRUD API for activity alert rules
 
 import { NextRequest, NextResponse } from 'next/server';
+import { getAuthUser } from '@/lib/supabase/server';
 import { ActivityAlertService } from '@/lib/services/admission/activity-alert-service';
 import type { AlertEventType } from '@/lib/services/admission/activity-alert-service';
 
 export async function GET(req: NextRequest) {
   try {
+    const { user, error: authError } = await getAuthUser();
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     const { searchParams } = new URL(req.url);
     const institutionId = searchParams.get('institution_id');
     const eventType = searchParams.get('event_type') as AlertEventType | null;
@@ -48,6 +54,11 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    const { user, error: authError } = await getAuthUser();
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     const body = await req.json();
 
     if (body.action === 'initialize') {
@@ -86,6 +97,11 @@ export async function POST(req: NextRequest) {
 
 export async function PUT(req: NextRequest) {
   try {
+    const { user, error: authError } = await getAuthUser();
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     const body = await req.json();
     const { id, ...updateData } = body;
 
@@ -106,6 +122,11 @@ export async function PUT(req: NextRequest) {
 
 export async function DELETE(req: NextRequest) {
   try {
+    const { user, error: authError } = await getAuthUser();
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     const { searchParams } = new URL(req.url);
     const id = searchParams.get('id');
 

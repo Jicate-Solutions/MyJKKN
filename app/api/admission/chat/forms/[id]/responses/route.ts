@@ -2,6 +2,7 @@
 // GET form responses for a specific form template
 
 import { NextRequest, NextResponse } from 'next/server';
+import { getAuthUser } from '@/lib/supabase/server';
 import { WhatsAppFormsService } from '@/lib/services/whatsapp/whatsapp-forms-service';
 
 export async function GET(
@@ -9,6 +10,11 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { user, error: authError } = await getAuthUser();
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     const { id } = await params;
     const { searchParams } = new URL(req.url);
     const institutionId = searchParams.get('institution_id');
