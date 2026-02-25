@@ -1,7 +1,12 @@
-import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { createServerSupabaseClient, getAuthSession } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
 
 export async function GET(request: Request) {
+  const { session, error: sessionError } = await getAuthSession();
+  if (sessionError || !session) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
   const { searchParams } = new URL(request.url);
   const courseId = searchParams.get('courseId');
 

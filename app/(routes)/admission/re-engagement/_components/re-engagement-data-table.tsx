@@ -33,52 +33,23 @@ async function fetchColdLeads(
     sort_order: string;
   }
 ) {
-  const supabase = createClientSupabaseClient();
-  const cutoffDate = new Date(
-    Date.now() - minDaysInactive * 24 * 60 * 60 * 1000
-  ).toISOString();
-
-  const selectCols =
-    "id, full_name, email, phone, interested_programs, source, " +
-    "last_contact_at, last_activity_at, funnel_stage, previous_stage, " +
-    "lost_reason, is_dormant, dormant_at, score, engagement_score, institution_id, created_at";
-
-  let query = (supabase as any)
-    .from("admission_leads")
-    .select(selectCols, { count: "exact" })
-    .eq("institution_id", institutionId)
-    .eq("is_active", true)
-    .or(
-      "is_dormant.eq.true,last_contact_at.lt." + cutoffDate + ",last_contact_at.is.null"
-    )
-    .order(params.sort_by || "last_contact_at", {
-      ascending: params.sort_order === "asc",
-      nullsFirst: true
-    })
-    .range(
-      (params.page - 1) * params.limit,
-      params.page * params.limit - 1
-    );
-
-  if (params.search) {
-    const s = params.search;
-    query = query.or("full_name.ilike.%" + s + "%,email.ilike.%" + s + "%");
-  }
-
-  if (params.from_date) query = query.gte("created_at", params.from_date);
-  if (params.to_date) query = query.lte("created_at", params.to_date);
-
-  const { data, count, error } = await query;
-  if (error) throw error;
+  // Use the service layer instead of calling Supabase directly
+  const result = await ReEngagementService.getColdLeads({
+    institutionId,
+    minDaysInactive,
+    search: params.search || undefined,
+    limit: params.limit,
+    offset: (params.page - 1) * params.limit,
+  });
 
   return {
     success: true,
-    data: (data || []) as ReEngagementLead[],
+    data: (result.leads || []) as ReEngagementLead[],
     pagination: {
       page: params.page,
       limit: params.limit,
-      total_pages: Math.ceil((count || 0) / params.limit),
-      total_items: count || 0
+      total_pages: Math.ceil((result.total || 0) / params.limit),
+      total_items: result.total || 0
     }
   };
 }

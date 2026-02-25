@@ -7,6 +7,7 @@ import {
   wasteIncidentFiltersSchema
 } from '@/lib/validations/process-excellence';
 import type { WasteIncidentFilters } from '@/types/process-excellence';
+import { ProcessExcellenceService } from '@/lib/services/process-excellence/process-excellence-service';
 
 export async function GET(request: Request) {
   try {
@@ -44,82 +45,9 @@ export async function GET(request: Request) {
     const validatedFilters = wasteIncidentFiltersSchema.parse(queryParams) as WasteIncidentFilters;
 
     const supabase = await createClient();
+    const result = await ProcessExcellenceService.getWasteIncidents(validatedFilters, supabase);
 
-    let query = supabase
-      .from('waste_incidents')
-      .select(
-        `
-        *,
-        process:process_definitions(id, name, category),
-        reporter:profiles!waste_incidents_reported_by_fkey(id, full_name, email),
-        institution:institutions(id, name)
-      `,
-        { count: 'exact' }
-      );
-
-    // Apply filters
-    if (validatedFilters.institution_id) {
-      query = query.eq('institution_id', validatedFilters.institution_id);
-    }
-
-    if (validatedFilters.process_id) {
-      query = query.eq('process_id', validatedFilters.process_id);
-    }
-
-    if (validatedFilters.process_instance_id) {
-      query = query.eq('process_instance_id', validatedFilters.process_instance_id);
-    }
-
-    if (validatedFilters.waste_category) {
-      query = query.eq('waste_category', validatedFilters.waste_category);
-    }
-
-    if (validatedFilters.status) {
-      query = query.eq('status', validatedFilters.status);
-    }
-
-    if (validatedFilters.reported_from) {
-      query = query.gte('reported_at', validatedFilters.reported_from);
-    }
-
-    if (validatedFilters.reported_to) {
-      query = query.lte('reported_at', validatedFilters.reported_to);
-    }
-
-    if (validatedFilters.search) {
-      query = query.or(
-        `description.ilike.%${validatedFilters.search}%,root_cause.ilike.%${validatedFilters.search}%`
-      );
-    }
-
-    // Apply sorting
-    const sortBy = validatedFilters.sortBy || 'reported_at';
-    const sortDirection = validatedFilters.sortDirection || 'desc';
-    query = query.order(sortBy, { ascending: sortDirection === 'asc' });
-
-    // Apply pagination
-    const page = validatedFilters.page || 1;
-    const limit = validatedFilters.limit || 10;
-    const from = (page - 1) * limit;
-    const to = from + limit - 1;
-    query = query.range(from, to);
-
-    const { data, count, error } = await query;
-
-    if (error) {
-      console.error('[process-excellence/waste] Error:', error);
-      throw new Error(`Failed to fetch waste incidents: ${error.message}`);
-    }
-
-    return NextResponse.json({
-      data: data || [],
-      metadata: {
-        total: count || 0,
-        page,
-        limit,
-        totalPages: Math.ceil((count || 0) / limit)
-      }
-    });
+    return NextResponse.json(result);
   } catch (error) {
     console.error('[process-excellence/waste] GET Error:', error);
 
@@ -148,28 +76,11 @@ export async function POST(request: Request) {
     const validatedData = createWasteIncidentSchema.parse(json);
 
     const supabase = await createClient();
-
-    const { data, error } = await supabase
-      .from('waste_incidents')
-      .insert({
-        ...validatedData,
-        reported_by: session.user.id,
-        status: 'open'
-      })
-      .select(
-        `
-        *,
-        process:process_definitions(id, name, category),
-        reporter:profiles!waste_incidents_reported_by_fkey(id, full_name, email),
-        institution:institutions(id, name)
-      `
-      )
-      .single();
-
-    if (error) {
-      console.error('[process-excellence/waste] Create error:', error);
-      throw new Error(`Failed to report waste incident: ${error.message}`);
-    }
+    const data = await ProcessExcellenceService.reportWaste(
+      validatedData,
+      session.user.id,
+      supabase
+    );
 
     return NextResponse.json(data, { status: 201 });
   } catch (error) {
