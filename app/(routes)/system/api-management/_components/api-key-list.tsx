@@ -93,6 +93,11 @@ export function ApiKeyList({
                 />
               </TableCell>
               <TableCell className="font-medium">{key.name}</TableCell>
+              <TableCell className="hidden lg:table-cell">
+                <Badge variant={key.organization_id ? 'outline' : 'secondary'}>
+                  {key.organization_id ? 'Org-scoped' : 'Global'}
+                </Badge>
+              </TableCell>
               <TableCell>
                 <Badge
                   variant={key.is_active ? 'default' : 'secondary'}
