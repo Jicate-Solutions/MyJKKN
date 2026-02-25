@@ -7,6 +7,7 @@ import {
   processDefinitionFiltersSchema
 } from '@/lib/validations/process-excellence';
 import type { ProcessDefinitionFilters } from '@/types/process-excellence';
+import { ProcessExcellenceService } from '@/lib/services/process-excellence/process-excellence-service';
 
 export async function GET(request: Request) {
   try {
@@ -42,64 +43,9 @@ export async function GET(request: Request) {
     const validatedFilters = processDefinitionFiltersSchema.parse(queryParams) as ProcessDefinitionFilters;
 
     const supabase = await createClient();
+    const result = await ProcessExcellenceService.getProcessDefinitions(validatedFilters, supabase);
 
-    let query = supabase
-      .from('process_definitions')
-      .select(
-        `
-        *,
-        institution:institutions(id, name)
-      `,
-        { count: 'exact' }
-      );
-
-    // Apply filters
-    if (validatedFilters.institution_id) {
-      query = query.eq('institution_id', validatedFilters.institution_id);
-    }
-
-    if (validatedFilters.category) {
-      query = query.eq('category', validatedFilters.category);
-    }
-
-    if (validatedFilters.is_active !== undefined) {
-      query = query.eq('is_active', validatedFilters.is_active);
-    }
-
-    if (validatedFilters.search) {
-      query = query.or(
-        `name.ilike.%${validatedFilters.search}%,description.ilike.%${validatedFilters.search}%`
-      );
-    }
-
-    // Apply sorting
-    const sortBy = validatedFilters.sortBy || 'name';
-    const sortDirection = validatedFilters.sortDirection || 'asc';
-    query = query.order(sortBy, { ascending: sortDirection === 'asc' });
-
-    // Apply pagination
-    const page = validatedFilters.page || 1;
-    const limit = validatedFilters.limit || 10;
-    const from = (page - 1) * limit;
-    const to = from + limit - 1;
-    query = query.range(from, to);
-
-    const { data, count, error } = await query;
-
-    if (error) {
-      console.error('[process-excellence/definitions] Error:', error);
-      throw new Error(`Failed to fetch process definitions: ${error.message}`);
-    }
-
-    return NextResponse.json({
-      data: data || [],
-      metadata: {
-        total: count || 0,
-        page,
-        limit,
-        totalPages: Math.ceil((count || 0) / limit)
-      }
-    });
+    return NextResponse.json(result);
   } catch (error) {
     console.error('[process-excellence/definitions] GET Error:', error);
 
@@ -128,32 +74,11 @@ export async function POST(request: Request) {
     const validatedData = createProcessDefinitionSchema.parse(json);
 
     const supabase = await createClient();
-
-    const { data, error } = await supabase
-      .from('process_definitions')
-      .insert({
-        ...validatedData,
-        created_by: session.user.id,
-        updated_by: session.user.id
-      })
-      .select(
-        `
-        *,
-        institution:institutions(id, name)
-      `
-      )
-      .single();
-
-    if (error) {
-      console.error('[process-excellence/definitions] Create error:', error);
-      if (error.code === '23505') {
-        return NextResponse.json(
-          { error: 'A process with this name already exists in this institution' },
-          { status: 409 }
-        );
-      }
-      throw new Error(`Failed to create process definition: ${error.message}`);
-    }
+    const data = await ProcessExcellenceService.createProcessDefinition(
+      validatedData,
+      session.user.id,
+      supabase
+    );
 
     return NextResponse.json(data, { status: 201 });
   } catch (error) {
@@ -163,6 +88,13 @@ export async function POST(request: Request) {
       return NextResponse.json(
         { error: 'Validation failed', details: error.errors },
         { status: 400 }
+      );
+    }
+
+    if (error instanceof Error && error.message.includes('already exists')) {
+      return NextResponse.json(
+        { error: 'A process with this name already exists in this institution' },
+        { status: 409 }
       );
     }
 

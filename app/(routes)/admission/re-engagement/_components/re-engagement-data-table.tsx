@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { toast } from 'sonner';
 import { DataTable } from '@/components/data-table/data-table';
 import { createColumns, type ReEngagementLead } from './columns';
-import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { ReEngagementService } from '@/lib/services/admission/re-engagement-service';
 import { useMarkLeadAsHot } from '@/hooks/admission/use-re-engagement';
 import { useAuth } from '@/hooks/use-auth';
 import { Button } from '@/components/ui/button';

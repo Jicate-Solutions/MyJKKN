@@ -1,10 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { NPSService } from '@/lib/services/stakeholder-nps/nps-service';
 import { createNPSSurveySchema, npsSurveyFiltersSchema } from '@/lib/validations/stakeholder-nps';
+import { getAuthSession } from '@/lib/supabase/server';
 import type { NPSSurveyFilters, CreateNPSSurveyDto } from '@/types/stakeholder-nps';
 
 export async function GET(request: NextRequest) {
   try {
+    const { session, error: sessionError } = await getAuthSession();
+    if (sessionError || !session) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     const { searchParams } = new URL(request.url);
     const filters = {
       institution_id: searchParams.get('institution_id') || '',

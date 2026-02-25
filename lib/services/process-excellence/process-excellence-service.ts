@@ -1442,7 +1442,7 @@ export class ProcessExcellenceService {
       };
 
       // Get recent audits
-      const { data: recentAudits } = await this.supabase
+      const { data: recentAudits } = await client
         .from('process_audits')
         .select(
           `
@@ -1458,7 +1458,7 @@ export class ProcessExcellenceService {
       // Get process metrics
       const metrics = await this.getProcessMetrics({
         institution_id: institutionId
-      });
+      }, supabase);
 
       return {
         summary: {
