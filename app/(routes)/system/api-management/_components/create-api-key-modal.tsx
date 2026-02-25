@@ -36,12 +36,20 @@ import {
 } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
 import { Switch } from '@/components/ui/switch';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from '@/components/ui/select';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 
 const formSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters'),
   expires_at: z.date().optional(),
-  read_only: z.boolean().default(true)
+  read_only: z.boolean().default(true),
+  organization_id: z.string().optional()
 });
 
 type FormValues = z.infer<typeof formSchema>;
