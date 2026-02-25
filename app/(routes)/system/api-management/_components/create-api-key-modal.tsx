@@ -1,12 +1,13 @@
 // app/(routes)/system/api-management/_components/create-api-key-modal.tsx
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
 import * as z from 'zod';
 import { toast } from 'react-hot-toast';
 import { CalendarIcon, Copy, Check } from 'lucide-react';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { format } from 'date-fns';
 
 import { Button } from '@/components/ui/button';
