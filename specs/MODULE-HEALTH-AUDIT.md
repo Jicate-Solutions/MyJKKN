@@ -420,6 +420,23 @@ Priority fixes:
 | **API-Partial** (30-80%) | admission, api-management, billing, campus-living, academic, profiles, resource-mgmt |
 | **API-None** (<30%) | auth, regulatory, alumni, competency, learning-path, learners-council |
 
+### Permission Enforcement Layer (Critical Cross-Module Finding)
+
+| Module | Hooks | Services | Risk |
+|--------|-------|----------|------|
+| academic | 61 usePermissions refs | 32 refs | Low — both layers check |
+| campus-living | In hooks | In services via institution_id | Low |
+| regulatory | 102 refs | **0 refs** | **HIGH — API calls bypass all permissions** |
+| alumni | 0 refs | 0 refs | **HIGH — no checks anywhere** |
+| competency | 0 refs | 0 refs | **HIGH — no checks anywhere** |
+| learning-path | 0 refs | 0 refs | **HIGH — no checks anywhere** |
+| resource-management | 0 refs | 0 refs | **HIGH — no checks anywhere** |
+| learners-council | 0 refs | 0 refs | **HIGH — no checks anywhere** |
+
+**Impact:** When Pattern B modules get API routes (B2A migration), services are called directly — without hooks wrapping them. If permission checks only exist in hooks, the API layer will have zero authorization.
+
+**Fix:** Move permission validation to the service layer before B2A migration.
+
 ### Response Envelope Inconsistency
 
 | Pattern | Used By |
