@@ -21,6 +21,8 @@ export interface ApiKey {
   is_active: boolean;
   permissions: ApiKeyPermissions;
   metadata?: ApiKeyMetadata;
+  /** Institution scope — when set, api-management routes restrict data to this institution */
+  organization_id: string | null;
   created_at: string;
   updated_at: string;
 }
