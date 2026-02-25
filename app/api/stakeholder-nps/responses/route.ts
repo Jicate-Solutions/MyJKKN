@@ -35,6 +35,11 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const { session, error: sessionError } = await getAuthSession();
+    if (sessionError || !session) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     const body = await request.json();
     const validated = submitNPSResponseSchema.parse(body) as SubmitNPSResponseDto;
     const response = await NPSService.submitResponse(validated);
