@@ -31,17 +31,17 @@
 
 ## P0: Critical Security Issues
 
-### 1. stakeholder-nps — Missing Auth Check
-- **File:** `app/api/stakeholder-nps/surveys/route.ts`
-- **Issue:** Route handlers may not properly validate authentication before processing requests
-- **Impact:** Unauthorized access to NPS survey data
-- **Fix:** Add proper auth middleware (withAuth or equivalent)
+### 1. stakeholder-nps — Missing Auth Check [FIXED 2026-02-25]
+- **Files:** `surveys/route.ts`, `responses/route.ts`, `analytics/route.ts`
+- **Issue:** 3 of 6 route files had no `getAuthSession()` check
+- **Impact:** Routes were accidentally protected by NPSService's browser client failing on server, but not intentionally secured
+- **Fix:** Added `getAuthSession()` + 401 check to all 5 unprotected handlers (GET/POST in surveys, GET/POST in responses, GET in analytics)
 
-### 2. vac — Missing Auth Check
-- **File:** Multiple routes under `app/api/vac/`
-- **Issue:** Routes lack authentication middleware
-- **Impact:** Unauthorized access to VAC (Value Added Courses) data
-- **Fix:** Add withAuth middleware to all VAC API routes
+### 2. vac — Missing Auth Check [FIXED 2026-02-25]
+- **File:** `app/api/vac/lessons/route.ts`
+- **Issue:** No explicit auth check; relied on RLS via server-side anonymous client
+- **Impact:** If RLS allows anonymous SELECT on vac_lessons, data leaks
+- **Fix:** Added `getAuthSession()` + 401 check before database access
 
 ### 3. API Key Cross-Service Leak
 - **Issue:** `withApiKeyAuth` doesn't scope API keys to specific modules. An API key created for campus-living could theoretically hit billing or OKR api-management routes

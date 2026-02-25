@@ -28,7 +28,7 @@ import { Separator } from '@/components/ui/separator';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { useAuth } from '@/hooks/use-auth';
 import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
-import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { WorkflowConfigService } from '@/lib/services/admission/workflow-config-service';
 import {
   Settings,
   MessageCircle,
@@ -257,22 +257,18 @@ function AdmissionSettingsPageContent() {
   const [hasChanges, setHasChanges] = useState(false);
   const [isLoadingSettings, setIsLoadingSettings] = useState(true);
 
-  // Load settings from admission_workflow_configs on mount
+  // Load settings from admission_workflow_configs on mount via service layer
   useEffect(() => {
     if (!selectedInstitutionId) return;
     const loadSettings = async () => {
       setIsLoadingSettings(true);
       try {
-        const supabase = createClientSupabaseClient();
-        const { data, error } = await (supabase as any)
-          .from('admission_workflow_configs')
-          .select('sla_config')
-          .eq('institution_id', selectedInstitutionId)
-          .eq('config_name', 'frequency_settings')
-          .maybeSingle();
-        if (error) throw error;
-        if (data?.sla_config) {
-          const saved = typeof data.sla_config === 'string' ? JSON.parse(data.sla_config) : data.sla_config;
+        const configs = await WorkflowConfigService.listConfigs(selectedInstitutionId);
+        const freqConfig = configs.find((c: any) => c.config_name === 'frequency_settings');
+        if (freqConfig?.sla_config) {
+          const saved = typeof freqConfig.sla_config === 'string'
+            ? JSON.parse(freqConfig.sla_config)
+            : freqConfig.sla_config;
           setSettings({ ...DEFAULT_SETTINGS, ...saved });
         }
       } catch {
@@ -314,22 +310,18 @@ function AdmissionSettingsPageContent() {
     }
     setIsSaving(true);
     try {
-      const supabase = createClientSupabaseClient();
       // academic_year is NOT NULL with no DB default — must always be provided
       const now = new Date();
       const startYear = now.getMonth() >= 5 ? now.getFullYear() : now.getFullYear() - 1;
       const academicYear = `${startYear}-${(startYear + 1).toString().slice(-2)}`;
 
-      const { error } = await (supabase as any)
-        .from('admission_workflow_configs')
-        .upsert({
-          institution_id: selectedInstitutionId,
-          config_name: 'frequency_settings',
-          academic_year: academicYear,
-          sla_config: settings,
-          updated_at: new Date().toISOString(),
-        }, { onConflict: 'institution_id,config_name' });
-      if (error) throw error;
+      // Use the service layer instead of calling Supabase directly
+      await WorkflowConfigService.upsertConfig({
+        institution_id: selectedInstitutionId,
+        config_name: 'frequency_settings',
+        academic_year: academicYear,
+        sla_config: settings as any,
+      });
       toast.success('Settings saved successfully');
       setHasChanges(false);
     } catch (err: any) {

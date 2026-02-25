@@ -160,3 +160,26 @@ export function ReEngagementDataTable() {
       )}
     </div>
   );
+
+  return (
+    <DataTable
+      key={refetchKey}
+      fetchDataFn={fetchData}
+      getColumns={() => columns as any}
+      exportConfig={{
+        entityName: 're-engagement-leads',
+        columnMapping: {},
+        columnWidths: [],
+        headers: [],
+      }}
+      idField="id"
+      config={{
+        enableUrlState: false,
+        enableDateFilter: true,
+        enableExport: false,
+        enableRowSelection: true,
+      }}
+      renderToolbarContent={renderToolbarContent}
+    />
+  );
+}
