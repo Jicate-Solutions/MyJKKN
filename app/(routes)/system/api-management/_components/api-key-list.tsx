@@ -78,7 +78,7 @@ export function ApiKeyList({
       <TableBody>
         {apiKeys.length === 0 ? (
           <TableRow>
-            <TableCell colSpan={7} className="text-center">
+            <TableCell colSpan={8} className="text-center">
               No API keys found
             </TableCell>
           </TableRow>
