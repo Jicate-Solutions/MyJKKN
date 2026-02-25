@@ -258,16 +258,18 @@ Priority fixes:
 
 ```
 Module: regulatory
-Pattern: B (Hooks → Services → Supabase RLS)
-Internal Health: Clean (well-structured)
-External Readiness: API-None
-Score: 8.0/10
+Pattern: B (React Query focused, clean)
+Internal Health: 2 issues found (1 architectural)
+External Readiness: API-None (0/18 services exposed)
+Score: 7.5/10
 Priority fixes:
-1. Complete seed data (only 1 framework + placeholder)
-2. Reduce 95 "as any" casts (moderate)
+1. ARCHITECTURAL: Move permission checks from hooks to services (102 usePermissions refs in hooks, 0 in services)
+2. Complete seed data (only 1 framework + placeholder)
+3. Reduce 95 "as any" casts
+4. Create 18-20 API management routes for B2A migration
 ```
 
-**Standout:** Correct super_admin pattern (94 references). Best QUERY_CONFIG adoption (43 refs). Reference implementation for Pattern B modules.
+**Standout:** Correct super_admin pattern in hooks (94 references). Best QUERY_CONFIG adoption (43 refs). 90% React Query adoption. **But:** Permission validation is hooks-only — if services are ever called directly (via API routes), zero permission enforcement exists.
 
 ---
 

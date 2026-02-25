@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { corsHeaders } from '@/lib/api-keys/cors';
 import { withApiKeyAuth } from '@/lib/api-keys/with-api-key-auth';
 import { paginatedResponse, errorResponse, successApiResponse } from '@/lib/api-keys/response-helpers';
