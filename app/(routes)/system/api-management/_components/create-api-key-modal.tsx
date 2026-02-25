@@ -69,12 +69,26 @@ export function CreateApiKeyModal({
   const [newApiKey, setNewApiKey] = useState<string | null>(null);
   const [hasCopied, setHasCopied] = useState(false);
   const [hasConfirmedCopy, setHasConfirmedCopy] = useState(false);
+  const [institutions, setInstitutions] = useState<{ id: string; name: string }[]>([]);
+
+  useEffect(() => {
+    if (!open) return;
+    const supabase = createClientSupabaseClient();
+    (supabase as any)
+      .from('institutions')
+      .select('id, name')
+      .order('name')
+      .then(({ data }: any) => {
+        if (data) setInstitutions(data);
+      });
+  }, [open]);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: {
       name: '',
-      read_only: true
+      read_only: true,
+      organization_id: undefined
     }
   });
 
