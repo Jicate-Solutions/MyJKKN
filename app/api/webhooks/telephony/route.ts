@@ -3,6 +3,7 @@
 // POST /api/webhooks/telephony
 
 import { NextRequest, NextResponse } from 'next/server';
+import crypto from 'crypto';
 import { logger } from '@/lib/utils/enhanced-logger';
 import {
   TelephonyService,
@@ -118,22 +119,29 @@ export async function POST(request: NextRequest) {
 /**
  * Verify Exotel webhook authentication.
  * Exotel sends an API token that should match our configured token.
+ * SECURITY: Rejects requests when EXOTEL_API_TOKEN is not configured.
  */
 function verifyWebhookAuth(request: NextRequest): boolean {
   const expectedToken = process.env.EXOTEL_API_TOKEN;
 
-  // If no webhook auth configured, allow (for testing/development)
+  // SECURITY: Reject if token is not configured — never allow unauthenticated requests
   if (!expectedToken) {
-    logger.warn('telephony/webhook', 'EXOTEL_API_TOKEN not configured — allowing unauthenticated webhook');
-    return true;
+    logger.error('telephony/webhook', 'EXOTEL_API_TOKEN not configured — rejecting request');
+    return false;
   }
 
   // Check for token in various common header formats
   const authHeader = request.headers.get('authorization');
   const apiToken = request.headers.get('x-exotel-token') || request.headers.get('x-api-token');
 
-  if (apiToken && apiToken === expectedToken) {
-    return true;
+  if (apiToken && apiToken.length === expectedToken.length) {
+    try {
+      if (crypto.timingSafeEqual(Buffer.from(apiToken), Buffer.from(expectedToken))) {
+        return true;
+      }
+    } catch {
+      // Length mismatch handled by try/catch
+    }
   }
 
   // Check Basic auth header (Exotel sometimes uses basic auth in callbacks)
@@ -141,20 +149,29 @@ function verifyWebhookAuth(request: NextRequest): boolean {
     try {
       const decoded = atob(authHeader.slice(6));
       const [, token] = decoded.split(':');
-      if (token === expectedToken) {
-        return true;
+      if (token && token.length === expectedToken.length) {
+        if (crypto.timingSafeEqual(Buffer.from(token), Buffer.from(expectedToken))) {
+          return true;
+        }
       }
     } catch {
-      // Invalid base64
+      // Invalid base64 or length mismatch
     }
   }
 
   // Check query parameter as a fallback
   const tokenParam = request.nextUrl.searchParams.get('token');
-  if (tokenParam && tokenParam === expectedToken) {
-    return true;
+  if (tokenParam && tokenParam.length === expectedToken.length) {
+    try {
+      if (crypto.timingSafeEqual(Buffer.from(tokenParam), Buffer.from(expectedToken))) {
+        return true;
+      }
+    } catch {
+      // Length mismatch
+    }
   }
 
+  logger.warn('telephony/webhook', 'Exotel webhook authentication failed — no valid token found');
   return false;
 }
 

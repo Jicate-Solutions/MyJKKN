@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { corsHeaders } from '@/lib/api-keys/cors';
-import { withApiKeyAuth } from '@/lib/api-keys/with-api-key-auth';
+import { withAuth } from '@/lib/auth/with-auth';
 import { paginatedResponse, createdResponse, errorResponse, noContentResponse } from '@/lib/api-keys/response-helpers';
 import { getPaginationParams, getUuidParam , sanitizeBody } from '@/lib/api-keys/query-helpers';
 
@@ -10,7 +10,7 @@ export const OPTIONS = () => new NextResponse(null, { headers: corsHeaders });
  * GET /api/api-management/campus-living/emergency-contacts
  * Query params: page, limit, block_id, learner_id
  */
-export const GET = withApiKeyAuth(async (request, auth) => {
+export const GET = withAuth(async (request, auth) => {
   const url = new URL(request.url);
   const { page, limit, from, to } = getPaginationParams(url);
   const institutionId = auth.institutionId;
@@ -33,13 +33,13 @@ export const GET = withApiKeyAuth(async (request, auth) => {
   if (error) throw error;
 
   return paginatedResponse(data ?? [], count ?? 0, page, limit);
-}, { permission: 'read' });
+}, { allowApiKey: true, requiredPermission: 'read' });
 
 /**
  * POST /api/api-management/campus-living/emergency-contacts
  * Create a new emergency contact.
  */
-export const POST = withApiKeyAuth(async (request, auth) => {
+export const POST = withAuth(async (request, auth) => {
   const institutionId = auth.institutionId;
   if (!institutionId) return errorResponse('API key must be associated with an organization', 400);
 
@@ -54,13 +54,13 @@ export const POST = withApiKeyAuth(async (request, auth) => {
   if (error) throw error;
 
   return createdResponse(data);
-}, { permission: 'write' });
+}, { allowApiKey: true, requiredPermission: 'write' });
 
 /**
  * DELETE /api/api-management/campus-living/emergency-contacts?id=<uuid>
  * Delete an emergency contact by ID (passed as query parameter).
  */
-export const DELETE = withApiKeyAuth(async (request, auth) => {
+export const DELETE = withAuth(async (request, auth) => {
   const institutionId = auth.institutionId;
   if (!institutionId) return errorResponse('API key must be associated with an organization', 400);
 
@@ -79,4 +79,4 @@ export const DELETE = withApiKeyAuth(async (request, auth) => {
   if (!data || data.length === 0) return errorResponse('Emergency contact not found', 404);
 
   return noContentResponse();
-}, { permission: 'write' });
+}, { allowApiKey: true, requiredPermission: 'write' });

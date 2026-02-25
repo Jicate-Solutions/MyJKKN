@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { corsHeaders } from '@/lib/api-keys/cors';
-import { withApiKeyAuth } from '@/lib/api-keys/with-api-key-auth';
+import { withAuth } from '@/lib/auth/with-auth';
 import { paginatedResponse, errorResponse } from '@/lib/api-keys/response-helpers';
 import { getPaginationParams, getStringParam, getUuidParam, getDateRangeParams } from '@/lib/api-keys/query-helpers';
 
@@ -11,7 +11,7 @@ export const OPTIONS = () => new NextResponse(null, { headers: corsHeaders });
  * List cleaning tasks and schedules.
  * Query params: page, limit, type (tasks|schedules), status, block_id, cleaning_type, date_from, date_to
  */
-export const GET = withApiKeyAuth(async (request, auth) => {
+export const GET = withAuth(async (request, auth) => {
   const url = new URL(request.url);
   const institutionId = auth.institutionId;
   if (!institutionId) return errorResponse('API key must be associated with an organization', 400);
@@ -58,4 +58,4 @@ export const GET = withApiKeyAuth(async (request, auth) => {
   const { data, error, count } = await query;
   if (error) throw error;
   return paginatedResponse(data ?? [], count ?? 0, page, limit);
-}, { permission: 'read' });
+}, { allowApiKey: true, requiredPermission: 'read' });

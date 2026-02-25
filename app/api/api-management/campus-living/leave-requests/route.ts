@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { corsHeaders } from '@/lib/api-keys/cors';
-import { withApiKeyAuth } from '@/lib/api-keys/with-api-key-auth';
+import { withAuth } from '@/lib/auth/with-auth';
 import { paginatedResponse, createdResponse, errorResponse } from '@/lib/api-keys/response-helpers';
 import { getPaginationParams, getStringParam, getUuidParam, getDateRangeParams , sanitizeBody } from '@/lib/api-keys/query-helpers';
 
@@ -10,7 +10,7 @@ export const OPTIONS = () => new NextResponse(null, { headers: corsHeaders });
  * GET /api/api-management/campus-living/leave-requests
  * Query params: page, limit, status, block_id, learner_id, date_from, date_to
  */
-export const GET = withApiKeyAuth(async (request, auth) => {
+export const GET = withAuth(async (request, auth) => {
   const url = new URL(request.url);
   const { page, limit, from, to } = getPaginationParams(url);
   const institutionId = auth.institutionId;
@@ -38,12 +38,12 @@ export const GET = withApiKeyAuth(async (request, auth) => {
   if (error) throw error;
 
   return paginatedResponse(data ?? [], count ?? 0, page, limit);
-}, { permission: 'read' });
+}, { allowApiKey: true, requiredPermission: 'read' });
 
 /**
  * POST /api/api-management/campus-living/leave-requests
  */
-export const POST = withApiKeyAuth(async (request, auth) => {
+export const POST = withAuth(async (request, auth) => {
   const institutionId = auth.institutionId;
   if (!institutionId) return errorResponse('API key must be associated with an organization', 400);
 
@@ -58,4 +58,4 @@ export const POST = withApiKeyAuth(async (request, auth) => {
   if (error) throw error;
 
   return createdResponse(data);
-}, { permission: 'write' });
+}, { allowApiKey: true, requiredPermission: 'write' });

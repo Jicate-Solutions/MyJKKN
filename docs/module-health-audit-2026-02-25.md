@@ -43,10 +43,11 @@
 - **Impact:** If RLS allows anonymous SELECT on vac_lessons, data leaks
 - **Fix:** Added `getAuthSession()` + 401 check before database access
 
-### 3. API Key Cross-Service Leak
-- **Issue:** `withApiKeyAuth` doesn't scope API keys to specific modules. An API key created for campus-living could theoretically hit billing or OKR api-management routes
-- **Impact:** Overly broad access — keys intended for one module can access another
-- **Fix:** Add module-scoping to withApiKeyAuth (check allowed_modules on api_keys table)
+### 3. API Key Missing Organization Scoping [PARTIALLY FIXED 2026-02-25]
+- **Issue:** `api_keys` table had no `organization_id` column. All campus-living routes returned 400 ("API key must be associated with an organization") because the column didn't exist. Old routes (staff, learners) had no institution scoping at all.
+- **Impact:** Campus-living API entirely non-functional; older routes return cross-institution data
+- **Fix applied:** Added `organization_id` column to `api_keys` (FK to institutions), updated types, API route, and create modal with organization selector. Campus-living routes now work when key has org set.
+- **Remaining:** Old api-management routes (staff, learners, OKR, etc.) still don't enforce organization scoping — they accept optional `?institution_id=` query param but don't check against the key's org. Module-level scoping (restricting which API paths a key can access) is still not implemented.
 
 ### 4. SERVICE_ROLE_KEY RLS Bypass
 - **Issue:** All 76 api-management routes use SERVICE_ROLE_KEY Supabase client which bypasses ALL RLS policies

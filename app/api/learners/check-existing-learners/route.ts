@@ -119,9 +119,16 @@ export async function POST(request: NextRequest) {
       .filter((email): email is string => !!email && email !== '');
 
     // 5. Query database for existing learners
+    const isSuperAdmin = profileData.is_super_admin || profileData.role === 'super_admin';
+
     let query = supabase
       .from('learners_profiles')
       .select('id, first_name, last_name, student_email, student_mobile, college_email, lifecycle_status, created_at');
+
+    // Institution scoping: non-super-admins only check their own institution
+    if (!isSuperAdmin && profileData.institution_id) {
+      query = query.eq('institution_id', profileData.institution_id);
+    }
 
     // Build OR conditions
     const orConditions: string[] = [];

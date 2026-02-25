@@ -73,6 +73,23 @@ export async function GET(request: NextRequest) {
       .update({ last_used_at: new Date().toISOString() })
       .eq('id', keyData.id);
 
+    // Get the API key owner's profile for institution scoping
+    let apiKeyInstitutionId: string | null = null;
+    let isApiKeyOwnerSuperAdmin = false;
+
+    if (keyData.user_id) {
+      const { data: ownerProfile } = await supabase
+        .from('profiles')
+        .select('institution_id, role, is_super_admin')
+        .eq('id', keyData.user_id)
+        .single();
+
+      if (ownerProfile) {
+        apiKeyInstitutionId = ownerProfile.institution_id;
+        isApiKeyOwnerSuperAdmin = ownerProfile.is_super_admin || ownerProfile.role === 'super_admin';
+      }
+    }
+
     // Get query parameters
     const url = new URL(request.url);
     const page = parseInt(url.searchParams.get('page') || '1');
@@ -84,9 +101,14 @@ export async function GET(request: NextRequest) {
     let query = supabase
       .from('profiles')
       .select(
-        'id, email, full_name, role, department, phone_number, created_at',
+        'id, email, full_name, role, department, phone_number, created_at, institution_id',
         { count: 'exact' }
       );
+
+    // Institution scoping: non-super-admin API key owners only see their institution's profiles
+    if (!isApiKeyOwnerSuperAdmin && apiKeyInstitutionId) {
+      query = query.eq('institution_id', apiKeyInstitutionId);
+    }
 
     // Apply filters
     if (role) {

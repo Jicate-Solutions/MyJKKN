@@ -1,12 +1,12 @@
 import { NextResponse } from 'next/server';
 import { corsHeaders } from '@/lib/api-keys/cors';
-import { withApiKeyAuth } from '@/lib/api-keys/with-api-key-auth';
+import { withAuth } from '@/lib/auth/with-auth';
 import { successApiResponse, errorResponse } from '@/lib/api-keys/response-helpers';
 import { isValidUuid } from '@/lib/api-keys/query-helpers';
 
 export const OPTIONS = () => new NextResponse(null, { headers: corsHeaders });
 
-export const GET = withApiKeyAuth(async (request, auth, context) => {
+export const GET = withAuth(async (request, auth, context) => {
   const params = await context?.params;
   const id = params?.id;
   if (!id || !isValidUuid(id)) return errorResponse('Valid learner UUID is required', 400);
@@ -29,4 +29,4 @@ export const GET = withApiKeyAuth(async (request, auth, context) => {
   if (error) throw error;
   if (!data || data.length === 0) return errorResponse('No allocations found for this learner', 404);
   return successApiResponse(data);
-}, { permission: 'read' });
+}, { allowApiKey: true, requiredPermission: 'read' });

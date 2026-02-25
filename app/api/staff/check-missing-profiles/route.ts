@@ -49,7 +49,7 @@ export async function GET() {
 
     const { data: currentUser, error: userError } = await supabase
       .from('profiles')
-      .select('role')
+      .select('role, institution_id, is_super_admin')
       .eq('id', session.user.id)
       .single();
 
@@ -66,8 +66,10 @@ export async function GET() {
       );
     }
 
-    // Get all staff with emails
-    const { data: allStaff, error: staffError } = await supabaseAdmin
+    const isSuperAdmin = currentUser.is_super_admin || currentUser.role === 'super_admin';
+
+    // Get staff with emails - scoped to user's institution (super_admin sees all)
+    let staffQuery = supabaseAdmin
       .from('staff')
       .select(
         `
@@ -84,6 +86,13 @@ export async function GET() {
       )
       .not('institution_email', 'is', null)
       .not('institution_email', 'eq', '');
+
+    // Institution scoping for non-super-admins
+    if (!isSuperAdmin && currentUser.institution_id) {
+      staffQuery = staffQuery.eq('institution_id', currentUser.institution_id);
+    }
+
+    const { data: allStaff, error: staffError } = await staffQuery;
 
     if (staffError) {
       throw staffError;

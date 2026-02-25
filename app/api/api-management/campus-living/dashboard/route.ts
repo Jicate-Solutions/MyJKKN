@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { corsHeaders } from '@/lib/api-keys/cors';
-import { withApiKeyAuth } from '@/lib/api-keys/with-api-key-auth';
+import { withAuth } from '@/lib/auth/with-auth';
 import { errorResponse, successApiResponse } from '@/lib/api-keys/response-helpers';
 
 export const OPTIONS = () => new NextResponse(null, { headers: corsHeaders });
@@ -10,7 +10,7 @@ export const OPTIONS = () => new NextResponse(null, { headers: corsHeaders });
  * Get a summary dashboard of campus living data.
  * Returns counts and key metrics across all hostel subsystems.
  */
-export const GET = withApiKeyAuth(async (request, auth) => {
+export const GET = withAuth(async (request, auth) => {
   const institutionId = auth.institutionId;
   if (!institutionId) return errorResponse('API key must be associated with an organization', 400);
 
@@ -79,4 +79,4 @@ export const GET = withApiKeyAuth(async (request, auth) => {
     },
     generated_at: new Date().toISOString(),
   });
-}, { permission: 'read' });
+}, { allowApiKey: true, requiredPermission: 'read' });

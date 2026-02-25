@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { corsHeaders } from '@/lib/api-keys/cors';
-import { withApiKeyAuth } from '@/lib/api-keys/with-api-key-auth';
+import { withAuth } from '@/lib/auth/with-auth';
 import { paginatedResponse, errorResponse } from '@/lib/api-keys/response-helpers';
 import { getPaginationParams, getStringParam, getUuidParam } from '@/lib/api-keys/query-helpers';
 
@@ -12,7 +12,7 @@ export const OPTIONS = () => new NextResponse(null, { headers: corsHeaders });
  *
  * Query params: page, limit, block_id
  */
-export const GET = withApiKeyAuth(async (request, auth) => {
+export const GET = withAuth(async (request, auth) => {
   const url = new URL(request.url);
   const { page, limit, from, to } = getPaginationParams(url);
   const institutionId = auth.institutionId;
@@ -39,4 +39,4 @@ export const GET = withApiKeyAuth(async (request, auth) => {
   if (error) throw error;
 
   return paginatedResponse(data ?? [], count ?? 0, page, limit);
-}, { permission: 'read' });
+}, { allowApiKey: true, requiredPermission: 'read' });

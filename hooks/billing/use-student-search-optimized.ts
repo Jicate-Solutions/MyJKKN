@@ -1,5 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { StudentSearchServiceOptimized } from '@/lib/services/billing/schedule/student-search-service-optimized';
+import { usePermissions } from '@/hooks/use-permissions';
 import type {
   StudentForBillingListResponse,
   StudentSearchFilters as StudentSearchFiltersType,
@@ -218,6 +219,8 @@ export function useSearchStudentsByQueryOptimized(
   institutionId?: string,
   limit: number = 10
 ) {
+  const { isSuperAdmin } = usePermissions();
+
   return useQuery<StudentForBilling[], Error>({
     queryKey: studentSearchKeysOptimized.searchByQuery(
       searchQuery,
@@ -230,7 +233,7 @@ export function useSearchStudentsByQueryOptimized(
         institutionId,
         limit
       ),
-    enabled: !!searchQuery && searchQuery.length >= 2 && !!institutionId,
+    enabled: !!searchQuery && searchQuery.length >= 2 && (isSuperAdmin || !!institutionId),
     retry: getRetryConfig,
     staleTime: 30 * 1000,
     gcTime: 2 * 60 * 1000, // Shorter cache for search results
@@ -244,6 +247,8 @@ export function useStudentsForBulkOperationsOptimized(
   departmentId?: string,
   semesterId?: string
 ) {
+  const { isSuperAdmin } = usePermissions();
+
   const filters: StudentSearchFiltersType = {
     institution_id: institutionId,
     department_id: departmentId,
@@ -260,7 +265,7 @@ export function useStudentsForBulkOperationsOptimized(
     ),
     queryFn: () =>
       StudentSearchServiceOptimized.searchStudentsForBilling(filters),
-    enabled: !!institutionId,
+    enabled: isSuperAdmin || !!institutionId, // super_admin sees all; others need institutionId
     retry: getRetryConfig,
     staleTime: 5 * 60 * 1000,
     gcTime: 10 * 60 * 1000,

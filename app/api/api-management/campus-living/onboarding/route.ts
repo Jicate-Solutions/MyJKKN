@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { corsHeaders } from '@/lib/api-keys/cors';
-import { withApiKeyAuth } from '@/lib/api-keys/with-api-key-auth';
+import { withAuth } from '@/lib/auth/with-auth';
 import { paginatedResponse, errorResponse, successApiResponse } from '@/lib/api-keys/response-helpers';
 import { getPaginationParams, getStringParam, getUuidParam, isValidUuid } from '@/lib/api-keys/query-helpers';
 
@@ -11,7 +11,7 @@ export const OPTIONS = () => new NextResponse(null, { headers: corsHeaders });
  * List onboarding checklists.
  * Query params: page, limit, learner_id, status, block_id
  */
-export const GET = withApiKeyAuth(async (request, auth) => {
+export const GET = withAuth(async (request, auth) => {
   const url = new URL(request.url);
   const { page, limit, from, to } = getPaginationParams(url);
   const institutionId = auth.institutionId;
@@ -34,14 +34,14 @@ export const GET = withApiKeyAuth(async (request, auth) => {
   if (error) throw error;
 
   return paginatedResponse(data ?? [], count ?? 0, page, limit);
-}, { permission: 'read' });
+}, { allowApiKey: true, requiredPermission: 'read' });
 
 /**
  * PATCH /api/api-management/campus-living/onboarding
  * Bulk update onboarding checklist items.
  * Body: { id: string, updates: Record<string, any> }
  */
-export const PATCH = withApiKeyAuth(async (request, auth) => {
+export const PATCH = withAuth(async (request, auth) => {
   const institutionId = auth.institutionId;
   if (!institutionId) return errorResponse('API key must be associated with an organization', 400);
 
@@ -66,4 +66,4 @@ export const PATCH = withApiKeyAuth(async (request, auth) => {
   }
 
   return successApiResponse(data);
-}, { permission: 'write' });
+}, { allowApiKey: true, requiredPermission: 'write' });

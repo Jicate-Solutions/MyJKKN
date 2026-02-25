@@ -36,6 +36,19 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    // Get user profile for institution scoping
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('role, institution_id, is_super_admin')
+      .eq('id', user.id)
+      .single();
+
+    if (!profile) {
+      return NextResponse.json({ error: 'Profile not found' }, { status: 404 });
+    }
+
+    const isSuperAdmin = profile.is_super_admin || profile.role === 'super_admin';
+
     // Get query parameters
     const url = new URL(request.url);
     const format = url.searchParams.get('format') || 'csv';
@@ -46,19 +59,24 @@ export async function GET(request: NextRequest) {
     let query = (supabase as any).from('staff').select(`
       *,
       category:employment_categories(
-        id, 
+        id,
         category_name
       ),
       institution:institutions(
-        id, 
-        name, 
+        id,
+        name,
         counselling_code
       ),
       department:departments(
-        id, 
+        id,
         department_name
       )
     `);
+
+    // Institution scoping: non-super-admins only export their institution's staff
+    if (!isSuperAdmin && profile.institution_id) {
+      query = query.eq('institution_id', profile.institution_id);
+    }
 
     // Apply filters
     if (!includeInactive) {

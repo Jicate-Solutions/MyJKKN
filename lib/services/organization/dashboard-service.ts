@@ -3,20 +3,26 @@ import type { Profile } from '@/types/auth';
 import { OrganizationStats } from '@/types/organizations';
 
 export class DashboardService {
+  /**
+   * Get accessible institution IDs for a user.
+   * Uses profiles.institution_id (NOT user_institution_access which is billing-only).
+   */
   private static async getUserAccessibleInstitutionIds(
     supabase: SupabaseClient,
     userId: string
   ): Promise<string[]> {
     const { data, error } = await supabase
-      .from('user_institution_access')
+      .from('profiles')
       .select('institution_id')
-      .eq('user_id', userId);
+      .eq('id', userId)
+      .single();
 
     if (error) {
-      console.error('Error fetching user institution access:', error);
+      console.error('Error fetching user institution from profile:', error);
       return [];
     }
-    return data.map((item) => item.institution_id);
+    if (data?.institution_id) return [data.institution_id];
+    return [];
   }
 
   static async getOrganizationStats(

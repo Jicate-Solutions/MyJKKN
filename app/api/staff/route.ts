@@ -85,29 +85,23 @@ export async function GET(request: NextRequest) {
 
     const isSuperAdmin = userProfile?.is_super_admin || userProfile?.role === 'super_admin';
 
+    console.log('[/api/staff] User access check:', {
+      userId: session.user.id,
+      email: session.user.email,
+      isSuperAdmin,
+      profileInstitutionId: userProfile?.institution_id
+    });
+
     // Get accessible institution IDs (skip if super admin)
+    // Uses profiles.institution_id only (NOT user_institution_access which is billing-only)
     let accessibleInstitutionIds: string[] = [];
 
     if (!isSuperAdmin) {
-      // Primary access: User's own institution (from profiles.institution_id)
       if (userProfile?.institution_id) {
         accessibleInstitutionIds.push(userProfile.institution_id);
+        console.log('[/api/staff] User institution:', userProfile.institution_id);
       }
 
-      // Additional access: Institutions granted via user_institution_access (for billing module)
-      const { data: additionalAccess } = await supabaseAdmin
-        .from('user_institution_access')
-        .select('institution_id')
-        .eq('user_id', session.user.id)
-        .eq('is_active', true);
-
-      if (additionalAccess && additionalAccess.length > 0) {
-        // Add additional institutions (avoiding duplicates)
-        const additionalIds = additionalAccess.map((a) => a.institution_id);
-        accessibleInstitutionIds = [...new Set([...accessibleInstitutionIds, ...additionalIds])];
-      }
-
-      // User must have at least their primary institution
       if (accessibleInstitutionIds.length === 0) {
         console.warn('[/api/staff] User has no institution access');
         return NextResponse.json(
@@ -116,6 +110,7 @@ export async function GET(request: NextRequest) {
         );
       }
     } else {
+      console.log('[/api/staff] Super admin - skipping institution filtering');
     }
 
     // Get query parameters
@@ -139,8 +134,13 @@ export async function GET(request: NextRequest) {
       { count: 'exact' }
     );
 
-    // Filter by user's institution access (skip if super admin)
-    if (!isSuperAdmin && accessibleInstitutionIds.length > 0) {
+    // Faculty users can only view their own staff record
+    if (!isSuperAdmin && userProfile?.role === 'faculty') {
+      query = query.eq('institution_email', session.user.email);
+      console.log('[/api/staff] Faculty self-only filter applied for:', session.user.email);
+    }
+    // Filter by user's institution access (skip if super admin or faculty)
+    else if (!isSuperAdmin && accessibleInstitutionIds.length > 0) {
       query = query.in('institution_id', accessibleInstitutionIds);
     }
 
@@ -284,6 +284,8 @@ export async function POST(request: Request) {
       );
     }
 
+    console.log('Creating staff via API route for user:', currentUser.role);
+
     // Check if staff_id already exists if provided
     if (json.staff_id) {
       const { data: existing } = await supabaseAdmin
@@ -323,6 +325,8 @@ export async function POST(request: Request) {
         { status: 500 }
       );
     }
+
+    console.log('Staff created successfully via API route:', staff.id);
 
     return NextResponse.json(staff);
   } catch (error) {

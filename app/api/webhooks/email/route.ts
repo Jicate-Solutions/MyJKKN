@@ -47,10 +47,10 @@ function verifyWebhookSignature(
 ): boolean {
   const webhookSecret = process.env.RESEND_WEBHOOK_SECRET;
 
-  // If no secret configured, skip verification (development mode)
+  // SECURITY: Reject if webhook secret is not configured — never allow unverified requests
   if (!webhookSecret) {
-    console.warn('[email-webhook] No webhook secret configured, skipping verification');
-    return true;
+    console.error('[email-webhook] RESEND_WEBHOOK_SECRET not configured — rejecting request');
+    return false;
   }
 
   const svixId = request.headers.get('svix-id');

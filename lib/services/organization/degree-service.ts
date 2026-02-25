@@ -14,21 +14,22 @@ export class DegreeService {
   private static supabase = createClientSupabaseClient();
 
   /**
-   * Helper method to get accessible institution IDs for a user
+   * Helper method to get accessible institution IDs for a user.
+   * Uses profiles.institution_id (NOT user_institution_access which is billing-only).
    */
   private static async getUserAccessibleInstitutionIds(
     userId: string
   ): Promise<string[]> {
     try {
-      // Import the service to avoid circular dependency
-      const { UserInstitutionAccessService } = await import(
-        '@/lib/services/users/user-institution-access-service'
-      );
-      const result =
-        await UserInstitutionAccessService.getUserAccessibleInstitutionIds(
-          userId
-        );
-      return result;
+      const { data, error } = await this.supabase
+        .from('profiles')
+        .select('institution_id')
+        .eq('id', userId)
+        .single();
+
+      if (error) throw error;
+      if (data?.institution_id) return [data.institution_id];
+      return [];
     } catch (error) {
       console.error(
         'DegreeService: Error getting user accessible institution IDs:',

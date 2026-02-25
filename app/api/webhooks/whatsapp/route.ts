@@ -93,10 +93,10 @@ interface MetaWebhookError {
 function verifyWebhookSignature(request: NextRequest, rawBody: string): boolean {
   const appSecret = process.env.WHATSAPP_WEBHOOK_SECRET;
 
-  // Skip verification in development if no secret configured
+  // SECURITY: Reject if webhook secret is not configured — never allow unverified requests
   if (!appSecret) {
-    console.warn('[wa-webhook] No webhook secret configured, skipping signature verification');
-    return true;
+    console.error('[wa-webhook] WHATSAPP_WEBHOOK_SECRET not configured — rejecting request');
+    return false;
   }
 
   const signature = request.headers.get('x-hub-signature-256');

@@ -12,19 +12,22 @@ export class CourseService {
   private static supabase = createClientSupabaseClient();
 
   /**
-   * Helper method to get accessible institution IDs for a user
+   * Helper method to get accessible institution IDs for a user.
+   * Uses profiles.institution_id (NOT user_institution_access which is billing-only).
    */
   private static async getUserAccessibleInstitutionIds(
     userId: string
   ): Promise<string[]> {
     try {
-      // Import the service to avoid circular dependency
-      const { UserInstitutionAccessService } = await import(
-        '@/lib/services/users/user-institution-access-service'
-      );
-      return await UserInstitutionAccessService.getUserAccessibleInstitutionIds(
-        userId
-      );
+      const { data, error } = await this.supabase
+        .from('profiles')
+        .select('institution_id')
+        .eq('id', userId)
+        .single();
+
+      if (error) throw error;
+      if (data?.institution_id) return [data.institution_id];
+      return [];
     } catch (error) {
       console.error('Error getting user accessible institution IDs:', error);
       return [];
@@ -46,7 +49,7 @@ export class CourseService {
         if (error.code === 'PGRST116') return null;
         throw error;
       }
-      return data as unknown as Course;
+      return data;
     } catch (error) {
       console.error('Error fetching course by code:', error);
       throw error;
@@ -269,7 +272,7 @@ export class CourseService {
         throw error;
       }
 
-      return course as unknown as Course;
+      return course;
     } catch (error) {
       console.error('Error fetching course:', error);
       throw error;
@@ -293,7 +296,7 @@ export class CourseService {
         return null;
       }
 
-      return data as unknown as Course;
+      return data;
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : 'An unknown error occurred';

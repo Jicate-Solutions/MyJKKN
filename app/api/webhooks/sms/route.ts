@@ -3,6 +3,7 @@
 // POST /api/webhooks/sms?provider=msg91|twilio
 
 import { NextRequest, NextResponse } from 'next/server';
+import crypto from 'crypto';
 import { logger } from '@/lib/utils/enhanced-logger';
 import {
   SMSCampaignService,
@@ -142,47 +143,88 @@ export async function POST(request: NextRequest) {
 // ============================================================================
 
 /**
- * Verify webhook authentication based on provider
+ * Verify webhook authentication based on provider.
+ * SECURITY: Rejects requests when auth credentials are not configured.
  */
 async function verifyWebhookAuth(request: NextRequest, provider: SMSProvider): Promise<boolean> {
   if (provider === 'msg91') {
-    // MSG91 uses IP whitelist or auth key in header
     const authKey = request.headers.get('authkey') || request.headers.get('x-authkey');
     const expectedKey = process.env.MSG91_WEBHOOK_AUTH_KEY;
 
-    // If no webhook auth key configured, allow (for testing)
+    // SECURITY: Reject if auth key is not configured — never allow unauthenticated requests
     if (!expectedKey) {
-      logger.warn('admission/sms-webhook', 'MSG91 webhook auth key not configured');
-      return true;
-    }
-
-    return authKey === expectedKey;
-  }
-
-  if (provider === 'twilio') {
-    // Twilio uses signature validation
-    const signature = request.headers.get('x-twilio-signature');
-    const twilioAuthToken = process.env.TWILIO_AUTH_TOKEN;
-
-    // If no auth token configured, allow (for testing)
-    if (!twilioAuthToken) {
-      logger.warn('admission/sms-webhook', 'Twilio auth token not configured');
-      return true;
-    }
-
-    // In production, implement proper Twilio signature validation
-    // See: https://www.twilio.com/docs/usage/security#validating-requests
-    // For now, just check if signature is present
-    if (!signature) {
+      logger.error('admission/sms-webhook', 'MSG91_WEBHOOK_AUTH_KEY not configured — rejecting request');
       return false;
     }
 
-    // TODO: Implement proper Twilio signature validation
-    // const crypto = require('crypto');
-    // const url = `${process.env.NEXT_PUBLIC_APP_URL}/api/webhooks/sms?provider=twilio`;
-    // const params = await request.formData();
-    // ... validate signature
-    return true;
+    if (!authKey) {
+      logger.warn('admission/sms-webhook', 'MSG91 webhook missing authkey header');
+      return false;
+    }
+
+    // Use timing-safe comparison to prevent timing attacks
+    if (authKey.length !== expectedKey.length) return false;
+    return crypto.timingSafeEqual(Buffer.from(authKey), Buffer.from(expectedKey));
+  }
+
+  if (provider === 'twilio') {
+    const signature = request.headers.get('x-twilio-signature');
+    const twilioAuthToken = process.env.TWILIO_AUTH_TOKEN;
+
+    // SECURITY: Reject if auth token is not configured — never allow unauthenticated requests
+    if (!twilioAuthToken) {
+      logger.error('admission/sms-webhook', 'TWILIO_AUTH_TOKEN not configured — rejecting request');
+      return false;
+    }
+
+    if (!signature) {
+      logger.warn('admission/sms-webhook', 'Twilio webhook missing x-twilio-signature header');
+      return false;
+    }
+
+    // Twilio signature validation per https://www.twilio.com/docs/usage/security#validating-requests
+    // 1. Build the full URL Twilio used to call this webhook
+    const webhookUrl = `${process.env.NEXT_PUBLIC_APP_URL || 'https://localhost:3000'}/api/webhooks/sms?provider=twilio`;
+
+    // 2. Get POST parameters sorted alphabetically and concatenated
+    let paramString = '';
+    try {
+      const contentType = request.headers.get('content-type') || '';
+      if (contentType.includes('application/x-www-form-urlencoded')) {
+        // Clone the request to avoid consuming the body (caller will read it again)
+        const clonedRequest = request.clone();
+        const formData = await clonedRequest.formData();
+        const params: Record<string, string> = {};
+        formData.forEach((value, key) => {
+          params[key] = value.toString();
+        });
+        // Sort keys alphabetically and concatenate key+value
+        const sortedKeys = Object.keys(params).sort();
+        paramString = sortedKeys.map(key => key + params[key]).join('');
+      }
+    } catch (e) {
+      logger.error('admission/sms-webhook', 'Failed to parse Twilio form data for signature validation', e);
+      return false;
+    }
+
+    // 3. Compute HMAC-SHA1 of (URL + sorted params) using auth token
+    const dataToSign = webhookUrl + paramString;
+    const expectedSignature = crypto
+      .createHmac('sha1', twilioAuthToken)
+      .update(dataToSign)
+      .digest('base64');
+
+    // 4. Compare signatures using timing-safe comparison
+    try {
+      return crypto.timingSafeEqual(
+        Buffer.from(signature),
+        Buffer.from(expectedSignature)
+      );
+    } catch {
+      // Buffer length mismatch means signatures differ
+      logger.warn('admission/sms-webhook', 'Twilio signature validation failed — length mismatch');
+      return false;
+    }
   }
 
   return false;
