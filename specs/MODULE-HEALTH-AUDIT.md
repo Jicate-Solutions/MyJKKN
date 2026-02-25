@@ -27,6 +27,9 @@
 4. **Components calling Supabase directly** in Admission (3 files)
 5. **347 `as any` casts** in Academic module alone
 6. **Permission checks live in hooks only, not services** — affects regulatory, alumni, competency, learning-path, resource-management, learners-council (if called via API, zero permission enforcement)
+7. **CRM API key exposed publicly** — `/api/crm/api-key` returns env variable with ZERO authentication
+8. **Webhook signature validation missing** — SMS/Twilio webhooks accept unvalidated requests; MSG91 fallback allows if key not configured
+9. **Staff module uses `user_institution_access`** — violates CLAUDE.md golden rule (billing-only table)
 
 ---
 
