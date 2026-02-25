@@ -36,6 +36,7 @@ export const PATCH = withApiKeyAuth(async (request, auth, context) => {
 
   const body = await request.json();
   delete body.institution_id; delete body.id;
+  if (Object.keys(body).length === 0) return errorResponse('No fields to update', 400);
 
   const { data, error } = await (auth.supabase as any)
     .from('hostel_allocations')
@@ -58,12 +59,14 @@ export const DELETE = withApiKeyAuth(async (request, auth, context) => {
   const institutionId = auth.institutionId;
   if (!institutionId) return errorResponse('API key must be associated with an organization', 400);
 
-  const { error } = await (auth.supabase as any)
+  const { data, error } = await (auth.supabase as any)
     .from('hostel_allocations')
     .delete()
     .eq('id', id)
-    .eq('institution_id', institutionId);
+    .eq('institution_id', institutionId)
+    .select();
 
   if (error) throw error;
+  if (!data || data.length === 0) return errorResponse('Allocation not found', 404);
   return noContentResponse();
 }, { permission: 'write' });

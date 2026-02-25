@@ -33,11 +33,15 @@ export const GET = withApiKeyAuth(async (request, auth) => {
   if (weekStartDate) {
     query = query.eq('week_start_date', weekStartDate);
   } else if (current === 'true') {
-    const today = new Date();
-    const dayOfWeek = today.getUTCDay();
-    const monday = new Date(today);
-    monday.setUTCDate(today.getUTCDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1));
-    query = query.eq('week_start_date', monday.toISOString().split('T')[0]);
+    // Use IST (Asia/Kolkata) for week boundary calculation — JKKN is in India
+    const nowIST = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+    const dayOfWeek = nowIST.getDay(); // 0=Sun, 1=Mon, ...
+    const monday = new Date(nowIST);
+    monday.setDate(nowIST.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1));
+    const year = monday.getFullYear();
+    const month = String(monday.getMonth() + 1).padStart(2, '0');
+    const day = String(monday.getDate()).padStart(2, '0');
+    query = query.eq('week_start_date', `${year}-${month}-${day}`);
   }
   if (status) query = query.eq('status', status);
 

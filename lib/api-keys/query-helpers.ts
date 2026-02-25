@@ -43,18 +43,28 @@ export interface DateRangeParams {
 }
 
 /**
+ * ISO date format: YYYY-MM-DD optionally followed by time portion.
+ * Accepts: 2026-01-15, 2026-01-15T10:30:00, 2026-01-15T10:30:00Z
+ */
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2})?(\.\d+)?(Z|[+-]\d{2}:?\d{2})?)?$/;
+
+/**
  * Extract date range params from URL search params.
  * Accepts both `date_from`/`date_to` and `dateFrom`/`dateTo` formats.
+ * Invalid date formats are silently ignored (treated as absent).
  */
 export function getDateRangeParams(url: URL): DateRangeParams {
-  const dateFrom =
+  const rawFrom =
     url.searchParams.get('date_from') ??
     url.searchParams.get('dateFrom') ??
     undefined;
-  const dateTo =
+  const rawTo =
     url.searchParams.get('date_to') ??
     url.searchParams.get('dateTo') ??
     undefined;
+
+  const dateFrom = rawFrom && ISO_DATE_RE.test(rawFrom) ? rawFrom : undefined;
+  const dateTo = rawTo && ISO_DATE_RE.test(rawTo) ? rawTo : undefined;
 
   return { dateFrom, dateTo };
 }

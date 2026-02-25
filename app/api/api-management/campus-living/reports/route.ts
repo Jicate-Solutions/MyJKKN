@@ -40,7 +40,7 @@ export const GET = withApiKeyAuth(async (request, auth) => {
         total_blocks: blocks?.length ?? 0,
         total_capacity: totalCapacity,
         occupied_beds: totalAllocations ?? 0,
-        vacant_beds: totalCapacity - (totalAllocations ?? 0),
+        vacant_beds: Math.max(0, totalCapacity - (totalAllocations ?? 0)),
         occupancy_rate: totalCapacity > 0 ? Math.round(((totalAllocations ?? 0) / totalCapacity) * 100) : 0,
         blocks: blocks ?? [],
       });
@@ -76,28 +76,43 @@ export const GET = withApiKeyAuth(async (request, auth) => {
     }
 
     case 'maintenance': {
-      const { data, error: maintError } = await supabase
-        .from('hostel_maintenance_requests').select('status, priority, sla_status')
-        .eq('institution_id', institutionId)
-        .limit(10000);
-      if (maintError) throw maintError;
+      const statusValues = ['open', 'assigned', 'in_progress', 'pending_verification', 'resolved', 'closed', 'reopened'];
+      const priorityValues = ['low', 'medium', 'high', 'urgent'];
 
-      const items = data ?? [];
-      const byStatus: Record<string, number> = {};
-      const byPriority: Record<string, number> = {};
-      const bySla: Record<string, number> = {};
-      items.forEach((r: any) => {
-        byStatus[r.status] = (byStatus[r.status] || 0) + 1;
-        if (r.priority) byPriority[r.priority] = (byPriority[r.priority] || 0) + 1;
-        if (r.sla_status) bySla[r.sla_status] = (bySla[r.sla_status] || 0) + 1;
-      });
+      const [statusResults, priorityResults, slaBreachedResult, totalResult] = await Promise.all([
+        Promise.all(statusValues.map(async (s) => {
+          const { count } = await supabase.from('hostel_maintenance_requests')
+            .select('*', { count: 'exact', head: true })
+            .eq('institution_id', institutionId).eq('status', s);
+          return [s, count ?? 0] as const;
+        })),
+        Promise.all(priorityValues.map(async (p) => {
+          const { count } = await supabase.from('hostel_maintenance_requests')
+            .select('*', { count: 'exact', head: true })
+            .eq('institution_id', institutionId).eq('priority', p);
+          return [p, count ?? 0] as const;
+        })),
+        supabase.from('hostel_maintenance_requests')
+          .select('*', { count: 'exact', head: true })
+          .eq('institution_id', institutionId).eq('sla_status', 'breached'),
+        supabase.from('hostel_maintenance_requests')
+          .select('*', { count: 'exact', head: true })
+          .eq('institution_id', institutionId),
+      ]);
+
+      const byStatus = Object.fromEntries(statusResults);
+      const byPriority = Object.fromEntries(priorityResults);
+      const total = totalResult.count ?? 0;
 
       return successApiResponse({
         report_type: 'maintenance',
-        total_requests: items.length,
+        total_requests: total,
         by_status: byStatus,
         by_priority: byPriority,
-        by_sla_status: bySla,
+        sla_compliance: {
+          breached: slaBreachedResult.count ?? 0,
+          compliant: total - (slaBreachedResult.count ?? 0),
+        },
       });
     }
 
@@ -105,14 +120,14 @@ export const GET = withApiKeyAuth(async (request, auth) => {
       const dateFrom = getStringParam(url, 'date_from') || new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0];
       const dateTo = getStringParam(url, 'date_to') || new Date().toISOString().split('T')[0];
 
-      const { data, error: fbError } = await supabase
-        .from('mess_feedback').select('overall_rating, taste_rating, hygiene_rating, quantity_rating, variety_rating, is_complaint')
+      const { data: feedbackItems, error: fbError, count: feedbackCount } = await supabase
+        .from('mess_feedback').select('overall_rating, taste_rating, hygiene_rating, quantity_rating, variety_rating, is_complaint', { count: 'exact' })
         .eq('institution_id', institutionId)
         .gte('date', dateFrom).lte('date', dateTo)
         .limit(10000);
       if (fbError) throw fbError;
 
-      const items = data ?? [];
+      const items = feedbackItems ?? [];
       const avg = (field: string) => {
         const vals = items.map((r: any) => r[field]).filter((v: any) => v != null);
         return vals.length > 0 ? Math.round((vals.reduce((s: number, v: number) => s + v, 0) / vals.length) * 10) / 10 : null;
@@ -121,7 +136,8 @@ export const GET = withApiKeyAuth(async (request, auth) => {
       return successApiResponse({
         report_type: 'mess_feedback',
         period: { from: dateFrom, to: dateTo },
-        total_entries: items.length,
+        total_responses: feedbackCount ?? items.length,
+        sample_size: items.length,
         complaints: items.filter((r: any) => r.is_complaint).length,
         avg_overall_rating: avg('overall_rating'),
         avg_taste_rating: avg('taste_rating'),
@@ -132,19 +148,26 @@ export const GET = withApiKeyAuth(async (request, auth) => {
     }
 
     case 'leave': {
-      const { data, error: leaveError } = await supabase
-        .from('hostel_leave_requests').select('status')
-        .eq('institution_id', institutionId)
-        .limit(10000);
-      if (leaveError) throw leaveError;
+      const leaveStatuses = ['draft', 'pending_parent', 'pending_warden', 'pending_chief', 'approved', 'rejected', 'cancelled', 'expired'];
 
-      const items = data ?? [];
-      const byStatus: Record<string, number> = {};
-      items.forEach((r: any) => { byStatus[r.status] = (byStatus[r.status] || 0) + 1; });
+      const [statusResults, totalResult] = await Promise.all([
+        Promise.all(leaveStatuses.map(async (s) => {
+          const { count } = await supabase.from('hostel_leave_requests')
+            .select('*', { count: 'exact', head: true })
+            .eq('institution_id', institutionId).eq('status', s);
+          return [s, count ?? 0] as const;
+        })),
+        supabase.from('hostel_leave_requests')
+          .select('*', { count: 'exact', head: true })
+          .eq('institution_id', institutionId),
+      ]);
+
+      const byStatus = Object.fromEntries(statusResults);
+      const total = totalResult.count ?? 0;
 
       return successApiResponse({
         report_type: 'leave',
-        total_requests: items.length,
+        total_requests: total,
         by_status: byStatus,
       });
     }

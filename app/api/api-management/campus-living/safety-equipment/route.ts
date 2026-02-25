@@ -38,6 +38,7 @@ export const PATCH = withApiKeyAuth(async (request, auth) => {
   const { id, ...updateData } = body;
   if (!id || !isValidUuid(id)) return errorResponse('Valid equipment UUID is required in request body', 400);
   delete updateData.institution_id;
+  if (Object.keys(updateData).length === 0) return errorResponse('No fields to update', 400);
   const { data, error } = await (auth.supabase as any)
     .from('hostel_safety_equipment')
     .update(updateData)

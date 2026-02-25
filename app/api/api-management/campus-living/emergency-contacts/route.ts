@@ -68,13 +68,15 @@ export const DELETE = withApiKeyAuth(async (request, auth) => {
   const id = getUuidParam(url, 'id');
   if (!id) return errorResponse('id query parameter is required and must be a valid UUID', 400);
 
-  const { error } = await (auth.supabase as any)
+  const { data, error } = await (auth.supabase as any)
     .from('hostel_emergency_contacts')
     .delete()
     .eq('id', id)
-    .eq('institution_id', institutionId);
+    .eq('institution_id', institutionId)
+    .select();
 
   if (error) throw error;
+  if (!data || data.length === 0) return errorResponse('Emergency contact not found', 404);
 
   return noContentResponse();
 }, { permission: 'write' });

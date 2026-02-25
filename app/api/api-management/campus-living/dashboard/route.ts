@@ -63,7 +63,7 @@ export const GET = withApiKeyAuth(async (request, auth) => {
       total_blocks: blocksResult.count ?? 0,
       total_capacity: totalCapacity,
       occupied: occupiedBeds,
-      vacant: totalCapacity - occupiedBeds,
+      vacant: Math.max(0, totalCapacity - occupiedBeds),
       rate_percent: totalCapacity > 0 ? Math.round((occupiedBeds / totalCapacity) * 100) : 0,
     },
     pending_actions: {

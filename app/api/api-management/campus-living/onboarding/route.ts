@@ -50,6 +50,7 @@ export const PATCH = withApiKeyAuth(async (request, auth) => {
 
   if (!id || !isValidUuid(id)) return errorResponse('Valid checklist UUID is required', 400);
   delete updates.institution_id;
+  if (Object.keys(updates).length === 0) return errorResponse('No fields to update', 400);
 
   const { data, error } = await (auth.supabase as any)
     .from('hostel_onboarding_checklists')

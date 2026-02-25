@@ -36,6 +36,7 @@ export const PATCH = withApiKeyAuth(async (request, auth, context) => {
 
   const body = await request.json();
   delete body.institution_id; delete body.id;
+  if (Object.keys(body).length === 0) return errorResponse('No fields to update', 400);
 
   const { data, error } = await (auth.supabase as any)
     .from('hostel_blocks')
