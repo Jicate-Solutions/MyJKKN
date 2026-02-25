@@ -226,15 +226,18 @@ Priority fixes:
 
 ```
 Module: campus-living
-Pattern: B (Hooks → Services → Supabase RLS)
-Internal Health: Type safety issues
-External Readiness: API-Partial (api-management routes exist separately)
-Score: 5.5/10
+Pattern: B (with B2A migration 90% complete)
+Internal Health: 3 issues found
+External Readiness: API-Partial → API-Ready (37/39 services have API routes)
+Score: 7.0/10
 Priority fixes:
-1. Add super_admin bypass logic (0 instances, 370 institutionId refs)
-2. Add QUERY_CONFIG (0 references — no cache strategy)
-3. Reduce 131 "as any" casts (mostly in services)
+1. Add super_admin bypass in services (0 checks, 162 institution_id refs)
+2. Fix 1 direct Supabase bypass in use-is-hostel-resident.ts
+3. Reduce 131 "as any" casts
+4. Complete final 2 API management routes
 ```
+
+**Key Finding:** Campus-living has 37 API management routes already created under `/app/api/api-management/campus-living/`. B2A migration is 90% done — only 2 services remain to be wrapped. Architecture is clean: 39/39 hooks call services (100%).
 
 ---
 
