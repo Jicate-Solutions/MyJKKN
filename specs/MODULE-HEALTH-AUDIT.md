@@ -506,17 +506,88 @@ Priority fixes:
 
 ---
 
-## Modules Not Yet Audited (~20 Small/Utility)
+## Tier 5: Small/Support Modules (Audited Round 2)
 
-The following modules were not included in this audit round due to agent loss. They represent smaller modules that likely follow similar patterns:
+### Critical Issues Found
 
-**Small Feature Modules:** social-media (10 routes), staff (6 routes), lti (9 routes), stakeholder-nps (6 routes), notifications (5 routes), analytics (5 routes), bug-reports (13 routes), users (12 routes)
+```
+Module: crm
+Pattern: C (hook-only, 1 API route)
+Internal Health: 2 CRITICAL issues
+External Readiness: API-None
+Priority fixes:
+1. CRITICAL: /api/crm/api-key exposes CRM_API_KEY env var with ZERO auth
+2. Refactor CRM integration to backend-only proxy routes
+```
 
-**Hook-Only Modules:** crm, industry, facilitator, reservation
+```
+Module: webhooks
+Pattern: A (event handlers)
+Internal Health: 2 CRITICAL issues
+External Readiness: API-Ready (webhook-compliant)
+Priority fixes:
+1. CRITICAL: Implement Twilio signature validation (currently TODO)
+2. CRITICAL: Remove MSG91 fallback that allows unauthenticated requests
+3. Add request ID logging for audit trail
+```
 
-**Infrastructure/Utility:** ai, ai-query, chatbot, vac, webhooks, admin, activity, applications, audit-logs, debug, departments, examples, institutions, learner-profile, proxy, roles, system, test-env, upload, check-database-tables
+```
+Module: staff
+Pattern: Hybrid (admin client bypass)
+Internal Health: 3 issues (1 critical)
+External Readiness: API-Partial
+Priority fixes:
+1. CRITICAL: Replace user_institution_access with auth_institution_id() (violates CLAUDE.md)
+2. Remove admin client bypass — use RLS properly
+3. Add PATCH/DELETE endpoints
+```
 
-**Recommendation:** Schedule a follow-up audit for these modules, prioritizing bug-reports (13 routes), users (12 routes), and social-media (10 routes).
+### Clean/Acceptable Modules
+
+```
+Module: analytics
+Pattern: A (service + hooks)
+Internal Health: Clean
+External Readiness: API-Ready
+Score: 8.0/10 — Proper role-based access, super admin exemption, React Query hooks
+```
+
+```
+Module: bug-reports
+Pattern: A (service + hooks + file handling)
+Internal Health: 2 minor issues
+External Readiness: API-Ready (13 routes, full CRUD)
+Score: 7.5/10 — Robust error handling, file uploads, retry logic
+Priority fixes: Standardize response envelope, add institution verification in POST
+```
+
+```
+Module: social-media
+Pattern: A (API-first)
+Internal Health: 1 minor issue
+External Readiness: API-Ready
+Score: 7.5/10 — Clean separation, proper institution scoping
+Priority fixes: Remove 2 as-any casts, verify RLS on sm_* tables
+```
+
+### Modules Requiring Further Review
+
+| Module | Routes | Pattern | Key Issue |
+|--------|--------|---------|-----------|
+| lti | 9 | A | State/nonce storage uses memory (not production-ready) |
+| stakeholder-nps | 6 | Hybrid | No institution access control, schema mismatch (pre-existing) |
+| notifications | 5 | A | Response envelope inconsistent, no React Query hooks |
+| users | 12 | Hybrid | Admin client bypass, incomplete audit (file truncated) |
+| industry | 0 | C | No API routes, as-any from missing Supabase types |
+| facilitator | 0 | C | No API routes, clean but unscalable |
+| reservation | 0 | C | No API routes, minimal |
+| ai | 2 | A | Clean, verify AI service authentication |
+| chatbot | 2 | A | Not deeply reviewed |
+| vac | 1 | A | Not deeply reviewed |
+
+### Infrastructure/Utility (admin, system, activity, upload, etc.)
+
+~15 small utility modules with 1-5 routes each. Generally CRUD endpoints with minimal security surface. Audit on demand if specific issues arise.
 
 ---
 
