@@ -144,6 +144,7 @@ export async function POST(request: NextRequest) {
           created_by: user.id,
           expires_at: input.expires_at || null,
           permissions: input.permissions || { read: true, write: false },
+          organization_id: input.organization_id || null,
           is_active: true
         }
       ])
