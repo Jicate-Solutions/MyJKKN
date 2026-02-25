@@ -250,6 +250,38 @@ export function CreateApiKeyModal({
 
               <FormField
                 control={form.control}
+                name='organization_id'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Organization</FormLabel>
+                    <Select
+                      onValueChange={field.onChange}
+                      value={field.value}
+                    >
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder='All organizations (unscoped)' />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {institutions.map((inst) => (
+                          <SelectItem key={inst.id} value={inst.id}>
+                            {inst.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormDescription>
+                      Scope this key to a specific organization. Required for
+                      campus-living endpoints.
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
                 name='expires_at'
                 render={({ field }) => (
                   <FormItem className='flex flex-col'>
