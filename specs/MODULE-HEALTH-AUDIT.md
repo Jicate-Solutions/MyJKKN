@@ -324,15 +324,18 @@ Priority fixes:
 
 ```
 Module: learners-council
-Pattern: B
-Internal Health: Major type safety issues
-External Readiness: API-None
-Score: 5.0/10
+Pattern: B (React Query 100% — cleanest architecture)
+Internal Health: Type safety issues, no permission checks
+External Readiness: API-None (0/7 services exposed)
+Score: 5.5/10
 Priority fixes:
 1. CRITICAL: Reduce 227 "as any" casts (communication-service: 59 alone)
-2. Add QUERY_CONFIG (0 references)
+2. Add permission checks to services (0 refs currently)
 3. Add super_admin checks (0 references)
+4. Create 5-7 API management routes for B2A
 ```
+
+**Architecture Note:** Despite type safety issues, learners-council has 100% React Query adoption (7/7 hooks) and clean hook→service delegation — best foundation for B2A migration among Pattern B modules. 21 pages deployed and active.
 
 ---
 
