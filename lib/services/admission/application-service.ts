@@ -223,22 +223,14 @@ export class ApplicationService {
         });
 
       // Log activity on the lead
-      const { data: leadForActivity } = await this.supabase
-        .from('admission_leads')
-        .select('institution_id')
-        .eq('id', input.lead_id)
-        .single();
-
       await this.supabase
         .from('admission_lead_activities')
         .insert({
           lead_id: input.lead_id,
-          institution_id: leadForActivity?.institution_id || input.institution_id,
           activity_type: 'note',
-          title: 'Application Created',
+          subject: 'Application Created',
           description: `Application ${applicationNumber} was created from this lead`,
-          metadata: {},
-          performed_by: user?.id || null,
+          created_by: user?.id || null,
         });
     }
 

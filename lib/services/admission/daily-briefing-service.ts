@@ -538,16 +538,17 @@ export class DailyBriefingService {
     const startOfYesterday = `${yesterdayStr}T00:00:00`;
     const endOfYesterday = `${yesterdayStr}T23:59:59`;
 
-    // Get activities from yesterday
+    // Get activities from yesterday — filter by institution through admission_leads join
+    // (admission_lead_activities has no institution_id column; it relates via lead_id)
     let activityQuery = (this.supabase as any)
       .from('admission_lead_activities')
-      .select('id, activity_type')
-      .eq('institution_id', institutionId)
+      .select('id, activity_type, lead:admission_leads!inner(institution_id)')
+      .eq('lead.institution_id', institutionId)
       .gte('created_at', startOfYesterday)
       .lte('created_at', endOfYesterday);
 
     if (role === 'counselor') {
-      activityQuery = activityQuery.eq('performed_by', userId);
+      activityQuery = activityQuery.eq('created_by', userId);
     }
 
     const { data: activities, error: activitiesError } = await activityQuery;

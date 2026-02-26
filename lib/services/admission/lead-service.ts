@@ -604,12 +604,10 @@ export class LeadService {
       .from('admission_lead_activities')
       .insert({
         lead_id: leadId,
-        institution_id: (data as any).institution_id || null,
         activity_type: 'note',
-        title: 'Counselor Assigned',
+        subject: 'Counselor Assigned',
         description: `Counselor "${counselorName}" assigned to this lead`,
-        metadata: { counselor_id: counselorId, ...(profileId ? { profile_id: profileId } : {}) },
-        performed_by: user?.id || null,
+        created_by: user?.id || null,
       });
 
     if (activityError) {
@@ -631,24 +629,16 @@ export class LeadService {
   static async scheduleFollowup(leadId: string, followupDate: string, notes?: string): Promise<AdmissionLead> {
     const { data: { user } } = await (this.supabase as any).auth.getUser();
 
-    // 1. Fetch institution_id from the lead (required NOT NULL column in activities table)
-    const { data: leadRow } = await (this.supabase as any)
-      .from('admission_leads')
-      .select('institution_id')
-      .eq('id', leadId)
-      .single();
-
-    // 2. Create a follow-up activity record (use actual DB columns: title, performed_by)
+    // 1. Create a follow-up activity record
     const { error: activityError } = await (this.supabase as any)
       .from('admission_lead_activities')
       .insert({
         lead_id: leadId,
-        institution_id: leadRow?.institution_id,
         activity_type: 'task',
-        title: 'Follow-up Scheduled',
+        subject: 'Follow-up Scheduled',
         description: notes || `Follow-up scheduled for ${new Date(followupDate).toLocaleDateString()}`,
-        metadata: { scheduled_at: followupDate },
-        performed_by: user?.id || null,
+        scheduled_at: followupDate,
+        created_by: user?.id || null,
       });
 
     if (activityError) {
