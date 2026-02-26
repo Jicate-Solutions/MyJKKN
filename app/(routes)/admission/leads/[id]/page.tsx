@@ -868,25 +868,25 @@ function LeadDetailPageContent() {
   };
 
   const handleCreateApplication = () => {
-    if (!lead || !selectedProgramId) {
-      toast.error('Please select a program');
+    if (!lead || !selectedProgramId || !selectedDegreeId || !selectedDepartmentId) {
+      toast.error('Please select all academic fields');
       return;
     }
     createApplication.mutate(
       {
         institution_id: selectedInstitutionId,
         lead_id: leadId,
+        degree_id: selectedDegreeId,
+        department_id: selectedDepartmentId,
         program_id: selectedProgramId,
-        full_name: lead.full_name || '',
-        email: lead.email || '',
-        phone: lead.phone || '',
       },
       {
         onSuccess: () => {
+          setShowCreateAppDialog(false);
           setSelectedDegreeId('');
           setSelectedDepartmentId('');
           setSelectedProgramId('');
-          setShowCreateAppDialog(false);
+          refetch();
         },
       }
     );
@@ -1994,7 +1994,7 @@ function LeadDetailPageContent() {
                       </div>
                       <DialogFooter>
                         <Button variant="outline" onClick={() => { setShowCreateAppDialog(false); setSelectedDegreeId(''); setSelectedDepartmentId(''); setSelectedProgramId(''); }}>Cancel</Button>
-                        <Button onClick={handleCreateApplication} disabled={createApplication.isPending || !selectedProgramId}>
+                        <Button onClick={handleCreateApplication} disabled={createApplication.isPending || !selectedProgramId || !selectedDegreeId || !selectedDepartmentId || !selectedInstitutionId}>
                           {createApplication.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
                           Create Application
                         </Button>

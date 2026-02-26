@@ -45,18 +45,18 @@ export function DataTableRowActions<TData>({
   const canEdit = isSuperAdmin || canAccess('admission', 'edit');
 
   const handleApprove = () => {
-    updateApplicationStatus.mutate({ id: app.id, status: 'approved' });
+    updateApplicationStatus.mutate({ id: app.id, status: 'offer_sent' });
   };
 
   const handleReject = () => {
     updateApplicationStatus.mutate(
-      { id: app.id, status: 'rejected' },
+      { id: app.id, status: 'declined' },
       { onSuccess: () => setShowRejectDialog(false) }
     );
   };
 
   const isReviewable =
-    app.status === 'submitted' || app.status === 'under_review';
+    app.status === 'application_submitted' || app.status === 'documents_verified' || app.status === 'interview_completed';
 
   return (
     <>
@@ -73,7 +73,7 @@ export function DataTableRowActions<TData>({
         <DropdownMenuContent align="end" className="w-[180px]">
           <DropdownMenuItem
             onSelect={() =>
-              canView && router.push(`/admission/applications/${app.id}`)
+              canView && router.push(`/admission/leads/${app.id}`)
             }
             disabled={!canView}
             className={!canView ? 'opacity-50 cursor-not-allowed' : ''}

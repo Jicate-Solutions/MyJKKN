@@ -11,7 +11,7 @@ import { CommunicationTemplatesService } from '@/lib/services/admission/communic
 import { SMSCampaignService } from '@/lib/services/admission/sms-campaign-service';
 import { WhatsAppCampaignService } from '@/lib/services/admission/whatsapp-campaign-service';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
-import type { LeadFilters, CreateLeadInput, UpdateLeadInput, FunnelStage, CreateApplicationInput, UpdateApplicationInput, ApplicationStatus } from '@/types/admission';
+import type { LeadFilters, CreateLeadInput, UpdateLeadInput, FunnelStage, CreateApplicationInput, UpdateApplicationInput } from '@/types/admission';
 
 // Re-export reminders hooks
 export {
@@ -497,7 +497,6 @@ export function useAdmissionApplications(filters?: any) {
     queryFn: async () => {
       return ApplicationService.getApplications({
         institutionId: filters?.institutionId,
-        leadId: filters?.leadId,
         status: filters?.status,
         search: filters?.search,
         page: filters?.page || 1,
@@ -553,7 +552,7 @@ export function useApplicationMutations() {
   });
 
   const updateApplicationStatus = useMutation({
-    mutationFn: async ({ id, status }: { id: string; status: ApplicationStatus }) => {
+    mutationFn: async ({ id, status }: { id: string; status: FunnelStage }) => {
       return ApplicationService.updateStatus(id, status);
     },
     onSuccess: () => {

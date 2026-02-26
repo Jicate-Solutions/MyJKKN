@@ -107,6 +107,12 @@ export interface AdmissionLead {
   preferred_campus: string | null;
   academic_year: string | null;
 
+  // Application fields (merged from admission_applications)
+  degree_id?: string | null;
+  department_id?: string | null;
+  program_id?: string | null;
+  application_number?: string | null;
+
   // Source & Attribution
   source: LeadSource;
 
@@ -354,27 +360,16 @@ export interface AdmissionApplication {
 }
 
 export interface CreateApplicationInput {
-  institution_id: string;
   lead_id: string;
+  institution_id: string;
+  degree_id: string;
+  department_id: string;
   program_id: string;
-  batch_id?: string;
-  full_name: string;
-  email: string;
-  phone: string;
-  date_of_birth?: string;
-  gender?: Gender;
-  address?: string;
-  city?: string;
-  state?: string;
-  pincode?: string;
-  father_name?: string;
-  mother_name?: string;
-  guardian_phone?: string;
 }
 
 export interface UpdateApplicationInput extends Partial<CreateApplicationInput> {
   id: string;
-  status?: ApplicationStatus;
+  funnel_stage?: FunnelStage;
   notes?: string;
 }
 

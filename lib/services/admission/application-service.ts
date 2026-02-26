@@ -1,18 +1,33 @@
 // lib/services/admission/application-service.ts
-// Admission CRM Application Service - manages admission_applications table
+// Admission CRM Application Service - queries admission_leads table
+// Applications are now tracked as leads with funnel_stage >= 'application_started'
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import type {
-  AdmissionApplication,
+  AdmissionLead,
   CreateApplicationInput,
   UpdateApplicationInput,
-  ApplicationStatus,
+  FunnelStage,
 } from '@/types/admission';
+
+// Funnel stages that count as "applications"
+export const APPLICATION_STAGES: FunnelStage[] = [
+  'application_started',
+  'application_submitted',
+  'documents_pending',
+  'documents_verified',
+  'interview_scheduled',
+  'interview_completed',
+  'offer_sent',
+  'offer_accepted',
+  'token_paid',
+  'enrolled',
+  'confirmed',
+];
 
 export interface ApplicationFilters {
   institutionId?: string;
-  leadId?: string;
-  status?: string;
+  status?: string; // maps to funnel_stage
   search?: string;
   page?: number;
   limit?: number;
@@ -23,7 +38,7 @@ export interface ApplicationFilters {
 }
 
 export interface ApplicationListResponse {
-  data: AdmissionApplication[];
+  data: AdmissionLead[];
   metadata: {
     total: number;
     page: number;
@@ -38,6 +53,7 @@ export class ApplicationService {
 
   /**
    * Generate a unique application number: APP-YYYY-XXXXXX
+   * Queries admission_leads for the highest application_number in the current year.
    */
   private static async generateApplicationNumber(institutionId: string): Promise<string> {
     const year = new Date().getFullYear();
@@ -45,10 +61,10 @@ export class ApplicationService {
 
     // Get the highest application number for the current year
     const { data, error } = await this.supabase
-      .from('admission_applications')
+      .from('admission_leads')
       .select('application_number')
-      .like('application_number', `${prefix}%`)
       .eq('institution_id', institutionId)
+      .like('application_number', `${prefix}%`)
       .order('application_number', { ascending: false })
       .limit(1);
 
@@ -69,26 +85,37 @@ export class ApplicationService {
   }
 
   /**
-   * Get applications with filters and pagination
+   * Get applications with filters and pagination.
+   * Queries admission_leads where funnel_stage is in APPLICATION_STAGES.
    */
   static async getApplications(filters: ApplicationFilters = {}): Promise<ApplicationListResponse> {
     let query = this.supabase
-      .from('admission_applications')
-      .select('*', { count: 'exact' });
+      .from('admission_leads')
+      .select(
+        '*, counselor:profiles!admission_leads_counselor_id_fkey(id,name,email)',
+        { count: 'exact' }
+      );
 
-    // Apply filters
+    // Always filter to application-stage leads
+    if (filters.status && filters.status !== '_all') {
+      // When a specific status (funnel_stage) is provided, filter by that stage only
+      query = query.eq('funnel_stage', filters.status);
+    } else {
+      // Otherwise show all application-stage leads
+      query = query.in('funnel_stage', APPLICATION_STAGES);
+    }
+
+    // Institution filter
     if (filters.institutionId) {
       query = query.eq('institution_id', filters.institutionId);
     }
-    if (filters.leadId) {
-      query = query.eq('lead_id', filters.leadId);
-    }
-    if (filters.status && filters.status !== '_all') {
-      query = query.eq('status', filters.status);
-    }
+
+    // Search across application_number, full_name, email, phone
     if (filters.search) {
       const s = filters.search.replace(/[%_\\]/g, '\\$&');
-      query = query.or(`application_number.ilike.%${s}%,full_name.ilike.%${s}%,email.ilike.%${s}%,phone.ilike.%${s}%`);
+      query = query.or(
+        `application_number.ilike.%${s}%,full_name.ilike.%${s}%,email.ilike.%${s}%,phone.ilike.%${s}%`
+      );
     }
 
     // Date range filters
@@ -109,9 +136,7 @@ export class ApplicationService {
     const from = (page - 1) * limit;
     const to = from + limit - 1;
 
-    query = query
-      .order(sortBy, { ascending })
-      .range(from, to);
+    query = query.order(sortBy, { ascending }).range(from, to);
 
     const { data, count, error } = await query;
 
@@ -121,7 +146,7 @@ export class ApplicationService {
     }
 
     return {
-      data: (data || []) as AdmissionApplication[],
+      data: (data || []) as AdmissionLead[],
       metadata: {
         total: count || 0,
         page,
@@ -132,12 +157,14 @@ export class ApplicationService {
   }
 
   /**
-   * Get a single application by ID
+   * Get a single application (lead) by ID with counselor join.
    */
-  static async getApplication(id: string): Promise<AdmissionApplication> {
+  static async getApplication(id: string): Promise<AdmissionLead> {
     const { data, error } = await this.supabase
-      .from('admission_applications')
-      .select('*')
+      .from('admission_leads')
+      .select(
+        '*, counselor:profiles!admission_leads_counselor_id_fkey(id,name,email)'
+      )
       .eq('id', id)
       .single();
 
@@ -146,68 +173,51 @@ export class ApplicationService {
       throw new Error(`Failed to fetch application: ${error.message}`);
     }
 
-    return data as AdmissionApplication;
+    return data as AdmissionLead;
   }
 
   /**
    * Create an application from a lead.
-   * Generates APP-number, links to lead, and advances lead funnel_stage.
+   * Updates the admission_leads record with degree, department, program,
+   * application number, and sets funnel_stage to 'application_started'.
    */
-  static async createApplicationFromLead(input: CreateApplicationInput): Promise<AdmissionApplication> {
+  static async createApplicationFromLead(input: CreateApplicationInput): Promise<AdmissionLead> {
     const { data: { user } } = await this.supabase.auth.getUser();
 
-    // Check for duplicate active application for same lead + program
-    if (input.lead_id && input.program_id) {
-      const { data: existing, error: dupError } = await this.supabase
-        .from('admission_applications')
-        .select('id')
-        .eq('lead_id', input.lead_id)
-        .eq('program_id', input.program_id)
-        .not('status', 'in', '("withdrawn","rejected")')
-        .limit(1);
+    // Check for duplicate: if the lead already has an application_number
+    const { data: existingLead, error: fetchError } = await this.supabase
+      .from('admission_leads')
+      .select('id, application_number, funnel_stage')
+      .eq('id', input.lead_id)
+      .single();
 
-      if (dupError) {
-        console.error('[admission/applications] Error checking for duplicate application:', dupError);
-      }
+    if (fetchError) {
+      console.error('[admission/applications] Error fetching lead:', fetchError);
+      throw new Error(`Failed to fetch lead: ${fetchError.message}`);
+    }
 
-      if (existing && existing.length > 0) {
-        throw new Error('An active application already exists for this lead and program');
-      }
+    if (existingLead?.application_number) {
+      throw new Error('This lead already has an application');
     }
 
     // Generate application number
     const applicationNumber = await this.generateApplicationNumber(input.institution_id);
 
-    // Create the application record
-    // Note: admission_applications table stores personal details in form_data JSONB
-    const formData: Record<string, any> = {};
-    if (input.full_name) formData.full_name = input.full_name;
-    if (input.email) formData.email = input.email;
-    if (input.phone) formData.phone = input.phone;
-    if (input.date_of_birth) formData.date_of_birth = input.date_of_birth;
-    if (input.gender) formData.gender = input.gender;
-    if (input.address) formData.address = input.address;
-    if (input.city) formData.city = input.city;
-    if (input.state) formData.state = input.state;
-    if (input.pincode) formData.pincode = input.pincode;
-    if (input.father_name) formData.father_name = input.father_name;
-    if (input.mother_name) formData.mother_name = input.mother_name;
-    if (input.guardian_phone) formData.guardian_phone = input.guardian_phone;
+    const previousStage = existingLead?.funnel_stage || null;
 
-    const insertData: any = {
-      institution_id: input.institution_id,
-      lead_id: input.lead_id,
-      application_number: applicationNumber,
-      status: 'draft' as ApplicationStatus,
-      program_id: input.program_id,
-      academic_year: input.batch_id || new Date().getFullYear().toString(),
-      form_data: formData,
-    };
-
+    // Update the lead record with application details
     const { data, error } = await this.supabase
-      .from('admission_applications')
-      .insert(insertData)
-      .select()
+      .from('admission_leads')
+      .update({
+        degree_id: input.degree_id,
+        department_id: input.department_id,
+        program_id: input.program_id,
+        application_number: applicationNumber,
+        funnel_stage: 'application_started' as FunnelStage,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', input.lead_id)
+      .select('*, counselor:profiles!admission_leads_counselor_id_fkey(id,name,email)')
       .single();
 
     if (error) {
@@ -215,59 +225,44 @@ export class ApplicationService {
       throw new Error(`Failed to create application: ${error.message}`);
     }
 
-    // Advance the lead's funnel_stage to 'application_started'
-    if (input.lead_id) {
-      const { error: leadError } = await this.supabase
-        .from('admission_leads')
-        .update({
-          funnel_stage: 'application_started',
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', input.lead_id);
+    // Log stage change in history
+    await this.supabase
+      .from('admission_lead_stage_history')
+      .insert({
+        lead_id: input.lead_id,
+        from_stage: previousStage,
+        to_stage: 'application_started',
+        changed_by: user?.id || null,
+        notes: `Application ${applicationNumber} created`,
+        created_at: new Date().toISOString(),
+      });
 
-      if (leadError) {
-        console.warn('[admission/applications] Could not advance lead funnel_stage:', leadError.message);
-      }
+    // Log activity on the lead
+    await this.supabase
+      .from('admission_lead_activities')
+      .insert({
+        lead_id: input.lead_id,
+        activity_type: 'note',
+        subject: 'Application Created',
+        description: `Application ${applicationNumber} was created for this lead`,
+        created_by: user?.id || null,
+      });
 
-      // Log stage change in history
-      await this.supabase
-        .from('admission_lead_stage_history')
-        .insert({
-          lead_id: input.lead_id,
-          from_stage: null, // We don't know the previous stage here
-          to_stage: 'application_started',
-          changed_by: user?.id || null,
-          notes: `Application ${applicationNumber} created`,
-          created_at: new Date().toISOString(),
-        });
-
-      // Log activity on the lead
-      await this.supabase
-        .from('admission_lead_activities')
-        .insert({
-          lead_id: input.lead_id,
-          activity_type: 'note',
-          subject: 'Application Created',
-          description: `Application ${applicationNumber} was created from this lead`,
-          created_by: user?.id || null,
-        });
-    }
-
-    return data as AdmissionApplication;
+    return data as AdmissionLead;
   }
 
   /**
-   * Update an application
+   * Update an application (lead) record.
    */
-  static async updateApplication(id: string, updates: Partial<UpdateApplicationInput>): Promise<AdmissionApplication> {
+  static async updateApplication(id: string, updates: Partial<UpdateApplicationInput>): Promise<AdmissionLead> {
     const { data, error } = await this.supabase
-      .from('admission_applications')
+      .from('admission_leads')
       .update({
         ...updates,
         updated_at: new Date().toISOString(),
       })
       .eq('id', id)
-      .select()
+      .select('*, counselor:profiles!admission_leads_counselor_id_fkey(id,name,email)')
       .single();
 
     if (error) {
@@ -275,28 +270,32 @@ export class ApplicationService {
       throw new Error(`Failed to update application: ${error.message}`);
     }
 
-    return data as AdmissionApplication;
+    return data as AdmissionLead;
   }
 
   /**
-   * Update application status
+   * Update application status by setting funnel_stage on the lead.
    */
-  static async updateStatus(id: string, status: ApplicationStatus): Promise<AdmissionApplication> {
-    const updateData: any = {
-      status,
-      updated_at: new Date().toISOString(),
-    };
+  static async updateStatus(id: string, status: FunnelStage): Promise<AdmissionLead> {
+    const { data: { user } } = await this.supabase.auth.getUser();
 
-    // Set submitted_at if moving to submitted
-    if (status === 'submitted') {
-      updateData.submitted_at = new Date().toISOString();
-    }
+    // Get the current stage for history logging
+    const { data: currentLead } = await this.supabase
+      .from('admission_leads')
+      .select('funnel_stage')
+      .eq('id', id)
+      .single();
+
+    const previousStage = currentLead?.funnel_stage || null;
 
     const { data, error } = await this.supabase
-      .from('admission_applications')
-      .update(updateData)
+      .from('admission_leads')
+      .update({
+        funnel_stage: status,
+        updated_at: new Date().toISOString(),
+      })
       .eq('id', id)
-      .select()
+      .select('*, counselor:profiles!admission_leads_counselor_id_fkey(id,name,email)')
       .single();
 
     if (error) {
@@ -304,21 +303,78 @@ export class ApplicationService {
       throw new Error(`Failed to update application status: ${error.message}`);
     }
 
-    return data as AdmissionApplication;
+    // Log stage change in history
+    if (previousStage !== status) {
+      await this.supabase
+        .from('admission_lead_stage_history')
+        .insert({
+          lead_id: id,
+          from_stage: previousStage,
+          to_stage: status,
+          changed_by: user?.id || null,
+          notes: `Application status changed from ${previousStage} to ${status}`,
+          created_at: new Date().toISOString(),
+        });
+    }
+
+    return data as AdmissionLead;
   }
 
   /**
-   * Delete an application
+   * Delete an application by resetting the lead.
+   * Clears application fields and sets funnel_stage back to 'qualified'.
    */
   static async deleteApplication(id: string): Promise<void> {
+    const { data: { user } } = await this.supabase.auth.getUser();
+
+    // Get current state for history logging
+    const { data: currentLead } = await this.supabase
+      .from('admission_leads')
+      .select('funnel_stage, application_number')
+      .eq('id', id)
+      .single();
+
+    const previousStage = currentLead?.funnel_stage || null;
+    const appNumber = currentLead?.application_number || 'unknown';
+
     const { error } = await this.supabase
-      .from('admission_applications')
-      .delete()
+      .from('admission_leads')
+      .update({
+        degree_id: null,
+        department_id: null,
+        program_id: null,
+        application_number: null,
+        funnel_stage: 'qualified' as FunnelStage,
+        updated_at: new Date().toISOString(),
+      })
       .eq('id', id);
 
     if (error) {
-      console.error('[admission/applications] Error deleting application:', error);
+      console.error('[admission/applications] Error resetting application:', error);
       throw new Error(`Failed to delete application: ${error.message}`);
     }
+
+    // Log stage change in history
+    await this.supabase
+      .from('admission_lead_stage_history')
+      .insert({
+        lead_id: id,
+        from_stage: previousStage,
+        to_stage: 'qualified',
+        changed_by: user?.id || null,
+        notes: `Application ${appNumber} was removed, lead reset to qualified`,
+        created_at: new Date().toISOString(),
+      });
+
+    // Log activity
+    await this.supabase
+      .from('admission_lead_activities')
+      .insert({
+        lead_id: id,
+        activity_type: 'note',
+        subject: 'Application Removed',
+        description: `Application ${appNumber} was removed and lead was reset to qualified stage`,
+        created_by: user?.id || null,
+      });
   }
 }
