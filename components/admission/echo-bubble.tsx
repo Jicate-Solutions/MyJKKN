@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { useAuth } from '@/hooks/use-auth';
 import { useChatStats } from '@/hooks/admission/use-chat-stats';
 import { useConversations } from '@/hooks/admission/use-conversations';
 import { useChatMutations } from '@/hooks/admission/use-chat-mutations';
@@ -170,8 +171,14 @@ function MiniChatView({
 export function EchoBubble() {
   const [isExpanded, setIsExpanded] = useState(false);
   const [activeConversation, setActiveConversation] = useState<Conversation | null>(null);
-  const { stats } = useChatStats();
-  const { conversations } = useConversations({ status: 'open', limit: 10 });
+  const { profile } = useAuth();
+
+  // Only enable WhatsApp hooks when user has an institution_id
+  // Super admins have no institution_id and the wa_conversations table may not exist
+  const whatsappEnabled = !!profile?.institution_id;
+
+  const { stats } = useChatStats({ enabled: whatsappEnabled });
+  const { conversations } = useConversations({ status: 'open', limit: 10 }, { enabled: whatsappEnabled });
 
   const unreadCount = stats.total_unread;
 
