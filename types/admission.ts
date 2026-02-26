@@ -178,7 +178,6 @@ export interface AdmissionLead {
 
   // Relationships (optional populated)
   counselor?: Counselor;
-  application?: AdmissionApplication;
 }
 
 export interface CreateLeadInput {

@@ -452,6 +452,28 @@ function LeadDetailPageContent() {
     };
   }, [lead, timeline, communicationHistory]);
 
+  // Write computed scores back to DB for list page display
+  useEffect(() => {
+    if (!lead?.id || computedScores.score === 0 && computedScores.engagement === 0 && computedScores.quality === 0) return;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const supabase: any = createClientSupabaseClient();
+    supabase
+      .from('admission_leads')
+      .update({
+        score: computedScores.score,
+        engagement_score: computedScores.engagement,
+        quality_score: computedScores.quality,
+        score_category: computedScores.category,
+        combined_score: computedScores.score,
+        score_updated_at: new Date().toISOString(),
+      })
+      .eq('id', lead.id)
+      .then(({ error }) => {
+        if (error) console.warn('[admission/leads] Failed to sync scores:', error.message);
+      });
+  }, [lead?.id, computedScores.score, computedScores.engagement, computedScores.quality]);
+
   // Send message dialog state
   const [showSendMsg, setShowSendMsg] = useState(false);
   const [sendChannel, setSendChannel] = useState<'sms' | 'whatsapp'>('sms');
@@ -501,6 +523,21 @@ function LeadDetailPageContent() {
       } catch (_) { /* best-effort */ }
 
       toast.success('WhatsApp opened — send the message from your account');
+
+      // Update message counters on the lead
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const supabaseClient: any = createClientSupabaseClient();
+      supabaseClient
+        .from('admission_leads')
+        .update({
+          total_messages_sent: (lead.total_messages_sent || 0) + 1,
+          last_message_at: new Date().toISOString(),
+        })
+        .eq('id', lead.id)
+        .then(({ error }) => {
+          if (error) console.warn('[admission/leads] Failed to update message count:', error.message);
+        });
+
       setSendMessage('');
       setShowSendMsg(false);
       return;
@@ -516,6 +553,21 @@ function LeadDetailPageContent() {
         messageContent: sendMessage.trim(),
       });
       toast.success('SMS sent successfully');
+
+      // Update message counters on the lead
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const supabaseClient: any = createClientSupabaseClient();
+      supabaseClient
+        .from('admission_leads')
+        .update({
+          total_messages_sent: (lead.total_messages_sent || 0) + 1,
+          last_message_at: new Date().toISOString(),
+        })
+        .eq('id', lead.id)
+        .then(({ error }) => {
+          if (error) console.warn('[admission/leads] Failed to update message count:', error.message);
+        });
+
       setSendMessage('');
       setShowSendMsg(false);
       queryClient.invalidateQueries({ queryKey: ['lead-communication-history', leadId] });
