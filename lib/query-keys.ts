@@ -270,20 +270,6 @@ export const academicKeys = {
 };
 
 // ============================================
-// Admissions Module Keys
-// ============================================
-export const admissionKeys = {
-  all: ['admissions'] as const,
-  list: (filters?: Record<string, unknown>) =>
-    [...admissionKeys.all, 'list', filters] as const,
-  detail: (id: string) => [...admissionKeys.all, 'detail', id] as const,
-  analytics: (filters?: Record<string, unknown>) =>
-    [...admissionKeys.all, 'analytics', filters] as const,
-  byStudent: (studentId: string) =>
-    [...admissionKeys.all, 'student', studentId] as const
-};
-
-// ============================================
 // User & Auth Module Keys
 // ============================================
 export const userKeys = {
@@ -342,7 +328,6 @@ export const queryKeys = {
   staff: staffKeys,
   billing: billingKeys,
   academic: academicKeys,
-  admissions: admissionKeys,
   users: userKeys,
   resources: resourceKeys
 } as const;

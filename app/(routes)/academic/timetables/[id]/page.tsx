@@ -6,7 +6,6 @@ import {
   useRef,
   useCallback,
   Suspense,
-  use,
   useMemo
 } from 'react';
 import { useRouter } from 'next/navigation';
@@ -84,7 +83,8 @@ import {
   useTimetableDetail,
   useTimetablePeriods,
   useStaffPlanningData,
-  useTimetableDialogs
+  useTimetableDialogs,
+  useResolvedRouteId
 } from './_hooks';
 
 // Import utilities (Phase 2)
@@ -136,45 +136,20 @@ const ALL_DAYS_OF_WEEK: DayOfWeek[] = [
   'SATURDAY'
 ];
 
-/**
- * Validates if a string is a valid UUID format
- * Also rejects TanStack Table's temporary drag IDs (%%drp:id:xxxxx%%)
- */
-function isValidUUID(id: string): boolean {
-  if (!id) return false;
-  // Reject TanStack Table temporary drag IDs
-  if (id.includes('%%drp:id:')) return false;
-  // Check UUID format
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
-}
-
-export default function TimetableDetailPage({
-  params
-}: {
-  params: Promise<{ id: string }>;
-}) {
+export default function TimetableDetailPage() {
   const router = useRouter();
-  const unwrappedParams = use(params);
-  const timetableId = unwrappedParams.id;
+
+  // Fix: 2026-02-25 - Use useResolvedRouteId instead of use(params) to avoid
+  // Next.js DRP (Dynamic Route Parameter) placeholder issue.
+  // Next.js generates %%drp:id:xxxx%% placeholders during client-side navigation
+  // with cacheComponents enabled. use(params) can resolve to these placeholders,
+  // causing "Invalid timetable ID" errors. useResolvedRouteId falls back to
+  // useParams() and pathname extraction to always get the real URL param.
+  const { id: timetableId, isResolving, isInvalid } = useResolvedRouteId();
   const { saveTimetableAsTemplate } = useTimetables();
 
-  // Early validation for invalid timetable IDs (e.g., TanStack Table drag placeholders)
-  if (!isValidUUID(timetableId)) {
-    return (
-      <ContentLayout title="Invalid Timetable">
-        <div className="text-center py-8">
-          <p className="text-destructive mb-4">Invalid timetable ID. Please navigate from the timetables list.</p>
-          <Button
-            variant="outline"
-            onClick={() => router.push('/academic/timetables')}
-          >
-            <ArrowLeft className="mr-2 h-4 w-4" />
-            Back to Timetables
-          </Button>
-        </div>
-      </ContentLayout>
-    );
-  }
+  // IMPORTANT: All hooks must be called unconditionally (React Rules of Hooks).
+  // The DRP/invalid checks happen AFTER all hooks, in the render section below.
 
   // Get permissions for role-based access control
   const { canAccess, isSuperAdmin } = usePermissions();
@@ -1157,6 +1132,31 @@ export default function TimetableDetailPage({
   // ===================================
   // Render
   // ===================================
+
+  // DRP placeholder still resolving — show loading (not error)
+  if (isResolving) {
+    return <Loading title='Loading timetable...' />;
+  }
+
+  // Invalid ID (not a DRP placeholder, just genuinely invalid)
+  if (isInvalid || !timetableId) {
+    return (
+      <ContentLayout title='Invalid Timetable'>
+        <div className='text-center py-8'>
+          <p className='text-destructive mb-4'>
+            Invalid timetable ID. Please navigate from the timetables list.
+          </p>
+          <Button
+            variant='outline'
+            onClick={() => router.push('/academic/timetables')}
+          >
+            <ArrowLeft className='mr-2 h-4 w-4' />
+            Back to Timetables
+          </Button>
+        </div>
+      </ContentLayout>
+    );
+  }
 
   if (loading) {
     return <Loading title='Loading Timetable' />;

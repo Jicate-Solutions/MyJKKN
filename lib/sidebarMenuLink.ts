@@ -60,7 +60,16 @@ import {
   UserCircle,
   FileCheck,
   Briefcase,
-  BarChart3
+  BarChart3,
+  PhoneCall,
+  Target,
+  Megaphone,
+  LineChart,
+  Workflow,
+  MessagesSquare,
+  Radio,
+  SearchCheck,
+  UserCog
 } from 'lucide-react';
 import { CustomRole } from '@/types/auth';
 // FEATURE_FLAGS import removed - not used in sidebar filtering
@@ -317,7 +326,75 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/service-requests/types/[id]': 'service_requests.types.view',
   '/service-requests/types/[id]/edit': 'service_requests.types.edit',
   '/service-requests/[id]': 'service_requests.view_own',
-  '/service-requests/[id]/edit': 'service_requests.edit_own'
+  '/service-requests/[id]/edit': 'service_requests.edit_own',
+
+  // Admission CRM Module
+  '/admission/dashboard': 'admission.dashboard.view',
+  '/admission/analytics': 'admission.analytics.view',
+  '/admission/group-dashboard': 'admission.group_dashboard.view',
+  '/admission/insights': 'admission.insights.view',
+  '/admission/insights/status': 'admission.insights.view',
+
+  // Admission Leads
+  '/admission/leads': 'admission.leads.view',
+  '/admission/leads/new': 'admission.leads.create',
+  '/admission/leads/[id]': 'admission.leads.view',
+
+  // Admission Applications
+  '/admission/applications': 'admission.applications.view',
+  '/admission/applications/[id]': 'admission.applications.view',
+
+  // Admission Counselors
+  '/admission/counselors': 'admission.counselors.view',
+  '/admission/counselors/alerts': 'admission.counselors.view',
+  '/admission/counselors/briefing': 'admission.counselors.view',
+  '/admission/counselors/calls': 'admission.counselors.view',
+  '/admission/counselors/daily-view': 'admission.counselors.view',
+  '/admission/counselors/reminders': 'admission.counselors.view',
+
+  // Admission Consultants
+  '/admission/consultants': 'admission.consultants.view',
+  '/admission/consultants/new': 'admission.consultants.create',
+  '/admission/consultants/[id]': 'admission.consultants.view',
+  '/admission/consultants/[id]/edit': 'admission.consultants.edit',
+  '/admission/consultants/analytics': 'admission.consultants.analytics.view',
+  '/admission/consultants/commissions': 'admission.consultants.commissions.view',
+  '/admission/consultants/referrals': 'admission.consultants.referrals.view',
+  '/admission/consultants/rewards': 'admission.consultants.rewards.view',
+
+  // Admission Marketing
+  '/admission/marketing/campaigns/monitoring': 'admission.marketing.view',
+  '/admission/marketing/campaigns/roi': 'admission.marketing.view',
+  '/admission/marketing/campaigns/segments': 'admission.marketing.view',
+  '/admission/marketing/chat': 'admission.marketing.chat.view',
+  '/admission/marketing/chat/performance': 'admission.marketing.chat.view',
+  '/admission/marketing/chat/settings': 'admission.marketing.chat.manage',
+  '/admission/marketing/chatbot': 'admission.marketing.chatbot.view',
+  '/admission/marketing/chatbot/analytics': 'admission.marketing.chatbot.view',
+  '/admission/marketing/chatbot/knowledge': 'admission.marketing.chatbot.manage',
+  '/admission/marketing/parent-communication': 'admission.marketing.view',
+  '/admission/marketing/publishers': 'admission.marketing.view',
+  '/admission/marketing/re-engagement': 'admission.marketing.view',
+  '/admission/marketing/remarketing': 'admission.marketing.view',
+  '/admission/marketing/voice-agents': 'admission.marketing.voice.view',
+  '/admission/marketing/voice-broadcast': 'admission.marketing.voice.view',
+
+  // Admission Data Quality
+  '/admission/data-quality/data-profiling': 'admission.data_quality.view',
+  '/admission/data-quality/deduplication': 'admission.data_quality.view',
+  '/admission/data-quality/phone-validation': 'admission.data_quality.view',
+
+  // Admission Settings
+  '/admission/settings': 'admission.settings.view',
+  '/admission/settings/templates': 'admission.settings.templates.view',
+  '/admission/settings/templates/analytics': 'admission.settings.templates.view',
+  '/admission/settings/templates/documents': 'admission.settings.templates.view',
+  '/admission/settings/templates/email-builder': 'admission.settings.templates.manage',
+  '/admission/settings/whatsapp-numbers': 'admission.settings.whatsapp.view',
+  '/admission/settings/workflows': 'admission.settings.workflows.view',
+  '/admission/settings/workflow-config': 'admission.settings.workflows.manage',
+  '/admission/settings/assignment-rules': 'admission.settings.assignment.view',
+  '/admission/settings/sources': 'admission.settings.sources.view'
 };
 
 export function GetPages(pathname: string): MenuGroup[] {
@@ -764,7 +841,270 @@ export function GetPages(pathname: string): MenuGroup[] {
 
 
     // NEW: Unified Learners Module (Will replace old modules)
-  
+
+    {
+      groupLabel: 'Admission CRM',
+      menus: [
+        {
+          href: '/admission/dashboard',
+          label: 'Dashboard',
+          active: pathname === '/admission/dashboard',
+          icon: LayoutGrid,
+          submenus: []
+        },
+        {
+          href: '/admission/analytics',
+          label: 'Analytics',
+          active: pathname === '/admission/analytics',
+          icon: LineChart,
+          submenus: []
+        },
+        {
+          href: '/admission/group-dashboard',
+          label: 'Group Dashboard',
+          active: pathname === '/admission/group-dashboard',
+          icon: Building2,
+          submenus: []
+        },
+        {
+          href: '/admission/leads',
+          label: 'Leads',
+          active: pathname.startsWith('/admission/leads'),
+          icon: UserPlus,
+          submenus: [
+            {
+              href: '/admission/leads',
+              label: 'All Leads',
+              active: pathname === '/admission/leads'
+            },
+            {
+              href: '/admission/leads/new',
+              label: 'New Lead',
+              active: pathname === '/admission/leads/new'
+            }
+          ]
+        },
+        {
+          href: '/admission/applications',
+          label: 'Applications',
+          active: pathname.startsWith('/admission/applications'),
+          icon: FileText,
+          submenus: []
+        },
+        {
+          href: '/admission/counselors',
+          label: 'Counselors',
+          active: pathname.startsWith('/admission/counselors'),
+          icon: HeadphonesIcon,
+          submenus: [
+            {
+              href: '/admission/counselors',
+              label: 'All Counselors',
+              active: pathname === '/admission/counselors'
+            },
+            {
+              href: '/admission/counselors/daily-view',
+              label: 'Daily View',
+              active: pathname === '/admission/counselors/daily-view'
+            },
+            {
+              href: '/admission/counselors/calls',
+              label: 'Call Logs',
+              active: pathname === '/admission/counselors/calls'
+            },
+            {
+              href: '/admission/counselors/reminders',
+              label: 'Reminders',
+              active: pathname === '/admission/counselors/reminders'
+            },
+            {
+              href: '/admission/counselors/alerts',
+              label: 'Activity Alerts',
+              active: pathname === '/admission/counselors/alerts'
+            },
+            {
+              href: '/admission/counselors/briefing',
+              label: 'Daily Briefing',
+              active: pathname === '/admission/counselors/briefing'
+            }
+          ]
+        },
+        {
+          href: '/admission/consultants',
+          label: 'Consultants',
+          active: pathname.startsWith('/admission/consultants'),
+          icon: UserCog,
+          submenus: [
+            {
+              href: '/admission/consultants',
+              label: 'All Consultants',
+              active: pathname === '/admission/consultants'
+            },
+            {
+              href: '/admission/consultants/new',
+              label: 'Add Consultant',
+              active: pathname === '/admission/consultants/new'
+            },
+            {
+              href: '/admission/consultants/commissions',
+              label: 'Commissions',
+              active: pathname === '/admission/consultants/commissions'
+            },
+            {
+              href: '/admission/consultants/referrals',
+              label: 'Referrals',
+              active: pathname === '/admission/consultants/referrals'
+            },
+            {
+              href: '/admission/consultants/rewards',
+              label: 'Rewards',
+              active: pathname === '/admission/consultants/rewards'
+            },
+            {
+              href: '/admission/consultants/analytics',
+              label: 'Analytics',
+              active: pathname === '/admission/consultants/analytics'
+            }
+          ]
+        },
+        {
+          href: '/admission/insights',
+          label: 'AI Insights',
+          active: pathname.startsWith('/admission/insights'),
+          icon: Sparkles,
+          submenus: []
+        },
+        {
+          href: '/admission/marketing',
+          label: 'Marketing',
+          active: pathname.startsWith('/admission/marketing'),
+          icon: Megaphone,
+          submenus: [
+            {
+              href: '/admission/marketing/campaigns/monitoring',
+              label: 'Campaign Monitor',
+              active: pathname === '/admission/marketing/campaigns/monitoring'
+            },
+            {
+              href: '/admission/marketing/campaigns/roi',
+              label: 'Campaign ROI',
+              active: pathname === '/admission/marketing/campaigns/roi'
+            },
+            {
+              href: '/admission/marketing/campaigns/segments',
+              label: 'Segments',
+              active: pathname === '/admission/marketing/campaigns/segments'
+            },
+            {
+              href: '/admission/marketing/chat',
+              label: 'WhatsApp Chat',
+              active: pathname.startsWith('/admission/marketing/chat')
+            },
+            {
+              href: '/admission/marketing/chatbot',
+              label: 'Chatbot',
+              active: pathname.startsWith('/admission/marketing/chatbot')
+            },
+            {
+              href: '/admission/marketing/parent-communication',
+              label: 'Parent Communication',
+              active: pathname === '/admission/marketing/parent-communication'
+            },
+            {
+              href: '/admission/marketing/re-engagement',
+              label: 'Re-engagement',
+              active: pathname === '/admission/marketing/re-engagement'
+            },
+            {
+              href: '/admission/marketing/remarketing',
+              label: 'Remarketing',
+              active: pathname === '/admission/marketing/remarketing'
+            },
+            {
+              href: '/admission/marketing/voice-agents',
+              label: 'Voice Agents',
+              active: pathname === '/admission/marketing/voice-agents'
+            },
+            {
+              href: '/admission/marketing/voice-broadcast',
+              label: 'Voice Broadcast',
+              active: pathname === '/admission/marketing/voice-broadcast'
+            },
+            {
+              href: '/admission/marketing/publishers',
+              label: 'Publishers',
+              active: pathname === '/admission/marketing/publishers'
+            }
+          ]
+        },
+        {
+          href: '/admission/data-quality',
+          label: 'Data Quality',
+          active: pathname.startsWith('/admission/data-quality'),
+          icon: SearchCheck,
+          submenus: [
+            {
+              href: '/admission/data-quality/data-profiling',
+              label: 'Data Profiling',
+              active: pathname === '/admission/data-quality/data-profiling'
+            },
+            {
+              href: '/admission/data-quality/deduplication',
+              label: 'Deduplication',
+              active: pathname === '/admission/data-quality/deduplication'
+            },
+            {
+              href: '/admission/data-quality/phone-validation',
+              label: 'Phone Validation',
+              active: pathname === '/admission/data-quality/phone-validation'
+            }
+          ]
+        },
+        {
+          href: '/admission/settings',
+          label: 'Settings',
+          active: pathname.startsWith('/admission/settings'),
+          icon: Settings,
+          submenus: [
+            {
+              href: '/admission/settings',
+              label: 'General Settings',
+              active: pathname === '/admission/settings'
+            },
+            {
+              href: '/admission/settings/workflows',
+              label: 'Workflows',
+              active: pathname === '/admission/settings/workflows'
+            },
+            {
+              href: '/admission/settings/workflow-config',
+              label: 'Workflow Config',
+              active: pathname === '/admission/settings/workflow-config'
+            },
+            {
+              href: '/admission/settings/assignment-rules',
+              label: 'Assignment Rules',
+              active: pathname === '/admission/settings/assignment-rules'
+            },
+            {
+              href: '/admission/settings/sources',
+              label: 'Lead Sources',
+              active: pathname === '/admission/settings/sources'
+            },
+            {
+              href: '/admission/settings/templates',
+              label: 'Templates',
+              active: pathname.startsWith('/admission/settings/templates')
+            },
+            {
+              href: '/admission/settings/whatsapp-numbers',
+              label: 'WhatsApp Numbers',
+              active: pathname === '/admission/settings/whatsapp-numbers'
+            }
+          ]
+        }
+      ]
+    },
 
     {
       groupLabel: 'Accounts',

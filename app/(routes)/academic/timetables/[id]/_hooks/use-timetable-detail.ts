@@ -6,13 +6,15 @@ import { Timetable, Period, DayOfWeek } from '@/types/academics';
 import toast from 'react-hot-toast';
 
 /**
- * Validates if a string is a valid UUID format
- * Also rejects TanStack Table's temporary drag IDs (%%drp:id:xxxxx%%)
+ * Validates if a string is a valid UUID format.
+ * Returns false for Next.js DRP (Dynamic Route Parameter) placeholders
+ * like %%drp:id:xxxx%%, which appear during client-side navigation
+ * with cacheComponents enabled.
  */
 function isValidUUID(id: string): boolean {
   if (!id) return false;
-  // Reject TanStack Table temporary drag IDs
-  if (id.includes('%%drp:id:')) return false;
+  // Reject Next.js DRP placeholders (generated in fallback-params.js)
+  if (id.includes('%%drp:')) return false;
   // Check UUID format
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
 }
@@ -140,12 +142,20 @@ export function useTimetableDetail(timetableId: string): UseTimetableDetailResul
    *
    * Fixed: 2025-10-27 - Removed selectedDates from dependency array to prevent stale closures
    * Now uses a ref pattern to access current selectedDates value
-   * Fixed: 2026-02-03 - Added UUID validation to prevent errors from TanStack Table drag IDs
+   * Fixed: 2026-02-03 - Added UUID validation to prevent errors from DRP placeholders
+   * Fixed: 2026-02-25 - DRP placeholders now keep loading state instead of setting error.
+   *   The %%drp:id:xxxx%% pattern comes from Next.js fallback-params.js (not TanStack Table).
+   *   It's a transient state during client-side navigation that resolves automatically.
    */
   const fetchTimetableData = useCallback(async (preserveUnsavedDates: boolean = false) => {
     // Validate timetable ID before making API calls
-    // This prevents errors from TanStack Table's temporary drag IDs (%%drp:id:xxxxx%%)
     if (!isValidUUID(timetableId)) {
+      // If this is a Next.js DRP placeholder, keep loading (it will resolve)
+      if (timetableId.includes('%%drp:')) {
+        logger.dev('academic/timetables', 'DRP placeholder detected, waiting for resolution', { timetableId });
+        return; // Keep loading=true, don't set error
+      }
+      // Truly invalid ID (not a DRP placeholder)
       logger.error('academic/timetables', 'Invalid timetable ID format', { timetableId });
       setError('Invalid timetable ID. Please navigate from the timetables list.');
       setLoading(false);
