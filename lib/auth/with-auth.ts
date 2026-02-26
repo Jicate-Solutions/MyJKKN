@@ -346,11 +346,16 @@ async function handleApiKeyAuth(
     full_name: profile.full_name,
   }
 
+  // API key's organization_id takes precedence over key owner's institution.
+  // This ensures org-scoped keys restrict data to the intended institution,
+  // even if the key owner (e.g., super_admin) belongs to a different one.
+  const effectiveInstitutionId = keyData.organization_id || profile.institution_id
+
   return {
     user: authUser,
     authMethod: 'api_key',
     supabase: impersonatedClient,
     apiKeyData: keyData as ApiKeyData,
-    institutionId: profile.institution_id,
+    institutionId: effectiveInstitutionId,
   }
 }
