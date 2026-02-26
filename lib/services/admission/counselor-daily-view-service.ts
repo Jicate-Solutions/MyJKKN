@@ -304,12 +304,11 @@ export class CounselorDailyViewService {
       .from('admission_lead_activities')
       .insert({
         lead_id: leadId,
-        institution_id: institutionId,
         activity_type: 'task',
-        title: 'Follow-up Rescheduled',
+        subject: 'Follow-up Rescheduled',
         description: `Follow-up rescheduled to ${new Date(newDate).toLocaleDateString()}`,
-        metadata: { scheduled_at: newDate },
-        performed_by: userId,
+        scheduled_at: newDate,
+        created_by: userId,
       });
 
     if (activityError) {
@@ -347,11 +346,10 @@ export class CounselorDailyViewService {
       .from('admission_lead_activities')
       .insert({
         lead_id: leadId,
-        institution_id: institutionId,
         activity_type: 'note',
-        title: 'Quick Note',
+        subject: 'Quick Note',
         description: note,
-        performed_by: userId,
+        created_by: userId,
       });
 
     if (error) {
@@ -389,11 +387,10 @@ export class CounselorDailyViewService {
       .from('admission_lead_activities')
       .insert({
         lead_id: leadId,
-        institution_id: institutionId,
         activity_type: 'call',
-        title: 'Phone Call',
+        subject: 'Phone Call',
         description: notes || 'Call made from counselor view',
-        performed_by: userId,
+        created_by: userId,
       });
 
     if (error) {
@@ -500,11 +497,10 @@ export class CounselorDailyViewService {
       .from('admission_lead_activities')
       .insert({
         lead_id: leadId,
-        institution_id: institutionId,
         activity_type: 'stage_change',
-        title: `Stage: ${oldStage} → ${newStage}`,
+        subject: `Stage: ${oldStage} → ${newStage}`,
         description: `Stage changed from ${oldStage} to ${newStage}`,
-        performed_by: userId,
+        created_by: userId,
       });
 
     if (activityError) {
