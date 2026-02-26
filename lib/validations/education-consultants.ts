@@ -71,7 +71,10 @@ export const updateConsultantSchema = z.object({
   phone: z.string().optional().or(z.literal('')),
   alternate_phone: z.string().optional().or(z.literal('')),
   consultant_type: consultantTypeEnum,
-  // status and tier are per-institution — edit them via the consultant_institutions row
+  // status and tier are per-institution (live on consultant_institutions junction).
+  // Kept here so the form can hold them; they are stripped before sending to updateConsultant.
+  status: consultantStatusEnum.optional(),
+  tier: consultantTierEnum.optional(),
   contact_person: z.string().optional().or(z.literal('')),
   website: z.string().url('Invalid URL').optional().or(z.literal('')),
   gst_number: z.string().optional().or(z.literal('')),
