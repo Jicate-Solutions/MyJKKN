@@ -12,6 +12,7 @@ import {
   type ActionExecution,
   type ActionFilters,
 } from '@/lib/services/admission/insight-actions-service';
+import { usePermissions } from '@/hooks/use-permissions';
 
 // ============================================================================
 // QUERY KEYS
@@ -167,10 +168,12 @@ export function useCancelAction() {
  * Get action execution history
  */
 export function useActionHistory(filters: ActionFilters) {
+  const { isSuperAdmin } = usePermissions();
+
   return useQuery({
     queryKey: insightActionsKeys.history(filters),
     queryFn: () => InsightActionsService.getActionHistory(filters),
-    enabled: !!filters.institution_id,
+    enabled: isSuperAdmin || !!filters.institution_id,
     staleTime: 1000 * 30, // 30 seconds
   });
 }

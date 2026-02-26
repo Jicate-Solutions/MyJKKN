@@ -10,6 +10,7 @@ import {
   type DripSequenceStats,
   type StartDripSequenceInput,
 } from '@/lib/services/admission/drip-executor-service';
+import { usePermissions } from '@/hooks/use-permissions';
 
 // ============================================================================
 // QUERY KEYS
@@ -35,10 +36,12 @@ export const dripExecutorKeys = {
  * Get active drip sequences for an institution
  */
 export function useActiveSequences(filters: DripSequenceFilters) {
+  const { isSuperAdmin } = usePermissions();
+
   const query = useQuery({
     queryKey: dripExecutorKeys.sequences(filters),
     queryFn: () => DripExecutorService.getActiveSequences(filters),
-    enabled: !!filters.institution_id,
+    enabled: isSuperAdmin || !!filters.institution_id,
     staleTime: 30000, // 30 seconds
     refetchInterval: 60000, // Refresh every minute
   });
@@ -79,10 +82,12 @@ export function useDripStatus(sequenceId: string) {
  * Get drip sequence statistics for an institution
  */
 export function useDripStats(institutionId: string) {
+  const { isSuperAdmin } = usePermissions();
+
   const query = useQuery({
     queryKey: dripExecutorKeys.stats(institutionId),
     queryFn: () => DripExecutorService.getSequenceStats(institutionId),
-    enabled: !!institutionId,
+    enabled: isSuperAdmin || !!institutionId,
     staleTime: 60000, // 1 minute
   });
 

@@ -14,6 +14,24 @@ export const GET = withAuth(async (request: NextRequest, auth) => {
   const url = new URL(request.url)
   const managerId = url.searchParams.get('manager_id')
 
+  // Enforce institution scoping
+  // v_team_okr_summary and okr_user_status have no direct institution_id
+  // Data is scoped via RLS + impersonated client
+  let institutionId: string | null = auth.institutionId
+  if (auth.authMethod === 'api_key') {
+    if (!institutionId) {
+      return NextResponse.json(
+        { error: 'API key must be scoped to an organization' },
+        { status: 400, headers: corsHeaders }
+      )
+    }
+  } else {
+    const queryInstitutionId = url.searchParams.get('institution_id')
+    if (queryInstitutionId && auth.user.role === 'super_admin') {
+      institutionId = queryInstitutionId
+    }
+  }
+
   // Get team summary from view
   let query = (auth.supabase as any)
     .from('v_team_okr_summary')

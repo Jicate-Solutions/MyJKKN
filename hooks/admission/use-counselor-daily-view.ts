@@ -8,6 +8,7 @@ import {
   type CounselorDailyViewData,
   type UnassignedLead,
 } from '@/lib/services/admission/counselor-daily-view-service';
+import { usePermissions } from '@/hooks/use-permissions';
 
 // ============================================================================
 // QUERY KEYS
@@ -30,10 +31,12 @@ export const counselorDailyViewKeys = {
  * Auto-refreshes every 60 seconds.
  */
 export function useCounselorDailyView(institutionId?: string, viewAsUserId?: string) {
+  const { isSuperAdmin } = usePermissions();
+
   const query = useQuery<CounselorDailyViewData>({
     queryKey: [...counselorDailyViewKeys.view(institutionId || ''), viewAsUserId || 'self'],
     queryFn: () => CounselorDailyViewService.getDailyView(institutionId!, viewAsUserId),
-    enabled: !!institutionId,
+    enabled: isSuperAdmin || !!institutionId,
     refetchInterval: 60000, // Auto-refresh every 60 seconds
     staleTime: 30000,
   });
@@ -61,10 +64,12 @@ export function useCounselorDailyView(institutionId?: string, viewAsUserId?: str
 // ============================================================================
 
 export function useUnassignedLeads(institutionId?: string, enabled = true) {
+  const { isSuperAdmin } = usePermissions();
+
   const query = useQuery<UnassignedLead[]>({
     queryKey: counselorDailyViewKeys.unassigned(institutionId || ''),
     queryFn: () => CounselorDailyViewService.getUnassignedLeads(institutionId!),
-    enabled: !!institutionId && enabled,
+    enabled: isSuperAdmin || !!institutionId && enabled,
     staleTime: 30000,
   });
 
@@ -80,10 +85,12 @@ export function useUnassignedLeads(institutionId?: string, enabled = true) {
 // ============================================================================
 
 export function useCounselorsList(institutionId?: string) {
+  const { isSuperAdmin } = usePermissions();
+
   const query = useQuery({
     queryKey: counselorDailyViewKeys.counselors(institutionId || ''),
     queryFn: () => CounselorDailyViewService.getCounselors(institutionId!),
-    enabled: !!institutionId,
+    enabled: isSuperAdmin || !!institutionId,
     staleTime: 300000, // 5 minutes
   });
 
@@ -199,10 +206,12 @@ export function useCounselorActions(institutionId?: string) {
  * Use this for all counselor picker dropdowns — no admission_counselors management UI needed.
  */
 export function useCounselorProfiles(institutionId: string | undefined) {
+  const { isSuperAdmin } = usePermissions();
+
   return useQuery({
     queryKey: [...counselorDailyViewKeys.counselors(institutionId || ''), 'profiles'],
     queryFn: () => CounselorDailyViewService.getCounselorProfiles(institutionId!),
-    enabled: !!institutionId,
+    enabled: isSuperAdmin || !!institutionId,
     staleTime: 5 * 60 * 1000, // 5-minute cache — counselor list changes infrequently
   });
 }

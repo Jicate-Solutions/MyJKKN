@@ -23,13 +23,13 @@ export function useAttendanceStats(
   // For super admin: undefined = all institutions, specific id = that institution
   // For regular users: always their own institution
   const queryInstitutionId =
-    isSuperAdmin && canViewAllInstitutions
+    isSuperAdmin
       ? institutionId
       : profile?.institution_id || undefined;
 
   // For super admin with undefined institutionId, query all institutions
   const queryAllInstitutions =
-    isSuperAdmin && canViewAllInstitutions && institutionId === undefined;
+    isSuperAdmin && institutionId === undefined;
 
   // Format date for query
   const dateString = selectedDate.toISOString().split('T')[0];
@@ -51,7 +51,7 @@ export function useAttendanceStats(
     queryFn: () =>
       AttendanceDashboardService.getTodayAttendanceStats(
         queryAllInstitutions ? undefined : queryInstitutionId,
-        canViewAllInstitutions && isSuperAdmin,
+        isSuperAdmin,
         dateString,
         academicYearId
       ),
@@ -95,7 +95,8 @@ export function usePendingAttendance(
     queryKey: ['pending-attendance', queryFilters, refreshTrigger],
     queryFn: () =>
       AttendanceDashboardService.getTodayPendingAttendance(queryFilters),
-    enabled: !!queryFilters.userInstitutionId,
+    // super_admin can query without institution filter
+    enabled: isSuperAdmin || !!queryFilters.userInstitutionId,
     // Use REALTIME_DATA config for pending attendance (needs frequent updates)
     ...QUERY_CONFIG.REALTIME_DATA,
     refetchInterval: 2 * 60 * 1000 // Override: 2 minutes for pending attendance
@@ -133,10 +134,11 @@ export function useAttendanceTrend(institutionId?: string, days: number = 7) {
     error,
     refetch
   } = useQuery({
-    queryKey: ['attendance-trend', queryInstitutionId, days],
+    queryKey: ['attendance-trend', queryInstitutionId || 'all', days],
     queryFn: () =>
       AttendanceDashboardService.getAttendanceTrend(queryInstitutionId!, days),
-    enabled: !!queryInstitutionId,
+    // super_admin can query without institution filter (sees all)
+    enabled: isSuperAdmin || !!queryInstitutionId,
     ...QUERY_CONFIG.DASHBOARD_DATA,
     refetchInterval: 10 * 60 * 1000 // Override: 10 minutes for trend (less frequent)
   });
@@ -173,10 +175,10 @@ export function useAttendanceDashboard() {
     sectionId: undefined
   });
 
-  // Get the effective institution ID
+  // Get the effective institution ID — super_admin sees all if no selection
   const effectiveInstitutionId = isSuperAdmin
     ? selectedInstitutionId
-    : profile?.institution_id;
+    : profile?.institution_id || undefined;
 
   // Get stats data
   const statsQuery = useAttendanceStats(effectiveInstitutionId as string);

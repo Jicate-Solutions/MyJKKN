@@ -3,6 +3,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import { usePermissions } from '@/hooks/use-permissions';
 import {
   RemindersService,
   type ReminderFilters,
@@ -31,10 +32,11 @@ export function useFollowUpReminders(
   institutionId: string | null | undefined,
   filters?: Omit<ReminderFilters, 'institutionId'>
 ) {
+  const { isSuperAdmin } = usePermissions();
   const query = useQuery({
     queryKey: remindersKeys.list(institutionId || '', filters),
-    queryFn: () => RemindersService.getFollowUpReminders(institutionId!, filters),
-    enabled: !!institutionId,
+    queryFn: () => RemindersService.getFollowUpReminders(institutionId ?? undefined, filters),
+    enabled: isSuperAdmin || !!institutionId,
   });
 
   return {
@@ -155,10 +157,13 @@ export function useCreateReminder() {
  * Search leads for creating a reminder.
  */
 export function useSearchLeadsForReminder(institutionId: string | null | undefined, search: string) {
+  const { isSuperAdmin } = usePermissions();
+
   return useQuery({
-    queryKey: ['reminder-lead-search', institutionId, search],
+    queryKey: ['reminder-lead-search', institutionId || 'all', search],
     queryFn: () => RemindersService.searchLeadsForReminder(institutionId!, search),
-    enabled: !!institutionId && search.length >= 2,
+    // super_admin can search without institution scope
+    enabled: (isSuperAdmin || !!institutionId) && search.length >= 2,
     staleTime: 30_000,
   });
 }

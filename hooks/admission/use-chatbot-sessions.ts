@@ -3,6 +3,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import { usePermissions } from '@/hooks/use-permissions';
 
 export const chatbotSessionsKeys = {
   sessions: (institutionId: string, filters?: Record<string, string>) =>
@@ -20,6 +21,8 @@ interface SessionFilters {
 }
 
 export function useChatbotSessions(filters: SessionFilters) {
+  const { isSuperAdmin } = usePermissions();
+
   const query = useQuery({
     queryKey: chatbotSessionsKeys.sessions(filters.institution_id, filters as any),
     queryFn: async () => {
@@ -35,7 +38,7 @@ export function useChatbotSessions(filters: SessionFilters) {
       if (!res.ok) throw new Error('Failed to fetch sessions');
       return res.json();
     },
-    enabled: !!filters.institution_id,
+    enabled: isSuperAdmin || !!filters.institution_id,
   });
 
   return {

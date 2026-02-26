@@ -7,6 +7,24 @@ export async function OPTIONS() {
 }
 
 export const GET = withAuth(async (request: NextRequest, auth) => {
+  // ── Institution scoping ──────────────────────────────────────
+  let institutionId: string | null = auth.institutionId
+  if (auth.authMethod === 'api_key') {
+    if (!institutionId) {
+      return NextResponse.json(
+        { error: 'API key must be scoped to an organization' },
+        { status: 400, headers: corsHeaders }
+      )
+    }
+  } else {
+    // Session auth: allow super_admin to query specific institution
+    const url = new URL(request.url)
+    const queryInstitutionId = url.searchParams.get('institution_id')
+    if (queryInstitutionId && auth.user.role === 'super_admin') {
+      institutionId = queryInstitutionId
+    }
+  }
+
   // Get query parameters
   const url = new URL(request.url)
   const page = parseInt(url.searchParams.get('page') || '1')
@@ -41,6 +59,11 @@ export const GET = withAuth(async (request: NextRequest, auth) => {
     selectFields,
     { count: 'exact' }
   )
+
+  // Apply institution scoping
+  if (institutionId) {
+    query = query.eq('institution_id', institutionId)
+  }
 
   // Apply filters
   // Default: only active learners unless lifecycle_status is specified

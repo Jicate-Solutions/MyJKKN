@@ -6,6 +6,7 @@ import type {
   TemplateAnalytics,
   DailyMetric,
 } from '@/lib/services/whatsapp/whatsapp-template-analytics-service';
+import { usePermissions } from '@/hooks/use-permissions';
 
 // ============================================================================
 // QUERY KEYS
@@ -79,6 +80,8 @@ export function useTemplateAnalytics(
   institutionId?: string,
   dateRange?: { from?: string; to?: string }
 ) {
+  const { isSuperAdmin } = usePermissions();
+
   const query = useQuery({
     queryKey: templateAnalyticsKeys.list(
       institutionId || '',
@@ -86,7 +89,7 @@ export function useTemplateAnalytics(
       dateRange?.to
     ),
     queryFn: () => fetchTemplateAnalytics(institutionId!, dateRange?.from, dateRange?.to),
-    enabled: !!institutionId,
+    enabled: isSuperAdmin || !!institutionId,
   });
 
   return {
@@ -108,6 +111,8 @@ export function useTemplateTimeline(
   institutionId?: string,
   dateRange?: { from: string; to: string }
 ) {
+  const { isSuperAdmin } = usePermissions();
+
   const query = useQuery({
     queryKey: templateAnalyticsKeys.timeline(
       templateId || '',
@@ -121,7 +126,8 @@ export function useTemplateTimeline(
         dateRange!.from,
         dateRange!.to
       ),
-    enabled: !!templateId && !!institutionId && !!dateRange?.from && !!dateRange?.to,
+    // super_admin can query without institution scope
+    enabled: !!templateId && (isSuperAdmin || !!institutionId) && !!dateRange?.from && !!dateRange?.to,
   });
 
   return {

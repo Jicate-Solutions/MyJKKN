@@ -1,9 +1,9 @@
 // app/api/chatbot/chat/route.ts
-// PUBLIC endpoint — no auth required for prospects
 // Handles chatbot conversation messages
 
 import { NextRequest, NextResponse } from 'next/server';
 import { ChatbotService } from '@/lib/services/ai/chatbot-service';
+import { getAuthSession } from '@/lib/supabase/server';
 
 // Simple in-memory rate limiter by IP
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
@@ -35,6 +35,11 @@ function isRateLimited(ip: string): boolean {
  */
 export async function POST(request: NextRequest) {
   try {
+    const { session: authSession, error: sessionError } = await getAuthSession();
+    if (sessionError || !authSession) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     // Rate limit by IP
     const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
       || request.headers.get('x-real-ip')

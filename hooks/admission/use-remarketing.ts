@@ -8,7 +8,9 @@ import {
   type AudienceRuleFilters,
   type CreateAudienceRuleInput,
   type UpdateAudienceRuleInput,
+  type SyncResult,
 } from '@/lib/services/marketing/remarketing-service';
+import { usePermissions } from '@/hooks/use-permissions';
 
 // ============================================================================
 // QUERY KEYS
@@ -27,10 +29,12 @@ export const remarketingKeys = {
 // ============================================================================
 
 export function useRemarketingRules(filters: AudienceRuleFilters) {
+  const { isSuperAdmin } = usePermissions();
+
   const query = useQuery({
     queryKey: remarketingKeys.rulesList(filters),
     queryFn: () => RemarketingService.getAudienceRules(filters),
-    enabled: !!filters.institutionId,
+    enabled: isSuperAdmin || !!filters.institutionId,
   });
 
   return {
@@ -108,7 +112,7 @@ export function useRemarketingMutations() {
     onError: (error: Error) => toast.error(error.message),
   });
 
-  const syncAudience = useMutation({
+  const syncAudience = useMutation<SyncResult, Error, string>({
     mutationFn: (ruleId: string) => RemarketingService.syncAudience(ruleId),
     onSuccess: (result) => {
       if (result.success) {

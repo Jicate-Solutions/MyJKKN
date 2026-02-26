@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { StudentSearchServiceOptimized } from '@/lib/services/billing/schedule/student-search-service-optimized';
 import { usePermissions } from '@/hooks/use-permissions';
+import { StudentSearchServiceOptimized } from '@/lib/services/billing/schedule/student-search-service-optimized';
 import type {
   StudentForBillingListResponse,
   StudentSearchFilters as StudentSearchFiltersType,
@@ -233,6 +233,7 @@ export function useSearchStudentsByQueryOptimized(
         institutionId,
         limit
       ),
+    // super_admin can search without institution scope
     enabled: !!searchQuery && searchQuery.length >= 2 && (isSuperAdmin || !!institutionId),
     retry: getRetryConfig,
     staleTime: 30 * 1000,
@@ -265,7 +266,8 @@ export function useStudentsForBulkOperationsOptimized(
     ),
     queryFn: () =>
       StudentSearchServiceOptimized.searchStudentsForBilling(filters),
-    enabled: isSuperAdmin || !!institutionId, // super_admin sees all; others need institutionId
+    // super_admin can fetch without institution scope
+    enabled: isSuperAdmin || !!institutionId,
     retry: getRetryConfig,
     staleTime: 5 * 60 * 1000,
     gcTime: 10 * 60 * 1000,

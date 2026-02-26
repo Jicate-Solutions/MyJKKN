@@ -3,6 +3,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import { usePermissions } from '@/hooks/use-permissions';
 
 // =============================================================================
 // Types (client-side mirror of service types)
@@ -133,10 +134,12 @@ export function useWADocumentCatalog(
   category?: string,
   search?: string
 ) {
+  const { isSuperAdmin } = usePermissions();
+
   const query = useQuery({
     queryKey: waDocCatalogKeys.list(institutionId || '', category, search),
     queryFn: () => fetchCatalog(institutionId!, category, search),
-    enabled: !!institutionId,
+    enabled: isSuperAdmin || !!institutionId,
   });
 
   return {

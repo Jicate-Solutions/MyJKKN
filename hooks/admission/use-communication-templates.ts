@@ -12,6 +12,7 @@ import {
   type TemplateStats,
   type TemplateChannel,
 } from '@/lib/services/admission/communication-templates-service';
+import { usePermissions } from '@/hooks/use-permissions';
 
 // Query keys
 export const communicationTemplatesKeys = {
@@ -29,10 +30,12 @@ export const communicationTemplatesKeys = {
  * Hook to fetch communication templates with filters
  */
 export function useCommunicationTemplates(filters: TemplateFilters) {
+  const { isSuperAdmin } = usePermissions();
+
   const query = useQuery({
     queryKey: communicationTemplatesKeys.list(filters),
     queryFn: () => CommunicationTemplatesService.getTemplates(filters),
-    enabled: !!filters.institutionId,
+    enabled: isSuperAdmin || !!filters.institutionId,
   });
 
   return {
@@ -49,10 +52,12 @@ export function useCommunicationTemplates(filters: TemplateFilters) {
  * Hook to fetch active templates (for use in workflows/campaigns)
  */
 export function useActiveTemplates(institutionId?: string, type?: TemplateChannel) {
+  const { isSuperAdmin } = usePermissions();
+
   const query = useQuery({
     queryKey: communicationTemplatesKeys.active(institutionId || '', type),
     queryFn: () => CommunicationTemplatesService.getActiveTemplates(institutionId!, type),
-    enabled: !!institutionId,
+    enabled: isSuperAdmin || !!institutionId,
   });
 
   return {
@@ -87,10 +92,12 @@ export function useCommunicationTemplate(id?: string) {
  * Hook to fetch template statistics
  */
 export function useTemplateStats(institutionId?: string) {
+  const { isSuperAdmin } = usePermissions();
+
   const query = useQuery({
     queryKey: communicationTemplatesKeys.stats(institutionId || ''),
     queryFn: () => CommunicationTemplatesService.getTemplateStats(institutionId!),
-    enabled: !!institutionId,
+    enabled: isSuperAdmin || !!institutionId,
     staleTime: 30000, // 30 seconds
   });
 

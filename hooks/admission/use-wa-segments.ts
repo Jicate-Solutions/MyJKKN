@@ -11,6 +11,7 @@ import type {
   UpdateSegmentParams,
   ResolvedLead,
 } from '@/lib/services/whatsapp/whatsapp-segment-service';
+import { usePermissions } from '@/hooks/use-permissions';
 
 // ============================================================================
 // QUERY KEYS
@@ -124,10 +125,12 @@ async function resolveSegmentApi(segmentId: string): Promise<{ leads: ResolvedLe
  * Fetch all segments for an institution
  */
 export function useWASegments(institutionId?: string) {
+  const { isSuperAdmin } = usePermissions();
+
   const query = useQuery({
     queryKey: waSegmentKeys.list(institutionId || ''),
     queryFn: () => fetchSegments(institutionId!),
-    enabled: !!institutionId,
+    enabled: isSuperAdmin || !!institutionId,
   });
 
   return {

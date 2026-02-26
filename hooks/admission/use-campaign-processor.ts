@@ -14,6 +14,7 @@ import {
   type CampaignStepStatus,
   type CampaignStepType,
 } from '@/lib/services/admission/campaign-processor-service';
+import { usePermissions } from '@/hooks/use-permissions';
 
 // Query keys
 export const campaignProcessorKeys = {
@@ -32,10 +33,12 @@ export const campaignProcessorKeys = {
  * Hook to fetch queued steps with filters
  */
 export function useQueuedSteps(filters: QueueFilters) {
+  const { isSuperAdmin } = usePermissions();
+
   const query = useQuery({
     queryKey: campaignProcessorKeys.queueList(filters),
     queryFn: () => CampaignProcessorService.getQueuedSteps(filters),
-    enabled: !!filters.institution_id,
+    enabled: isSuperAdmin || !!filters.institution_id,
   });
 
   return {
@@ -52,10 +55,12 @@ export function useQueuedSteps(filters: QueueFilters) {
  * Hook to fetch pending steps ready for execution
  */
 export function usePendingSteps(institutionId?: string, limit = 50) {
+  const { isSuperAdmin } = usePermissions();
+
   const query = useQuery({
     queryKey: campaignProcessorKeys.queuePending(institutionId || ''),
     queryFn: () => CampaignProcessorService.getPendingSteps(institutionId, limit),
-    enabled: !!institutionId,
+    enabled: isSuperAdmin || !!institutionId,
     refetchInterval: 30000, // Refresh every 30 seconds
   });
 
@@ -72,10 +77,12 @@ export function usePendingSteps(institutionId?: string, limit = 50) {
  * Hook to fetch campaign logs
  */
 export function useCampaignLogs(filters: LogFilters) {
+  const { isSuperAdmin } = usePermissions();
+
   const query = useQuery({
     queryKey: campaignProcessorKeys.logsList(filters),
     queryFn: () => CampaignProcessorService.getLogs(filters),
-    enabled: !!filters.institution_id,
+    enabled: isSuperAdmin || !!filters.institution_id,
   });
 
   return {
@@ -92,10 +99,12 @@ export function useCampaignLogs(filters: LogFilters) {
  * Hook to fetch queue statistics
  */
 export function useQueueStats(institutionId?: string) {
+  const { isSuperAdmin } = usePermissions();
+
   const query = useQuery({
     queryKey: campaignProcessorKeys.stats(institutionId || ''),
     queryFn: () => CampaignProcessorService.getQueueStats(institutionId!),
-    enabled: !!institutionId,
+    enabled: isSuperAdmin || !!institutionId,
     staleTime: 30000, // 30 seconds
   });
 
@@ -121,10 +130,12 @@ export function useExecutionStatus(
   institutionId?: string,
   options?: { workflowId?: string; leadId?: string; executionId?: string }
 ) {
+  const { isSuperAdmin } = usePermissions();
+
   const query = useQuery({
     queryKey: campaignProcessorKeys.executionStatus(institutionId || '', options || {}),
     queryFn: () => CampaignProcessorService.getExecutionStatus(institutionId!, options || {}),
-    enabled: !!institutionId && !!(options?.workflowId || options?.leadId || options?.executionId),
+    enabled: isSuperAdmin || !!institutionId && !!(options?.workflowId || options?.leadId || options?.executionId),
     refetchInterval: 5000, // Refresh every 5 seconds for active executions
   });
 

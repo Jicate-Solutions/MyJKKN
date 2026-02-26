@@ -28,6 +28,7 @@ import {
   UpdateFlowInput,
 } from '@/types/leave-onduty';
 import toast from 'react-hot-toast';
+import { usePermissions } from '@/hooks/use-permissions';
 
 // =====================================================
 // QUERY KEYS
@@ -185,13 +186,16 @@ export function useValidateApplicationData() {
     mutationFn: async ({
       data,
       sectionId,
+      semesterId,
     }: {
       data: ApplicationFormData;
       sectionId: string;
+      semesterId: string;
     }) => {
       return await LeaveOndutyApplicationService.validateApplicationData(
         data,
-        sectionId
+        sectionId,
+        semesterId
       );
     },
   });
@@ -224,14 +228,15 @@ export function useAvailableDatesForSection(
  */
 export function usePeriodsForDate(
   sectionId: string,
+  semesterId: string,
   date: string,
   periodType: string
 ) {
   return useQuery({
-    queryKey: ['periods-for-date', sectionId, date, periodType],
+    queryKey: ['periods-for-date', sectionId, semesterId, date, periodType],
     queryFn: () =>
-      LeaveOndutyApplicationService.getPeriodsForDate(sectionId, date, periodType),
-    enabled: !!sectionId && !!date && !!periodType,
+      LeaveOndutyApplicationService.getPeriodsForDate(sectionId, semesterId, date, periodType),
+    enabled: !!sectionId && !!semesterId && !!date && !!periodType,
   });
 }
 
@@ -257,11 +262,74 @@ export function useApplicationsByApprover(
 /**
  * Get pending approvals for approver
  */
-export function usePendingApprovals(approverId: string) {
+export function usePendingApprovals(approverId: string, enabled: boolean = true) {
   return useQuery({
     queryKey: KEYS.approvals.pending(approverId),
     queryFn: () => LeaveOndutyApprovalService.getPendingApprovals(approverId),
-    enabled: !!approverId,
+    enabled: enabled && !!approverId,
+    refetchInterval: 30000, // Refetch every 30 seconds
+  });
+}
+
+/**
+ * Get ALL applications for super admin by status (across all institutions)
+ */
+export function useAllApplicationsForSuperAdminByStatus(
+  status: string = 'pending',
+  enabled: boolean = true
+) {
+  return useQuery({
+    queryKey: [...KEYS.approvals.all, 'super-admin', status],
+    queryFn: () => LeaveOndutyApprovalService.getAllApplicationsForSuperAdminByStatus(status),
+    enabled,
+    refetchInterval: 30000, // Refetch every 30 seconds
+  });
+}
+
+/**
+ * Get ALL pending applications for super admin (across all institutions)
+ * @deprecated Use useAllApplicationsForSuperAdminByStatus instead
+ */
+export function useAllPendingApplicationsForSuperAdmin(enabled: boolean = true) {
+  return useAllApplicationsForSuperAdminByStatus('pending', enabled);
+}
+
+/**
+ * Get approval statistics for super admin
+ */
+export function useSuperAdminApprovalStatistics(enabled: boolean = true) {
+  return useQuery({
+    queryKey: [...KEYS.approvals.all, 'super-admin-stats'],
+    queryFn: () => LeaveOndutyApprovalService.getSuperAdminApprovalStatistics(),
+    enabled,
+  });
+}
+
+/**
+ * Get applications by status filtered by institution and department
+ * Used for HOD, Principal, and other institutional roles
+ */
+export function useApplicationsByStatusForInstitution(
+  status: string = 'pending',
+  institutionId: string | null,
+  departmentId?: string | null,
+  enabled: boolean = true
+) {
+  const { isSuperAdmin } = usePermissions();
+
+  return useQuery({
+    queryKey: [...KEYS.approvals.all, 'institution', institutionId, departmentId, status],
+    queryFn: () => {
+      if (!institutionId) {
+        throw new Error('Institution ID is required');
+      }
+      return LeaveOndutyApprovalService.getApplicationsByStatusForInstitution(
+        status,
+        institutionId,
+        departmentId || undefined
+      );
+    },
+    enabled: isSuperAdmin || (enabled && !!institutionId),
     refetchInterval: 30000, // Refetch every 30 seconds
   });
 }
@@ -324,13 +392,14 @@ export function useCheckApprovalPermission(
 export function useApprovalStatistics(
   approverId: string,
   startDate?: string,
-  endDate?: string
+  endDate?: string,
+  enabled: boolean = true
 ) {
   return useQuery({
     queryKey: KEYS.approvals.stats(approverId),
     queryFn: () =>
       LeaveOndutyApprovalService.getApprovalStatistics(approverId, startDate, endDate),
-    enabled: !!approverId,
+    enabled: enabled && !!approverId,
   });
 }
 
@@ -352,13 +421,14 @@ export function useAllLeaveOndutyApplications(filters: ApplicationFilters) {
  * Get flows by institution
  */
 export function useFlowsByInstitution(
-  institutionId: string,
+  institutionId: string | null | undefined,
   filters?: FlowFilters
 ) {
   return useQuery({
-    queryKey: KEYS.flows.list(institutionId, filters),
+    queryKey: KEYS.flows.list(institutionId || 'all', filters),
     queryFn: () => LeaveOndutyFlowService.getFlowsByInstitution(institutionId, filters),
-    enabled: !!institutionId,
+    // Always enabled - allow fetching all flows for super admin (when institutionId is null/empty)
+    enabled: true,
   });
 }
 
@@ -492,10 +562,12 @@ export function useDeleteFlow() {
  * Get flow statistics
  */
 export function useFlowStatistics(institutionId: string) {
+  const { isSuperAdmin } = usePermissions();
+
   return useQuery({
     queryKey: KEYS.flows.stats(institutionId),
     queryFn: () => LeaveOndutyFlowService.getFlowStatistics(institutionId),
-    enabled: !!institutionId,
+    enabled: isSuperAdmin || !!institutionId,
   });
 }
 

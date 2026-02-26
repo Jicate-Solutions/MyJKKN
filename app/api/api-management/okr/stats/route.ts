@@ -12,9 +12,25 @@ export async function OPTIONS() {
 export const GET = withAuth(async (request: NextRequest, auth) => {
   // Get query parameters
   const url = new URL(request.url)
-  const institutionId = url.searchParams.get('institution_id')
 
-  // Get objective counts
+  // Enforce institution scoping
+  let institutionId: string | null = auth.institutionId
+  if (auth.authMethod === 'api_key') {
+    if (!institutionId) {
+      return NextResponse.json(
+        { error: 'API key must be scoped to an organization' },
+        { status: 400, headers: corsHeaders }
+      )
+    }
+  } else {
+    // Session: allow super_admin to query specific institution
+    const queryInstitutionId = url.searchParams.get('institution_id')
+    if (queryInstitutionId && auth.user.role === 'super_admin') {
+      institutionId = queryInstitutionId
+    }
+  }
+
+  // Get objective counts (okr_objectives has institution_id)
   let objectiveQuery = (auth.supabase as any)
     .from('okr_objectives')
     .select('id, status', { count: 'exact' })
@@ -28,10 +44,16 @@ export const GET = withAuth(async (request: NextRequest, auth) => {
   const activeObjectives = objectives?.filter((o: any) => o.status === 'active').length || 0
   const completedObjectives = objectives?.filter((o: any) => o.status === 'completed').length || 0
 
-  // Get KR status counts
-  const { data: keyResults } = await (auth.supabase as any)
+  // Get KR status counts — scope via inner join to objectives with institution_id
+  let krQuery = (auth.supabase as any)
     .from('okr_key_results')
-    .select('status, data_source')
+    .select('status, data_source, objective:okr_objectives!inner(institution_id)')
+
+  if (institutionId) {
+    krQuery = krQuery.eq('objective.institution_id', institutionId)
+  }
+
+  const { data: keyResults } = await krQuery
 
   let onTrack = 0, atRisk = 0, behind = 0, blocked = 0
   let autoTracked = 0, manual = 0
@@ -50,11 +72,17 @@ export const GET = withAuth(async (request: NextRequest, auth) => {
     }
   })
 
-  // Calculate average progress
-  const { data: progressData } = await (auth.supabase as any)
+  // Calculate average progress (okr_objectives has institution_id)
+  let progressQuery = (auth.supabase as any)
     .from('okr_objectives')
     .select('overall_progress')
     .eq('status', 'active')
+
+  if (institutionId) {
+    progressQuery = progressQuery.eq('institution_id', institutionId)
+  }
+
+  const { data: progressData } = await progressQuery
 
   const avgProgress = progressData && progressData.length > 0
     ? Math.round(
@@ -64,6 +92,7 @@ export const GET = withAuth(async (request: NextRequest, auth) => {
     : 0
 
   // Get check-in completion rate (last 4 weeks)
+  // okr_check_ins has no institution_id — scoped via RLS + impersonated client
   const fourWeeksAgo = new Date(Date.now() - 28 * 24 * 60 * 60 * 1000).toISOString()
   const { data: checkIns } = await (auth.supabase as any)
     .from('okr_check_ins')

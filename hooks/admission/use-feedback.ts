@@ -8,6 +8,7 @@ import {
   type FeedbackFilters,
   type FeedbackStats,
 } from '@/lib/services/admission/feedback-service';
+import { usePermissions } from '@/hooks/use-permissions';
 
 // ============================================================================
 // QUERY KEYS
@@ -29,10 +30,12 @@ export const feedbackKeys = {
  * Fetch feedback candidates (lost/declined/withdrew leads)
  */
 export function useFeedbackCandidates(filters: FeedbackFilters) {
+  const { isSuperAdmin } = usePermissions();
+
   const query = useQuery({
     queryKey: feedbackKeys.candidates(filters),
     queryFn: () => FeedbackService.getCandidates(filters),
-    enabled: !!filters.institutionId,
+    enabled: isSuperAdmin || !!filters.institutionId,
   });
 
   return {
@@ -49,10 +52,12 @@ export function useFeedbackCandidates(filters: FeedbackFilters) {
  * Fetch feedback stats
  */
 export function useFeedbackStats(institutionId?: string) {
+  const { isSuperAdmin } = usePermissions();
+
   const query = useQuery({
     queryKey: feedbackKeys.stats(institutionId || ''),
     queryFn: () => FeedbackService.getStats(institutionId!),
-    enabled: !!institutionId,
+    enabled: isSuperAdmin || !!institutionId,
     staleTime: 60000,
   });
 

@@ -5,6 +5,7 @@ import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
 import { createHash } from 'crypto';
 import { Database } from '@/types/auth';
+import { getAuthSession } from '@/lib/supabase/server';
 
 export async function GET(request: NextRequest) {
   try {
@@ -27,67 +28,55 @@ export async function GET(request: NextRequest) {
       }
     );
 
-    // Get API key from Authorization header
-    const authHeader = request.headers.get('authorization');
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return NextResponse.json(
-        { error: 'API key is required in Authorization header' },
-        { status: 401 }
-      );
-    }
+    // Try session auth first, then fall back to API key auth
+    const { session } = await getAuthSession();
 
-    const apiKey = authHeader.substring(7); // Remove 'Bearer ' prefix
-    const hashedKey = createHash('sha256').update(apiKey).digest('hex');
+    if (!session) {
+      // No session — require API key
+      const authHeader = request.headers.get('authorization');
+      if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return NextResponse.json(
+          { error: 'Authentication required (session or API key)' },
+          { status: 401 }
+        );
+      }
 
-    // Verify API key
-    const { data: keyData, error: keyError } = await supabase
-      .from('api_keys')
-      .select('*')
-      .eq('key_value', hashedKey)
-      .eq('is_active', true)
-      .single();
+      const apiKey = authHeader.substring(7); // Remove 'Bearer ' prefix
+      const hashedKey = createHash('sha256').update(apiKey).digest('hex');
 
-    if (keyError || !keyData) {
-      return NextResponse.json({ error: 'Invalid API key' }, { status: 401 });
-    }
-
-    // Check if key has expired
-    if (keyData.expires_at && new Date(keyData.expires_at) < new Date()) {
-      return NextResponse.json(
-        { error: 'API key has expired' },
-        { status: 401 }
-      );
-    }
-
-    // Check read permission
-    if (!keyData.permissions?.read) {
-      return NextResponse.json(
-        { error: 'API key does not have read permission' },
-        { status: 403 }
-      );
-    }
-
-    // Update last used timestamp
-    await supabase
-      .from('api_keys')
-      .update({ last_used_at: new Date().toISOString() })
-      .eq('id', keyData.id);
-
-    // Get the API key owner's profile for institution scoping
-    let apiKeyInstitutionId: string | null = null;
-    let isApiKeyOwnerSuperAdmin = false;
-
-    if (keyData.user_id) {
-      const { data: ownerProfile } = await supabase
-        .from('profiles')
-        .select('institution_id, role, is_super_admin')
-        .eq('id', keyData.user_id)
+      // Verify API key
+      const { data: keyData, error: keyError } = await supabase
+        .from('api_keys')
+        .select('*')
+        .eq('key_value', hashedKey)
+        .eq('is_active', true)
         .single();
 
-      if (ownerProfile) {
-        apiKeyInstitutionId = ownerProfile.institution_id;
-        isApiKeyOwnerSuperAdmin = ownerProfile.is_super_admin || ownerProfile.role === 'super_admin';
+      if (keyError || !keyData) {
+        return NextResponse.json({ error: 'Invalid API key' }, { status: 401 });
       }
+
+      // Check if key has expired
+      if (keyData.expires_at && new Date(keyData.expires_at) < new Date()) {
+        return NextResponse.json(
+          { error: 'API key has expired' },
+          { status: 401 }
+        );
+      }
+
+      // Check read permission
+      if (!keyData.permissions?.read) {
+        return NextResponse.json(
+          { error: 'API key does not have read permission' },
+          { status: 403 }
+        );
+      }
+
+      // Update last used timestamp
+      await supabase
+        .from('api_keys')
+        .update({ last_used_at: new Date().toISOString() })
+        .eq('id', keyData.id);
     }
 
     // Get query parameters
@@ -101,14 +90,9 @@ export async function GET(request: NextRequest) {
     let query = supabase
       .from('profiles')
       .select(
-        'id, email, full_name, role, department, phone_number, created_at, institution_id',
+        'id, email, full_name, role, department, phone_number, created_at',
         { count: 'exact' }
       );
-
-    // Institution scoping: non-super-admin API key owners only see their institution's profiles
-    if (!isApiKeyOwnerSuperAdmin && apiKeyInstitutionId) {
-      query = query.eq('institution_id', apiKeyInstitutionId);
-    }
 
     // Apply filters
     if (role) {

@@ -12,6 +12,7 @@ import {
   type RealtimeUpdate,
   type CampaignDetail,
 } from '@/lib/services/admission/campaign-monitoring-service';
+import { usePermissions } from '@/hooks/use-permissions';
 
 // Query keys for cache management
 export const campaignMonitoringKeys = {
@@ -37,10 +38,12 @@ interface UseCampaignStatsResult {
 }
 
 export function useCampaignStats(institutionId: string | undefined): UseCampaignStatsResult {
+  const { isSuperAdmin } = usePermissions();
+
   const query = useQuery({
     queryKey: campaignMonitoringKeys.stats(institutionId || ''),
     queryFn: () => CampaignMonitoringService.getCampaignStats(institutionId!),
-    enabled: !!institutionId,
+    enabled: isSuperAdmin || !!institutionId,
     staleTime: 30000, // 30 seconds - refresh frequently for monitoring
     refetchInterval: 60000, // Auto-refresh every minute
   });
@@ -65,10 +68,12 @@ interface UseDeliveryMetricsResult {
 }
 
 export function useDeliveryMetrics(institutionId: string | undefined): UseDeliveryMetricsResult {
+  const { isSuperAdmin } = usePermissions();
+
   const query = useQuery({
     queryKey: campaignMonitoringKeys.delivery(institutionId || ''),
     queryFn: () => CampaignMonitoringService.getDeliveryMetrics(institutionId!),
-    enabled: !!institutionId,
+    enabled: isSuperAdmin || !!institutionId,
     staleTime: 30000,
     refetchInterval: 60000,
   });
@@ -93,10 +98,12 @@ interface UseActiveSequencesResult {
 }
 
 export function useActiveSequences(institutionId: string | undefined): UseActiveSequencesResult {
+  const { isSuperAdmin } = usePermissions();
+
   const query = useQuery({
     queryKey: campaignMonitoringKeys.sequences(institutionId || ''),
     queryFn: () => CampaignMonitoringService.getActiveSequences(institutionId!),
-    enabled: !!institutionId,
+    enabled: isSuperAdmin || !!institutionId,
     staleTime: 30000,
     refetchInterval: 60000,
   });
@@ -124,10 +131,12 @@ export function useExecutionLogs(
   institutionId: string | undefined,
   limit = 50
 ): UseExecutionLogsResult {
+  const { isSuperAdmin } = usePermissions();
+
   const query = useQuery({
     queryKey: campaignMonitoringKeys.logs(institutionId || '', limit),
     queryFn: () => CampaignMonitoringService.getExecutionLogs(institutionId!, limit),
-    enabled: !!institutionId,
+    enabled: isSuperAdmin || !!institutionId,
     staleTime: 10000, // 10 seconds - logs should be more fresh
     refetchInterval: 30000, // Auto-refresh every 30 seconds
   });
@@ -224,10 +233,12 @@ interface UseCampaignsResult {
 }
 
 export function useCampaigns(institutionId: string | undefined): UseCampaignsResult {
+  const { isSuperAdmin } = usePermissions();
+
   const query = useQuery({
     queryKey: campaignMonitoringKeys.campaigns(institutionId || ''),
     queryFn: () => CampaignMonitoringService.getCampaigns(institutionId!),
-    enabled: !!institutionId,
+    enabled: isSuperAdmin || !!institutionId,
     staleTime: 60000,
   });
 

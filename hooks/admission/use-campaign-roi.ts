@@ -7,6 +7,7 @@ import {
   type ROIFilters,
   type AttributionChannel,
 } from '@/lib/services/admission/campaign-roi-service';
+import { usePermissions } from '@/hooks/use-permissions';
 
 // ============================================================================
 // QUERY KEYS
@@ -28,10 +29,12 @@ export const campaignROIKeys = {
 // ============================================================================
 
 export function useCampaignROI(filters: ROIFilters) {
+  const { isSuperAdmin } = usePermissions();
+
   const query = useQuery({
     queryKey: campaignROIKeys.campaignsList(filters),
     queryFn: () => CampaignROIService.getCampaignROI(filters),
-    enabled: !!filters.institutionId,
+    enabled: isSuperAdmin || !!filters.institutionId,
   });
 
   return {

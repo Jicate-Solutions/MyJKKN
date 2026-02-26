@@ -20,6 +20,23 @@ export const GET = withAuth(async (request: NextRequest, auth) => {
   const isCompleted = url.searchParams.get('is_completed')
   const isOverdue = url.searchParams.get('is_overdue')
 
+  // Enforce institution scoping
+  // okr_check_ins has no direct institution_id — data is scoped via RLS + impersonated client
+  let institutionId: string | null = auth.institutionId
+  if (auth.authMethod === 'api_key') {
+    if (!institutionId) {
+      return NextResponse.json(
+        { error: 'API key must be scoped to an organization' },
+        { status: 400, headers: corsHeaders }
+      )
+    }
+  } else {
+    const queryInstitutionId = url.searchParams.get('institution_id')
+    if (queryInstitutionId && auth.user.role === 'super_admin') {
+      institutionId = queryInstitutionId
+    }
+  }
+
   // Build query
   let query = (auth.supabase as any)
     .from('okr_check_ins')

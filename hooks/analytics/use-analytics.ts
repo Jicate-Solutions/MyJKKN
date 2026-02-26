@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { analyticsService } from '@/lib/services/analytics/analytics-service';
 import type { AnalyticsFilters } from '@/types/analytics';
 import { useAuth } from '@/hooks/use-auth';
+import { usePermissions } from '@/hooks/use-permissions';
 import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
 
 /**
@@ -14,11 +15,10 @@ import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
  */
 export function useAnalyticsFilters(baseFilters: AnalyticsFilters = {}) {
   const { profile } = useAuth();
+  const { isSuperAdmin } = usePermissions();
   const { institutions, loading } = useUserInstitutionAccess();
 
-  // If user is super admin, return base filters as-is
-  const isSuperAdmin = profile?.role === 'super_admin';
-
+  // If user is super admin, return base filters as-is (sees all data)
   if (isSuperAdmin) {
     return {
       filters: baseFilters,

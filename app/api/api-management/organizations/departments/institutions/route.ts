@@ -1,19 +1,30 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { withAuth } from '@/lib/auth/with-auth'
+import { NextResponse } from 'next/server'
 import { corsHeaders } from '@/lib/api-keys/cors'
+import { withAuth } from '@/lib/auth/with-auth'
+import { errorResponse } from '@/lib/api-keys/response-helpers'
+import { getStringParam } from '@/lib/api-keys/query-helpers'
 
-export async function OPTIONS() {
-  return new NextResponse(null, { headers: corsHeaders })
-}
+export const OPTIONS = () => new NextResponse(null, { headers: corsHeaders })
 
-export const GET = withAuth(async (request: NextRequest, auth) => {
-  // Get query parameters
+export const GET = withAuth(async (request, auth) => {
   const url = new URL(request.url)
-  const institutionId = url.searchParams.get('institution_id')
-  const isActive = url.searchParams.get('isActive')
+  const isActive = getStringParam(url, 'isActive')
 
-  // First, get all institutions
-  let institutionsQuery = auth.supabase
+  let institutionId: string | null = auth.institutionId
+
+  if (auth.authMethod === 'session') {
+    const queryInstitutionId = url.searchParams.get('institution_id')
+    if (queryInstitutionId && auth.user?.role === 'super_admin') {
+      institutionId = queryInstitutionId
+    }
+  }
+
+  if (auth.authMethod === 'api_key' && !institutionId) {
+    return errorResponse('API key must be associated with an organization', 400)
+  }
+
+  // Get institutions (scoped)
+  let institutionsQuery = (auth.supabase as any)
     .from('institutions')
     .select('id, name, counselling_code')
 
@@ -21,28 +32,23 @@ export const GET = withAuth(async (request: NextRequest, auth) => {
     institutionsQuery = institutionsQuery.eq('id', institutionId)
   }
 
-  const { data: institutions, error: institutionsError } =
-    await institutionsQuery
+  const { data: institutions, error: institutionsError } = await institutionsQuery
 
   if (institutionsError) throw institutionsError
 
   // For each institution, get its departments
   const result = await Promise.all(
-    institutions.map(async (institution: any) => {
-      let departmentsQuery = auth.supabase
+    (institutions ?? []).map(async (institution: any) => {
+      let departmentsQuery = (auth.supabase as any)
         .from('departments')
         .select('id, department_code, department_name, is_active')
         .eq('institution_id', institution.id)
 
-      if (isActive !== null) {
-        departmentsQuery = departmentsQuery.eq(
-          'is_active',
-          isActive === 'true'
-        )
+      if (isActive !== undefined) {
+        departmentsQuery = departmentsQuery.eq('is_active', isActive === 'true')
       }
 
-      const { data: departments, error: departmentsError } =
-        await departmentsQuery
+      const { data: departments, error: departmentsError } = await departmentsQuery
 
       if (departmentsError) throw departmentsError
 
@@ -57,13 +63,12 @@ export const GET = withAuth(async (request: NextRequest, auth) => {
     })
   )
 
-  // Return response with CORS headers directly
   return NextResponse.json(
     {
       data: result,
       metadata: {
         total: result.length,
-        institutions_count: institutions.length,
+        institutions_count: (institutions ?? []).length,
         departments_count: result.reduce(
           (acc: number, item: any) => acc + item.departments.length,
           0

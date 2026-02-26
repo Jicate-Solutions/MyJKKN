@@ -1,8 +1,8 @@
 // app/api/chatbot/sessions/route.ts
-// PUBLIC endpoint — creates new chatbot sessions for prospects
 
 import { NextRequest, NextResponse } from 'next/server';
 import { ChatbotService } from '@/lib/services/ai/chatbot-service';
+import { getAuthSession } from '@/lib/supabase/server';
 
 /**
  * POST /api/chatbot/sessions
@@ -12,6 +12,11 @@ import { ChatbotService } from '@/lib/services/ai/chatbot-service';
  */
 export async function POST(request: NextRequest) {
   try {
+    const { session: authSession, error: sessionError } = await getAuthSession();
+    if (sessionError || !authSession) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     if (!ChatbotService.isConfigured()) {
       return NextResponse.json(
         { error: 'Chatbot service is not configured' },

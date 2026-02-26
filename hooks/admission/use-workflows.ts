@@ -11,6 +11,7 @@ import {
   type WorkflowStats,
   type WorkflowExecution,
 } from '@/lib/services/admission/workflows-service';
+import { usePermissions } from '@/hooks/use-permissions';
 
 // Query keys
 export const workflowsKeys = {
@@ -28,10 +29,12 @@ export const workflowsKeys = {
  * Hook to fetch all workflows for an institution
  */
 export function useWorkflows(institutionId?: string) {
+  const { isSuperAdmin } = usePermissions();
+
   const query = useQuery({
     queryKey: workflowsKeys.list(institutionId || ''),
     queryFn: () => WorkflowsService.getWorkflows(institutionId!),
-    enabled: !!institutionId,
+    enabled: isSuperAdmin || !!institutionId,
   });
 
   return {
@@ -47,10 +50,12 @@ export function useWorkflows(institutionId?: string) {
  * Hook to fetch active workflows (for execution engine)
  */
 export function useActiveWorkflows(institutionId?: string) {
+  const { isSuperAdmin } = usePermissions();
+
   const query = useQuery({
     queryKey: workflowsKeys.active(institutionId || ''),
     queryFn: () => WorkflowsService.getActiveWorkflows(institutionId!),
-    enabled: !!institutionId,
+    enabled: isSuperAdmin || !!institutionId,
   });
 
   return {
@@ -85,10 +90,12 @@ export function useWorkflow(id?: string) {
  * Hook to fetch workflow statistics
  */
 export function useWorkflowStats(institutionId?: string) {
+  const { isSuperAdmin } = usePermissions();
+
   const query = useQuery({
     queryKey: workflowsKeys.stats(institutionId || ''),
     queryFn: () => WorkflowsService.getWorkflowStats(institutionId!),
-    enabled: !!institutionId,
+    enabled: isSuperAdmin || !!institutionId,
     staleTime: 30000, // 30 seconds
   });
 

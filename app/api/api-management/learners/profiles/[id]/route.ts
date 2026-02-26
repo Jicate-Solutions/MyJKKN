@@ -11,6 +11,23 @@ export const GET = withAuth(async (request: NextRequest, auth, context) => {
   const url = new URL(request.url)
   const expand = url.searchParams.get('expand')
 
+  // ── Institution scoping ──────────────────────────────────────
+  let institutionId: string | null = auth.institutionId
+  if (auth.authMethod === 'api_key') {
+    if (!institutionId) {
+      return NextResponse.json(
+        { error: 'API key must be scoped to an organization' },
+        { status: 400, headers: corsHeaders }
+      )
+    }
+  } else {
+    // Session auth: allow super_admin to query specific institution
+    const queryInstitutionId = url.searchParams.get('institution_id')
+    if (queryInstitutionId && auth.user.role === 'super_admin') {
+      institutionId = queryInstitutionId
+    }
+  }
+
   // Fetch learner by ID - select all fields except migration fields
   const selectFields = `
     id, application_id, lifecycle_status, first_name, last_name, date_of_birth,
@@ -28,11 +45,17 @@ export const GET = withAuth(async (request: NextRequest, auth, context) => {
     created_by, updated_by, aadhar_number, enquiry_date, blood_group, admission_year
   `.trim()
 
-  const { data: learner, error } = await auth.supabase
+  let query = auth.supabase
     .from('learners_profiles')
     .select(selectFields)
     .eq('id', id)
-    .single()
+
+  // Enforce institution scoping on single-resource fetch
+  if (institutionId) {
+    query = query.eq('institution_id', institutionId)
+  }
+
+  const { data: learner, error } = await query.single()
 
   if (error || !learner) {
     return NextResponse.json(

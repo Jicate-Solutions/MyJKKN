@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/client';
+import { getAuthSession } from '@/lib/supabase/server';
 import { logger } from '@/lib/utils/enhanced-logger';
 
 // Helper to get ISO date string for the beginning of the current week (Monday 00:00 UTC)
@@ -25,6 +26,11 @@ function getMonthStart(): string {
 }
 
 export async function GET(request: Request) {
+  const { session, error: sessionError } = await getAuthSession();
+  if (sessionError || !session) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
   const url = new URL(request.url);
   const period = url.searchParams.get('period') ?? 'overall'; // overall | week | month
   try {

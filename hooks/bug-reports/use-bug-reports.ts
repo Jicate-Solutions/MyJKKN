@@ -11,6 +11,7 @@ import {
   BugReportParticipant,
   BugReportFilters
 } from '@/types/bugs';
+import { usePermissions } from '@/hooks/use-permissions';
 
 // --- API Fetching Functions ---
 
@@ -471,14 +472,17 @@ export const useInstitutions = () => {
 };
 
 export const useDepartments = (institutionId?: string) => {
+  const { isSuperAdmin } = usePermissions();
+
   return useQuery<{ id: string; name: string }[]>({
-    queryKey: ['departments', institutionId],
+    queryKey: ['departments', institutionId || 'all'],
     queryFn: () => fetchDepartments(institutionId),
-    enabled: !!institutionId,
+    // super_admin can query without institution scope
+    enabled: isSuperAdmin || !!institutionId,
     staleTime: 10 * 60 * 1000, // 10 minutes
     select: (data) => {
       if (!data) return [];
-      return data.map((d: any) => ({ 
+      return data.map((d: any) => ({
         id: d.id,
         name: d.department_name
       }));

@@ -1,10 +1,15 @@
-import { NextResponse, connection } from 'next/server';
+import { NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/client';
+import { getAuthSession } from '@/lib/supabase/server';
 
 
 export async function GET(request: Request) {
-  await connection();
   try {
+    const { session, error: sessionError } = await getAuthSession();
+    if (sessionError || !session) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     const supabase = createAdminClient();
     const { searchParams } = new URL(request.url);
     const institution_id = searchParams.get('institution_id');

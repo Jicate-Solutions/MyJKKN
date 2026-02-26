@@ -10,6 +10,7 @@ import {
   type CreateBroadcastInput,
   type UpdateBroadcastInput,
 } from '@/lib/services/telephony/voice-broadcast-service';
+import { usePermissions } from '@/hooks/use-permissions';
 
 // ============================================================================
 // QUERY KEYS
@@ -29,10 +30,12 @@ export const voiceBroadcastKeys = {
 // ============================================================================
 
 export function useVoiceBroadcastCampaigns(filters: BroadcastFilters) {
+  const { isSuperAdmin } = usePermissions();
+
   const query = useQuery({
     queryKey: voiceBroadcastKeys.campaignsList(filters),
     queryFn: () => VoiceBroadcastService.getCampaigns(filters),
-    enabled: !!filters.institutionId,
+    enabled: isSuperAdmin || !!filters.institutionId,
   });
 
   return {
@@ -75,10 +78,12 @@ export function useVoiceBroadcastLogs(campaignId: string, filters?: Partial<Broa
 }
 
 export function useVoiceBroadcastStats(institutionId?: string) {
+  const { isSuperAdmin } = usePermissions();
+
   const query = useQuery({
     queryKey: voiceBroadcastKeys.stats(institutionId || ''),
     queryFn: () => VoiceBroadcastService.getStats(institutionId!),
-    enabled: !!institutionId,
+    enabled: isSuperAdmin || !!institutionId,
   });
 
   return {

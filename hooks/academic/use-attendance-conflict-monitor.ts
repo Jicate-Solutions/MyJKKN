@@ -24,7 +24,8 @@ export function useAttendanceConflictMonitor({
   autoRefresh = false,
   refreshInterval = 5 * 60 * 1000 // 5 minutes
 }: UseAttendanceConflictMonitorOptions) {
-  
+  const { isSuperAdmin } = usePermissions();
+
   // Query for active conflicts
   const {
     data: conflicts = [],
@@ -37,7 +38,7 @@ export function useAttendanceConflictMonitor({
       institutionId,
       dateRange
     ),
-    enabled: !!institutionId,
+    enabled: isSuperAdmin || !!institutionId,
     refetchInterval: autoRefresh ? refreshInterval : false,
     staleTime: 2 * 60 * 1000, // 2 minutes
   });
@@ -54,7 +55,7 @@ export function useAttendanceConflictMonitor({
       institutionId,
       dateRange
     ),
-    enabled: !!institutionId,
+    enabled: isSuperAdmin || !!institutionId,
     refetchInterval: autoRefresh ? refreshInterval : false,
     staleTime: 2 * 60 * 1000,
   });
@@ -210,3 +211,4 @@ export function useRealTimeConflictMonitor(
 
 // React import fix
 import React from 'react';
+import { usePermissions } from '@/hooks/use-permissions';

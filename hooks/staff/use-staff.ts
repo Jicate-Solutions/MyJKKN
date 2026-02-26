@@ -14,7 +14,8 @@ import {
   CreateStaffDto,
   UpdateStaffDto,
   StaffDashboardFilters,
-  StaffDashboardStats
+  StaffDashboardStats,
+  IncompleteStaffResponse
 } from '@/types/staff';
 import { StaffService } from '@/lib/services/staff/staff-service';
 import { useAuth } from '../use-auth';
@@ -39,10 +40,18 @@ export function useStaff(
   filters: StaffFilters = {}
 ): UseQueryResult<StaffListResponse, Error> {
   const { profile, isLoading: authLoading } = useAuth();
+  const { isSuperAdmin } = usePermissions();
 
-  // Create stable query key by serializing only the values that matter (no search - handled by DataTable)
+  // super_admin sees all data, others scoped to their institution
+  const institutionId = isSuperAdmin ? undefined : profile?.institution_id;
+
+  // Create stable query key by serializing only the values that matter
   const queryKey = useMemo(() => {
     const stableFilters = {
+      search: filters.search || '',
+      search_case_sensitive: filters.search_case_sensitive ?? false,
+      search_exact_match: filters.search_exact_match ?? false,
+      search_fields: (filters.search_fields || []).join(','),
       category_id: filters.category_id || '',
       institution_id: filters.institution_id || '',
       department_id: filters.department_id || '',
@@ -55,9 +64,13 @@ export function useStaff(
       'staff',
       stableFilters,
       profile?.role || '',
-      profile?.institution_id || ''
+      institutionId || 'all'
     ];
   }, [
+    filters.search,
+    filters.search_case_sensitive,
+    filters.search_exact_match,
+    filters.search_fields,
     filters.category_id,
     filters.institution_id,
     filters.department_id,
@@ -65,16 +78,18 @@ export function useStaff(
     filters.page,
     filters.limit,
     profile?.role,
-    profile?.institution_id
+    institutionId
   ]);
 
   const queryFn = useCallback(async () => {
     try {
-      // Use role-based filtering for better performance, especially for HOD users
+      // Use role-based filtering for better performance, especially for HOD/faculty users
       return await StaffService.getStaffWithRoleBasedFiltering(filters, {
+        id: profile?.id || '',
+        email: profile?.email || '',
         role: profile?.role || '',
         department_id: profile?.department_id || undefined,
-        institution_id: profile?.institution_id || undefined,
+        institution_id: institutionId || undefined,
         is_super_admin: profile?.is_super_admin || false
       });
     } catch (error) {
@@ -83,7 +98,7 @@ export function useStaff(
         'Failed to fetch staff. Please check the console for details.'
       );
     }
-  }, [filters, profile]);
+  }, [filters, profile, institutionId]);
 
   return useQuery({
     queryKey,
@@ -113,11 +128,12 @@ export function useStaffForSelection(
   filters: StaffFilters = {}
 ): UseQueryResult<Array<{ id: string; first_name: string; last_name: string; staff_id: string; email: string }>, Error> {
   const { profile, isLoading: authLoading } = useAuth();
+  const { isSuperAdmin } = usePermissions();
 
   const queryKey = useMemo(() => {
     return [
       'staff-selection',
-      filters.institution_id || '',
+      filters.institution_id || 'all',
       filters.department_id || '',
       filters.isActive
     ];
@@ -135,7 +151,8 @@ export function useStaffForSelection(
   return useQuery({
     queryKey,
     queryFn,
-    enabled: !authLoading && !!profile && !!filters.institution_id,
+    // super_admin can query without institution_id
+    enabled: !authLoading && !!profile && (isSuperAdmin || !!filters.institution_id),
     staleTime: 60000, // 1 minute - can be cached longer since it's just for dropdowns
     gcTime: 600000 // 10 minutes
   });
@@ -201,5 +218,44 @@ export function useStaffDashboardStats(filters: StaffDashboardFilters = {}) {
     queryKey: staffKeys.dashboardStats(filters),
     queryFn,
     enabled: !authLoading && !!profile
+  });
+}
+
+// ============================================
+// INCOMPLETE STAFF PROFILES HOOK
+// ============================================
+
+/**
+ * Fetch staff members with incomplete profiles for drill-down table
+ * Used by Staff Dashboard → Profiles Tab to show WHO has missing fields
+ */
+export function useIncompleteStaffProfiles(
+  filters: {
+    institutionId?: string;
+    departmentId?: string;
+    categoryId?: string;
+    requiredOnly?: boolean;
+    limit?: number;
+  } = {},
+  options?: Omit<import('@tanstack/react-query').UseQueryOptions<IncompleteStaffResponse, Error>, 'queryKey' | 'queryFn'>
+) {
+  return useQuery<IncompleteStaffResponse, Error>({
+    queryKey: ['staff', 'incomplete-profiles', filters],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (filters.institutionId) params.set('institutionId', filters.institutionId);
+      if (filters.departmentId) params.set('departmentId', filters.departmentId);
+      if (filters.categoryId) params.set('categoryId', filters.categoryId);
+      if (filters.requiredOnly) params.set('requiredOnly', 'true');
+      if (filters.limit) params.set('limit', String(filters.limit));
+
+      const res = await fetch(`/api/staff/incomplete-profiles?${params.toString()}`);
+      if (!res.ok) {
+        throw new Error('Failed to fetch incomplete staff profiles');
+      }
+      return res.json();
+    },
+    staleTime: 5 * 60 * 1000,
+    ...options,
   });
 }

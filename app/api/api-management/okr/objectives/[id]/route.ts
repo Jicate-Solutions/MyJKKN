@@ -11,9 +11,27 @@ export async function OPTIONS() {
 
 export const GET = withAuth(async (request: NextRequest, auth, context) => {
   const { id } = await context!.params!
+  const url = new URL(request.url)
+
+  // Enforce institution scoping
+  let institutionId: string | null = auth.institutionId
+  if (auth.authMethod === 'api_key') {
+    if (!institutionId) {
+      return NextResponse.json(
+        { error: 'API key must be scoped to an organization' },
+        { status: 400, headers: corsHeaders }
+      )
+    }
+  } else {
+    // Session: allow super_admin to query specific institution
+    const queryInstitutionId = url.searchParams.get('institution_id')
+    if (queryInstitutionId && auth.user.role === 'super_admin') {
+      institutionId = queryInstitutionId
+    }
+  }
 
   // Fetch objective with all related data
-  const { data, error } = await (auth.supabase as any)
+  let query = (auth.supabase as any)
     .from('okr_objectives')
     .select(`
       *,
@@ -27,7 +45,13 @@ export const GET = withAuth(async (request: NextRequest, auth, context) => {
       risks:okr_risks(*)
     `)
     .eq('id', id)
-    .single()
+
+  // Apply institution scoping
+  if (institutionId) {
+    query = query.eq('institution_id', institutionId)
+  }
+
+  const { data, error } = await query.single()
 
   if (error) {
     if (error.code === 'PGRST116') {

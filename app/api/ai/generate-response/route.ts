@@ -8,6 +8,7 @@ import {
   type CommunicationChannel,
   type ResponseIntent
 } from '@/lib/services/admission/ai-response-service';
+import { getAuthSession } from '@/lib/supabase/server';
 
 /**
  * POST /api/ai/generate-response
@@ -16,6 +17,11 @@ import {
  */
 export async function POST(request: NextRequest) {
   try {
+    const { session, error: sessionError } = await getAuthSession();
+    if (sessionError || !session) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     // Check if service is configured
     const configStatus = AIResponseService.getConfigStatus();
     if (!configStatus.configured) {
@@ -134,6 +140,11 @@ export async function POST(request: NextRequest) {
  * Check AI response service status
  */
 export async function GET() {
+  const { session, error: sessionError } = await getAuthSession();
+  if (sessionError || !session) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
   const configStatus = AIResponseService.getConfigStatus();
 
   return NextResponse.json({

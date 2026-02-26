@@ -1,40 +1,44 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { withAuth } from '@/lib/auth/with-auth'
+import { NextResponse } from 'next/server'
 import { corsHeaders } from '@/lib/api-keys/cors'
+import { withAuth } from '@/lib/auth/with-auth'
+import { errorResponse } from '@/lib/api-keys/response-helpers'
 
-export async function OPTIONS() {
-  return new NextResponse(null, { headers: corsHeaders })
-}
+export const OPTIONS = () => new NextResponse(null, { headers: corsHeaders })
 
-export const GET = withAuth(async (request: NextRequest, auth, context) => {
+export const GET = withAuth(async (request, auth, context) => {
   const { id } = await context!.params!
+  const institutionId = auth.institutionId
 
-  // Get degree with institution details
-  const { data: degrees, error: degreesError } = await auth.supabase
+  if (auth.authMethod === 'api_key' && !institutionId) {
+    return errorResponse('API key must be associated with an organization', 400)
+  }
+
+  let query = (auth.supabase as any)
     .from('degrees')
-    .select(
-      `
+    .select(`
       *,
       institution:institutions (
         id,
         name,
         counselling_code
       )
-    `
-    )
+    `)
     .eq('id', id)
-    .single()
 
-  if (degreesError) {
-    if (degreesError.code === 'PGRST116') {
-      return NextResponse.json(
-        { error: 'Degree not found' },
-        { status: 404, headers: corsHeaders }
-      )
-    }
-    throw degreesError
+  if (institutionId) {
+    query = query.eq('institution_id', institutionId)
   }
 
-  // Return response with CORS headers directly
-  return NextResponse.json(degrees, { headers: corsHeaders })
+  const { data, error } = await query.single()
+
+  if (error) {
+    if (error.code === 'PGRST116') {
+      return errorResponse('Degree not found', 404)
+    }
+    throw error
+  }
+
+  if (!data) return errorResponse('Degree not found', 404)
+
+  return NextResponse.json({ data }, { headers: corsHeaders })
 }, { allowApiKey: true, requiredPermission: 'read' })

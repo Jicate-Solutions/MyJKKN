@@ -8,6 +8,7 @@ import {
   EXCEL_CATEGORIES,
   EXCEL_TIMETABLE_TYPES
 } from '@/lib/utils/institution-excel-mappings';
+import { getAuthSession } from '@/lib/supabase/server';
 
 /**
  * GET /api/organizations/institutions/template
@@ -24,6 +25,11 @@ import {
  */
 export async function GET(request: NextRequest) {
   try {
+    const { session, error: sessionError } = await getAuthSession();
+    if (sessionError || !session) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     // Create Excel workbook
     const workbook = new ExcelJS.Workbook();
 

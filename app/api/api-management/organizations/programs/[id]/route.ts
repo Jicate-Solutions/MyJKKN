@@ -1,19 +1,21 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { withAuth } from '@/lib/auth/with-auth'
+import { NextResponse } from 'next/server'
 import { corsHeaders } from '@/lib/api-keys/cors'
+import { withAuth } from '@/lib/auth/with-auth'
+import { errorResponse } from '@/lib/api-keys/response-helpers'
 
-export async function OPTIONS() {
-  return new NextResponse(null, { headers: corsHeaders })
-}
+export const OPTIONS = () => new NextResponse(null, { headers: corsHeaders })
 
-export const GET = withAuth(async (request: NextRequest, auth, context) => {
+export const GET = withAuth(async (request, auth, context) => {
   const { id } = await context!.params!
+  const institutionId = auth.institutionId
 
-  // Get program with related details
-  const { data: program, error: programError } = await auth.supabase
+  if (auth.authMethod === 'api_key' && !institutionId) {
+    return errorResponse('API key must be associated with an organization', 400)
+  }
+
+  let query = (auth.supabase as any)
     .from('programs')
-    .select(
-      `
+    .select(`
       *,
       institution:institutions (
         id,
@@ -30,21 +32,23 @@ export const GET = withAuth(async (request: NextRequest, auth, context) => {
         department_code,
         department_name
       )
-    `
-    )
+    `)
     .eq('id', id)
-    .single()
 
-  if (programError) {
-    if (programError.code === 'PGRST116') {
-      return NextResponse.json(
-        { error: 'Program not found' },
-        { status: 404, headers: corsHeaders }
-      )
-    }
-    throw programError
+  if (institutionId) {
+    query = query.eq('institution_id', institutionId)
   }
 
-  // Return response with CORS headers directly
-  return NextResponse.json(program, { headers: corsHeaders })
+  const { data, error } = await query.single()
+
+  if (error) {
+    if (error.code === 'PGRST116') {
+      return errorResponse('Program not found', 404)
+    }
+    throw error
+  }
+
+  if (!data) return errorResponse('Program not found', 404)
+
+  return NextResponse.json({ data }, { headers: corsHeaders })
 }, { allowApiKey: true, requiredPermission: 'read' })

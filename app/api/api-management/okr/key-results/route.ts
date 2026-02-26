@@ -18,13 +18,35 @@ export const GET = withAuth(async (request: NextRequest, auth) => {
   const status = url.searchParams.get('status')
   const dataSource = url.searchParams.get('data_source')
 
-  // Build query
+  // Enforce institution scoping
+  let institutionId: string | null = auth.institutionId
+  if (auth.authMethod === 'api_key') {
+    if (!institutionId) {
+      return NextResponse.json(
+        { error: 'API key must be scoped to an organization' },
+        { status: 400, headers: corsHeaders }
+      )
+    }
+  } else {
+    // Session: allow super_admin to query specific institution
+    const queryInstitutionId = url.searchParams.get('institution_id')
+    if (queryInstitutionId && auth.user.role === 'super_admin') {
+      institutionId = queryInstitutionId
+    }
+  }
+
+  // Build query — scope via objective's institution_id using inner join filter
   let query = (auth.supabase as any)
     .from('okr_key_results')
     .select(`
       *,
-      objective:okr_objectives(id, title, owner_id, status)
+      objective:okr_objectives!inner(id, title, owner_id, status, institution_id)
     `, { count: 'exact' })
+
+  // Apply institution scoping through the objective relationship
+  if (institutionId) {
+    query = query.eq('objective.institution_id', institutionId)
+  }
 
   // Apply filters
   if (objectiveId) {

@@ -2,6 +2,7 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { AdmissionTQMMetricsService } from '@/lib/services/admission/admission-tqm-metrics-service';
+import { usePermissions } from '@/hooks/use-permissions';
 
 export const admissionTQMKeys = {
   all: ['admission-tqm'] as const,
@@ -16,10 +17,12 @@ export const admissionTQMKeys = {
  * Returns current month metrics, previous month for comparison, and COPQ summary.
  */
 export function useAdmissionTQMMetrics(institutionId: string | undefined) {
+  const { isSuperAdmin } = usePermissions();
+
   return useQuery({
     queryKey: admissionTQMKeys.metrics(institutionId || ''),
     queryFn: () => AdmissionTQMMetricsService.getMetrics(institutionId!),
-    enabled: !!institutionId,
+    enabled: isSuperAdmin || !!institutionId,
     staleTime: 5 * 60 * 1000, // 5 minutes
     refetchOnWindowFocus: true,
   });
@@ -29,10 +32,12 @@ export function useAdmissionTQMMetrics(institutionId: string | undefined) {
  * Hook for stage duration breakdown (bottleneck analysis).
  */
 export function useAdmissionStageDurations(institutionId: string | undefined) {
+  const { isSuperAdmin } = usePermissions();
+
   return useQuery({
     queryKey: admissionTQMKeys.stageDurations(institutionId || ''),
     queryFn: () => AdmissionTQMMetricsService.getStageDurations(institutionId!),
-    enabled: !!institutionId,
+    enabled: isSuperAdmin || !!institutionId,
     staleTime: 5 * 60 * 1000,
   });
 }

@@ -16,11 +16,29 @@ export const GET = withAuth(async (request: NextRequest, auth, context) => {
     )
   }
 
+  // ── Institution scoping ──────────────────────────────────────
+  let institutionId: string | null = auth.institutionId
+  if (auth.authMethod === 'api_key') {
+    if (!institutionId) {
+      return NextResponse.json(
+        { error: 'API key must be scoped to an organization' },
+        { status: 400, headers: corsHeaders }
+      )
+    }
+  } else {
+    // Session auth: allow super_admin to query specific institution
+    const url = new URL(request.url)
+    const queryInstitutionId = url.searchParams.get('institution_id')
+    if (queryInstitutionId && auth.user.role === 'super_admin') {
+      institutionId = queryInstitutionId
+    }
+  }
+
   // Get the user role from the auth context
   const userRole = auth.user.role || 'guest'
 
   // Fetch the application with the given ID
-  const { data: application, error: appError } = await auth.supabase
+  let query = auth.supabase
     .from('applications')
     .select(
       `
@@ -29,7 +47,13 @@ export const GET = withAuth(async (request: NextRequest, auth, context) => {
     `
     )
     .eq('id', applicationId)
-    .single()
+
+  // Enforce institution scoping on single-resource fetch
+  if (institutionId) {
+    query = query.eq('institution_id', institutionId)
+  }
+
+  const { data: application, error: appError } = await query.single()
 
   // Handle errors
   if (appError) {

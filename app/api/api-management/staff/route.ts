@@ -7,6 +7,24 @@ export async function OPTIONS() {
 }
 
 export const GET = withAuth(async (request: NextRequest, auth) => {
+  // ── Institution scoping ──────────────────────────────────────
+  let institutionId: string | null = auth.institutionId
+  if (auth.authMethod === 'api_key') {
+    if (!institutionId) {
+      return NextResponse.json(
+        { error: 'API key must be scoped to an organization' },
+        { status: 400, headers: corsHeaders }
+      )
+    }
+  } else {
+    // Session auth: allow super_admin to query specific institution
+    const url = new URL(request.url)
+    const queryInstitutionId = url.searchParams.get('institution_id')
+    if (queryInstitutionId && auth.user.role === 'super_admin') {
+      institutionId = queryInstitutionId
+    }
+  }
+
   // Get query parameters
   const url = new URL(request.url)
 
@@ -16,7 +34,6 @@ export const GET = withAuth(async (request: NextRequest, auth) => {
   const page = parseInt(url.searchParams.get('page') || '1')
   const limit = parseInt(url.searchParams.get('limit') || '10')
   const search = url.searchParams.get('search')
-  const institutionId = url.searchParams.get('institution_id')
   const departmentId = url.searchParams.get('department_id')
   const categoryId = url.searchParams.get('category_id')
   const isActive = url.searchParams.get('is_active')
@@ -32,15 +49,16 @@ export const GET = withAuth(async (request: NextRequest, auth) => {
     { count: 'exact' }
   )
 
+  // Apply institution scoping
+  if (institutionId) {
+    query = query.eq('institution_id', institutionId)
+  }
+
   // Apply filters
   if (search) {
     query = query.or(
       `first_name.ilike.%${search}%,last_name.ilike.%${search}%,email.ilike.%${search}%,staff_id.ilike.%${search}%`
     )
-  }
-
-  if (institutionId) {
-    query = query.eq('institution_id', institutionId)
   }
 
   if (departmentId) {

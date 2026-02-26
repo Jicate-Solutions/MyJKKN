@@ -14,7 +14,6 @@ export const GET = withAuth(async (request: NextRequest, auth) => {
   const url = new URL(request.url)
   const page = parseInt(url.searchParams.get('page') || '1')
   const limit = Math.min(parseInt(url.searchParams.get('limit') || '10'), 100)
-  const institutionId = url.searchParams.get('institution_id')
   const departmentId = url.searchParams.get('department_id')
   const ownerId = url.searchParams.get('owner_id')
   const tier = url.searchParams.get('tier')
@@ -22,6 +21,23 @@ export const GET = withAuth(async (request: NextRequest, auth) => {
   const status = url.searchParams.get('status')
   const cycleType = url.searchParams.get('cycle_type')
   const search = url.searchParams.get('search')
+
+  // Enforce institution scoping
+  let institutionId: string | null = auth.institutionId
+  if (auth.authMethod === 'api_key') {
+    if (!institutionId) {
+      return NextResponse.json(
+        { error: 'API key must be scoped to an organization' },
+        { status: 400, headers: corsHeaders }
+      )
+    }
+  } else {
+    // Session: allow super_admin to query specific institution
+    const queryInstitutionId = url.searchParams.get('institution_id')
+    if (queryInstitutionId && auth.user.role === 'super_admin') {
+      institutionId = queryInstitutionId
+    }
+  }
 
   // Build query
   let query = (auth.supabase as any)
@@ -34,10 +50,12 @@ export const GET = withAuth(async (request: NextRequest, auth) => {
       key_results:okr_key_results(*)
     `, { count: 'exact' })
 
-  // Apply filters
+  // Apply institution scoping
   if (institutionId) {
     query = query.eq('institution_id', institutionId)
   }
+
+  // Apply filters
   if (departmentId) {
     query = query.eq('department_id', departmentId)
   }

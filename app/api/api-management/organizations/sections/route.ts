@@ -1,55 +1,51 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { withAuth } from '@/lib/auth/with-auth'
+import { NextResponse } from 'next/server'
 import { corsHeaders } from '@/lib/api-keys/cors'
+import { withAuth } from '@/lib/auth/with-auth'
+import { paginatedResponse, errorResponse } from '@/lib/api-keys/response-helpers'
+import { getPaginationParams, getStringParam } from '@/lib/api-keys/query-helpers'
 
-export async function OPTIONS() {
-  return new NextResponse(null, { headers: corsHeaders })
-}
+export const OPTIONS = () => new NextResponse(null, { headers: corsHeaders })
 
-export const GET = withAuth(async (request: NextRequest, auth) => {
-  // Get query parameters
+export const GET = withAuth(async (request, auth) => {
   const url = new URL(request.url)
-  const page = parseInt(url.searchParams.get('page') || '1')
-  const limit = Math.min(parseInt(url.searchParams.get('limit') || '50'), 200)
-  const semesterId = url.searchParams.get('semester_id')
-  const isActive = url.searchParams.get('is_active')
+  const { page, limit, from, to } = getPaginationParams(url)
+  const semesterId = getStringParam(url, 'semester_id')
+  const isActive = getStringParam(url, 'is_active')
 
-  // Build query - select all fields
+  let institutionId: string | null = auth.institutionId
+
+  if (auth.authMethod === 'session') {
+    const queryInstitutionId = url.searchParams.get('institution_id')
+    if (queryInstitutionId && auth.user?.role === 'super_admin') {
+      institutionId = queryInstitutionId
+    }
+  }
+
+  if (auth.authMethod === 'api_key' && !institutionId) {
+    return errorResponse('API key must be associated with an organization', 400)
+  }
+
   let query = (auth.supabase as any)
     .from('sections')
     .select('*', { count: 'exact' })
 
-  // Apply filters
+  if (institutionId) {
+    query = query.eq('institution_id', institutionId)
+  }
+
   if (semesterId) {
     query = query.eq('semester_id', semesterId)
   }
 
-  if (isActive !== null && isActive !== undefined) {
+  if (isActive !== undefined) {
     query = query.eq('is_active', isActive === 'true')
   }
 
-  // Apply pagination
-  const from = (page - 1) * limit
-  const to = from + limit - 1
   query = query.range(from, to).order('created_at', { ascending: false })
 
-  // Execute query
-  const { data: sections, error, count } = await query
+  const { data, error, count } = await query
 
   if (error) throw error
 
-  // Return response with CORS headers
-  return NextResponse.json(
-    {
-      count: count || 0,
-      data: sections || [],
-      pagination: {
-        page,
-        limit,
-        total: count || 0,
-        totalPages: count ? Math.ceil(count / limit) : 0
-      }
-    },
-    { headers: corsHeaders }
-  )
+  return paginatedResponse(data ?? [], count ?? 0, page, limit)
 }, { allowApiKey: true, requiredPermission: 'read' })

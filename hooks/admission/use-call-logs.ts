@@ -10,6 +10,7 @@ import type {
   CallDisposition,
   CallDirection,
 } from '@/lib/services/telephony/telephony-service';
+import { usePermissions } from '@/hooks/use-permissions';
 
 // ============================================================================
 // QUERY KEYS
@@ -31,15 +32,23 @@ export const callLogsKeys = {
  * Hook to fetch paginated call logs with filters.
  */
 export function useCallLogs(filters: CallLogFilters) {
+  const { isSuperAdmin } = usePermissions();
+
   const query = useQuery<PaginatedCallLogs>({
     queryKey: callLogsKeys.list(filters),
     queryFn: async () => {
       const params = new URLSearchParams();
-      params.set('institution_id', filters.institution_id);
+      if (filters.institution_id) params.set('institution_id', filters.institution_id);
       if (filters.counselor_id) params.set('counselor_id', filters.counselor_id);
       if (filters.lead_id) params.set('lead_id', filters.lead_id);
-      if (filters.status) params.set('status', filters.status);
-      if (filters.disposition) params.set('disposition', filters.disposition);
+      if (filters.status) {
+        const statusVal = Array.isArray(filters.status) ? filters.status.join(',') : filters.status;
+        params.set('status', statusVal);
+      }
+      if (filters.disposition) {
+        const dispVal = Array.isArray(filters.disposition) ? filters.disposition.join(',') : filters.disposition;
+        params.set('disposition', dispVal);
+      }
       if (filters.direction) params.set('direction', filters.direction);
       if (filters.from_date) params.set('from_date', filters.from_date);
       if (filters.to_date) params.set('to_date', filters.to_date);
@@ -63,7 +72,7 @@ export function useCallLogs(filters: CallLogFilters) {
         totalPages: json.metadata?.totalPages || 0,
       };
     },
-    enabled: !!filters.institution_id,
+    enabled: isSuperAdmin || !!filters.institution_id,
   });
 
   return {
@@ -83,6 +92,8 @@ export function useCallLogs(filters: CallLogFilters) {
  * Hook to fetch call logs for a specific lead.
  */
 export function useLeadCallLogs(institutionId: string, leadId: string) {
+  const { isSuperAdmin } = usePermissions();
+
   const filters: CallLogFilters = {
     institution_id: institutionId,
     lead_id: leadId,
@@ -93,7 +104,7 @@ export function useLeadCallLogs(institutionId: string, leadId: string) {
     queryKey: callLogsKeys.leadCalls(leadId),
     queryFn: async () => {
       const params = new URLSearchParams();
-      params.set('institution_id', institutionId);
+      if (institutionId) params.set('institution_id', institutionId);
       params.set('lead_id', leadId);
       params.set('limit', '50');
 
@@ -112,7 +123,8 @@ export function useLeadCallLogs(institutionId: string, leadId: string) {
         totalPages: 1,
       };
     },
-    enabled: !!institutionId && !!leadId,
+    // super_admin can query without institution scope; lead ID always needed
+    enabled: (isSuperAdmin || !!institutionId) && !!leadId,
   });
 
   return {
