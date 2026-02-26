@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Input } from '@/components/ui/input';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
@@ -20,7 +20,7 @@ import { useAuth } from '@/hooks/use-auth';
 import {
   useCounselorPerformance,
   useCounselorTimeline,
-  type CounselorMetrics,
+  type CounselorPerformanceMetrics,
 } from '@/hooks/admission/use-counselor-performance';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -71,25 +71,24 @@ function CounselorPerformanceContent() {
     { from: dateFrom, to: dateTo }
   );
 
-  // Compute summary KPIs
+  // Compute summary KPIs (mapped from admission-based metrics)
   const kpis = useMemo(() => {
     if (counselors.length === 0) {
-      return { avgResponse: null, avgResolution: 0, activeConvos: 0, totalConvos: 0 };
+      return { avgResponse: null, avgConversion: 0, totalLeads: 0, totalConversions: 0 };
     }
     const responseTimes = counselors
-      .map(c => c.avg_first_response_minutes)
-      .filter((v): v is number => v !== null);
+      .map(c => c.avgResponseTime)
+      .filter((v): v is number => v > 0);
     const avgResponse = responseTimes.length > 0
       ? responseTimes.reduce((a, b) => a + b, 0) / responseTimes.length
       : null;
-    const totalConvos = counselors.reduce((sum, c) => sum + c.total_conversations, 0);
-    const resolvedConvos = counselors.reduce((sum, c) => sum + c.resolved_conversations, 0);
-    const activeConvos = counselors.reduce((sum, c) => sum + c.open_conversations, 0);
-    const avgResolution = totalConvos > 0
-      ? Math.round((resolvedConvos / totalConvos) * 1000) / 10
+    const totalLeads = counselors.reduce((sum, c) => sum + c.leadsAssigned, 0);
+    const totalConversions = counselors.reduce((sum, c) => sum + c.conversions, 0);
+    const avgConversion = totalLeads > 0
+      ? Math.round((totalConversions / totalLeads) * 1000) / 10
       : 0;
 
-    return { avgResponse, avgResolution, activeConvos, totalConvos };
+    return { avgResponse, avgConversion, totalLeads, totalConversions };
   }, [counselors]);
 
   const toggleExpand = (counselorId: string) => {
@@ -160,32 +159,32 @@ function CounselorPerformanceContent() {
             </Card>
             <Card>
               <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">Resolution Rate</CardTitle>
+                <CardTitle className="text-sm font-medium text-muted-foreground">Conversion Rate</CardTitle>
                 <CheckCircle2 className="h-4 w-4 text-green-600" />
               </CardHeader>
               <CardContent>
                 {isLoading ? <Skeleton className="h-7 w-16" /> :
-                  <div className="text-2xl font-bold">{kpis.avgResolution}%</div>}
+                  <div className="text-2xl font-bold">{kpis.avgConversion}%</div>}
               </CardContent>
             </Card>
             <Card>
               <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">Active Conversations</CardTitle>
+                <CardTitle className="text-sm font-medium text-muted-foreground">Total Conversions</CardTitle>
                 <MessageSquare className="h-4 w-4 text-blue-600" />
               </CardHeader>
               <CardContent>
                 {isLoading ? <Skeleton className="h-7 w-16" /> :
-                  <div className="text-2xl font-bold">{kpis.activeConvos}</div>}
+                  <div className="text-2xl font-bold">{kpis.totalConversions}</div>}
               </CardContent>
             </Card>
             <Card>
               <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">Total Conversations</CardTitle>
+                <CardTitle className="text-sm font-medium text-muted-foreground">Total Leads</CardTitle>
                 <Users className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
                 {isLoading ? <Skeleton className="h-7 w-16" /> :
-                  <div className="text-2xl font-bold">{kpis.totalConvos}</div>}
+                  <div className="text-2xl font-bold">{kpis.totalLeads}</div>}
               </CardContent>
             </Card>
           </div>
@@ -249,20 +248,20 @@ function CounselorPerformanceContent() {
                     <TableRow>
                       <TableHead className="w-12">#</TableHead>
                       <TableHead>Counselor</TableHead>
-                      <TableHead className="text-right">Conversations</TableHead>
-                      <TableHead className="text-right">Resolved</TableHead>
+                      <TableHead className="text-right">Leads</TableHead>
+                      <TableHead className="text-right">Conversions</TableHead>
                       <TableHead className="text-right">Avg Response</TableHead>
-                      <TableHead className="text-right">Resolution Rate</TableHead>
+                      <TableHead className="text-right">Conversion Rate</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {counselors.map((counselor: CounselorMetrics, index: number) => {
-                      const isExpanded = expandedCounselorId === counselor.counselor_id;
+                    {counselors.map((counselor: CounselorPerformanceMetrics, index: number) => {
+                      const isExpanded = expandedCounselorId === counselor.counselorId;
                       return (
-                        <Fragment key={counselor.counselor_id}>
+                        <Fragment key={counselor.counselorId}>
                           <TableRow
                             className="cursor-pointer hover:bg-muted/50"
-                            onClick={() => toggleExpand(counselor.counselor_id)}
+                            onClick={() => toggleExpand(counselor.counselorId)}
                           >
                             <TableCell>
                               <div className="flex items-center gap-1">
@@ -276,54 +275,53 @@ function CounselorPerformanceContent() {
                             <TableCell>
                               <div className="flex items-center gap-3">
                                 <Avatar className="h-8 w-8">
-                                  <AvatarImage src={counselor.avatar_url || undefined} />
                                   <AvatarFallback className="text-xs">
-                                    {getInitials(counselor.counselor_name)}
+                                    {getInitials(counselor.counselorName)}
                                   </AvatarFallback>
                                 </Avatar>
                                 <div>
-                                  <p className="font-medium">{counselor.counselor_name}</p>
+                                  <p className="font-medium">{counselor.counselorName}</p>
                                   <p className="text-xs text-muted-foreground">
-                                    {counselor.messages_sent} messages sent
+                                    {counselor.messagesSent} messages sent
                                   </p>
                                 </div>
                               </div>
                             </TableCell>
                             <TableCell className="text-right font-medium">
-                              {counselor.total_conversations}
+                              {counselor.leadsAssigned}
                             </TableCell>
                             <TableCell className="text-right">
-                              {counselor.resolved_conversations}
+                              {counselor.conversions}
                             </TableCell>
                             <TableCell className="text-right">
                               <Badge variant="outline">
-                                {formatMinutes(counselor.avg_first_response_minutes)}
+                                {formatMinutes(counselor.avgResponseTime)}
                               </Badge>
                             </TableCell>
                             <TableCell className="text-right">
                               <Badge
                                 className={
-                                  counselor.resolution_rate >= 80
+                                  counselor.conversionRate >= 30
                                     ? 'bg-green-100 text-green-800'
-                                    : counselor.resolution_rate >= 50
+                                    : counselor.conversionRate >= 15
                                     ? 'bg-yellow-100 text-yellow-800'
                                     : 'bg-red-100 text-red-800'
                                 }
                               >
-                                {counselor.resolution_rate}%
+                                {counselor.conversionRate.toFixed(1)}%
                               </Badge>
                             </TableCell>
                           </TableRow>
                           {/* Expanded timeline */}
                           {isExpanded && (
-                            <TableRow key={`${counselor.counselor_id}-timeline`}>
+                            <TableRow key={`${counselor.counselorId}-timeline`}>
                               <TableCell colSpan={6} className="bg-muted/20 p-4">
                                 {timelineLoading ? (
                                   <Skeleton className="h-[200px] w-full" />
                                 ) : timeline.length > 0 ? (
                                   <div>
                                     <p className="text-sm font-medium mb-3">
-                                      Daily Activity for {counselor.counselor_name}
+                                      Daily Activity for {counselor.counselorName}
                                     </p>
                                     <ResponsiveContainer width="100%" height={200}>
                                       <BarChart data={timeline}>
