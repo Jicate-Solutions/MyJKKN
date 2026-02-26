@@ -366,7 +366,6 @@ function LeadDetailPageContent() {
       try {
         await createActivity.mutateAsync({
           lead_id: lead.id,
-          institution_id: lead.institution_id,
           activity_type: 'whatsapp',
           title: 'WhatsApp message',
           description: sendMessage.trim(),
@@ -672,7 +671,6 @@ function LeadDetailPageContent() {
     createActivity.mutate(
       {
         lead_id: leadId,
-        institution_id: lead?.institution_id,
         activity_type: activityType as any,
         title: activitySubject.trim(),
         description: activityDescription.trim() || undefined,

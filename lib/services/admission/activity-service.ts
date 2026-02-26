@@ -1,9 +1,9 @@
 // lib/services/admission/activity-service.ts
 // Admission Lead Activities Service - Enhanced timeline functionality
-// v2 - Fixed column mapping: title (not subject), performed_by (not created_by)
+// v3 - Fixed column mapping to match actual DB schema
 //
 // DB table: admission_lead_activities
-// Actual columns: id, lead_id, institution_id, activity_type, title, description, metadata, performed_by, created_at
+// Actual columns: id, lead_id, activity_type, subject, description, outcome, scheduled_at, completed_at, created_by, created_at
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 
@@ -13,18 +13,16 @@ export type ActivityType = 'call' | 'email' | 'meeting' | 'note' | 'sms' | 'what
 export interface LeadActivity {
   id: string;
   lead_id: string;
-  institution_id: string;
   activity_type: ActivityType;
-  title: string | null;
+  subject: string | null;
   description: string | null;
-  metadata: Record<string, unknown> | null;
-  performed_by: string | null;
+  outcome: string | null;
+  scheduled_at: string | null;
+  completed_at: string | null;
+  created_by: string | null;
   created_at: string;
-  // Virtual fields (populated from metadata when available)
-  outcome?: string | null;
-  scheduled_at?: string | null;
-  completed_at?: string | null;
-  performed_by_name?: string;
+  // Alias for backwards compat with components that use `title`
+  title: string | null;
 }
 
 export interface StageHistoryEntry {
@@ -51,9 +49,8 @@ export interface TimelineEntry {
 
 export interface CreateActivityInput {
   lead_id: string;
-  institution_id?: string;
   activity_type: ActivityType;
-  title?: string;
+  title?: string;       // maps to DB column `subject`
   description?: string;
   outcome?: string;
   scheduled_at?: string;
@@ -73,23 +70,22 @@ export class ActivityService {
   private static supabase: any = createClientSupabaseClient();
 
   /**
-   * Normalize a DB row to the LeadActivity interface used by the rest of the code.
-   * DB columns: title, performed_by, metadata → Code fields: subject, created_by, outcome, scheduled_at
+   * Normalize a DB row to the LeadActivity interface.
+   * DB columns: subject, created_by, outcome, scheduled_at, completed_at
    */
   private static normalizeActivity(row: any): LeadActivity {
-    const meta = row.metadata || {};
     return {
       id: row.id,
       lead_id: row.lead_id,
-      institution_id: row.institution_id,
       activity_type: row.activity_type,
-      title: row.title || null,
+      subject: row.subject || null,
+      title: row.subject || null,  // alias for components using `title`
       description: row.description || null,
-      metadata: row.metadata || null,
-      performed_by: row.performed_by || null,
+      outcome: row.outcome || null,
+      scheduled_at: row.scheduled_at || null,
+      completed_at: row.completed_at || null,
+      created_by: row.created_by || null,
       created_at: row.created_at,
-      outcome: meta.outcome || null,
-      scheduled_at: meta.scheduled_at || null,
     };
   }
 
@@ -122,21 +118,16 @@ export class ActivityService {
     // Get current user
     const { data: { user } } = await this.supabase.auth.getUser();
 
-    // Build metadata from optional fields that don't have dedicated DB columns
-    const metadata: Record<string, unknown> = {};
-    if (input.outcome) metadata.outcome = input.outcome;
-    if (input.scheduled_at) metadata.scheduled_at = input.scheduled_at;
-
     const { data, error } = await this.supabase
       .from('admission_lead_activities')
       .insert({
         lead_id: input.lead_id,
-        institution_id: input.institution_id || null,
         activity_type: input.activity_type,
-        title: input.title || input.activity_type.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase()),
+        subject: input.title || input.activity_type.replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase()),
         description: input.description || null,
-        metadata: Object.keys(metadata).length > 0 ? metadata : {},
-        performed_by: user?.id || null,
+        outcome: input.outcome || null,
+        scheduled_at: input.scheduled_at || null,
+        created_by: user?.id || null,
       })
       .select()
       .single();
@@ -173,25 +164,12 @@ export class ActivityService {
    * Update an activity
    */
   static async updateActivity(id: string, updates: Partial<CreateActivityInput>): Promise<LeadActivity> {
-    // Map code fields to DB columns
     const dbUpdates: Record<string, unknown> = {};
     if (updates.activity_type !== undefined) dbUpdates.activity_type = updates.activity_type;
-    if (updates.title !== undefined) dbUpdates.title = updates.title;
+    if (updates.title !== undefined) dbUpdates.subject = updates.title;
     if (updates.description !== undefined) dbUpdates.description = updates.description;
-
-    // For metadata fields (outcome, scheduled_at), merge into existing metadata
-    if (updates.outcome !== undefined || updates.scheduled_at !== undefined) {
-      const { data: current } = await this.supabase
-        .from('admission_lead_activities')
-        .select('metadata')
-        .eq('id', id)
-        .single();
-
-      const meta = { ...(current?.metadata || {}) };
-      if (updates.outcome !== undefined) meta.outcome = updates.outcome;
-      if (updates.scheduled_at !== undefined) meta.scheduled_at = updates.scheduled_at;
-      dbUpdates.metadata = meta;
-    }
+    if (updates.outcome !== undefined) dbUpdates.outcome = updates.outcome;
+    if (updates.scheduled_at !== undefined) dbUpdates.scheduled_at = updates.scheduled_at;
 
     const { data, error } = await this.supabase
       .from('admission_lead_activities')
@@ -278,12 +256,12 @@ export class ActivityService {
       id: activity.id,
       type: 'activity' as const,
       timestamp: activity.created_at,
-      title: activity.title || this.getActivityTitle(activity.activity_type),
+      title: activity.subject || this.getActivityTitle(activity.activity_type),
       description: activity.description,
       metadata: {
         activity_type: activity.activity_type,
-        outcome: activity.outcome,
-        scheduled_at: activity.scheduled_at,
+        outcome: activity.outcome || null,
+        scheduled_at: activity.scheduled_at || null,
       },
       icon: this.getActivityIcon(activity.activity_type),
       color: this.getActivityColor(activity.activity_type),
