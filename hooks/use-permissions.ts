@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { RoleService } from '@/lib/services/roles/role-service';
 import { UserRolesService } from '@/lib/services/users/user-roles-service';
@@ -191,10 +191,34 @@ export function usePermissions(
   });
 
   const permissions = permissionData?.permissions ?? EMPTY_PERMISSIONS;
-  const isSuperAdmin = permissionData?.isSuperAdmin ?? false;
   const userRoles = permissionData?.userRoles ?? EMPTY_ROLES;
   const primaryRole = permissionData?.primaryRole ?? null;
-  
+
+  // Early super_admin detection from raw profile - doesn't require useQuery to complete
+  // This prevents redirect loops during the loading phase
+  const isSuperAdminFromProfile = useMemo(
+    () => userProfile?.role === SYSTEM_ROLES.SUPER_ADMIN || userProfile?.is_super_admin === true,
+    [userProfile?.role, userProfile?.is_super_admin]
+  );
+
+  // Use early detection OR useQuery result (once available)
+  const isSuperAdmin = isSuperAdminFromProfile || (permissionData?.isSuperAdmin ?? false);
+
+  // Ref to preserve super admin status across HMR reloads
+  // This prevents redirect loops when Fast Refresh triggers auth state changes
+  const isSuperAdminRef = useRef(false);
+
+  // Update ref when super admin status is confirmed
+  useEffect(() => {
+    if (isSuperAdminFromProfile || isSuperAdmin) {
+      isSuperAdminRef.current = true;
+    } else if (userProfile && userProfile.role !== SYSTEM_ROLES.SUPER_ADMIN) {
+      // Only clear ref if we have a profile and it's NOT super admin
+      isSuperAdminRef.current = false;
+    }
+    // Don't clear ref if userProfile is null (might be mid-reload)
+  }, [isSuperAdminFromProfile, isSuperAdmin, userProfile]);
+
   // Overall loading state
   const isLoading = authLoading || (!!userProfile && queryLoading);
   const error = authError ? new Error(authError) : (queryError as Error | null);
@@ -220,7 +244,7 @@ export function usePermissions(
   // Enhanced permissions that consider student status (Task 3: Fine-grained access control)
   const enhancedPermissions = useMemo(() => {
     // If not a student or super admin, return permissions as-is
-    if (isSuperAdmin || !isStudent || !studentStatus) {
+    if (isSuperAdmin || isSuperAdminRef.current || !isStudent || !studentStatus) {
       return permissions;
     }
 
@@ -270,8 +294,10 @@ export function usePermissions(
   // Check if user has all required permissions (using enhanced permissions)
   const hasAllPermissions = useMemo(() => {
     if (isLoading && waitForLoad) return false;
-    // Super admins always have all permissions
-    if (isSuperAdmin) return true;
+    // Super admins always have all permissions.
+    // Also consult isSuperAdminRef to retain super-admin status across brief
+    // HMR/Fast Refresh windows where isSuperAdmin may momentarily be false.
+    if (isSuperAdmin || isSuperAdminRef.current) return true;
     return (
       !error && requiredPermissions.every((perm) => enhancedPermissions[perm])
     );
@@ -287,8 +313,10 @@ export function usePermissions(
   // Check if user has any of the required permissions (using enhanced permissions)
   const hasAnyPermission = useMemo(() => {
     if (isLoading && waitForLoad) return false;
-    // Super admins always have all permissions
-    if (isSuperAdmin) return true;
+    // Super admins always have all permissions.
+    // Also consult isSuperAdminRef to retain super-admin status across brief
+    // HMR/Fast Refresh windows where isSuperAdmin may momentarily be false.
+    if (isSuperAdmin || isSuperAdminRef.current) return true;
     return (
       !error && requiredPermissions.some((perm) => enhancedPermissions[perm])
     );
@@ -319,7 +347,7 @@ export function usePermissions(
 
       return enhancedPermissions[permKey] || false;
     },
-    [enhancedPermissions, isSuperAdmin, isLoading, isStudent]
+    [enhancedPermissions, isSuperAdmin, isLoading]
   );
 
   // Check if user has all specified actions for a module
@@ -388,8 +416,9 @@ export function usePermissions(
     isStudentProfileComplete,
 
     // Generic permission check (legacy support) - using enhanced permissions
+    // Check super_admin FIRST (before loading) to prevent redirect loops
     can: (permission: string) =>
-      isLoading ? false : isSuperAdmin ? true : enhancedPermissions[permission] || false,
+      isSuperAdmin ? true : isLoading ? false : enhancedPermissions[permission] || false,
     // New module-based permission checks
     canAccess,
     canPerformAll,

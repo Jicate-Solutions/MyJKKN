@@ -40,11 +40,15 @@ export async function GET(
     // Check if user is super_admin
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
-      .select('role')
+      .select('role, is_super_admin')
       .eq('id', data.user.id)
       .single();
 
-    if (profileError || profile.role !== SYSTEM_ROLES.SUPER_ADMIN) {
+    const isSuperAdminUser =
+      (profile as any)?.role === SYSTEM_ROLES.SUPER_ADMIN ||
+      (profile as any)?.is_super_admin === true;
+
+    if (profileError || !profile || !isSuperAdminUser) {
       return NextResponse.json(
         { error: 'Only super admins can manage roles' },
         { status: 403 }
@@ -108,11 +112,15 @@ export async function PATCH(
     // Check if user is super_admin
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
-      .select('role')
+      .select('role, is_super_admin')
       .eq('id', data.user.id)
       .single();
 
-    if (profileError || profile.role !== SYSTEM_ROLES.SUPER_ADMIN) {
+    const isSuperAdminUser =
+      (profile as any)?.role === SYSTEM_ROLES.SUPER_ADMIN ||
+      (profile as any)?.is_super_admin === true;
+
+    if (profileError || !profile || !isSuperAdminUser) {
       return NextResponse.json(
         { error: 'Only super admins can manage roles' },
         { status: 403 }
@@ -215,11 +223,15 @@ export async function DELETE(
     // Check if user is super_admin
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
-      .select('role')
+      .select('role, is_super_admin')
       .eq('id', data.user.id)
       .single();
 
-    if (profileError || profile.role !== SYSTEM_ROLES.SUPER_ADMIN) {
+    const isSuperAdminUser =
+      (profile as any)?.role === SYSTEM_ROLES.SUPER_ADMIN ||
+      (profile as any)?.is_super_admin === true;
+
+    if (profileError || !profile || !isSuperAdminUser) {
       return NextResponse.json(
         { error: 'Only super admins can manage roles' },
         { status: 403 }

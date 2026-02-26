@@ -96,24 +96,16 @@ export async function getLearnerProfiles(
     learner_id // Added: For student self-view filtering
   } = params;
 
-  // Build query with relations
+  // Build query — no embedded joins.
+  // PostgREST requires FK constraints in the schema cache to resolve embedded joins.
+  // The 9 FKs from learners_profiles to org tables were dropped to allow JKKN sync
+  // upserts (org tables are empty mirrors; referenced UUIDs don't exist locally).
+  // Until org tables are populated and FKs are restored, use select('*') only.
+  // Org columns (institution, degree, etc.) will be undefined — LearnerProfile
+  // types already mark them optional so the page handles null gracefully.
   let query = supabase
     .from('learners_profiles')
-    .select(
-      `
-      *,
-      institution:institutions(id, name, counselling_code),
-      degree:degrees(id, degree_name, degree_id),
-      department:departments(id, department_name),
-      program:programs(id, program_name),
-      semester:semesters(id, semester_name, semester_code),
-      section:sections(id, section_name),
-      academic_year:academic_years(id, academic_year_name, start_date, end_date, is_active),
-      regulation:regulations(id, regulation_code, regulation_year),
-      batch:batches(id, batch_name, batch_code)
-    `,
-      { count: 'exact' }
-    );
+    .select('*', { count: 'exact' });
 
   // Apply filters - Parse advanced search format
   if (search) {

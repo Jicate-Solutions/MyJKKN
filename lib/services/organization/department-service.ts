@@ -139,82 +139,36 @@ export class DepartmentService {
     filters: DepartmentFilters = {}
   ): Promise<DepartmentListResponse> {
     try {
-      let query = (this.supabase as any).from('departments').select(
-        `
-          *,
-          institution:institutions!inner (
-            id,
-            name,
-            counselling_code
-          ),
-          degree:degrees!inner (
-            id,
-            degree_id,
-            degree_name
-          )
-        `,
-        { count: 'exact' }
-      );
+      const page = filters.page ?? 1;
+      const limit = filters.limit ?? 10;
 
-      // Apply filters
-      if (filters.search) {
-        query = query.or(
-          `department_code.ilike.%${filters.search}%,department_name.ilike.%${filters.search}%`
-        );
+      const params = new URLSearchParams({
+        page: String(page),
+        limit: String(limit),
+      });
+
+      if (filters.search) params.set('search', filters.search);
+      if (filters.institution_id) params.set('institution_id', filters.institution_id);
+      if (filters.degree_id) params.set('degree_id', filters.degree_id);
+      if (filters.isActive !== undefined) params.set('isActive', String(filters.isActive));
+
+      const res = await fetch(`/api/jkkn/departments?${params}`);
+      if (!res.ok) {
+        const body = await res.text().catch(() => '');
+        console.error('DepartmentService: Query error:', body);
+        throw new Error(`JKKN departments API error ${res.status}`);
       }
 
-      if (filters.institution_id) {
-        query = query.eq('institution_id', filters.institution_id);
-      }
-
-      if (filters.degree_id) {
-        query = query.eq('degree_id', filters.degree_id);
-      }
-
-      if (filters.isActive !== undefined) {
-        query = query.eq('is_active', filters.isActive);
-      }
-
-      // Apply institution filtering based on user access if userId is provided
-      if (filters.userId && !filters.bypassInstitutionFilter) {
-        const accessibleInstitutionIds =
-          await this.getUserAccessibleInstitutionIds(filters.userId);
-        if (accessibleInstitutionIds.length > 0) {
-          query = query.in('institution_id', accessibleInstitutionIds);
-        } else {
-          // If user has no accessible institutions, return empty result
-          return {
-            data: [],
-            metadata: {
-              total: 0,
-              page: filters.page || 1,
-              limit: filters.limit || 10,
-              totalPages: 0
-            }
-          };
-        }
-      }
-
-      // Apply pagination
-      const page = filters.page || 1;
-      const limit = filters.limit || 10;
-      const from = (page - 1) * limit;
-      const to = from + limit - 1;
-
-      query = query.range(from, to).order('created_at', { ascending: false });
-
-      const { data: departments, error, count } = await query;
-
-      if (error) throw error;
+      const json = await res.json();
 
       return {
-        data: departments || [],
+        data: json.data ?? [],
         metadata: {
-          total: count || 0,
-          page,
-          limit,
-          totalPages: count ? Math.ceil(count / limit) : 0
-        }
+          total: json.metadata?.total ?? 0,
+          page: json.metadata?.page ?? page,
+          limit: json.metadata?.limit ?? limit,
+          totalPages: json.metadata?.totalPages ?? 0,
+        },
       };
     } catch (error) {
       console.error('Error fetching departments:', error);
@@ -224,23 +178,11 @@ export class DepartmentService {
 
   static async getDepartment(id: string): Promise<Department> {
     try {
+      // Note: departments table actual schema has: id, name, code, description,
+      // hod_user_id, parent_department_id, is_active, created_at, updated_at
       const { data: department, error } = await (this.supabase as any)
         .from('departments')
-        .select(
-          `
-          *,
-          institution:institutions!inner (
-            id,
-            name,
-            counselling_code
-          ),
-          degree:degrees!inner (
-            id,
-            degree_id,
-            degree_name
-          )
-        `
-        )
+        .select(`*`)
         .eq('id', id)
         .single();
 
@@ -258,19 +200,20 @@ export class DepartmentService {
     institutionId: string
   ): Promise<Department[]> {
     try {
-      const { data: departments, error } = await (this.supabase as any)
-        .from('departments')
-        .select('*')
-        .eq('institution_id', institutionId)
-        .eq('is_active', true)
-        .order('department_name');
+      const params = new URLSearchParams({
+        institution_id: institutionId,
+        isActive: 'true',
+        limit: '100',
+        page: '1',
+      });
 
-      if (error) throw error;
+      const res = await fetch(`/api/jkkn/departments?${params}`);
+      if (!res.ok) return [];
 
-      return departments || [];
+      const json = await res.json();
+      return json.data ?? [];
     } catch (error) {
       console.error('Error fetching departments by institution:', error);
-      toast.error('Failed to load departments');
       return [];
     }
   }
@@ -280,20 +223,23 @@ export class DepartmentService {
     degreeId: string
   ): Promise<Department[]> {
     try {
-      const { data: departments, error } = await (this.supabase as any)
-        .from('departments')
-        .select('*')
-        .eq('institution_id', institutionId)
-        .eq('degree_id', degreeId)
-        .eq('is_active', true)
-        .order('department_name');
+      const params = new URLSearchParams({
+        institution_id: institutionId,
+        isActive: 'true',
+        limit: '100',
+        page: '1',
+      });
 
-      if (error) throw error;
+      const res = await fetch(`/api/jkkn/departments?${params}`);
+      if (!res.ok) return [];
 
-      return departments || [];
+      const json = await res.json();
+      // Filter client-side by degree_id since JKKN API doesn't support degree_id filter
+      const all: Department[] = json.data ?? [];
+      return all.filter(d => d.degree_id === degreeId);
     } catch (error) {
       console.error('Error fetching departments:', error);
-      throw error;
+      return [];
     }
   }
 

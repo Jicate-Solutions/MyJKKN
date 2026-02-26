@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { LogOut, Sun, Moon, Monitor } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { useAuth } from '@/hooks/use-auth';
+import { usePermissions } from '@/hooks/use-permissions';
 import { AuthService } from '@/lib/auth/auth-service';
 import { Button } from '@/components/ui/button';
 import { RoleService } from '@/lib/services/roles/role-service';
@@ -22,6 +23,7 @@ import { CustomRole } from '@/types/auth';
 
 export function UserNav() {
   const { profile } = useAuth();
+  const { primaryRole } = usePermissions();
   const { theme, setTheme } = useTheme();
   const [roleName, setRoleName] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
@@ -33,26 +35,33 @@ export function UserNav() {
 
   useEffect(() => {
     const fetchRoleName = async () => {
-      if (profile?.role) {
-        try {
-          const roles = await RoleService.getAssignableRoles();
-          const role = roles.find((r) => r.role_key === profile.role);
-          if (role) {
-            setRoleName(role.role_name);
-          } else {
-            // Fallback to role key if role not found
-            setRoleName(profile.role);
-          }
-        } catch (error) {
-          console.error('Error fetching role name:', error);
-          // Fallback to role key in case of error
-          setRoleName(profile.role);
+      // Prefer the primary role from user_roles (reflects actual assignment),
+      // fall back to profiles.role (legacy column, may lag behind assignment).
+      const effectiveRoleKey = primaryRole?.role_key || profile?.role;
+      if (!effectiveRoleKey) return;
+
+      // If primaryRole already has a display name, use it directly (no extra fetch)
+      if (primaryRole?.role_name) {
+        setRoleName(primaryRole.role_name);
+        return;
+      }
+
+      try {
+        const roles = await RoleService.getAssignableRoles();
+        const role = roles.find((r) => r.role_key === effectiveRoleKey);
+        if (role) {
+          setRoleName(role.role_name);
+        } else {
+          setRoleName(effectiveRoleKey);
         }
+      } catch (error) {
+        console.error('Error fetching role name:', error);
+        setRoleName(effectiveRoleKey);
       }
     };
 
     fetchRoleName();
-  }, [profile?.role]);
+  }, [primaryRole?.role_key, primaryRole?.role_name, profile?.role]);
 
   const handleSignOut = async () => {
     await AuthService.signOut();

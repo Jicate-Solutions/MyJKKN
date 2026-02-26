@@ -169,6 +169,26 @@ export const PERMISSION_CATEGORIES = [
     ]
   },
   {
+    name: 'IMS (Inventory Management)',
+    key: 'ims',
+    permissions: [
+      { key: 'ims.dashboard.view',   label: 'View IMS Dashboard' },
+      { key: 'ims.inventory.view',   label: 'View Inventory Items' },
+      { key: 'ims.inventory.manage', label: 'Manage Inventory Items & Categories' },
+      { key: 'ims.stock.view',       label: 'View Stock Levels & Department Stock' },
+      { key: 'ims.stock.manage',     label: 'Manage Stock Batches & Adjustments' },
+      { key: 'ims.grn.view',         label: 'View Goods Received Notes (GRN)' },
+      { key: 'ims.grn.create',       label: 'Create & Verify GRN' },
+      { key: 'ims.indent.view',      label: 'View Indent Requests' },
+      { key: 'ims.indent.create',    label: 'Create Indent Requests' },
+      { key: 'ims.indent.approve',   label: 'Approve / Reject Indents & Issue Items' },
+      { key: 'ims.sales.view',       label: 'View Sales History & Receipts' },
+      { key: 'ims.sales.manage',     label: 'Process Sales (POS) & Cancel Sales' },
+      { key: 'ims.reports.view',     label: 'View IMS Reports & Financial Analysis' },
+      { key: 'ims.settings.manage',  label: 'Manage Stores, Suppliers, Units & Settings' },
+    ]
+  },
+  {
     name: 'Organizations',
     key: 'organizations',
     permissions: [

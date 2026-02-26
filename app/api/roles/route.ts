@@ -1,10 +1,9 @@
-import { createClientSupabaseClient } from '@/lib/supabase/client';
-import { cookies } from 'next/headers';
+import { createClient } from '@/lib/supabase/server';
 import { NextRequest, NextResponse } from 'next/server';
 import { SYSTEM_ROLES } from '@/types/auth';
 
 export async function GET(request: NextRequest) {
-  const supabase = createClientSupabaseClient();
+  const supabase = await createClient();
 
   try {
     // Check authentication and authorization
@@ -17,11 +16,14 @@ export async function GET(request: NextRequest) {
     // Check if user is super_admin
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
-      .select('role')
+      .select('role, is_super_admin')
       .eq('id', data.user.id)
-      .single() as { data: { role: string } | null; error: any };
+      .single() as { data: { role: string; is_super_admin?: boolean } | null; error: any };
 
-    if (profileError || !profile || profile.role !== SYSTEM_ROLES.SUPER_ADMIN) {
+    const isSuperAdminUser =
+      profile?.role === SYSTEM_ROLES.SUPER_ADMIN || profile?.is_super_admin === true;
+
+    if (profileError || !profile || !isSuperAdminUser) {
       return NextResponse.json(
         { error: 'Only super admins can manage roles' },
         { status: 403 }
@@ -52,7 +54,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const supabase = createClientSupabaseClient();
+  const supabase = await createClient();
 
   try {
     // Check authentication and authorization
@@ -65,11 +67,14 @@ export async function POST(request: NextRequest) {
     // Check if user is super_admin
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
-      .select('role')
+      .select('role, is_super_admin')
       .eq('id', data.user.id)
-      .single() as { data: { role: string } | null; error: any };
+      .single() as { data: { role: string; is_super_admin?: boolean } | null; error: any };
 
-    if (profileError || !profile || profile.role !== SYSTEM_ROLES.SUPER_ADMIN) {
+    const isSuperAdminUser =
+      profile?.role === SYSTEM_ROLES.SUPER_ADMIN || profile?.is_super_admin === true;
+
+    if (profileError || !profile || !isSuperAdminUser) {
       return NextResponse.json(
         { error: 'Only super admins can manage roles' },
         { status: 403 }

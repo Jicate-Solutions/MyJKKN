@@ -4,12 +4,12 @@ import { useState, useEffect, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { GoogleOneTap } from '@/components/auth/google-one-tap';
-import { GraduationCap, BookOpen, Users, Award, Brain, AlertTriangle, XCircle } from 'lucide-react';
-import { useRouter } from 'next/navigation';
-import { BeatLoader } from 'react-spinners';
+import { GraduationCap, BookOpen, Brain, XCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { FEATURE_FLAGS } from '@/lib/config/feature-flags';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+
+const CURRENT_YEAR = new Date().getFullYear();
 
 // Simple Educational Hero Component
 const EducationalHero = () => {
@@ -41,161 +41,11 @@ const EducationalHero = () => {
 
 export default function LoginPage() {
   const [loading, setLoading] = useState(false);
-  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
   const [accessDeniedMessage, setAccessDeniedMessage] = useState<string | null>(null);
   const [accessDeniedTitle, setAccessDeniedTitle] = useState<string>('Access Denied');
 
-  const router = useRouter();
-
   // Prevent recreation of client on each render
   const supabase = useMemo(() => createClientSupabaseClient(), []);
-
-  // Auth check
-  useEffect(() => {
-    let isMounted = true;
-    let hasRun = false; // Prevent multiple runs
-
-    const initializeAuth = async () => {
-      if (hasRun) {
-        console.log('[Login Page] Auth check already running, skipping');
-        return;
-      }
-      hasRun = true;
-      const params = new URLSearchParams(window.location.search);
-
-      // If this is a student redirect, stop auth checking immediately
-      if (params.get('reason') === 'student_redirect') {
-        console.log('[Login Page] Student redirect detected, stopping auth check');
-        setIsCheckingAuth(false);
-        return;
-      }
-
-      // If redirected due to profile load failure, show error and let user retry login
-      // Don't auto-redirect even if they have a valid session (profile fetch may still fail)
-      if (params.get('error') === 'profile_load_failed') {
-        console.log('[Login Page] Profile load failed redirect, showing error');
-        setIsCheckingAuth(false);
-        return;
-      }
-
-      // Don't redirect if coming from error page
-      const redirectedFrom = params.get('redirectedFrom');
-      if (
-        redirectedFrom &&
-        (redirectedFrom.includes('__nextjs_original-stack-frames') ||
-          redirectedFrom.includes('/error'))
-      ) {
-        setIsCheckingAuth(false);
-        return;
-      }
-
-      // Now check authentication
-      try {
-        const { data, error } = await supabase.auth.getUser();
-
-        if (!isMounted) return;
-
-        if (!error && data.user) {
-          console.log('[Login Page] User authenticated');
-
-          // User is authenticated, check their role
-          const { data: profile } = await supabase
-            .from('profiles')
-            .select('role')
-            .eq('id', data.user.id)
-            .single();
-
-          // Type cast to fix TypeScript inference after React 19 upgrade
-          const profileData = profile as { role: string } | null;
-
-          // Handle student role - check feature flag
-          if (profileData?.role === 'student') {
-            // Check student portal feature flag
-            if (!FEATURE_FLAGS.ENABLE_STUDENT_PORTAL) {
-              // Feature disabled - block students (original behavior)
-              console.log(
-                '[Login Page] Student portal disabled - signing out and staying on login page'
-              );
-
-              // Sign out the student
-              await supabase.auth.signOut();
-
-              // If reason is already in URL, just stop loading and show the page
-              if (window.location.search.includes('reason=student_redirect')) {
-                setIsCheckingAuth(false);
-                return;
-              }
-
-              // Add reason to URL for message display without redirecting
-              const newUrl = new URL(window.location.href);
-              newUrl.searchParams.set('reason', 'student_redirect');
-              window.history.replaceState({}, '', newUrl.toString());
-
-              // Set loading to false to show the page with the error message
-              setIsCheckingAuth(false);
-              return;
-            } else {
-              // Feature enabled - student is already logged in, allow them to proceed
-              // Lifecycle validation already happened in auth callback
-              console.log(
-                '[Login Page] Student portal enabled - student already authenticated, redirecting to dashboard'
-              );
-              // Continue to redirect logic below (destination will be set to '/')
-            }
-          }
-
-          // Determine destination based on role (non-students only)
-          let destination = '/';
-          if (profileData?.role === 'guest') {
-            destination = '/guest';
-          } else if (profileData?.role === 'driver') {
-            destination = '/driver';
-          }
-
-          // For non-student, non-guest users, allow redirectedFrom as before
-          if (
-            redirectedFrom &&
-            profileData?.role !== 'guest' &&
-            profileData?.role !== 'student'
-          ) {
-            destination = redirectedFrom;
-          }
-
-          // CRITICAL: Check if destination is the current login page to prevent loops
-          const currentPath = window.location.pathname;
-          if (destination === currentPath || destination === '/auth/login') {
-            console.warn('[Login Page] Preventing redirect loop to:', destination);
-            // Default to role-based dashboard instead
-            if (profileData?.role === 'guest') {
-              destination = '/guest';
-            } else if (profileData?.role === 'driver') {
-              destination = '/driver';
-            } else {
-              destination = '/';
-            }
-          }
-
-          console.log('[Login Page] Redirecting authenticated user to:', destination);
-          router.push(destination);
-        } else {
-          // User is not authenticated, just update state
-          setIsCheckingAuth(false);
-        }
-      } catch (err) {
-        console.error('Auth check error:', err);
-        if (isMounted) {
-          setIsCheckingAuth(false);
-          toast.error('Authentication check failed. Please try again.');
-        }
-      }
-    };
-
-    initializeAuth();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [router, supabase]);
 
   // Check for error and reason params
   useEffect(() => {
@@ -333,15 +183,6 @@ export default function LoginPage() {
     // We don't set isLoading to false on success because we're redirecting to Google
   };
 
-  // Show loading indicator while checking auth
-  if (isCheckingAuth) {
-    return (
-      <div className='min-h-screen flex items-center justify-center bg-background'>
-        <BeatLoader size={10} color='#000000' />
-      </div>
-    );
-  }
-
   return (
     <div className='min-h-screen w-full'>
       <div className='h-screen lg:grid lg:grid-cols-2'>
@@ -398,7 +239,9 @@ export default function LoginPage() {
 
           {/* Footer */}
           <div className='absolute bottom-6 left-0 right-0 text-center text-xs text-green-200/80 dark:text-green-300/70 z-10'>
-            &copy; {new Date().getFullYear()} JKKN Educational Institutions
+            <span>
+              &copy; {CURRENT_YEAR} JKKN Educational Institutions
+            </span>
           </div>
         </div>
 
@@ -478,7 +321,7 @@ export default function LoginPage() {
           </div>
 
           {/* Google One Tap */}
-          {!isCheckingAuth && <GoogleOneTap />}
+          <GoogleOneTap />
         </div>
       </div>
     </div>

@@ -26,25 +26,13 @@ export async function getLearnerProfile(id: string): Promise<LearnerProfile | nu
 
   const supabase = await createClient();
 
-  // Query with all relations
+  // No embedded joins — same reason as get-learner-profiles.ts:
+  // 9 org-table FKs were dropped to allow JKKN sync upserts.
+  // created_by_user / updated_by_user also removed for safety (FK state unknown).
+  // LearnerProfile marks all joined objects optional so detail page handles null.
   const { data, error } = await supabase
     .from('learners_profiles')
-    .select(
-      `
-      *,
-      institution:institutions(id, name, counselling_code),
-      degree:degrees(id, degree_name, degree_id),
-      department:departments(id, department_name),
-      program:programs(id, program_name),
-      semester:semesters(id, semester_name, semester_code),
-      section:sections(id, section_name),
-      academic_year:academic_years(id, academic_year_name, start_date, end_date, is_active),
-      regulation:regulations(id, regulation_code, regulation_year),
-      batch:batches(id, batch_name, batch_code),
-      created_by_user:profiles!learners_profiles_created_by_fkey(id, email, full_name),
-      updated_by_user:profiles!learners_profiles_updated_by_fkey(id, email, full_name)
-    `
-    )
+    .select('*')
     .eq('id', id)
     .maybeSingle();
 

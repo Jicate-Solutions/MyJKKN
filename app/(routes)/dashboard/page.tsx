@@ -7,6 +7,10 @@ import StudentDashboard from './_components/dashboards/student-dashboard';
 import AdminDashboard from './_components/dashboards/admin-dashboard';
 import { redirect } from 'next/navigation';
 
+// Force dynamic rendering to prevent PPR timing issues with redirect()
+// This is a Next.js 16.1.1 workaround for async server components with auth
+export const dynamic = 'force-dynamic';
+
 export default async function DashboardPage() {
   console.log('[Dashboard Page] 🏠 Dashboard page loaded');
 
@@ -73,23 +77,48 @@ async function BentoGridSection() {
 async function RoleBasedDashboard() {
   const supabase = await createServerSupabaseClient();
 
-  // Get current user
+  // Get current user — destructure error so we can distinguish auth failure from query failure
   const {
-    data: { user }
+    data: { user },
+    error: userError
   } = await supabase.auth.getUser();
 
+  if (userError) {
+    console.error('[Dashboard] getUser() error:', userError.message, userError.status);
+  }
+
   if (!user) {
+    // Only redirect if there's no error (truly unauthenticated).
+    // If there IS an auth error it likely means a bad/expired session — redirect anyway,
+    // but at least we have a log trail to distinguish the two cases.
+    console.warn('[Dashboard] No user found — redirecting to login', userError ? `(error: ${userError.message})` : '(clean null)');
     redirect('/login');
   }
 
-  // Get user profile with role
-  const { data: profile } = await supabase
+  // Get user profile with role — always destructure the error so RLS/network failures
+  // are visible in server logs and don't silently look like "no profile exists"
+  const { data: profile, error: profileError } = await supabase
     .from('profiles')
     .select('id, role, learner_id')
     .eq('id', user.id)
     .single();
 
+  if (profileError) {
+    console.error('[Dashboard] Profile query error for user', user.id, ':', profileError.message, profileError.code);
+    // Return an error UI instead of redirecting — a DB/RLS error is not an auth failure.
+    // Redirecting to login here would create an infinite loop for authenticated users.
+    return (
+      <div className='text-center py-8 text-muted-foreground'>
+        Unable to load your profile. Please refresh the page or contact support.
+        {process.env.NODE_ENV === 'development' && (
+          <pre className='mt-2 text-xs text-left bg-muted p-2 rounded'>{profileError.message} ({profileError.code})</pre>
+        )}
+      </div>
+    );
+  }
+
   if (!profile) {
+    console.warn('[Dashboard] Profile not found for user', user.id, '— redirecting to login');
     redirect('/login');
   }
 
@@ -113,8 +142,14 @@ async function RoleBasedDashboard() {
       if (!profile.learner_id) {
         console.error('[Dashboard] Student role but no learner_id assigned to profile');
         return (
-          <div className='text-center py-8 text-muted-foreground'>
-            Student profile not linked. Please contact administration.
+          <div className='flex flex-col items-center justify-center min-h-[400px] gap-4'>
+            <div className='text-center space-y-2'>
+              <h2 className='text-lg font-semibold'>Profile Setup Incomplete</h2>
+              <p className='text-sm text-muted-foreground'>
+                Your student profile is not yet linked to a section.
+                Please contact your administrator to complete your profile setup.
+              </p>
+            </div>
           </div>
         );
       }
@@ -129,8 +164,14 @@ async function RoleBasedDashboard() {
       if (!learner) {
         console.error('[Dashboard] Student role but no learner profile found for id:', profile.learner_id);
         return (
-          <div className='text-center py-8 text-muted-foreground'>
-            Student profile not found. Please contact administration.
+          <div className='flex flex-col items-center justify-center min-h-[400px] gap-4'>
+            <div className='text-center space-y-2'>
+              <h2 className='text-lg font-semibold'>Profile Setup Incomplete</h2>
+              <p className='text-sm text-muted-foreground'>
+                Your student profile record could not be found.
+                Please contact your administrator to complete your profile setup.
+              </p>
+            </div>
           </div>
         );
       }
@@ -138,8 +179,14 @@ async function RoleBasedDashboard() {
       if (!learner.section_id) {
         console.warn('[Dashboard] Student has no section assigned');
         return (
-          <div className='text-center py-8 text-muted-foreground'>
-            No section assigned. Please contact administration.
+          <div className='flex flex-col items-center justify-center min-h-[400px] gap-4'>
+            <div className='text-center space-y-2'>
+              <h2 className='text-lg font-semibold'>Profile Setup Incomplete</h2>
+              <p className='text-sm text-muted-foreground'>
+                You have not been assigned to a section yet.
+                Please contact your administrator to complete your profile setup.
+              </p>
+            </div>
           </div>
         );
       }
@@ -185,6 +232,7 @@ async function RoleBasedDashboard() {
       );
     }
 
+    case 'store_admin':
     case 'admin':
     case 'super_admin': {
       return (

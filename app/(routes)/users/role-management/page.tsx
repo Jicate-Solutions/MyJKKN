@@ -16,8 +16,8 @@ import {
 } from 'lucide-react';
 import { RoleManagementList } from './_components/role-management-list';
 import { RoleService } from '@/lib/services/roles/role-service';
-import { UserService } from '@/lib/services/users/user-service';
-import { CustomRole, SYSTEM_ROLES } from '@/types/auth';
+import { CustomRole } from '@/types/auth';
+import { usePermissions } from '@/hooks/use-permissions';
 import toast from 'react-hot-toast';
 import { Button } from '@/components/ui/button';
 import { CreateRoleDialog } from './_components/create-role-dialog';
@@ -34,37 +34,26 @@ export default function RoleManagementPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
-  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
   const [isMigrating, setIsMigrating] = useState(false);
   const [activeTab, setActiveTab] = useState('roles');
 
-  // Check permissions and fetch roles
+  const {
+    hasAllPermissions,
+    isLoading: permLoading,
+    userProfile,
+  } = usePermissions(['roles.create']);
+
+  // Check permissions then fetch roles
   useEffect(() => {
-    const checkPermissionAndFetchRoles = async () => {
-      try {
-        setIsLoading(true);
-
-        // Check if current user is super_admin
-        const { data: profile } = await UserService.getCurrentUserProfile();
-        if (!profile || profile.role !== SYSTEM_ROLES.SUPER_ADMIN) {
-          router.push('/unauthorized');
-          return;
-        }
-
-        setIsSuperAdmin(true);
-
-        // Fetch roles
-        await fetchRoles();
-      } catch (error) {
-        console.error('Error checking permissions:', error);
-        setError('You do not have permission to access this page');
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    checkPermissionAndFetchRoles();
-  }, [router]);
+    if (permLoading) return;
+    if (!userProfile) return; // profile not loaded yet — don't redirect
+    if (!hasAllPermissions) {
+      router.push('/unauthorized');
+      return;
+    }
+    fetchRoles();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [permLoading, hasAllPermissions, userProfile, router]);
 
   // Fetch roles
   const fetchRoles = async () => {
@@ -173,7 +162,7 @@ export default function RoleManagementPage() {
     }
   };
 
-  if (!isSuperAdmin) {
+  if (permLoading || !userProfile || !hasAllPermissions) {
     return (
       <ContentLayout title='Role Management'>
         <div className='flex justify-center items-center min-h-[400px]'>

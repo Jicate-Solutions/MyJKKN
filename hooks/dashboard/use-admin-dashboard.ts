@@ -1,3 +1,5 @@
+'use client';
+
 import { useQuery, UseQueryResult } from '@tanstack/react-query';
 import {
   SystemOverview,
@@ -10,7 +12,7 @@ export function useSystemOverview(): UseQueryResult<SystemOverview, Error> {
   return useQuery({
     queryKey: ['admin-system-overview'],
     queryFn: () => AdminDashboardService.getSystemOverview(),
-    staleTime: 5 * 60 * 1000, // 5 minutes
+    staleTime: 30 * 1000, // 30 seconds
     refetchOnWindowFocus: true,
   });
 }

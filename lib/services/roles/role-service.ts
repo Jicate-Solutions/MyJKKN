@@ -216,11 +216,6 @@ export class RoleService {
         validatedPermissions[key] = Boolean(value);
       });
 
-      console.log(
-        'Validated permissions object with',
-        Object.keys(validatedPermissions).length,
-        'keys'
-      );
       return validatedPermissions;
     } catch (err) {
       console.error('Error validating permissions:', err);

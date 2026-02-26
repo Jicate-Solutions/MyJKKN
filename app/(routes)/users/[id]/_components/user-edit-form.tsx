@@ -34,7 +34,9 @@ import { RoleService } from '@/lib/services/roles/role-service';
 import { OrganizationService } from '@/lib/services/organization/organization-service';
 import { UpdateUserRequest } from '@/types/users';
 import { BeatLoader } from 'react-spinners';
-import { Save, User, Building2, Shield, Settings } from 'lucide-react';
+import { Save, User, Building2, Shield, Settings, Info } from 'lucide-react';
+import { Checkbox } from '@/components/ui/checkbox';
+import { UserRolesService } from '@/lib/services/users/user-roles-service';
 
 const formSchema = z.object({
   email: z.string().email('Invalid email address'),
@@ -65,6 +67,9 @@ export function UserEditForm({ user }: UserEditFormProps) {
   const [rolesLoading, setRolesLoading] = useState(true);
   const [institutionsLoading, setInstitutionsLoading] = useState(true);
   const [departmentsLoading, setDepartmentsLoading] = useState(false);
+  // Secondary roles: role_keys that are assigned but are NOT the primary role.
+  // These add extra permissions without changing the user's dashboard identity.
+  const [additionalRoles, setAdditionalRoles] = useState<string[]>([]);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -83,13 +88,21 @@ export function UserEditForm({ user }: UserEditFormProps) {
     }
   });
 
-  // Fetch roles on component mount
+  // Fetch all available roles and the user's current secondary role assignments
   useEffect(() => {
     const fetchRoles = async () => {
       try {
         setRolesLoading(true);
-        const rolesData = await RoleService.getAllRoles();
+        const [rolesData, userRoleAssignments] = await Promise.all([
+          RoleService.getAllRoles(),
+          UserRolesService.getUserRoles(user.id)
+        ]);
         setRoles(rolesData);
+        // Pre-populate secondary roles: assignments where is_primary is false
+        const secondary = userRoleAssignments
+          .filter((r) => !r.is_primary && r.role_key)
+          .map((r) => r.role_key as string);
+        setAdditionalRoles(secondary);
       } catch (error) {
         console.error('Error fetching roles:', error);
         toast.error('Failed to load roles');
@@ -99,7 +112,7 @@ export function UserEditForm({ user }: UserEditFormProps) {
     };
 
     fetchRoles();
-  }, []);
+  }, [user.id]);
 
   // Fetch institutions on component mount
   useEffect(() => {
@@ -185,7 +198,24 @@ export function UserEditForm({ user }: UserEditFormProps) {
         throw new Error(errorData.error || 'Failed to update user');
       }
 
-      toast.success('User updated successfully');
+      // Sync full role set (primary + secondary) in a single API call.
+      // additionalRoles are secondary — they add permissions without changing dashboard identity.
+      const allRoles = [data.role, ...additionalRoles.filter((r) => r !== data.role)];
+      const roleResponse = await fetch(`/api/users/${user.id}/role`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ roles: allRoles, primaryRole: data.role })
+      });
+
+      if (!roleResponse.ok) {
+        const roleError = await roleResponse.json();
+        // Don't block — profile was saved, just warn about role sync
+        console.error('Role sync warning:', roleError.error);
+        toast.success('User updated (role sync had a warning — check console)');
+      } else {
+        toast.success('User updated successfully');
+      }
+
       router.push(`/users/${user.id}`);
     } catch (error) {
       console.error('Error updating user:', error);
@@ -434,9 +464,16 @@ export function UserEditForm({ user }: UserEditFormProps) {
                   name='role'
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Role</FormLabel>
+                      <FormLabel className='flex items-center gap-1.5'>
+                        <Shield className='h-3.5 w-3.5' />
+                        Primary Role
+                      </FormLabel>
                       <Select
-                        onValueChange={field.onChange}
+                        onValueChange={(val) => {
+                          field.onChange(val);
+                          // Remove new primary from secondary list if it was there
+                          setAdditionalRoles((prev) => prev.filter((r) => r !== val));
+                        }}
                         value={field.value}
                         disabled={rolesLoading || loading}
                       >
@@ -444,9 +481,7 @@ export function UserEditForm({ user }: UserEditFormProps) {
                           <SelectTrigger>
                             <SelectValue
                               placeholder={
-                                rolesLoading
-                                  ? 'Loading roles...'
-                                  : 'Select a role'
+                                rolesLoading ? 'Loading roles...' : 'Select primary role'
                               }
                             />
                           </SelectTrigger>
@@ -461,19 +496,64 @@ export function UserEditForm({ user }: UserEditFormProps) {
                               No roles available
                             </SelectItem>
                           ) : (
-                            roles.map((role) => (
-                              <SelectItem key={role.id} value={role.role_key}>
-                                {role.role_name}
+                            roles.map((r) => (
+                              <SelectItem key={r.id} value={r.role_key}>
+                                {r.role_name}
                               </SelectItem>
                             ))
                           )}
                         </SelectContent>
                       </Select>
+                      <FormDescription>
+                        Controls dashboard routing and identity (e.g. Student → Student Dashboard)
+                      </FormDescription>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
               </div>
+
+              {/* Secondary Roles — add extra module permissions without changing primary identity */}
+              {!rolesLoading && roles.length > 0 && (
+                <div className='space-y-3 pt-2'>
+                  <div className='flex items-start gap-2'>
+                    <Info className='h-4 w-4 mt-0.5 text-muted-foreground shrink-0' />
+                    <div>
+                      <p className='text-sm font-medium'>Additional Roles</p>
+                      <p className='text-xs text-muted-foreground'>
+                        Secondary roles merge extra permissions (e.g. a Student with Store Admin
+                        access can use IMS without losing their student dashboard).
+                      </p>
+                    </div>
+                  </div>
+                  <div className='grid grid-cols-1 sm:grid-cols-2 gap-2 pl-6'>
+                    {roles
+                      .filter((r) => r.role_key !== form.watch('role'))
+                      .map((r) => (
+                        <div key={r.id} className='flex items-center gap-2'>
+                          <Checkbox
+                            id={`secondary-${r.role_key}`}
+                            checked={additionalRoles.includes(r.role_key)}
+                            disabled={loading}
+                            onCheckedChange={(checked) => {
+                              setAdditionalRoles((prev) =>
+                                checked
+                                  ? [...prev, r.role_key]
+                                  : prev.filter((key) => key !== r.role_key)
+                              );
+                            }}
+                          />
+                          <label
+                            htmlFor={`secondary-${r.role_key}`}
+                            className='text-sm cursor-pointer select-none'
+                          >
+                            {r.role_name}
+                          </label>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
 

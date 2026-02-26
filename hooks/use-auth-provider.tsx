@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useEffect, useState, useMemo } from 'react';
+import React, { createContext, useContext, useEffect, useRef, useState, useMemo } from 'react';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import type { Profile } from '@/types/auth';
 
@@ -21,8 +21,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Ref always tracks the latest profile id so the auth listener
+  // (registered once on mount) can read the current value without stale closure.
+  const profileIdRef = useRef<string | null>(null);
+
   // Memoize the supabase client to prevent re-creation
   const supabase = useMemo(() => createClientSupabaseClient(), []);
+
+  // Keep the ref in sync after every profile state change
+  useEffect(() => {
+    profileIdRef.current = profile?.id ?? null;
+  }, [profile]);
 
   useEffect(() => {
     let isMounted = true;
@@ -34,37 +43,65 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const loadUserAndProfile = async () => {
       try {
-        // 1. Get User from Supabase Auth
-        const {
-          data: { session },
-          error: sessionError
-        } = await supabase.auth.getSession();
+        console.log('[AuthProvider] 🔍 Loading user and profile...');
 
-        if (sessionError) throw sessionError;
+        // 1. Get User from Supabase Auth using getUser() for SSR cookie compatibility
+        // NOTE: getSession() reads from localStorage which may be empty with SSR cookies
+        // getUser() validates the session with Supabase server using HTTP cookies
+        const {
+          data: { user },
+          error: userError
+        } = await supabase.auth.getUser();
+
+        console.log('[AuthProvider] 📦 User result:', {
+          hasUser: !!user,
+          userId: user?.id?.substring(0, 8) + '...',
+          email: user?.email,
+          error: userError?.message
+        });
+
+        if (userError) {
+          // AuthSessionMissingError is expected when not logged in
+          if (userError.name === 'AuthSessionMissingError') {
+            console.log('[AuthProvider] ℹ️ No auth session (not logged in)');
+            if (isMounted) {
+              setProfile(null);
+              setIsLoading(false);
+            }
+            return;
+          }
+          throw userError;
+        }
 
         // 2. If user exists, get Profile from the 'profiles' table
-        if (session?.user) {
+        if (user) {
           const { data: userProfile, error: profileError } = await supabase
             .from('profiles')
             .select('*')
-            .eq('id', session.user.id)
+            .eq('id', user.id)
             .single();
 
           if (profileError) throw profileError;
 
           if (isMounted) {
+            console.log('[AuthProvider] ✅ Profile loaded:', {
+              id: userProfile?.id?.substring(0, 8) + '...',
+              role: userProfile?.role,
+              email: userProfile?.email
+            });
             setProfile(userProfile as Profile);
             setError(null);
           }
         } else {
-          // No user session
+          // No user found
+          console.log('[AuthProvider] ⚠️ No user found, setting profile to null');
           if (isMounted) {
             setProfile(null);
           }
         }
       } catch (e) {
         if (isMounted) {
-          console.error('AuthProvider Error:', e);
+          console.error('[AuthProvider] ❌ Error loading user:', e);
           setError(
             e instanceof Error ? e.message : 'Failed to load user data.'
           );
@@ -72,6 +109,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       } finally {
         if (isMounted) {
+          console.log('[AuthProvider] ✅ Loading complete');
           setIsLoading(false);
         }
       }
@@ -89,13 +127,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const {
       data: { subscription }
     } = supabase.auth.onAuthStateChange((event, session) => {
+      console.log('[AuthProvider] 🔔 Auth state change:', {
+        event,
+        hasSession: !!session,
+        userId: session?.user?.id?.substring(0, 8) + '...'
+      });
+
       if (!isMounted) return;
 
-      // Skip redundant events — TOKEN_REFRESHED doesn't change the profile
-      if (event === 'TOKEN_REFRESHED' || event === 'INITIAL_SESSION') {
+      // Skip redundant events:
+      // - TOKEN_REFRESHED: token rotated, profile unchanged
+      // - INITIAL_SESSION: handled by the initial loadUserAndProfile() on mount
+      // - SIGNED_IN with same user: Supabase re-fires SIGNED_IN ~1s after
+      //   INITIAL_SESSION when validating SSR cookies. If the profile is already
+      //   loaded for this user the reload is a no-op DB round-trip.
+      if (
+        event === 'TOKEN_REFRESHED' ||
+        event === 'INITIAL_SESSION' ||
+        (event === 'SIGNED_IN' && session?.user?.id === profileIdRef.current)
+      ) {
+        console.log('[AuthProvider] ⏭️ Skipping event:', event);
         return;
       }
 
+      console.log('[AuthProvider] 🔄 Processing event, reloading profile...');
       setIsLoading(true);
       loadUserAndProfile();
     });

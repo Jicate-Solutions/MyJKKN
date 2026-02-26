@@ -8,16 +8,22 @@ const urlsToCache = [
   '/icons/icon-512x512.png'
 ];
 
-// Install event - cache resources
+// Install event - cache resources individually so one failure doesn't abort all caching
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches
       .open(CACHE_NAME)
       .then((cache) => {
-        return cache.addAll(urlsToCache);
+        // allSettled instead of addAll — a missing /offline page won't kill the install
+        return Promise.allSettled(
+          urlsToCache.map((url) =>
+            cache.add(url).catch(() => {
+              // Silently skip URLs that fail (e.g. /offline not yet created)
+            })
+          )
+        );
       })
       .then(() => {
-        // Force the waiting service worker to become the active service worker
         return self.skipWaiting();
       })
   );
@@ -38,7 +44,6 @@ self.addEventListener('activate', (event) => {
         );
       })
       .then(() => {
-        // Take control of all pages immediately
         return self.clients.claim();
       })
   );
@@ -56,9 +61,26 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // Skip Next.js internal dev-only URLs (error overlay, stack frames, HMR websocket)
+  // These change on every rebuild and must never be cached or proxied by the SW
+  if (
+    event.request.url.includes('__nextjs') ||
+    event.request.url.includes('_next/webpack-hmr') ||
+    event.request.url.includes('_next/static/development/')
+  ) {
+    return;
+  }
+
   // Don't cache API requests - always fetch fresh
   if (event.request.url.includes('/api/')) {
-    event.respondWith(fetch(event.request));
+    event.respondWith(
+      fetch(event.request).catch(() => {
+        return new Response(JSON.stringify({ error: 'Network unavailable' }), {
+          status: 503,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      })
+    );
     return;
   }
 
@@ -68,12 +90,22 @@ self.addEventListener('fetch', (event) => {
       caches.open(STATIC_CACHE).then((cache) => {
         return cache.match(event.request).then((cached) => {
           if (cached) return cached;
-          return fetch(event.request).then((response) => {
-            if (response.status === 200) {
-              cache.put(event.request, response.clone());
-            }
-            return response;
-          });
+          return fetch(event.request)
+            .then((response) => {
+              if (response.status === 200) {
+                cache.put(event.request, response.clone());
+              }
+              return response;
+            })
+            .catch(() => {
+              // Chunk may no longer exist after a Turbopack HMR rebuild.
+              // Return a graceful 503 so the browser logs a proper HTTP error
+              // instead of an unhandled promise rejection.
+              return new Response(null, {
+                status: 503,
+                statusText: 'Static chunk unavailable — reload the page'
+              });
+            });
         });
       })
     );
@@ -111,28 +143,35 @@ self.addEventListener('fetch', (event) => {
   // Handle other requests with cache-first strategy
   event.respondWith(
     caches.match(event.request).then((response) => {
-      // Return cached version or fetch from network
       return (
         response ||
-        fetch(event.request).then((response) => {
-          // Don't cache non-successful responses or non-GET requests
-          if (
-            !response ||
-            response.status !== 200 ||
-            response.type !== 'basic' ||
-            event.request.method !== 'GET'
-          ) {
+        fetch(event.request)
+          .then((response) => {
+            // Don't cache non-successful responses or non-GET requests
+            if (
+              !response ||
+              response.status !== 200 ||
+              response.type !== 'basic' ||
+              event.request.method !== 'GET'
+            ) {
+              return response;
+            }
+
+            // Clone the response before caching
+            const responseToCache = response.clone();
+            caches.open(CACHE_NAME).then((cache) => {
+              cache.put(event.request, responseToCache);
+            });
+
             return response;
-          }
-
-          // Clone the response before caching
-          const responseToCache = response.clone();
-          caches.open(CACHE_NAME).then((cache) => {
-            cache.put(event.request, responseToCache);
-          });
-
-          return response;
-        })
+          })
+          .catch(() => {
+            // Gracefully handle network failures for non-navigation requests
+            return new Response(null, {
+              status: 503,
+              statusText: 'Network unavailable'
+            });
+          })
       );
     })
   );

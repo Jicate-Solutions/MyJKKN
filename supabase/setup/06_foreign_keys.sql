@@ -812,6 +812,46 @@ ALTER TABLE user_activity_logs
     ON DELETE SET NULL;
 
 -- ================================================================================
+-- SECTION 15: LEARNERS PROFILES TABLE
+-- ================================================================================
+-- DROPPED 2026-02-25: All 9 FK constraints removed to unblock JKKN sync.
+--
+-- Root cause: NOT VALID skips validation for existing rows but still enforces
+-- the constraint on new INSERTs/UPDATEs. When sync-from-jkkn upserts learner
+-- rows with real JKKN UUIDs, PostgreSQL raises FK violations because local org
+-- tables (institutions, degrees, departments, etc.) are empty mirrors — JKKN is
+-- the authoritative UUID source.
+--
+-- PostgREST embedded joins REQUIRE FK constraints in the schema cache to resolve.
+-- Without them the query fails at planning before any rows are fetched.
+-- To avoid a broken page while org tables are empty, get-learner-profiles.ts was
+-- changed to use select('*') only (no embedded joins). Restore the joins and
+-- re-add these FKs once org tables are populated from JKKN.
+--
+-- To re-add these constraints in the future, first populate the org tables from
+-- JKKN, then re-apply with NOT VALID + VALIDATE CONSTRAINT in a separate step.
+--
+-- Dropped constraints (for reference):
+--   fk_learners_profiles_institution  → institutions(id)
+--   fk_learners_profiles_degree       → degrees(id)
+--   fk_learners_profiles_department   → departments(id)
+--   fk_learners_profiles_program      → programs(id)
+--   fk_learners_profiles_semester     → semesters(id)
+--   fk_learners_profiles_section      → sections(id)
+--   fk_learners_profiles_academic_year → academic_years(id)
+--   fk_learners_profiles_regulation   → regulations(id)
+--   fk_learners_profiles_batch        → batches(id)
+
+-- ================================================================================
+-- SECTION 16: STAFF TABLE
+-- ================================================================================
+
+ALTER TABLE staff
+    ADD CONSTRAINT fk_staff_institution
+    FOREIGN KEY (institution_id) REFERENCES institutions(id)
+    ON DELETE CASCADE NOT VALID;
+
+-- ================================================================================
 -- End of Foreign Keys File
--- Total Foreign Key Constraints: 150+
+-- Total Foreign Key Constraints: 161+
 -- ================================================================================

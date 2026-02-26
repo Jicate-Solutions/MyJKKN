@@ -148,7 +148,7 @@ export function GoogleOneTap() {
               return;
             }
           } else {
-            router.push('/');
+            router.push('/dashboard');
           }
         }
       }
@@ -230,6 +230,21 @@ export function GoogleOneTap() {
   useEffect(() => {
     if (!shouldRender || initialized.current) return;
 
+    // Check if on development environment - ALWAYS skip on localhost
+    const isDevelopment = typeof window !== 'undefined' && (
+      window.location.hostname === 'localhost' ||
+      window.location.hostname === '127.0.0.1'
+    );
+
+    // IMPORTANT: Always skip One Tap on localhost to prevent GSI origin errors
+    // Google OAuth origin propagation can take 5-15 minutes, and One Tap
+    // is not essential for development - use the Google Sign-In button instead
+    if (isDevelopment) {
+      console.log('[One Tap] Skipping on localhost - use Google Sign-In button instead');
+      initialized.current = true;
+      return;
+    }
+
     // Add a delay to ensure other credential operations have completed
     const timer = setTimeout(() => {
       if (
@@ -238,34 +253,15 @@ export function GoogleOneTap() {
         window.google.accounts.id
       ) {
         try {
-          // Use development client ID if on localhost
-          const isDevelopment = window.location.hostname === 'localhost' || 
-                               window.location.hostname === '127.0.0.1';
-          
-          const clientId = isDevelopment && process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID_DEV
-            ? process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID_DEV
-            : process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
-            
-          const currentOrigin = window.location.origin;
-
-          console.log('Google One Tap Debug Info:');
-          console.log('Environment:', isDevelopment ? 'Development' : 'Production');
-          console.log('Current Origin:', currentOrigin);
-          console.log('Client ID:', clientId);
-          console.log('Full URL:', window.location.href);
+          // Since we skip on localhost, this only runs in production
+          const clientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
 
           if (!clientId) {
-            console.error('NEXT_PUBLIC_GOOGLE_CLIENT_ID is not set!');
+            console.error('[One Tap] NEXT_PUBLIC_GOOGLE_CLIENT_ID is not set!');
             return;
           }
 
-          // Add origin validation warning
-          if (isDevelopment) {
-            console.warn(
-              'Running in development mode. Make sure your Google OAuth client has ' +
-              `"${currentOrigin}" added as an authorized JavaScript origin in Google Cloud Console.`
-            );
-          }
+          console.log('[One Tap] Initializing for production');
 
           window.google.accounts.id.initialize({
             client_id: clientId,

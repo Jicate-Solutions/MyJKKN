@@ -1,8 +1,14 @@
 import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
-  // Enable Cache Components for server-side caching (Next.js 16.1.1)
-  cacheComponents: true,
+  // Cache Components disabled - incompatible with authenticated pages using redirect()
+  // See: https://nextjs.org/docs/app/api-reference/next-config-js/cacheComponents
+  // cacheComponents: true,
+
+  // Fix workspace root inference (prevent parent lockfile detection)
+  turbopack: {
+    root: __dirname
+  },
 
   // Force SWC to re-compile Supabase packages as local source instead of
   // treating them as native ESM externals. This prevents the Turbopack
@@ -28,10 +34,20 @@ const nextConfig: NextConfig = {
     remotePatterns: [
       {
         protocol: 'https',
-        hostname: 'kvizhngldtiuufknvehv.supabase.co',
+        hostname: 'zwiasdpodeirxnybwvuw.supabase.co',
         pathname: '/**'
       }
     ]
+  },
+
+  async redirects() {
+    return [
+      {
+        source: '/login',
+        destination: '/auth/login',
+        permanent: true
+      }
+    ];
   },
 
   async headers() {

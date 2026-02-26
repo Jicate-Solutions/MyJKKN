@@ -128,91 +128,37 @@ export class ProgramService {
     filters: ProgramFilters = {}
   ): Promise<ProgramListResponse> {
     try {
-      let query = (this.supabase as any).from('programs').select(
-        `
-        *,
-        institution:institutions (
-          id,
-          name,
-          counselling_code
-        ),
-        degree:degrees (
-          id,
-          degree_id,
-          degree_name
-        ),
-        department:departments (
-          id,
-          department_code,
-          department_name
-        )
-      `,
-        { count: 'exact' }
-      );
+      const page = filters.page ?? 1;
+      const limit = filters.limit ?? 10;
 
-      // Apply filters
-      if (filters.search) {
-        query = query.or(
-          `program_id.ilike.%${filters.search}%,program_name.ilike.%${filters.search}%`
-        );
+      const params = new URLSearchParams({
+        page: String(page),
+        limit: String(limit),
+      });
+
+      if (filters.search) params.set('search', filters.search);
+      if (filters.institution_id) params.set('institution_id', filters.institution_id);
+      if (filters.degree_id) params.set('degree_id', filters.degree_id);
+      if (filters.department_id) params.set('department_id', filters.department_id);
+      if (filters.isActive !== undefined) params.set('isActive', String(filters.isActive));
+
+      const res = await fetch(`/api/jkkn/programs?${params}`);
+      if (!res.ok) {
+        const body = await res.text().catch(() => '');
+        console.error('ProgramService: Query error:', body);
+        throw new Error(`JKKN programs API error ${res.status}`);
       }
 
-      if (filters.institution_id) {
-        query = query.eq('institution_id', filters.institution_id);
-      }
-
-      if (filters.degree_id) {
-        query = query.eq('degree_id', filters.degree_id);
-      }
-
-      if (filters.department_id) {
-        query = query.eq('department_id', filters.department_id);
-      }
-
-      if (filters.isActive !== undefined) {
-        query = query.eq('is_active', filters.isActive);
-      }
-
-      // Apply institution filtering based on user access if userId is provided
-      if (filters.userId && !filters.bypassInstitutionFilter) {
-        const accessibleInstitutionIds =
-          await this.getUserAccessibleInstitutionIds(filters.userId);
-        if (accessibleInstitutionIds.length > 0) {
-          query = query.in('institution_id', accessibleInstitutionIds);
-        } else {
-          // If user has no accessible institutions, return empty result
-          return {
-            data: [],
-            metadata: {
-              total: 0,
-              page: filters.page || 1,
-              limit: filters.limit || 10,
-              totalPages: 0
-            }
-          };
-        }
-      }
-
-      // Apply pagination
-      const page = filters.page || 1;
-      const limit = filters.limit || 10;
-      const from = (page - 1) * limit;
-      const to = from + limit - 1;
-
-      query = query.range(from, to).order('created_at', { ascending: false });
-
-      const { data: programs, error, count } = await query;
-
-      if (error) throw error;
+      const json = await res.json();
 
       return {
-        data: programs || [],
+        data: json.data ?? [],
         metadata: {
-          total: count || 0,
-          page,
-          limit,
-          totalPages: count ? Math.ceil(count / limit) : 0
-        }
+          total: json.metadata?.total ?? 0,
+          page: json.metadata?.page ?? page,
+          limit: json.metadata?.limit ?? limit,
+          totalPages: json.metadata?.totalPages ?? 0,
+        },
       };
     } catch (error) {
       console.error('Error fetching programs:', error);
@@ -258,45 +204,18 @@ export class ProgramService {
 
   static async getProgramsByDepartment(departmentId: string) {
     try {
-      // Check if departmentId is a UUID or a name/label
-      const isUUID =
-        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-          departmentId
-        );
+      const params = new URLSearchParams({
+        department_id: departmentId,
+        isActive: 'true',
+        limit: '100',
+        page: '1',
+      });
 
-      let query;
+      const res = await fetch(`/api/jkkn/programs?${params}`);
+      if (!res.ok) return [];
 
-      if (isUUID) {
-        // If it's a UUID, use it directly with eq
-        query = (this.supabase as any)
-          .from('programs')
-          .select('*')
-          .eq('department_id', departmentId)
-          .eq('is_active', true)
-          .order('program_name');
-      } else {
-        // If it's not a UUID, try to find the department by name first
-        const { data: department } = await (this.supabase as any)
-          .from('departments')
-          .select('id')
-          .ilike('department_name', departmentId)
-          .single();
-
-        if (department) {
-          query = (this.supabase as any)
-            .from('programs')
-            .select('*')
-            .eq('department_id', department.id)
-            .eq('is_active', true)
-            .order('program_name');
-        } else {
-          // Return empty array if no department found
-          return [];
-        }
-      }
-
-      const { data: programs, error } = await query;
-      return programs || [];
+      const json = await res.json();
+      return json.data ?? [];
     } catch (error) {
       console.error('Error fetching programs:', error);
       return [];

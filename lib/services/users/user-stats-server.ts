@@ -10,7 +10,7 @@
 
 import { createClient } from '@supabase/supabase-js';
 import type { UserStats } from '@/types/users';
-import { cacheLife, cacheTag } from 'next/cache';
+import { unstable_cache } from 'next/cache';
 
 /**
  * Fetch user statistics from the database (server-side only)
@@ -110,8 +110,8 @@ async function getUserStatsServer(institutionId?: string): Promise<UserStats> {
  * CACHED version of getUserStats for use in server components
  *
  * Cache Configuration:
- * - cacheLife: 'hours' - Refreshes every hour (stats change infrequently)
- * - cacheTag: 'user-stats' + institutionId - For targeted cache invalidation
+ * - revalidate: 3600 — refreshes every hour (stats change infrequently)
+ * - tags: ['user-stats'] — for targeted cache invalidation via revalidateTag()
  *
  * Invalidate this cache when:
  * - New users are created
@@ -124,14 +124,8 @@ async function getUserStatsServer(institutionId?: string): Promise<UserStats> {
  * const stats = await getCachedUserStats(institutionId);
  * ```
  */
-export async function getCachedUserStats(institutionId?: string): Promise<UserStats> {
-  'use cache';
-
-  // Cache for 1 hour - stats don't change frequently
-  cacheLife('hours');
-
-  // Tag for cache invalidation
-  cacheTag('user-stats', institutionId || 'all-institutions');
-
-  return await getUserStatsServer(institutionId);
-}
+export const getCachedUserStats = unstable_cache(
+  getUserStatsServer,
+  ['user-stats'],
+  { revalidate: 3600, tags: ['user-stats'] }
+);

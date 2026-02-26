@@ -523,11 +523,14 @@ export async function GET(request: NextRequest) {
     const institution = url.searchParams.get('institution');
     const search = url.searchParams.get('search');
 
-    // Build query - include all users (both regular and pre-registered)
-    let query = supabase
+    // Build query - use service role client to bypass RLS so admins see ALL profiles.
+    // The anon-key client is subject to RLS; if the live DB policy restricts SELECT to
+    // the caller's own row (id = auth.uid()), non-super-admin users would only see
+    // themselves. supabaseAdmin (service role) always returns the full result set and
+    // lets us apply our own role-based scoping below.
+    let query = supabaseAdmin
       .from('profiles')
       .select('*', { count: 'exact' });
-      // Note: Pre-registered users will show with is_pre_registered: true
 
     // Faculty and HOD users can only see profiles from their own institution
     if ((profile.role === 'faculty' || profile.role === 'hod') && profile.institution_id) {

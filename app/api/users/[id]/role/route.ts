@@ -34,13 +34,29 @@ export async function PATCH(
   );
 
   try {
-    const { role } = await request.json();
+    const body = await request.json();
 
-    if (!role) {
+    // Support two call shapes:
+    //   Legacy:  { role: 'store_admin' }
+    //   Multi:   { roles: ['student', 'store_admin'], primaryRole: 'student' }
+    const roles: string[] = body.roles ?? (body.role ? [body.role] : []);
+    const role: string = body.primaryRole ?? body.role ?? '';
+
+    if (!role || roles.length === 0) {
       return NextResponse.json(
         {
           success: false,
           error: 'Role is required'
+        },
+        { status: 400 }
+      );
+    }
+
+    if (!roles.includes(role)) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'primaryRole must be one of the assigned roles'
         },
         { status: 400 }
       );
@@ -108,9 +124,14 @@ export async function PATCH(
       );
     }
 
-    // Check target user
-    const { data: targetUser, error: targetUserError } = await supabase
-      .from('profiles')
+    // Service role client bypasses RLS — required for cross-user profile lookups
+    // (profiles RLS only allows users to see their own row via anon key)
+    const serviceClient = createServiceRoleClient();
+
+    // Check target user using service client to bypass profiles RLS
+    const { data: targetUser, error: targetUserError } = await (
+      serviceClient.from('profiles') as any
+    )
       .select('role, full_name, email')
       .eq('id', userId)
       .single();
@@ -140,8 +161,6 @@ export async function PATCH(
     }
 
     // Update the user's role using service role client to bypass RLS
-    // Use service role client for admin operations to bypass RLS
-    const serviceClient = createServiceRoleClient();
 
     const { data: updatedUser, error: updateError } = await (
       serviceClient.from('profiles') as any
@@ -164,63 +183,59 @@ export async function PATCH(
       );
     }
 
-    // IMPORTANT: Also update the user_roles table for permissions to work correctly
-    // The user_roles table is the source of truth for permissions
+    // Sync user_roles table — supports both single-role (legacy) and multi-role assignment.
+    // Strategy: resolve all role IDs first, then replace the user's entire role set atomically.
     try {
-      // Check if user has any existing role assignments
-      const { data: existingRoles, error: existingRolesError } = await (
-        serviceClient.from('user_roles') as any
-      )
-        .select('id, role_id, is_primary')
-        .eq('user_id', userId);
+      // Resolve all role keys to their IDs (validRole.id covers the primary; fetch the rest)
+      const allRoleIds: { role_key: string; id: string }[] = [
+        { role_key: role, id: validRole.id }
+      ];
 
-      if (existingRolesError) {
-        console.error('Error checking existing roles:', existingRolesError);
-      }
+      if (roles.length > 1) {
+        const secondaryKeys = roles.filter((r) => r !== role);
+        const { data: secondaryRoles, error: secondaryError } = await (
+          serviceClient.from('custom_roles') as any
+        )
+          .select('id, role_key')
+          .in('role_key', secondaryKeys);
 
-      if (existingRoles && existingRoles.length > 0) {
-        // User has existing roles - update the primary role to the new one
-        const primaryRole = existingRoles.find((r: any) => r.is_primary);
-
-        if (primaryRole) {
-          // Update the primary role entry to point to the new role
-          const { error: updateRoleError } = await (
-            serviceClient.from('user_roles') as any
-          )
-            .update({ role_id: validRole.id })
-            .eq('id', primaryRole.id);
-
-          if (updateRoleError) {
-            console.error('Error updating user_roles:', updateRoleError);
-          }
-        } else {
-          // No primary role found - update the first one and mark as primary
-          const { error: updateRoleError } = await (
-            serviceClient.from('user_roles') as any
-          )
-            .update({ role_id: validRole.id, is_primary: true })
-            .eq('id', existingRoles[0].id);
-
-          if (updateRoleError) {
-            console.error('Error updating user_roles:', updateRoleError);
+        if (secondaryError) {
+          console.error('Error resolving secondary role IDs:', secondaryError);
+        } else if (secondaryRoles) {
+          for (const sr of secondaryRoles as { id: string; role_key: string }[]) {
+            allRoleIds.push({ role_key: sr.role_key, id: sr.id });
           }
         }
-      } else {
-        // User has no role assignments - create one
-        const { error: insertRoleError } = await (
-          serviceClient.from('user_roles') as any
-        ).insert({
-          user_id: userId,
-          role_id: validRole.id,
-          is_primary: true
-        });
+      }
 
-        if (insertRoleError) {
-          console.error('Error inserting user_roles:', insertRoleError);
+      // Delete ALL existing role assignments for this user, then re-insert cleanly.
+      // This is safer than patching individual rows (avoids stale secondary roles lingering).
+      const { error: deleteError } = await (
+        serviceClient.from('user_roles') as any
+      )
+        .delete()
+        .eq('user_id', userId);
+
+      if (deleteError) {
+        console.error('Error clearing user_roles:', deleteError);
+      } else {
+        const assignments = allRoleIds.map(({ id: roleId, role_key }) => ({
+          user_id: userId,
+          role_id: roleId,
+          is_primary: role_key === role,
+          assigned_by: user.id
+        }));
+
+        const { error: insertError } = await (
+          serviceClient.from('user_roles') as any
+        ).insert(assignments);
+
+        if (insertError) {
+          console.error('Error inserting user_roles:', insertError);
         }
       }
     } catch (rolesSyncError) {
-      // Log but don't fail the request - profiles.role is already updated
+      // Log but don't fail the request — profiles.role is already updated
       console.error('Error syncing user_roles table:', rolesSyncError);
     }
 

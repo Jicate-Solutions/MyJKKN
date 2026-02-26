@@ -138,99 +138,45 @@ export class DegreeService {
     filters: DegreeFilters = {}
   ): Promise<DegreeListResponse> {
     try {
-      let query = (this.supabase as any).from('degrees').select(
-        `
-        *,
-        institution:institutions (
-          id,
-          name,
-          counselling_code
-        )
-      `,
-        { count: 'exact' }
-      );
+      const page = filters.page ?? 1;
+      const limit = filters.limit ?? 10;
 
-      // Apply filters
-      if (filters.search) {
-        query = query.or(
-          `degree_id.ilike.%${filters.search}%,degree_name.ilike.%${filters.search}%`
-        );
-      }
+      const params = new URLSearchParams({
+        page: String(page),
+        limit: String(limit),
+      });
 
-      if (filters.institution_id) {
-        query = query.eq('institution_id', filters.institution_id);
-      }
+      if (filters.search) params.set('search', filters.search);
+      if (filters.institution_id) params.set('institution_id', filters.institution_id);
+      if (filters.degree_type) params.set('degree_type', filters.degree_type);
 
-      if (filters.degree_type) {
-        query = query.eq('degree_type', filters.degree_type);
-      }
-
-      // Handle status filter (map string to boolean)
+      // Map string status → boolean isActive for JKKN API
       if (filters.status) {
-        const isActive = filters.status === 'active';
-        query = query.eq('is_active', isActive);
+        params.set('isActive', filters.status === 'active' ? 'true' : 'false');
       } else if (filters.isActive !== undefined) {
-        query = query.eq('is_active', filters.isActive);
+        params.set('isActive', String(filters.isActive));
       }
 
-      // Apply institution filtering based on user access if userId is provided
-      if (filters.userId && !filters.bypassInstitutionFilter) {
-        const accessibleInstitutionIds =
-          await this.getUserAccessibleInstitutionIds(filters.userId);
-
-        if (accessibleInstitutionIds.length > 0) {
-          query = query.in('institution_id', accessibleInstitutionIds);
-        } else {
-          // If user has no accessible institutions, return empty result
-          return {
-            data: [],
-            metadata: {
-              total: 0,
-              page: filters.page || 1,
-              limit: filters.limit || 10,
-              totalPages: 0
-            }
-          };
-        }
-      } else if (filters.bypassInstitutionFilter) {
-      } else {
+      const res = await fetch(`/api/jkkn/degrees?${params}`);
+      if (!res.ok) {
+        const body = await res.text().catch(() => '');
+        console.error('DegreeService: Query error:', body);
+        throw new Error(`JKKN degrees API error ${res.status}`);
       }
 
-      // Apply sorting
-      if (filters.sortBy && filters.sortOrder) {
-        query = query.order(filters.sortBy, {
-          ascending: filters.sortOrder === 'asc'
-        });
-      } else {
-        query = query.order('created_at', { ascending: false });
-      }
-
-      // Apply pagination
-      const page = filters.page || 1;
-      const limit = filters.limit || 10;
-      const from = (page - 1) * limit;
-      const to = from + limit - 1;
-
-      query = query.range(from, to);
-
-      const { data: degrees, error, count } = await query;
-
-      if (error) {
-        console.error('DegreeService: Query error:', error);
-        throw error;
-      }
+      const json = await res.json();
 
       return {
-        data: degrees || [],
+        data: json.data ?? [],
         metadata: {
-          total: count || 0,
-          page,
-          limit,
-          totalPages: count ? Math.ceil(count / limit) : 0
-        }
+          total: json.metadata?.total ?? 0,
+          page: json.metadata?.page ?? page,
+          limit: json.metadata?.limit ?? limit,
+          totalPages: json.metadata?.totalPages ?? 0,
+        },
       };
     } catch (error) {
-      console.error('Error fetching degrees:', error);
+      console.error('DegreeService: Query error:', error);
       throw error;
     }
   }
@@ -265,51 +211,20 @@ export class DegreeService {
     institutionId: string
   ): Promise<Degree[]> {
     try {
-      // Check if institutionId is a UUID or a name/label
-      const isUUID =
-        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-          institutionId
-        );
+      const params = new URLSearchParams({
+        institution_id: institutionId,
+        isActive: 'true',
+        limit: '100',
+        page: '1',
+      });
 
-      let query;
+      const res = await fetch(`/api/jkkn/degrees?${params}`);
+      if (!res.ok) return [];
 
-      if (isUUID) {
-        // If it's a UUID, use it directly with eq
-        query = (this.supabase as any)
-          .from('degrees')
-          .select('*')
-          .eq('institution_id', institutionId)
-          .eq('is_active', true)
-          .order('degree_name');
-      } else {
-        // If it's not a UUID, we need to first find the institution by name
-        const { data: institution } = await (this.supabase as any)
-          .from('institutions')
-          .select('id')
-          .ilike('name', institutionId)
-          .single();
-
-        if (institution) {
-          query = (this.supabase as any)
-            .from('degrees')
-            .select('*')
-            .eq('institution_id', institution.id)
-            .eq('is_active', true)
-            .order('degree_name');
-        } else {
-          // Return empty array if no institution found
-          return [];
-        }
-      }
-
-      const { data: degrees, error } = await query;
-
-      if (error) throw error;
-
-      return degrees || [];
+      const json = await res.json();
+      return json.data ?? [];
     } catch (error) {
       console.error('Error fetching degrees by institution:', error);
-      // Return empty array instead of throwing error
       return [];
     }
   }

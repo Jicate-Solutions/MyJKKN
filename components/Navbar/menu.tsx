@@ -28,7 +28,8 @@ export function Menu({ isOpen }: MenuProps) {
     permissions,
     isSuperAdmin,
     isLoading: permissionsLoading,
-    userProfile
+    userProfile,
+    primaryRole
   } = usePermissions();
 
   // Build RolePermissionData from usePermissions (multi-role merged)
@@ -44,10 +45,10 @@ export function Menu({ isOpen }: MenuProps) {
     }
 
     return {
-      role_key: userProfile.role || '',
+      role_key: primaryRole?.role_key || userProfile.role || '',
       permissions
     };
-  }, [userProfile, permissions, isSuperAdmin]);
+  }, [userProfile, permissions, isSuperAdmin, primaryRole]);
 
   // Debug: Log permission state for troubleshooting
   if (process.env.NODE_ENV === 'development' && roleData && !permissionsLoading) {

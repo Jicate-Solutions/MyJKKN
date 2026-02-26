@@ -65,59 +65,97 @@ export class CelebrationService {
     const todayDay = today.getDate();
 
     const birthdays: Celebration[] = [];
+    const workAnniversaries: Celebration[] = [];
 
-    // Get staff birthdays with institution and department details
+    // ── Staff: single query for both birthdays and work anniversaries ──────────
+    // Selecting raw ID columns avoids PostgREST FK expansion (which requires
+    // declared FOREIGN KEY constraints). Names are resolved via batch lookups below.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let staffQuery = (supabase as any)
       .from('staff')
-      .select(`
-        id, first_name, last_name, date_of_birth, profile_picture, designation,
-        institutions:institution_id (name),
-        departments:department_id (department_name)
-      `)
-      .not('date_of_birth', 'is', null);
+      .select('id, first_name, last_name, date_of_birth, date_of_joining, profile_picture, designation, institution_id, department_id');
 
     if (userProfile.institution_id) {
       staffQuery = staffQuery.eq('institution_id', userProfile.institution_id);
     }
 
-    const { data: staffBirthdays, error: staffError } = await staffQuery;
+    const { data: staffData, error: staffError } = await staffQuery;
 
     if (staffError) {
       logger.error('dashboard/celebrations', 'Failed to fetch staff birthdays', staffError);
-    } else if (staffBirthdays) {
-      staffBirthdays.forEach((staff: any) => {
-        const dob = new Date(staff.date_of_birth!);
-        if (dob.getMonth() + 1 === todayMonth && dob.getDate() === todayDay) {
-          const age = today.getFullYear() - dob.getFullYear();
-          const fullName = [staff.first_name, staff.last_name].filter(Boolean).join(' ');
-          birthdays.push({
-            id: staff.id,
-            name: fullName || 'Unknown',
-            type: 'birthday',
-            date: staff.date_of_birth!,
-            age,
-            role: 'Team Member',
-            avatar_url: staff.profile_picture || undefined,
-            days_until: 0,
-            institution_name: staff.institutions?.name || undefined,
-            department_name: staff.departments?.department_name || undefined,
-            designation: staff.designation || undefined,
-          });
+    } else if (staffData && staffData.length > 0) {
+      // Batch-fetch institution and department names in parallel
+      const staffInstIds = [...new Set((staffData as any[]).map((s: any) => s.institution_id).filter(Boolean))] as string[];
+      const deptIds = [...new Set((staffData as any[]).map((s: any) => s.department_id).filter(Boolean))] as string[];
+
+      const [{ data: instRows }, { data: deptRows }] = await Promise.all([
+        staffInstIds.length > 0
+          ? supabase.from('institutions').select('id, name').in('id', staffInstIds)
+          : Promise.resolve({ data: [] as { id: string; name: string }[] }),
+        deptIds.length > 0
+          ? supabase.from('departments').select('id, department_name').in('id', deptIds)
+          : Promise.resolve({ data: [] as { id: string; department_name: string }[] }),
+      ]);
+
+      const staffInstMap: Record<string, string> = Object.fromEntries((instRows || []).map((i: any) => [i.id, i.name]));
+      const deptMap: Record<string, string> = Object.fromEntries((deptRows || []).map((d: any) => [d.id, d.department_name]));
+
+      // Single loop handles both birthday and anniversary checks
+      (staffData as any[]).forEach((staff: any) => {
+        const fullName = [staff.first_name, staff.last_name].filter(Boolean).join(' ') || 'Unknown';
+        const institutionName = staffInstMap[staff.institution_id] || undefined;
+        const departmentName = deptMap[staff.department_id] || undefined;
+
+        if (staff.date_of_birth) {
+          const dob = new Date(staff.date_of_birth);
+          if (dob.getMonth() + 1 === todayMonth && dob.getDate() === todayDay) {
+            birthdays.push({
+              id: staff.id,
+              name: fullName,
+              type: 'birthday',
+              date: staff.date_of_birth,
+              age: today.getFullYear() - dob.getFullYear(),
+              role: 'Team Member',
+              avatar_url: staff.profile_picture || undefined,
+              days_until: 0,
+              institution_name: institutionName,
+              department_name: departmentName,
+              designation: staff.designation || undefined,
+            });
+          }
+        }
+
+        if (staff.date_of_joining) {
+          const joinDate = new Date(staff.date_of_joining);
+          if (joinDate.getMonth() + 1 === todayMonth && joinDate.getDate() === todayDay) {
+            const years = today.getFullYear() - joinDate.getFullYear();
+            if (years > 0) {
+              workAnniversaries.push({
+                id: staff.id,
+                name: fullName,
+                type: 'work_anniversary',
+                date: staff.date_of_joining,
+                years,
+                role: 'Team Member',
+                avatar_url: staff.profile_picture || undefined,
+                days_until: 0,
+                institution_name: institutionName,
+                department_name: departmentName,
+                designation: staff.designation || undefined,
+              });
+            }
+          }
         }
       });
     }
 
-    // Get student birthdays (only if faculty/admin) with section and program details
+    // ── Student birthdays (faculty/admin only) ─────────────────────────────────
     if (role !== 'student') {
+      // Step 1: fetch learners with raw ID columns only
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       let studentQuery = (supabase as any)
         .from('learners_profiles')
-        .select(`
-          id, first_name, last_name, date_of_birth, student_photo_url,
-          institutions:institution_id (name),
-          sections:section_id (section_name, programs:program_id (program_name))
-        `)
+        .select('id, first_name, last_name, date_of_birth, student_photo_url, institution_id, section_id')
         .eq('lifecycle_status', 'active')
         .not('date_of_birth', 'is', null);
 
@@ -125,78 +163,56 @@ export class CelebrationService {
         studentQuery = studentQuery.eq('institution_id', userProfile.institution_id);
       }
 
-      const { data: studentBirthdays, error: studentError } = await studentQuery;
+      const { data: studentData, error: studentError } = await studentQuery;
 
       if (studentError) {
         logger.error('dashboard/celebrations', 'Failed to fetch student birthdays', studentError);
-      } else if (studentBirthdays) {
-        studentBirthdays.forEach((student: any) => {
-          const dob = new Date(student.date_of_birth!);
+      } else if (studentData && studentData.length > 0) {
+        // Step 2: batch-fetch institutions + sections in parallel
+        const studInstIds = [...new Set((studentData as any[]).map((s: any) => s.institution_id).filter(Boolean))] as string[];
+        const sectIds = [...new Set((studentData as any[]).map((s: any) => s.section_id).filter(Boolean))] as string[];
+
+        const [{ data: instRows2 }, { data: sectRows }] = await Promise.all([
+          studInstIds.length > 0
+            ? supabase.from('institutions').select('id, name').in('id', studInstIds)
+            : Promise.resolve({ data: [] as { id: string; name: string }[] }),
+          sectIds.length > 0
+            ? supabase.from('sections').select('id, section_name, program_id').in('id', sectIds)
+            : Promise.resolve({ data: [] as { id: string; section_name: string; program_id: string }[] }),
+        ]);
+
+        // Step 3: batch-fetch programs (depends on program_ids from sections)
+        const progIds = [...new Set((sectRows || []).map((s: any) => s.program_id).filter(Boolean))] as string[];
+        const { data: progRows } = progIds.length > 0
+          ? await supabase.from('programs').select('id, program_name').in('id', progIds)
+          : { data: [] as { id: string; program_name: string }[] };
+
+        const studInstMap: Record<string, string> = Object.fromEntries((instRows2 || []).map((i: any) => [i.id, i.name]));
+        const progMap: Record<string, string> = Object.fromEntries((progRows || []).map((p: any) => [p.id, p.program_name]));
+        const sectMap: Record<string, { section_name: string; program_name?: string }> = Object.fromEntries(
+          (sectRows || []).map((s: any) => [s.id, { section_name: s.section_name, program_name: progMap[s.program_id] }])
+        );
+
+        (studentData as any[]).forEach((student: any) => {
+          const dob = new Date(student.date_of_birth);
           if (dob.getMonth() + 1 === todayMonth && dob.getDate() === todayDay) {
-            const age = today.getFullYear() - dob.getFullYear();
-            const fullName = [student.first_name, student.last_name].filter(Boolean).join(' ');
+            const fullName = [student.first_name, student.last_name].filter(Boolean).join(' ') || 'Unknown';
             birthdays.push({
               id: student.id,
-              name: fullName || 'Unknown',
+              name: fullName,
               type: 'birthday',
-              date: student.date_of_birth!,
-              age,
+              date: student.date_of_birth,
+              age: today.getFullYear() - dob.getFullYear(),
               role: 'Learner',
               avatar_url: student.student_photo_url || undefined,
               days_until: 0,
-              institution_name: student.institutions?.name || undefined,
-              section_name: student.sections?.section_name || undefined,
-              program_name: student.sections?.programs?.program_name || undefined,
+              institution_name: studInstMap[student.institution_id] || undefined,
+              section_name: sectMap[student.section_id]?.section_name || undefined,
+              program_name: sectMap[student.section_id]?.program_name || undefined,
             });
           }
         });
       }
-    }
-
-    // Get work anniversaries (staff only) with institution and department details
-    const workAnniversaries: Celebration[] = [];
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let anniversaryQuery = (supabase as any)
-      .from('staff')
-      .select(`
-        id, first_name, last_name, date_of_joining, profile_picture, designation,
-        institutions:institution_id (name),
-        departments:department_id (department_name)
-      `)
-      .not('date_of_joining', 'is', null);
-
-    if (userProfile.institution_id) {
-      anniversaryQuery = anniversaryQuery.eq('institution_id', userProfile.institution_id);
-    }
-
-    const { data: staffAnniversaries, error: anniversaryError } = await anniversaryQuery;
-
-    if (anniversaryError) {
-      logger.error('dashboard/celebrations', 'Failed to fetch staff work anniversaries', anniversaryError);
-    } else if (staffAnniversaries) {
-      staffAnniversaries.forEach((staff: any) => {
-        const joinDate = new Date(staff.date_of_joining!);
-        if (joinDate.getMonth() + 1 === todayMonth && joinDate.getDate() === todayDay) {
-          const years = today.getFullYear() - joinDate.getFullYear();
-          if (years > 0) {
-            const fullName = [staff.first_name, staff.last_name].filter(Boolean).join(' ');
-            workAnniversaries.push({
-              id: staff.id,
-              name: fullName || 'Unknown',
-              type: 'work_anniversary',
-              date: staff.date_of_joining!,
-              years,
-              role: 'Team Member',
-              avatar_url: staff.profile_picture || undefined,
-              days_until: 0,
-              institution_name: staff.institutions?.name || undefined,
-              department_name: staff.departments?.department_name || undefined,
-              designation: staff.designation || undefined,
-            });
-          }
-        }
-      });
     }
 
     return { birthdays, workAnniversaries };

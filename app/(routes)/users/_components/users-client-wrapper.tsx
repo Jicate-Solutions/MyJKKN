@@ -63,7 +63,14 @@ export function UsersClientWrapper({
         setError(null);
 
         const fetchFilters: UserFilters = { ...filters };
-        if (initialProfile && initialProfile.institution_id) {
+        // Only apply institution scoping for faculty/hod — server handles their restriction.
+        // super_admin and administrator should see all users (including those with null institution_id
+        // e.g. newly synced Supabase auth users who haven't completed their profile yet).
+        const role = initialProfile?.role;
+        if (
+          initialProfile?.institution_id &&
+          (role === 'faculty' || role === 'hod')
+        ) {
           fetchFilters.institution = initialProfile.institution_id;
         }
 

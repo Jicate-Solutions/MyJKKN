@@ -18,6 +18,7 @@ import {
 import { RolesList } from './_components/roles-list';
 import { UserService } from '@/lib/services/users/user-service';
 import { UserRolesService } from '@/lib/services/users/user-roles-service';
+import { usePermissions } from '@/hooks/use-permissions';
 import toast from 'react-hot-toast';
 import { UserFilters } from '@/types/users';
 import { UserFiltersComponent } from '../_components/user-filters';
@@ -30,6 +31,11 @@ export default function RolesPage() {
   const [error, setError] = useState<string | null>(null);
   const [users, setUsers] = useState<Profile[]>([]);
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
+  const {
+    hasAllPermissions,
+    isLoading: permLoading,
+    userProfile,
+  } = usePermissions(['roles.assign']);
   const [advancedSearchFilters, setAdvancedSearchFilters] = useState<UserSearchFilters | null>(null);
   const [filters, setFilters] = useState<UserFilters>({
     page: 1,
@@ -46,21 +52,14 @@ export default function RolesPage() {
   });
   // Check super admin access
   useEffect(() => {
-    const checkAccess = async () => {
-      try {
-        const { data: profile } = await UserService.getCurrentUserProfile();
-        if (!profile || profile.role !== 'super_admin') {
-          router.push('/unauthorized');
-          return;
-        }
-        setIsSuperAdmin(true);
-      } catch (error) {
-        console.error('Error checking access:', error);
-        router.push('/unauthorized');
-      }
-    };
-    checkAccess();
-  }, [router]);
+    if (permLoading) return;
+    if (!userProfile) return; // profile not loaded yet — don't redirect
+    if (!hasAllPermissions) {
+      router.push('/unauthorized');
+      return;
+    }
+    setIsSuperAdmin(true);
+  }, [permLoading, hasAllPermissions, userProfile, router]);
 
   // Add filter change handler
   const handleFilterChange = (newFilters: Partial<UserFilters>) => {

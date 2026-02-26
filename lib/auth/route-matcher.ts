@@ -7,7 +7,7 @@
  */
 
 import { PROTECTED_ROUTES } from './protected-routes';
-import { MENU_PERMISSIONS } from '@/lib/sidebarMenuLink';
+import { MENU_PERMISSIONS } from './menu-permissions';
 
 interface RouteNode {
   roles?: string[]; // Static roles (fallback for routes without dynamic permissions)

@@ -306,7 +306,7 @@ Tell Claude to remember important project details:
 
 ```
 "Remember that our MyJKKN project uses:
-- Supabase for database (project: kvizhngldtiuufknvehv)
+- Supabase for database (project: zwiasdpodeirxnybwvuw)
 - Next.js 14 with App Router
 - TypeScript with strict mode
 - Billing module uses optimized queries with _optimized suffix

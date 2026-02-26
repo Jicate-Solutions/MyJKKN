@@ -166,7 +166,7 @@ export default function RootLayout({
         {/* Preconnect to critical third-party origins — shaves ~200-400ms off first request */}
         <link
           rel='preconnect'
-          href='https://kvizhngldtiuufknvehv.supabase.co'
+          href='https://zwiasdpodeirxnybwvuw.supabase.co'
           crossOrigin='anonymous'
         />
         <link

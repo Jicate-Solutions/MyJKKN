@@ -69,7 +69,14 @@ import {
   MessagesSquare,
   Radio,
   SearchCheck,
-  UserCog
+  UserCog,
+  ShoppingCart,
+  Warehouse,
+  DollarSign,
+  Truck,
+  Ruler,
+  ArrowLeftRight,
+  RotateCcw
 } from 'lucide-react';
 import { CustomRole } from '@/types/auth';
 // FEATURE_FLAGS import removed - not used in sidebar filtering
@@ -474,6 +481,232 @@ export function GetPages(pathname: string): MenuGroup[] {
           active: pathname === '/application-hub',
           icon: LayoutGrid, // or any other icon you prefer
           submenus: []
+        }
+      ]
+    },
+    {
+      groupLabel: 'JKKN API',
+      menus: [
+        {
+          href: '/jkkn-api/institutions',
+          label: 'Institutions',
+          active: pathname === '/jkkn-api/institutions',
+          icon: Building2,
+          submenus: []
+        },
+        {
+          href: '/jkkn-api/departments',
+          label: 'Departments',
+          active: pathname === '/jkkn-api/departments',
+          icon: Building,
+          submenus: []
+        },
+        {
+          href: '/jkkn-api/degrees',
+          label: 'Degrees',
+          active: pathname === '/jkkn-api/degrees',
+          icon: GraduationCap,
+          submenus: []
+        },
+        {
+          href: '/jkkn-api/programs',
+          label: 'Programs',
+          active: pathname === '/jkkn-api/programs',
+          icon: BookOpen,
+          submenus: []
+        },
+        {
+          href: '/jkkn-api/courses',
+          label: 'Courses',
+          active: pathname === '/jkkn-api/courses',
+          icon: Bookmark,
+          submenus: []
+        },
+        {
+          href: '/jkkn-api/semesters',
+          label: 'Semesters',
+          active: pathname === '/jkkn-api/semesters',
+          icon: CalendarDays,
+          submenus: []
+        },
+        {
+          href: '/jkkn-api/sections',
+          label: 'Sections',
+          active: pathname === '/jkkn-api/sections',
+          icon: FolderTree,
+          submenus: []
+        }
+      ]
+    },
+    {
+      groupLabel: 'IMS',
+      menus: [
+        {
+          href: '/ims/dashboard',
+          label: 'Dashboard',
+          active: pathname === '/ims/dashboard',
+          icon: LayoutGrid,
+          submenus: []
+        },
+        {
+          href: '/ims/inventory',
+          label: 'Inventory',
+          active: pathname.startsWith('/ims/inventory'),
+          icon: Package,
+          submenus: [
+            {
+              href: '/ims/inventory/items',
+              label: 'Items',
+              active: pathname === '/ims/inventory/items'
+            },
+            {
+              href: '/ims/inventory/categories',
+              label: 'Categories',
+              active: pathname === '/ims/inventory/categories'
+            }
+          ]
+        },
+        {
+          href: '/ims/stock',
+          label: 'Stock',
+          active: pathname.startsWith('/ims/stock'),
+          icon: Warehouse,
+          submenus: [
+            {
+              href: '/ims/stock',
+              label: 'Stock Levels',
+              active: pathname === '/ims/stock'
+            },
+            {
+              href: '/ims/stock/grn',
+              label: 'GRN',
+              active: pathname.startsWith('/ims/stock/grn')
+            },
+            {
+              href: '/ims/stock/batches',
+              label: 'Batches',
+              active: pathname === '/ims/stock/batches'
+            },
+            {
+              href: '/ims/stock/department',
+              label: 'Department Stock',
+              active: pathname === '/ims/stock/department'
+            },
+            {
+              href: '/ims/stock/adjustments',
+              label: 'Adjustments',
+              active: pathname === '/ims/stock/adjustments'
+            }
+          ]
+        },
+        {
+          href: '/ims/indents',
+          label: 'Indents',
+          active: pathname.startsWith('/ims/indents'),
+          icon: FileText,
+          submenus: [
+            {
+              href: '/ims/indents',
+              label: 'All Indents',
+              active: pathname === '/ims/indents'
+            },
+            {
+              href: '/ims/indents/new',
+              label: 'New Request',
+              active: pathname === '/ims/indents/new'
+            },
+            {
+              href: '/ims/indents/pending',
+              label: 'Pending Approval',
+              active: pathname === '/ims/indents/pending'
+            }
+          ]
+        },
+        {
+          href: '/ims/sales',
+          label: 'Sales',
+          active: pathname.startsWith('/ims/sales'),
+          icon: ShoppingCart,
+          submenus: [
+            {
+              href: '/ims/sales',
+              label: 'POS',
+              active: pathname === '/ims/sales'
+            },
+            {
+              href: '/ims/sales/history',
+              label: 'History',
+              active: pathname === '/ims/sales/history'
+            }
+          ]
+        },
+        {
+          href: '/ims/reports',
+          label: 'Reports',
+          active: pathname.startsWith('/ims/reports'),
+          icon: BarChart3,
+          submenus: [
+            {
+              href: '/ims/reports',
+              label: 'Overview',
+              active: pathname === '/ims/reports'
+            },
+            {
+              href: '/ims/reports/stock',
+              label: 'Stock Report',
+              active: pathname === '/ims/reports/stock'
+            },
+            {
+              href: '/ims/reports/consumption',
+              label: 'Consumption',
+              active: pathname === '/ims/reports/consumption'
+            },
+            {
+              href: '/ims/reports/indents',
+              label: 'Indents Report',
+              active: pathname === '/ims/reports/indents'
+            },
+            {
+              href: '/ims/reports/sales',
+              label: 'Sales Report',
+              active: pathname === '/ims/reports/sales'
+            }
+          ]
+        },
+        {
+          href: '/ims/financial',
+          label: 'Financial',
+          active: pathname === '/ims/financial',
+          icon: DollarSign,
+          submenus: []
+        },
+        {
+          href: '/ims/settings',
+          label: 'Settings',
+          active: pathname.startsWith('/ims/settings'),
+          icon: Settings,
+          submenus: [
+            {
+              href: '/ims/settings/stores',
+              label: 'Stores',
+              active: pathname === '/ims/settings/stores'
+            },
+            {
+              href: '/ims/settings/suppliers',
+              label: 'Suppliers',
+              active: pathname === '/ims/settings/suppliers'
+            },
+            {
+              href: '/ims/settings/units',
+              label: 'Units',
+              active: pathname === '/ims/settings/units'
+            },
+            {
+              href: '/ims/settings/unit-conversions',
+              label: 'Unit Conversions',
+              active: pathname === '/ims/settings/unit-conversions'
+            }
+          ]
         }
       ]
     },
@@ -1472,7 +1705,8 @@ export function GetRoleBasedPages(
   );
 
   // If all permissions are false, only show Dashboard
-  if (!hasAnyPermission) {
+  // Exception: students have empty permissions by design — they use role_key identity checks instead
+  if (!hasAnyPermission && userRole.role_key !== 'student') {
     console.log('All permissions are false - showing only Dashboard');
     return [
       {

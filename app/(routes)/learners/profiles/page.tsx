@@ -18,6 +18,7 @@ import { ProfilesFilters } from './_components/profiles-filters';
 import { ProfilesSearchWrapper } from './_components/profiles-search-wrapper';
 import { profilesSearchParamsSchema } from './_components/data-table-schema';
 import { CreateMissingProfilesButton } from './_components/create-missing-profiles-button';
+import { SyncFromJkknButton } from './_components/sync-from-jkkn-button';
 import { BulkUploadProfilesDialogEnhanced } from './_components/bulk-upload-profiles-dialog-enhanced';
 import { BulkUploadLearnerImages } from './_components/bulk-upload-learner-images';
 import { BulkEditActiveDialog } from './_components/bulk-edit-exited-dialog';
@@ -207,6 +208,7 @@ export default async function ProfilesPage({ searchParams }: ProfilesPageProps) 
           {!isStudent && (
             <div className="flex flex-wrap gap-2">
               <CreateMissingProfilesButton />
+              <SyncFromJkknButton />
               <BulkUploadProfilesDialogEnhanced />
               <BulkUploadLearnerImages institutionId={params.institution_id as string | undefined} />
               <BulkEditActiveDialog />

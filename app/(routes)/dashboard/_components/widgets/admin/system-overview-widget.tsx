@@ -16,32 +16,32 @@ export function SystemOverviewWidget({ isVisible }: SystemOverviewWidgetProps) {
   const stats = [
     {
       label: 'Institutions',
-      value: overview?.total_institutions || 0,
+      value: overview?.total_institutions ?? 0,
       icon: Building2,
       color: 'text-blue-600',
       bgColor: 'bg-blue-50'
     },
     {
-      label: 'Users',
-      value: overview?.total_users || 0,
-      icon: Users,
-      color: 'text-purple-600',
-      bgColor: 'bg-purple-50'
+      label: 'Departments',
+      value: overview?.total_departments ?? 0,
+      icon: Briefcase,
+      color: 'text-orange-600',
+      bgColor: 'bg-orange-50'
     },
     {
-      label: 'Learners',
-      value: overview?.total_students || 0,
+      label: 'Programs',
+      value: overview?.total_programs ?? 0,
       icon: GraduationCap,
       color: 'text-green-600',
       bgColor: 'bg-green-50'
     },
     {
-      label: 'Facilitators',
-      value: overview?.total_staff || 0,
-      icon: Briefcase,
-      color: 'text-orange-600',
-      bgColor: 'bg-orange-50'
-    }
+      label: 'Users',
+      value: overview?.total_users ?? 0,
+      icon: Users,
+      color: 'text-purple-600',
+      bgColor: 'bg-purple-50'
+    },
   ];
 
   return (

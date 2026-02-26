@@ -23,8 +23,10 @@ export async function createClient() {
             cookiesToSet.forEach(({ name, value, options }) =>
               cookieStore.set(name, value, options)
             );
-          } catch (error) {
-            console.error('Error setting cookies:', error);
+          } catch {
+            // Expected in Server Components — cookies can only be set in
+            // Server Actions or Route Handlers. Supabase SSR still attempts
+            // the refresh; Next.js blocks it here but the read path is fine.
           }
         }
       }
@@ -49,8 +51,8 @@ export async function createServerSupabaseClient() {
             cookiesToSet.forEach(({ name, value, options }) =>
               cookieStore.set(name, value, options)
             );
-          } catch (error) {
-            console.error('Error setting cookies:', error);
+          } catch {
+            // Same as above — expected, benign, silently ignored.
           }
         }
       }

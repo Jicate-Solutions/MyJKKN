@@ -383,64 +383,34 @@ export class OrganizationService {
     filters: InstitutionFilters = {}
   ): Promise<OrganizationListResponse<Institution>> {
     try {
-      let query = this.supabase
-        .from('institutions')
-        .select('*', { count: 'exact' });
+      const page = filters.page ?? 1;
+      const limit = filters.limit ?? 10;
 
-      // Apply search filter
-      if (filters.search) {
-        query = query.or(
-          `name.ilike.%${filters.search}%,counselling_code.ilike.%${filters.search}%`
-        );
+      const params = new URLSearchParams({
+        page: String(page),
+        limit: String(limit),
+      });
+
+      if (filters.search) params.set('search', filters.search);
+      if (filters.isActive !== undefined) params.set('isActive', String(filters.isActive));
+
+      const res = await fetch(`/api/jkkn/institutions?${params}`);
+      if (!res.ok) {
+        const body = await res.text().catch(() => '');
+        console.error('OrganizationService: getInstitutions error:', body);
+        throw new Error(`JKKN institutions API error ${res.status}`);
       }
 
-      // Apply active status filter
-      if (filters.isActive !== undefined) {
-        query = query.eq('is_active', filters.isActive);
-      }
-
-      // Apply institution filtering based on user access if userId is provided
-      if (filters.userId && !filters.bypassInstitutionFilter) {
-        const accessibleInstitutionIds =
-          await this.getUserAccessibleInstitutionIds(filters.userId);
-        if (accessibleInstitutionIds.length > 0) {
-          query = query.in('id', accessibleInstitutionIds);
-        } else {
-          // If user has no accessible institutions, return empty result
-          return {
-            data: [],
-            metadata: {
-              total: 0,
-              page: filters.page || 1,
-              limit: filters.limit || 10,
-              totalPages: 0
-            }
-          };
-        }
-      }
-
-      // Calculate pagination
-      const page = filters.page || 1;
-      const limit = filters.limit || 10;
-      const from = (page - 1) * limit;
-      const to = from + limit - 1;
-
-      // Apply pagination
-      query = query.range(from, to).order('created_at', { ascending: false });
-
-      // Execute query
-      const { data: institutions, error, count } = await query;
-
-      if (error) throw error;
+      const json = await res.json();
 
       return {
-        data: (institutions || []) as Institution[],
+        data: (json.data ?? []) as Institution[],
         metadata: {
-          total: count || 0,
-          page,
-          limit,
-          totalPages: count ? Math.ceil(count / limit) : 0
-        }
+          total: json.metadata?.total ?? 0,
+          page: json.metadata?.page ?? page,
+          limit: json.metadata?.limit ?? limit,
+          totalPages: json.metadata?.totalPages ?? 0,
+        },
       };
     } catch (error) {
       console.error('Error in getInstitutions:', error);
@@ -543,36 +513,22 @@ export class OrganizationService {
     userId?: string
   ): Promise<{ id: string; name: string; counselling_code: string }[]> {
     try {
-      // If userId is provided, use institution filtering
-      if (userId) {
-        const { data: institutions } = await this.getInstitutions({
-          isActive,
-          userId
-        });
-        return institutions.map((inst) => ({
-          id: inst.id,
-          name: inst.name,
-          counselling_code: inst.counselling_code
-        }));
-      }
+      // Fetch all institutions from JKKN API (authoritative source)
+      const params = new URLSearchParams({ page: '1', limit: '100' });
+      if (isActive !== undefined) params.set('isActive', String(isActive));
 
-      // Fallback to direct query (for super admin or service contexts)
-      let query = this.supabase
-        .from('institutions')
-        .select('id, name, counselling_code');
+      const res = await fetch(`/api/jkkn/institutions?${params}`);
+      if (!res.ok) return [];
 
-      if (isActive !== undefined) {
-        query = query.eq('is_active', isActive);
-      }
-
-      const { data, error } = await query.order('name');
-
-      if (error) throw error;
-
-      return data || [];
+      const json = await res.json();
+      return (json.data ?? []).map((inst: any) => ({
+        id: inst.id,
+        name: inst.name,
+        counselling_code: inst.counselling_code,
+      }));
     } catch (error) {
       console.error('Error fetching institution names:', error);
-      throw error;
+      return [];
     }
   }
 

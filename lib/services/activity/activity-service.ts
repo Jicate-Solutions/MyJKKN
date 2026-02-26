@@ -117,7 +117,7 @@ export class ActivityService {
       let query = (this.supabase as any).from('user_activity_logs').select(
         `
           *,
-          profiles!user_activity_logs_user_id_fkey(
+          profiles!fk_user_activity_logs_profile(
             id,
             full_name,
             email,
@@ -192,7 +192,7 @@ export class ActivityService {
       const totalPages = Math.ceil((count || 0) / limit);
 
       return {
-        data: data as UserActivityLogWithUser[],
+        data: data as unknown as UserActivityLogWithUser[],
         count: count || 0,
         page,
         limit,
@@ -317,12 +317,12 @@ export class ActivityService {
       // Get most active user
       const { data: userActivityData } = await this.supabase
         .from('user_activity_logs')
-        .select('user_id, profiles!user_activity_logs_user_id_fkey(full_name)')
+        .select('user_id, profiles!fk_user_activity_logs_profile(full_name)')
         .gte('created_at', dateRange.from)
         .lte('created_at', dateRange.to);
 
-      // Type cast to fix TypeScript inference after React 19 upgrade
-      const userActivityResult = userActivityData as { user_id: string; profiles: { full_name: string } | null }[] | null;
+      // Double cast required: Supabase infers SelectQueryError when FK isn't in schema cache
+      const userActivityResult = userActivityData as unknown as { user_id: string; profiles: { full_name: string } | null }[] | null;
 
       const userCounts =
         userActivityResult?.reduce((acc, log) => {
@@ -492,7 +492,7 @@ export class ActivityService {
         .select(
           `
           *,
-          profiles!user_activity_logs_user_id_fkey(
+          profiles!fk_user_activity_logs_profile(
             id,
             full_name,
             email,
@@ -509,7 +509,7 @@ export class ActivityService {
         .limit(limit);
 
       if (error) throw error;
-      return data as UserActivityLogWithUser[];
+      return data as unknown as UserActivityLogWithUser[];
     } catch (error) {
       console.error('Error fetching user activity logs:', error);
       throw error;
@@ -572,7 +572,7 @@ export class ActivityService {
         .select(
           `
           *,
-          profiles!user_activity_logs_user_id_fkey(
+          profiles!fk_user_activity_logs_profile(
             id,
             full_name,
             email,
@@ -590,7 +590,7 @@ export class ActivityService {
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-      return data as UserActivityLogWithUser[];
+      return data as unknown as UserActivityLogWithUser[];
     } catch (error) {
       console.error('Error fetching security activities:', error);
       throw error;

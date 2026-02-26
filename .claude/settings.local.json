@@ -236,7 +236,9 @@
       "Bash(which openssl 2>/dev/null && openssl version 2>&1)",
       "Bash(echo Certificate file updated:*)",
       "Bash(cd /d/Projects/MyJKKN && rm -rf .tsbuildinfo tsconfig.tsbuildinfo && npx tsc --noEmit 2>&1)",
-      "Bash(wait:*)"
+      "Bash(wait:*)",
+      "Bash(claude update:*)",
+      "Bash(tasklist:*)"
     ],
     "deny": [],
     "ask": []
