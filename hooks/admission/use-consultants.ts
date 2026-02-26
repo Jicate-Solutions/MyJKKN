@@ -7,7 +7,9 @@ import { ConsultantService } from '@/lib/services/admission/consultant-service';
 import type {
   ConsultantFilters,
   CommissionTransactionFilters,
-  RewardFilters
+  RewardFilters,
+  CreateConsultantInstitutionInput,
+  UpdateConsultantInstitutionInput,
 } from '@/types/education-consultants';
 
 // ============================================
@@ -18,7 +20,8 @@ export function useConsultants(filters: ConsultantFilters) {
   return useQuery({
     queryKey: ['consultants', filters],
     queryFn: () => ConsultantService.getConsultants(filters),
-    enabled: !!filters.institution_id
+    // institution_id now optional — super admins may query without it
+    enabled: true
   });
 }
 
@@ -626,4 +629,65 @@ export function useLeadAttributions(filters: string | { institution_id?: string;
     isError: query.isError,
     refetch: query.refetch
   };
+}
+
+// ============================================
+// INSTITUTION LINK MANAGEMENT
+// ============================================
+
+/** Fetch all institution links for a consultant (for the detail page). */
+export function useConsultantInstitutions(consultantId: string) {
+  return useQuery({
+    queryKey: ['consultant-institutions', consultantId],
+    queryFn: () => ConsultantService.getConsultantInstitutions(consultantId),
+    enabled: !!consultantId,
+  });
+}
+
+/** Add / update / remove institution links for a consultant. */
+export function useConsultantInstitutionMutations(consultantId: string) {
+  const queryClient = useQueryClient();
+
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: ['consultant-institutions', consultantId] });
+    queryClient.invalidateQueries({ queryKey: ['consultant', consultantId] });
+    queryClient.invalidateQueries({ queryKey: ['consultants'] });
+  };
+
+  const addInstitution = useMutation({
+    mutationFn: (input: CreateConsultantInstitutionInput) =>
+      ConsultantService.addConsultantInstitution(input),
+    onSuccess: () => {
+      toast.success('Institution linked successfully');
+      invalidate();
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to link institution');
+    },
+  });
+
+  const updateInstitution = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Partial<UpdateConsultantInstitutionInput> }) =>
+      ConsultantService.updateConsultantInstitution(id, data),
+    onSuccess: () => {
+      toast.success('Institution details updated');
+      invalidate();
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to update institution details');
+    },
+  });
+
+  const removeInstitution = useMutation({
+    mutationFn: (id: string) => ConsultantService.removeConsultantInstitution(id),
+    onSuccess: () => {
+      toast.success('Institution unlinked');
+      invalidate();
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to unlink institution');
+    },
+  });
+
+  return { addInstitution, updateInstitution, removeInstitution };
 }

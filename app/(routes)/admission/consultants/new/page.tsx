@@ -79,7 +79,7 @@ function NewConsultantForm() {
   const form = useForm<CreateConsultantInput>({
     resolver: zodResolver(createConsultantSchema),
     defaultValues: {
-      institution_id: selectedInstitutionId ?? '',
+      institution_ids: selectedInstitutionId ? [selectedInstitutionId] : [],
       name: '',
       email: '',
       phone: '',
@@ -158,33 +158,31 @@ function NewConsultantForm() {
       return;
     }
 
-    // Build base DB payload (transform form field names to DB column names)
+    // Build payload: transform form aliases to DB column names
     const { address, notes, geographic_coverage, specializations, programs_handled, ...rest } = data as any;
-    const baseData: Record<string, any> = {
+    const payload: Record<string, any> = {
       ...rest,
+      institution_ids: targetInstitutionIds,
       ...(address ? { address_line1: address } : {}),
       ...(notes ? { internal_notes: notes } : {}),
       ...(geographic_coverage?.length ? { covered_states: geographic_coverage } : {}),
       ...(specializations?.length ? { specialized_degrees: specializations } : {}),
       ...(programs_handled?.length ? { specialized_programs: programs_handled } : {}),
     };
-    delete baseData.institution_id; // set per-institution below
+    // Remove legacy form fields not in the DB
+    delete payload.institution_id;
 
     setIsSubmitting(true);
     try {
-      const results = await Promise.all(
-        targetInstitutionIds.map(instId =>
-          ConsultantService.createConsultant({ ...baseData, institution_id: instId } as CreateConsultantInput)
-        )
-      );
+      const consultant = await ConsultantService.createConsultant(payload as CreateConsultantInput);
       toast.success(
-        results.length > 1
-          ? `Consultant registered across ${results.length} institutions`
+        targetInstitutionIds.length > 1
+          ? `Consultant created and linked to ${targetInstitutionIds.length} institutions`
           : 'Consultant created successfully'
       );
       queryClient.invalidateQueries({ queryKey: ['consultants'] });
       queryClient.invalidateQueries({ queryKey: ['consultants-summary'] });
-      router.push(`/admission/consultants/${results[0].id}`);
+      router.push(`/admission/consultants/${consultant.id}`);
     } catch (err: any) {
       toast.error(err.message || 'Failed to create consultant');
     } finally {

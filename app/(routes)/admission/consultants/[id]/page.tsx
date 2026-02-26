@@ -23,7 +23,6 @@ import {
   TableRow
 } from '@/components/ui/table';
 import { PermissionGuard } from '@/components/auth/permission-guard';
-import { useAuth } from '@/hooks/use-auth';
 import {
   Handshake,
   Edit,
@@ -40,18 +39,15 @@ import {
   Clock,
   CheckCircle2,
   XCircle,
-  AlertCircle,
   MoreHorizontal,
   FileText,
   CreditCard,
-  Award,
   Star,
   Globe,
   User
 } from 'lucide-react';
 import Link from 'next/link';
 import { ConsultantService } from '@/lib/services/admission/consultant-service';
-import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { useQuery } from '@tanstack/react-query';
 import type { EducationConsultant, ConsultantLeadAttribution, ConsultantCommissionTransaction } from '@/types/education-consultants';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -148,7 +144,6 @@ function ConsultantDetailContent() {
   const params = useParams();
   const router = useRouter();
   const consultantId = params.id as string;
-  const { profile } = useAuth();
 
   // UUID validation for Next.js PPR compatibility
   const isValidId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(consultantId);
@@ -185,21 +180,6 @@ function ConsultantDetailContent() {
       limit: 5
     }),
     enabled: !!consultantId && isValidId
-  });
-
-  // Fetch sibling registrations — same consultant registered at other institutions
-  const { data: siblings } = useQuery({
-    queryKey: ['consultant-siblings', consultantId, consultant?.email],
-    queryFn: async () => {
-      const supabase = createClientSupabaseClient();
-      const { data } = await (supabase as any)
-        .from('education_consultants')
-        .select('id, institution:institutions(id, name)')
-        .eq('email', consultant!.email)
-        .neq('id', consultantId);
-      return (data || []) as Array<{ id: string; institution: { id: string; name: string } | null }>;
-    },
-    enabled: !!consultant?.email && isValidId
   });
 
   if (isLoading) {
@@ -250,19 +230,25 @@ function ConsultantDetailContent() {
               <Badge className={getTypeColor(consultant.consultant_type)}>
                 {consultant.consultant_type.replace('_', ' ')}
               </Badge>
-              <Badge className={getStatusColor(consultant.status)}>
-                {consultant.status.replace('_', ' ')}
-              </Badge>
-              <Badge className={getTierColor(consultant.tier)}>
-                <Star className="h-3 w-3 mr-1" />
-                {consultant.tier}
-              </Badge>
+              {consultant.status && (
+                <Badge className={getStatusColor(consultant.status)}>
+                  {consultant.status.replace(/_/g, ' ')}
+                </Badge>
+              )}
+              {consultant.tier && (
+                <Badge className={getTierColor(consultant.tier)}>
+                  <Star className="h-3 w-3 mr-1" />
+                  {consultant.tier}
+                </Badge>
+              )}
             </div>
             <div className="flex items-center gap-4 mt-3 text-sm text-muted-foreground">
-              {consultant.institution && (
+              {consultant.institutions && consultant.institutions.length > 0 && (
                 <span className="flex items-center gap-1 font-medium text-foreground">
                   <Building className="h-4 w-4" />
-                  {consultant.institution.name}
+                  {consultant.institutions.length === 1
+                    ? consultant.institutions[0].institution?.name || 'Unknown Institution'
+                    : `${consultant.institutions.length} Institutions`}
                 </span>
               )}
               {consultant.email && (
@@ -278,16 +264,14 @@ function ConsultantDetailContent() {
                 </span>
               )}
             </div>
-            {siblings && siblings.length > 0 && (
+            {consultant.institutions && consultant.institutions.length > 1 && (
               <div className="flex items-center gap-2 mt-2 flex-wrap">
-                <span className="text-xs text-muted-foreground">Also registered at:</span>
-                {siblings.map(s => (
-                  <Link key={s.id} href={`/admission/consultants/${s.id}`}>
-                    <Badge variant="outline" className="text-xs cursor-pointer hover:bg-muted gap-1">
-                      <Building className="h-3 w-3" />
-                      {s.institution?.name || 'Unknown Institution'}
-                    </Badge>
-                  </Link>
+                <span className="text-xs text-muted-foreground">Linked institutions:</span>
+                {consultant.institutions.map(ci => (
+                  <Badge key={ci.id} variant="outline" className="text-xs gap-1">
+                    <Building className="h-3 w-3" />
+                    {ci.institution?.name || 'Unknown'}
+                  </Badge>
                 ))}
               </div>
             )}
@@ -568,40 +552,71 @@ function ConsultantDetailContent() {
               </Card>
             )}
 
-            {/* Contract Information */}
-            {(consultant.contract_start_date || consultant.contract_end_date) && (
-              <Card>
+            {/* Assigned Institutions */}
+            {consultant.institutions && consultant.institutions.length > 0 && (
+              <Card className="md:col-span-2">
                 <CardHeader>
-                  <CardTitle className="text-base">Contract Information</CardTitle>
+                  <CardTitle className="text-base">Assigned Institutions</CardTitle>
+                  <CardDescription>
+                    This consultant is linked to {consultant.institutions.length} institution{consultant.institutions.length !== 1 ? 's' : ''}
+                  </CardDescription>
                 </CardHeader>
-                <CardContent className="space-y-3">
-                  {consultant.contract_start_date && (
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Start Date</span>
-                      <span className="font-medium">
-                        {format(new Date(consultant.contract_start_date), 'PPP')}
-                      </span>
-                    </div>
-                  )}
-                  {consultant.contract_end_date && (
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">End Date</span>
-                      <span className="font-medium">
-                        {format(new Date(consultant.contract_end_date), 'PPP')}
-                      </span>
-                    </div>
-                  )}
-                  {consultant.contract_document_url && (
-                    <div className="flex justify-between items-center">
-                      <span className="text-muted-foreground">Contract Document</span>
-                      <a href={consultant.contract_document_url} target="_blank" rel="noopener noreferrer">
-                        <Button variant="outline" size="sm">
-                          <FileText className="h-4 w-4 mr-2" />
-                          View
-                        </Button>
-                      </a>
-                    </div>
-                  )}
+                <CardContent>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Institution</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Tier</TableHead>
+                        <TableHead>Contract Start</TableHead>
+                        <TableHead>Contract End</TableHead>
+                        <TableHead></TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {consultant.institutions.map((ci) => (
+                        <TableRow key={ci.id}>
+                          <TableCell className="font-medium">
+                            <span className="flex items-center gap-2">
+                              <Building className="h-4 w-4 text-muted-foreground" />
+                              {ci.institution?.name || 'Unknown Institution'}
+                            </span>
+                          </TableCell>
+                          <TableCell>
+                            <Badge className={getStatusColor(ci.status)}>
+                              {ci.status.replace(/_/g, ' ')}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            <Badge className={getTierColor(ci.tier)}>
+                              <Star className="h-3 w-3 mr-1" />
+                              {ci.tier}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            {ci.contract_start_date
+                              ? format(new Date(ci.contract_start_date), 'PP')
+                              : <span className="text-muted-foreground">—</span>}
+                          </TableCell>
+                          <TableCell>
+                            {ci.contract_end_date
+                              ? format(new Date(ci.contract_end_date), 'PP')
+                              : <span className="text-muted-foreground">—</span>}
+                          </TableCell>
+                          <TableCell>
+                            {ci.contract_document_url && (
+                              <a href={ci.contract_document_url} target="_blank" rel="noopener noreferrer">
+                                <Button variant="ghost" size="sm">
+                                  <FileText className="h-4 w-4 mr-1" />
+                                  Contract
+                                </Button>
+                              </a>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
                 </CardContent>
               </Card>
             )}
@@ -679,7 +694,7 @@ function ConsultantDetailContent() {
         <TabsContent value="commission-structure" className="mt-4 space-y-4">
           <CommissionStructureTab
             consultantId={consultantId}
-            institutionId={consultant.institution_id}
+            institutionId={consultant.institution_id ?? ''}
           />
         </TabsContent>
 

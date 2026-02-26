@@ -16,7 +16,8 @@ const consultantTierEnum = z.enum(['bronze', 'silver', 'gold', 'platinum', 'diam
 // ═══════════════════════════════════════════════════════════════════════════
 
 export const createConsultantSchema = z.object({
-  institution_id: z.string().min(1, 'Institution is required'),
+  /** IDs of institutions to link — validated by the checkbox UI, not Zod */
+  institution_ids: z.array(z.string()).optional(),
   name: z.string().min(1, 'Name is required').max(255),
   email: z.string().email('Invalid email').optional().or(z.literal('')),
   phone: z.string().optional().or(z.literal('')),
@@ -70,8 +71,7 @@ export const updateConsultantSchema = z.object({
   phone: z.string().optional().or(z.literal('')),
   alternate_phone: z.string().optional().or(z.literal('')),
   consultant_type: consultantTypeEnum,
-  status: consultantStatusEnum.optional(),
-  tier: consultantTierEnum.optional(),
+  // status and tier are per-institution — edit them via the consultant_institutions row
   contact_person: z.string().optional().or(z.literal('')),
   website: z.string().url('Invalid URL').optional().or(z.literal('')),
   gst_number: z.string().optional().or(z.literal('')),

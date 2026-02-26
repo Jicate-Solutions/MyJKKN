@@ -35,6 +35,8 @@ import {
   useCounselorProfiles
 } from '@/hooks/admission';
 import { ConsultantAttributionCard } from './_components/consultant-attribution-card';
+import { useConsultantsForDropdown } from '@/hooks/admission/use-consultants';
+import { ConsultantService } from '@/lib/services/admission/consultant-service';
 import { CounselorDailyViewService } from '@/lib/services/admission/counselor-daily-view-service';
 import type { TimelineEntry } from '@/lib/services/admission/activity-service';
 import {
@@ -470,6 +472,15 @@ function LeadDetailPageContent() {
   );
   const counselors = counselorProfiles || [];
 
+  // Consultants for dropdown (referral leads)
+  const { data: consultantsDropdown = [] } = useConsultantsForDropdown(
+    lead?.institution_id ?? ''
+  );
+
+  // Edit form: selected counselor / consultant (separate from editForm text fields)
+  const [editCounselorProfileId, setEditCounselorProfileId] = useState('');
+  const [editConsultantId, setEditConsultantId] = useState('');
+
   // Map interested program IDs to names
   const interestedProgramNames = useMemo(() => {
     const ids = lead?.interested_programs || [];
@@ -509,17 +520,29 @@ function LeadDetailPageContent() {
       parent_email: l.parent_email || '',
       source: l.source || '',
     });
+    // Pre-populate counselor (from assigned_counselor_id which references profiles.id)
+    setEditCounselorProfileId(l.assigned_counselor_id || '');
+    // Consultant is not stored on the lead row — clear it; the ConsultantAttributionCard manages that separately
+    setEditConsultantId('');
     setShowEditDialog(true);
   };
 
   const handleEditChange = (field: string, value: string) => {
     setEditForm((prev) => {
       if (field === 'state') return { ...prev, state: value, district: '' };
+      // When source changes, clear the irrelevant assignment
+      if (field === 'source') {
+        if (value === 'referral') {
+          setEditCounselorProfileId('');
+        } else {
+          setEditConsultantId('');
+        }
+      }
       return { ...prev, [field]: value };
     });
   };
 
-  const handleEditSubmit = () => {
+  const handleEditSubmit = async () => {
     if (!lead || !editForm.full_name.trim() || !editForm.phone.trim()) {
       toast.error('Full name and phone are required');
       return;
@@ -548,7 +571,37 @@ function LeadDetailPageContent() {
         },
       },
       {
-        onSuccess: () => {
+        onSuccess: async () => {
+          // Best-effort: assign counselor or consultant based on source
+          if (editForm.source !== 'referral' && editCounselorProfileId && editCounselorProfileId !== '_none') {
+            try {
+              // Resolve profile → admission_counselors row (creates if missing)
+              const counselorId = await CounselorDailyViewService.resolveOrCreateCounselor(
+                editCounselorProfileId,
+                lead.institution_id ?? undefined
+              );
+              await assignCounselor.mutateAsync({
+                leadId: lead.id,
+                counselorId,
+                profileId: editCounselorProfileId,
+              });
+            } catch (e) {
+              console.warn('[admission/leads] Could not assign counselor during edit:', e);
+            }
+          }
+          if (editForm.source === 'referral' && editConsultantId && editConsultantId !== '_none' && lead.institution_id) {
+            try {
+              await ConsultantService.createLeadAttribution({
+                institution_id: lead.institution_id,
+                lead_id: lead.id,
+                consultant_id: editConsultantId,
+                attribution_type: 'primary',
+                attribution_percentage: 100,
+              });
+            } catch (e) {
+              console.warn('[admission/leads] Could not create consultant attribution during edit:', e);
+            }
+          }
           setShowEditDialog(false);
           refetch();
         },
@@ -1245,11 +1298,41 @@ function LeadDetailPageContent() {
 
             {/* Right Column - Tags & Quick Info */}
             <div className="space-y-6">
-              {/* Consultant Attribution */}
-              <ConsultantAttributionCard
-                leadId={leadId}
-                institutionId={lead.institution_id}
-              />
+              {/* Source-based: show Consultant Attribution for referral leads, Counselor info for others */}
+              {lead.source === 'referral' ? (
+                <ConsultantAttributionCard
+                  leadId={leadId}
+                  institutionId={lead.institution_id}
+                />
+              ) : (
+                lead.counselor_id && (
+                  <Card>
+                    <CardHeader className="pb-3">
+                      <div className="flex items-center justify-between">
+                        <CardTitle className="text-base flex items-center gap-2">
+                          <User className="h-4 w-4" />
+                          Assigned Counselor
+                        </CardTitle>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setShowAssignCounselorDialog(true)}
+                        >
+                          Change
+                        </Button>
+                      </div>
+                    </CardHeader>
+                    <CardContent>
+                      <p className="font-medium">{lead.counselor?.name || 'Unknown'}</p>
+                      {lead.assigned_at && (
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Assigned {new Date(lead.assigned_at).toLocaleDateString()}
+                        </p>
+                      )}
+                    </CardContent>
+                  </Card>
+                )
+              )}
 
               {/* Tags */}
               <Card>
@@ -1438,55 +1521,57 @@ function LeadDetailPageContent() {
                     </DialogContent>
                   </Dialog>
 
-                  {/* Assign Counselor Dialog */}
-                  <Dialog open={showAssignCounselorDialog} onOpenChange={(open) => { setShowAssignCounselorDialog(open); if (!open) setSelectedCounselorId(''); }}>
-                    <DialogTrigger asChild>
-                      <Button variant="outline" className="w-full justify-start" size="sm">
-                        <User className="h-4 w-4 mr-2" />
-                        Assign Counselor
-                      </Button>
-                    </DialogTrigger>
-                    <DialogContent>
-                      <DialogHeader>
-                        <DialogTitle>Assign Counselor</DialogTitle>
-                        <DialogDescription>
-                          {lead.counselor?.name
-                            ? `Currently assigned to ${lead.counselor.name}. Select a new counselor.`
-                            : 'Select a counselor to assign to this lead.'}
-                        </DialogDescription>
-                      </DialogHeader>
-                      <div className="space-y-4 py-4">
-                        <div>
-                          <Label htmlFor="counselor-select">Counselor *</Label>
-                          <Select value={selectedCounselorId} onValueChange={setSelectedCounselorId}>
-                            <SelectTrigger className="mt-2">
-                              <SelectValue placeholder="Select a counselor" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {counselorsLoading ? (
-                                <SelectItem value="_loading" disabled>Loading counselors...</SelectItem>
-                              ) : counselors.length === 0 ? (
-                                <SelectItem value="_none" disabled>No counselors found</SelectItem>
-                              ) : (
-                                counselors.map((c) => (
-                                  <SelectItem key={c.profile_id} value={c.profile_id}>
-                                    {c.name}{c.designation ? ` (${c.designation})` : ''}
-                                  </SelectItem>
-                                ))
-                              )}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      </div>
-                      <DialogFooter>
-                        <Button variant="outline" onClick={() => { setShowAssignCounselorDialog(false); setSelectedCounselorId(''); }}>Cancel</Button>
-                        <Button onClick={handleAssignCounselor} disabled={assignCounselor.isPending || !selectedCounselorId}>
-                          {assignCounselor.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                          Assign
+                  {/* Assign Counselor Dialog — only for non-referral leads (referral leads use consultant attribution) */}
+                  {lead.source !== 'referral' && (
+                    <Dialog open={showAssignCounselorDialog} onOpenChange={(open) => { setShowAssignCounselorDialog(open); if (!open) setSelectedCounselorId(''); }}>
+                      <DialogTrigger asChild>
+                        <Button variant="outline" className="w-full justify-start" size="sm">
+                          <User className="h-4 w-4 mr-2" />
+                          Assign Counselor
                         </Button>
-                      </DialogFooter>
-                    </DialogContent>
-                  </Dialog>
+                      </DialogTrigger>
+                      <DialogContent>
+                        <DialogHeader>
+                          <DialogTitle>Assign Counselor</DialogTitle>
+                          <DialogDescription>
+                            {lead.counselor?.name
+                              ? `Currently assigned to ${lead.counselor.name}. Select a new counselor.`
+                              : 'Select a counselor to assign to this lead.'}
+                          </DialogDescription>
+                        </DialogHeader>
+                        <div className="space-y-4 py-4">
+                          <div>
+                            <Label htmlFor="counselor-select">Counselor *</Label>
+                            <Select value={selectedCounselorId} onValueChange={setSelectedCounselorId}>
+                              <SelectTrigger className="mt-2">
+                                <SelectValue placeholder="Select a counselor" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {counselorsLoading ? (
+                                  <SelectItem value="_loading" disabled>Loading counselors...</SelectItem>
+                                ) : counselors.length === 0 ? (
+                                  <SelectItem value="_none" disabled>No counselors found</SelectItem>
+                                ) : (
+                                  counselors.map((c) => (
+                                    <SelectItem key={c.profile_id} value={c.profile_id}>
+                                      {c.name}{c.designation ? ` (${c.designation})` : ''}
+                                    </SelectItem>
+                                  ))
+                                )}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </div>
+                        <DialogFooter>
+                          <Button variant="outline" onClick={() => { setShowAssignCounselorDialog(false); setSelectedCounselorId(''); }}>Cancel</Button>
+                          <Button onClick={handleAssignCounselor} disabled={assignCounselor.isPending || !selectedCounselorId}>
+                            {assignCounselor.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                            Assign
+                          </Button>
+                        </DialogFooter>
+                      </DialogContent>
+                    </Dialog>
+                  )}
 
                   {/* Create Application Dialog */}
                   <Dialog open={showCreateAppDialog} onOpenChange={(open) => { setShowCreateAppDialog(open); if (!open) setSelectedProgramId(''); }}>
@@ -1658,7 +1743,7 @@ function LeadDetailPageContent() {
                       </div>
                     </div>
                   )}
-                  {lead.counselor_id && (
+                  {lead.source !== 'referral' && lead.counselor_id && (
                     <div className="flex items-center gap-3">
                       <User className="h-4 w-4 text-muted-foreground" />
                       <div>
@@ -1863,6 +1948,45 @@ function LeadDetailPageContent() {
                     </Select>
                   </div>
                 </div>
+
+                {/* Counselor / Consultant assignment based on source */}
+                {editForm.source && (
+                  <div className="space-y-3">
+                    {editForm.source === 'referral' ? (
+                      <>
+                        <h4 className="text-sm font-semibold text-muted-foreground">Referred by Consultant</h4>
+                        <Select value={editConsultantId} onValueChange={setEditConsultantId}>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select consultant" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="_none">No consultant</SelectItem>
+                            {consultantsDropdown.map((c) => (
+                              <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </>
+                    ) : (
+                      <>
+                        <h4 className="text-sm font-semibold text-muted-foreground">Assign Counselor</h4>
+                        <Select value={editCounselorProfileId} onValueChange={setEditCounselorProfileId}>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select counselor" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="_none">No counselor</SelectItem>
+                            {counselors.map((c) => (
+                              <SelectItem key={c.profile_id} value={c.profile_id}>
+                                {c.name}{c.designation ? ` (${c.designation})` : ''}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </>
+                    )}
+                  </div>
+                )}
               </div>
               <DialogFooter>
                 <Button variant="outline" onClick={() => setShowEditDialog(false)}>Cancel</Button>

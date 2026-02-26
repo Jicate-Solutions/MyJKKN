@@ -468,7 +468,7 @@ function ConsultantsPageContent() {
                         <TableCell>
                           <Link href={`/admission/consultants/${consultant.id}`} className="flex items-center gap-3">
                             <Avatar className="h-10 w-10">
-                              <AvatarImage src={undefined} />
+                              <AvatarImage src={consultant.profile_photo_url || undefined} />
                               <AvatarFallback>
                                 {consultant.name?.split(' ').map(n => n[0]).join('').toUpperCase() || 'EC'}
                               </AvatarFallback>

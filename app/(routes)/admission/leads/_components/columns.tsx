@@ -206,6 +206,25 @@ export function getLeadColumns(
     }
   },
   {
+    id: 'assigned_to',
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Assigned To" />
+    ),
+    cell: ({ row }) => {
+      const lead = row.original;
+      const isReferral = lead.source === 'referral';
+      if (isReferral) {
+        const consultantName = attributionsMap.get(lead.id);
+        return consultantName
+          ? <span className="text-sm">{consultantName} <Badge variant="outline" className="ml-1 text-[10px] px-1 py-0">Consultant</Badge></span>
+          : <span className="text-sm text-muted-foreground">No consultant</span>;
+      }
+      return lead.counselor?.name
+        ? <span className="text-sm">{lead.counselor.name} <Badge variant="outline" className="ml-1 text-[10px] px-1 py-0">Counselor</Badge></span>
+        : <span className="text-sm text-muted-foreground">Unassigned</span>;
+    }
+  },
+  {
     accessorKey: 'created_at',
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Created" />
@@ -215,21 +234,7 @@ export function getLeadColumns(
       return date ? new Date(date).toLocaleDateString() : '-';
     }
   },
-  {
-    id: 'referred_by',
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Referred By" />
-    ),
-    cell: ({ row }) => {
-      const name = attributionsMap.get(row.original.id);
-      return name ? (
-        <span className="text-sm">{name}</span>
-      ) : (
-        <span className="text-sm text-muted-foreground">—</span>
-      );
-    },
-    enableSorting: false
-  },
+ 
   {
     id: 'actions',
     header: ({ column }) => (

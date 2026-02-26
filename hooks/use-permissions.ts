@@ -180,7 +180,14 @@ export function usePermissions(
     staleTime: 2 * 60 * 1000, // 2 minutes cache (reduced from 10 to reflect permission changes faster)
     gcTime: 10 * 60 * 1000,   // 10 minutes garbage collection
     retry: 1,
-    refetchOnWindowFocus: true, // Re-fetch on window focus to pick up permission changes
+    // Respect global default (false). The old per-query override caused PermissionGuard
+    // to re-render the entire page tree on every window focus event.
+    // Permissions are cached for 2 minutes and refresh on mount — that's sufficient.
+    refetchOnWindowFocus: false,
+    // Only re-render when actual data/error/loading state changes.
+    // Exclude isFetching: background refetches should not cascade re-renders
+    // through PermissionGuard → ContentLayout → entire page.
+    notifyOnChangeProps: ['data', 'error', 'isLoading'],
   });
 
   const permissions = permissionData?.permissions ?? EMPTY_PERMISSIONS;

@@ -11,7 +11,7 @@ import type { AdmissionLead } from '@/types/admission';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useAuth } from '@/hooks/use-auth';
 import { useLeadMutations } from '@/hooks/admission';
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo, useRef } from 'react';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -63,6 +63,12 @@ export function LeadsDataTable() {
   // Regular users are scoped to their own institution_id.
   const institutionId = isSuperAdmin ? undefined : profile?.institution_id;
 
+  // Use refs for filter values so fetchData callback identity stays stable
+  const stageFilterRef = useRef(stageFilter);
+  stageFilterRef.current = stageFilter;
+  const priorityFilterRef = useRef(priorityFilter);
+  priorityFilterRef.current = priorityFilter;
+
   const fetchData = useCallback(async (params: {
     page: number;
     limit: number;
@@ -73,6 +79,9 @@ export function LeadsDataTable() {
     sort_order: string;
   }) => {
     try {
+      const currentStageFilter = stageFilterRef.current;
+      const currentPriorityFilter = priorityFilterRef.current;
+
       const result = await LeadService.getLeads({
         institution_id: institutionId || '',
         page: params.page,
@@ -83,19 +92,20 @@ export function LeadsDataTable() {
         date_from: params.from_date || undefined,
         date_to: params.to_date || undefined,
         funnel_stage:
-          stageFilter && stageFilter !== '_all'
-            ? (stageFilter as any)
+          currentStageFilter && currentStageFilter !== '_all'
+            ? (currentStageFilter as any)
             : undefined,
         priority:
-          priorityFilter && priorityFilter !== '_all'
-            ? (priorityFilter as any)
+          currentPriorityFilter && currentPriorityFilter !== '_all'
+            ? (currentPriorityFilter as any)
             : undefined
       });
 
       const leads = result.data || [];
 
-      // Best-effort: batch-fetch primary consultant for each lead on this page
-      setAttributionsMap(new Map()); // clear immediately to avoid stale names on new page
+      // Best-effort: batch-fetch primary consultant for each lead on this page.
+      // Only update attributionsMap once (when async fetch completes) to avoid
+      // a double re-render from clearing + refilling.
       if (leads.length) {
         ConsultantService.getAttributionsForLeadIds(leads.map((l: any) => l.id))
           .then((attrs) => {
@@ -107,6 +117,7 @@ export function LeadsDataTable() {
           })
           .catch(() => {
             // Non-critical -- leads list works without consultant names
+            setAttributionsMap(new Map());
           });
       } else {
         setAttributionsMap(new Map());
@@ -126,7 +137,7 @@ export function LeadsDataTable() {
       console.error('Error fetching leads:', error);
       throw error;
     }
-  }, [institutionId, stageFilter, priorityFilter]);
+  }, [institutionId]);
 
   const handleBulkDelete = async (
     selectedRows: AdmissionLead[],
@@ -259,11 +270,18 @@ export function LeadsDataTable() {
     </div>
   );
 
+  // Memoize getColumns to avoid creating a new function reference on every render.
+  // The DataTable's internal useMemo depends on getColumns identity.
+  const stableGetColumns = useCallback(
+    () => getLeadColumns(attributionsMap) as any,
+    [attributionsMap]
+  );
+
   return (
     <>
       <DataTable
         fetchDataFn={fetchData}
-        getColumns={() => getLeadColumns(attributionsMap) as any}
+        getColumns={stableGetColumns}
         exportConfig={{
           entityName: 'leads',
           columnMapping: {},
