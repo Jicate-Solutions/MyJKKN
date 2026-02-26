@@ -23,14 +23,15 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'institution_id is required' }, { status: 400 });
     }
 
-    // Verify institution access
+    // Verify institution access (super admins can access any institution)
     const { data: profile } = await supabase
       .from('profiles')
-      .select('institution_id')
+      .select('institution_id, is_super_admin, role')
       .eq('id', user.id)
       .single();
 
-    if (profile?.institution_id !== institutionId) {
+    const isSuperAdmin = profile?.is_super_admin === true || profile?.role === 'super_admin';
+    if (!isSuperAdmin && profile?.institution_id !== institutionId) {
       return NextResponse.json({ error: 'Access denied' }, { status: 403 });
     }
 

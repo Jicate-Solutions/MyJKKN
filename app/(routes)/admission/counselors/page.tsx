@@ -23,6 +23,7 @@ import {
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { useCounselorPerformance } from '@/hooks/admission';
 import type { DateRange } from '@/lib/services/admission';
 import {
@@ -385,7 +386,14 @@ function CounselorLeaderboard({
 function CounselorPerformancePageContent() {
   const { profile } = useAuth();
   const { isSuperAdmin } = usePermissions();
-  const institutionId = isSuperAdmin ? undefined : profile?.institution_id;
+  const { institutions } = useInstitutionsWithAccess();
+  const [chosenInstitutionId, setChosenInstitutionId] = useState<string>('');
+  // Super admins see all institutions by default; can optionally filter.
+  // Single-institution users auto-resolve to their own institution.
+  const defaultInstitutionId = isSuperAdmin ? undefined : profile?.institution_id;
+  // For super admin: no selection or "__all" → undefined (all institutions)
+  const resolvedChoice = chosenInstitutionId === '__all' ? undefined : chosenInstitutionId;
+  const institutionId = resolvedChoice || (institutions.length === 1 ? institutions[0]?.id : defaultInstitutionId) || undefined;
   const [dateRange, setDateRange] = useState('30');
   const [isRefetching, setIsRefetching] = useState(false);
 
@@ -447,6 +455,24 @@ function CounselorPerformancePageContent() {
               </p>
             </div>
             <div className="flex items-center gap-2">
+              {/* Institution selector for super admins / multi-institution users */}
+              {(isSuperAdmin || institutions.length > 1) && (
+                <Select value={chosenInstitutionId} onValueChange={setChosenInstitutionId}>
+                  <SelectTrigger className="w-56">
+                    <SelectValue placeholder={isSuperAdmin ? 'All Institutions' : 'Select institution'} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {isSuperAdmin && (
+                      <SelectItem value="__all">All Institutions</SelectItem>
+                    )}
+                    {institutions.map((inst) => (
+                      <SelectItem key={inst.id} value={inst.id}>
+                        {inst.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
               <Select value={dateRange} onValueChange={setDateRange}>
                 <SelectTrigger className="w-40">
                   <SelectValue placeholder="Select period" />
@@ -477,7 +503,17 @@ function CounselorPerformancePageContent() {
             </Card>
           )}
 
-          {isLoading ? (
+          {!institutionId && !isSuperAdmin && institutions.length > 1 ? (
+            <Card>
+              <CardContent className="pt-6">
+                <div className="text-center py-8 text-muted-foreground">
+                  <Users className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                  <p className="font-medium">Select an Institution</p>
+                  <p className="text-sm mt-1">Choose an institution from the dropdown above to view counselor performance.</p>
+                </div>
+              </CardContent>
+            </Card>
+          ) : isLoading ? (
             <CounselorSkeleton />
           ) : (
             <>
@@ -486,7 +522,7 @@ function CounselorPerformancePageContent() {
                 <MetricCard
                   title="Active Counselors"
                   value={counselors.length}
-                  description="Team members with assigned leads"
+                  description="Active team members"
                   icon={Users}
                   color="text-blue-600"
                 />
