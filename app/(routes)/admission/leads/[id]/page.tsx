@@ -362,14 +362,31 @@ function LeadDetailPageContent() {
       const popTop = window.screenY + (window.outerHeight - popH) / 2;
       window.open(waUrl, 'WhatsApp', `width=${popW},height=${popH},left=${popLeft},top=${popTop}`);
 
-      // Log as activity (best-effort — don't block or show error to user)
+      // Log as activity + WhatsApp log (best-effort — don't block or show error to user)
       try {
+        const supabase = createClientSupabaseClient();
+
+        // Insert into admission_whatsapp_logs so the Communication tab shows it
+        await (supabase as any)
+          .from('admission_whatsapp_logs')
+          .insert({
+            institution_id: lead.institution_id,
+            lead_id: lead.id,
+            recipient_phone: intlPhone,
+            message_content: sendMessage.trim(),
+            delivery_status: 'sent',
+            sent_at: new Date().toISOString(),
+            metadata: { source: 'manual', sent_via: 'whatsapp_web' },
+          });
+
+        // Also log as activity for the timeline
         await createActivity.mutateAsync({
           lead_id: lead.id,
           activity_type: 'whatsapp',
           title: 'WhatsApp message',
           description: sendMessage.trim(),
         });
+
         queryClient.invalidateQueries({ queryKey: ['lead-communication-history', leadId] });
       } catch (_) { /* best-effort */ }
 
