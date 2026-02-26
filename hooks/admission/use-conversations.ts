@@ -37,18 +37,27 @@ async function fetchConversations(
   return res.json();
 }
 
-export function useConversations(filters: Partial<ConversationFilters> = {}) {
+const EMPTY_PAGINATION = { page: 1, limit: 25, total: 0, totalPages: 0 };
+
+export function useConversations(
+  filters: Partial<ConversationFilters> = {},
+  options?: { enabled?: boolean }
+) {
+  const enabled = options?.enabled ?? true;
+
   const query = useQuery({
     queryKey: conversationKeys.list(filters),
     queryFn: () => fetchConversations(filters),
-    refetchInterval: 10000, // Poll every 10s for new conversations
+    refetchInterval: enabled ? 10000 : false, // Poll every 10s for new conversations
     staleTime: 5000,
+    enabled,
+    retry: false, // Don't retry if WhatsApp infrastructure is unavailable
   });
 
   return {
     conversations: query.data?.data || [],
-    pagination: query.data?.pagination || { page: 1, limit: 25, total: 0, totalPages: 0 },
-    isLoading: query.isLoading,
+    pagination: query.data?.pagination || EMPTY_PAGINATION,
+    isLoading: enabled && query.isLoading,
     isError: query.isError,
     error: query.error,
     refetch: query.refetch,
