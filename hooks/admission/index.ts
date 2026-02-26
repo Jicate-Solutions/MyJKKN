@@ -314,7 +314,7 @@ export function useLeadMutations() {
     mutationFn: async ({ leadId, stage, notes }: { leadId: string; stage: FunnelStage; notes?: string }) => {
       return LeadService.updateStage(leadId, stage, notes);
     },
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       toast.success('Lead stage updated');
       queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
       queryClient.invalidateQueries({ queryKey: ['admission-lead'] });
@@ -323,6 +323,10 @@ export function useLeadMutations() {
       queryClient.invalidateQueries({ queryKey: ['admission-dashboard'] });
       queryClient.invalidateQueries({ queryKey: ['lead-timeline'] });
       queryClient.invalidateQueries({ queryKey: ['counselor-daily-view'] });
+      // Invalidate activity/timeline queries so the Activities tab refreshes
+      queryClient.invalidateQueries({ queryKey: ['lead-activities', 'timeline', variables.leadId] });
+      queryClient.invalidateQueries({ queryKey: ['lead-activities', 'list', variables.leadId] });
+      queryClient.invalidateQueries({ queryKey: ['lead-activities', 'stats', variables.leadId] });
     },
     onError: (error: Error) => {
       toast.error(error.message || 'Failed to update stage');
@@ -414,12 +418,16 @@ export function useLeadMutations() {
     mutationFn: async ({ leadId, counselorId, profileId }: { leadId: string; counselorId: string; profileId?: string }) => {
       return LeadService.assignCounselor(leadId, counselorId, profileId);
     },
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       toast.success('Counselor assigned');
       queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
       queryClient.invalidateQueries({ queryKey: ['admission-lead'] });
       queryClient.invalidateQueries({ queryKey: ['counselor-performance'] });
       queryClient.invalidateQueries({ queryKey: ['counselor-daily-view'] });
+      // Invalidate activity/timeline queries so the Activities tab refreshes
+      queryClient.invalidateQueries({ queryKey: ['lead-activities', 'timeline', variables.leadId] });
+      queryClient.invalidateQueries({ queryKey: ['lead-activities', 'list', variables.leadId] });
+      queryClient.invalidateQueries({ queryKey: ['lead-activities', 'stats', variables.leadId] });
     },
     onError: (error: Error) => {
       toast.error(error.message || 'Failed to assign counselor');
@@ -430,12 +438,17 @@ export function useLeadMutations() {
     mutationFn: async ({ leadId, followupDate, notes }: { leadId: string; followupDate: string; notes?: string }) => {
       return LeadService.scheduleFollowup(leadId, followupDate, notes);
     },
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       toast.success('Followup scheduled');
       queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
       queryClient.invalidateQueries({ queryKey: ['admission-lead'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
       queryClient.invalidateQueries({ queryKey: ['counselor-daily-view'] });
+      // Invalidate activity/timeline queries so the Activities tab refreshes
+      queryClient.invalidateQueries({ queryKey: ['lead-activities', 'timeline', variables.leadId] });
+      queryClient.invalidateQueries({ queryKey: ['lead-activities', 'list', variables.leadId] });
+      queryClient.invalidateQueries({ queryKey: ['lead-activities', 'stats', variables.leadId] });
+      queryClient.invalidateQueries({ queryKey: ['lead-timeline', variables.leadId] });
     },
     onError: (error: Error) => {
       toast.error(error.message || 'Failed to schedule followup');
