@@ -719,25 +719,50 @@ export function useCounselorPerformance(institutionId?: string, dateRange?: any)
     queryFn: async () => {
       if (!isSuperAdmin && !institutionId) return [];
       const supabase = createClientSupabaseClient();
-      // Get leads grouped by counselor
-      let leadsQuery = (supabase as any)
-        .from('admission_leads')
-        .select('counselor_id, stage, funnel_stage, score, is_hot_lead, total_messages_sent, created_at, counselor:admission_counselors(id, name, email)')
-        .not('counselor_id', 'is', null);
-      if (institutionId) leadsQuery = leadsQuery.eq('institution_id', institutionId);
-      if (dateRange?.from) leadsQuery = leadsQuery.gte('created_at', dateRange.from);
-      if (dateRange?.to) leadsQuery = leadsQuery.lte('created_at', dateRange.to);
-      const { data: leads, error } = await leadsQuery;
-      if (error) throw new Error(error.message);
-      // Aggregate by counselor
+
+      // 1. Fetch ALL active counselors (not just those with assigned leads)
+      let counselorsQuery = (supabase as any)
+        .from('admission_counselors')
+        .select('id, name, email, institution_id')
+        .eq('is_active', true);
+      if (institutionId) counselorsQuery = counselorsQuery.eq('institution_id', institutionId);
+      const { data: allCounselors, error: counselorsError } = await counselorsQuery;
+      if (counselorsError) throw new Error(counselorsError.message);
+
+      // 2. Also fetch counselor profiles (role='counselor') to include those not yet in admission_counselors
+      let profilesQuery = (supabase as any)
+        .from('profiles')
+        .select('id, full_name, email, institution_id, designation')
+        .eq('role', 'counselor')
+        .eq('is_active', true);
+      if (institutionId) profilesQuery = profilesQuery.eq('institution_id', institutionId);
+      const { data: counselorProfiles } = await profilesQuery;
+
+      // Build a merged map: admission_counselors + profiles with role='counselor'
       const counselorMap: Record<string, any> = {};
-      (leads || []).forEach((lead: any) => {
-        const cId = lead.counselor_id;
-        if (!counselorMap[cId]) {
-          counselorMap[cId] = {
-            counselorId: cId,
-            counselorName: lead.counselor?.name || 'Unknown',
-            counselorEmail: lead.counselor?.email || '',
+
+      // Add from admission_counselors first
+      (allCounselors || []).forEach((c: any) => {
+        counselorMap[c.id] = {
+          counselorId: c.id,
+          counselorName: c.name || 'Unknown',
+          counselorEmail: c.email || '',
+          totalLeads: 0,
+          convertedLeads: 0,
+          hotLeads: 0,
+          scoreSum: 0,
+          messagesSent: 0,
+        };
+      });
+
+      // Add profiles that don't have an admission_counselors entry (show them too)
+      const existingEmails = new Set(Object.values(counselorMap).map((c: any) => c.counselorEmail));
+      (counselorProfiles || []).forEach((p: any) => {
+        if (!existingEmails.has(p.email)) {
+          counselorMap[`profile-${p.id}`] = {
+            counselorId: p.id,
+            counselorName: p.full_name || 'Unknown',
+            counselorEmail: p.email || '',
             totalLeads: 0,
             convertedLeads: 0,
             hotLeads: 0,
@@ -745,14 +770,33 @@ export function useCounselorPerformance(institutionId?: string, dateRange?: any)
             messagesSent: 0,
           };
         }
-        const c = counselorMap[cId];
-        c.totalLeads++;
-        const leadStage = lead.stage || lead.funnel_stage;
-        if (leadStage === 'enrolled') c.convertedLeads++;
-        if (lead.is_hot_lead) c.hotLeads++;
-        c.scoreSum += lead.score || 0;
-        c.messagesSent += lead.total_messages_sent || 0;
       });
+
+      // 3. Fetch leads grouped by counselor
+      let leadsQuery = (supabase as any)
+        .from('admission_leads')
+        .select('counselor_id, stage, funnel_stage, score, is_hot_lead, total_messages_sent, created_at')
+        .not('counselor_id', 'is', null);
+      if (institutionId) leadsQuery = leadsQuery.eq('institution_id', institutionId);
+      if (dateRange?.from) leadsQuery = leadsQuery.gte('created_at', dateRange.from);
+      if (dateRange?.to) leadsQuery = leadsQuery.lte('created_at', dateRange.to);
+      const { data: leads, error } = await leadsQuery;
+      if (error) throw new Error(error.message);
+
+      // 4. Aggregate lead stats into counselor entries
+      (leads || []).forEach((lead: any) => {
+        const cId = lead.counselor_id;
+        if (counselorMap[cId]) {
+          const c = counselorMap[cId];
+          c.totalLeads++;
+          const leadStage = lead.stage || lead.funnel_stage;
+          if (['enrolled', 'offer_accepted', 'token_paid'].includes(leadStage)) c.convertedLeads++;
+          if (lead.is_hot_lead) c.hotLeads++;
+          c.scoreSum += lead.score || 0;
+          c.messagesSent += lead.total_messages_sent || 0;
+        }
+      });
+
       return Object.values(counselorMap).map((c: any) => ({
         counselorId: c.counselorId,
         counselorName: c.counselorName,
