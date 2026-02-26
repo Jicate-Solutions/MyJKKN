@@ -342,6 +342,59 @@ function LeadDetailPageContent() {
   const { history: communicationHistory, isLoading: commLoading } = useLeadCommunicationHistory(leadId);
   const queryClient = useQueryClient();
 
+  // Compute lead scores on-the-fly from available data
+  const computedScores = useMemo(() => {
+    if (!lead) return { score: 0, category: 'Not Scored', engagement: 0, quality: 0 };
+
+    // --- Engagement Score (0-100) based on activities ---
+    const activityEntries = timeline.filter((t: any) => t.type === 'activity');
+    const activityTypes: Record<string, number> = {};
+    activityEntries.forEach((t: any) => {
+      const type = t.metadata?.activity_type || 'note';
+      activityTypes[type] = (activityTypes[type] || 0) + 1;
+    });
+
+    // Weighted points per activity type (capped)
+    const engagementPoints =
+      Math.min(activityTypes['call'] || 0, 5) * 15 +
+      Math.min(activityTypes['email'] || 0, 10) * 5 +
+      Math.min(activityTypes['whatsapp'] || 0, 10) * 10 +
+      Math.min(activityTypes['sms'] || 0, 10) * 5 +
+      Math.min(activityTypes['meeting'] || 0, 3) * 25 +
+      Math.min(activityTypes['task'] || 0, 5) * 10 +
+      Math.min(activityTypes['note'] || 0, 5) * 3 +
+      Math.min(communicationHistory.length, 20) * 2;
+
+    // Max possible: 5*15 + 10*5 + 10*10 + 10*5 + 3*25 + 5*10 + 5*3 + 20*2 = 75+50+100+50+75+50+15+40 = 455
+    const engagement = Math.min(100, Math.round((engagementPoints / 455) * 100));
+
+    // --- Quality Score (0-100) based on profile completeness ---
+    let qualityPoints = 0;
+    const qualityMax = 100;
+    if (lead.full_name) qualityPoints += 10;
+    if (lead.email) qualityPoints += 10;
+    if (lead.phone) qualityPoints += 10;
+    if (lead.date_of_birth) qualityPoints += 5;
+    if (lead.gender) qualityPoints += 5;
+    if (lead.address_line1 || lead.city || lead.state) qualityPoints += 10;
+    if (lead.pincode) qualityPoints += 5;
+    if (lead.parent_name) qualityPoints += 10;
+    if (lead.parent_phone) qualityPoints += 5;
+    if (lead.parent_email) qualityPoints += 5;
+    if (lead.interested_programs?.length) qualityPoints += 15;
+    if (lead.source) qualityPoints += 5;
+    if (lead.preferred_channel) qualityPoints += 5;
+    const quality = Math.min(100, Math.round((qualityPoints / qualityMax) * 100));
+
+    // --- Overall Score (weighted: 50% engagement, 50% quality) ---
+    const score = Math.round(engagement * 0.5 + quality * 0.5);
+
+    // --- Category ---
+    const category = score >= 75 ? 'hot' : score >= 50 ? 'warm' : score >= 25 ? 'cool' : 'cold';
+
+    return { score, category, engagement, quality };
+  }, [lead, timeline, communicationHistory]);
+
   // Send message dialog state
   const [showSendMsg, setShowSendMsg] = useState(false);
   const [sendChannel, setSendChannel] = useState<'sms' | 'whatsapp'>('sms');
@@ -934,7 +987,7 @@ function LeadDetailPageContent() {
                     <div className="flex items-center justify-between">
                       <div>
                         <p className="text-xs text-muted-foreground">Score</p>
-                        <p className="text-2xl font-bold">{lead.score != null ? lead.score : 'Not scored'}</p>
+                        <p className="text-2xl font-bold">{computedScores.score}</p>
                       </div>
                       <Target className="h-8 w-8 text-primary opacity-50" />
                     </div>
@@ -946,11 +999,12 @@ function LeadDetailPageContent() {
                       <div>
                         <p className="text-xs text-muted-foreground">Category</p>
                         <p className={`text-2xl font-bold capitalize ${
-                          lead.score_category === 'hot' ? 'text-red-600' :
-                          lead.score_category === 'warm' ? 'text-orange-600' :
-                          lead.score_category === 'cold' ? 'text-blue-600' : 'text-muted-foreground'
+                          computedScores.category === 'hot' ? 'text-red-600' :
+                          computedScores.category === 'warm' ? 'text-orange-600' :
+                          computedScores.category === 'cool' ? 'text-cyan-600' :
+                          computedScores.category === 'cold' ? 'text-blue-600' : 'text-muted-foreground'
                         }`}>
-                          {lead.score_category || 'Not scored'}
+                          {computedScores.category}
                         </p>
                       </div>
                       <Flame className="h-8 w-8 text-orange-500 opacity-50" />
@@ -962,7 +1016,7 @@ function LeadDetailPageContent() {
                     <div className="flex items-center justify-between">
                       <div>
                         <p className="text-xs text-muted-foreground">Engagement</p>
-                        <p className="text-2xl font-bold">{lead.engagement_score || 0}</p>
+                        <p className="text-2xl font-bold">{computedScores.engagement}</p>
                       </div>
                       <TrendingUp className="h-8 w-8 text-blue-500 opacity-50" />
                     </div>
@@ -973,7 +1027,7 @@ function LeadDetailPageContent() {
                     <div className="flex items-center justify-between">
                       <div>
                         <p className="text-xs text-muted-foreground">Quality</p>
-                        <p className="text-2xl font-bold">{lead.quality_score || 0}</p>
+                        <p className="text-2xl font-bold">{computedScores.quality}</p>
                       </div>
                       <Star className="h-8 w-8 text-yellow-500 opacity-50" />
                     </div>
