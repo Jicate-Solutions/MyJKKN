@@ -35,7 +35,7 @@ import {
   useCounselorProfiles
 } from '@/hooks/admission';
 import { ConsultantAttributionCard } from './_components/consultant-attribution-card';
-import { useConsultantsForDropdown } from '@/hooks/admission/use-consultants';
+import { useConsultantsForDropdown, useLeadAttributions } from '@/hooks/admission/use-consultants';
 import { ConsultantService } from '@/lib/services/admission/consultant-service';
 import { CounselorDailyViewService } from '@/lib/services/admission/counselor-daily-view-service';
 import type { TimelineEntry } from '@/lib/services/admission/activity-service';
@@ -492,6 +492,9 @@ function LeadDetailPageContent() {
   const { data: consultantsDropdown = [] } = useConsultantsForDropdown(
     lead?.institution_id ?? ''
   );
+
+  // Consultant attributions for this lead (used in Details tab assignment section)
+  const { attributions: leadAttributions } = useLeadAttributions(leadId);
 
   // Edit form: selected counselor / consultant (separate from editForm text fields)
   const [editCounselorProfileId, setEditCounselorProfileId] = useState('');
@@ -1293,6 +1296,124 @@ function LeadDetailPageContent() {
                           </dd>
                         </div>
                       </dl>
+                    </CardContent>
+                  </Card>
+
+                  {/* Assignment Details */}
+                  <Card>
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-base flex items-center gap-2">
+                        <User className="h-4 w-4" />
+                        Assignment Details
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      {/* Counselor Section */}
+                      <div>
+                        <h4 className="text-sm font-semibold text-muted-foreground mb-2">Assigned Counselor</h4>
+                        {lead.counselor_id && lead.counselor ? (
+                          <div className="rounded-md border p-3 space-y-2">
+                            <div className="flex items-center justify-between">
+                              <p className="font-medium">{lead.counselor.name}</p>
+                              <Badge variant="outline" className="text-xs bg-green-50 text-green-700 border-green-200">
+                                Active
+                              </Badge>
+                            </div>
+                            <dl className="grid grid-cols-2 gap-2 text-sm">
+                              {lead.counselor.email && (
+                                <div>
+                                  <dt className="text-muted-foreground">Email</dt>
+                                  <dd>{lead.counselor.email}</dd>
+                                </div>
+                              )}
+                              {lead.counselor.phone && (
+                                <div>
+                                  <dt className="text-muted-foreground">Phone</dt>
+                                  <dd>{lead.counselor.phone}</dd>
+                                </div>
+                              )}
+                              {lead.counselor.designation && (
+                                <div>
+                                  <dt className="text-muted-foreground">Designation</dt>
+                                  <dd className="capitalize">{lead.counselor.designation}</dd>
+                                </div>
+                              )}
+                              {lead.assigned_at && (
+                                <div>
+                                  <dt className="text-muted-foreground">Assigned On</dt>
+                                  <dd>{new Date(lead.assigned_at).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}</dd>
+                                </div>
+                              )}
+                            </dl>
+                          </div>
+                        ) : (
+                          <div className="rounded-md border border-dashed p-3 text-center">
+                            <p className="text-sm text-muted-foreground">No counselor assigned</p>
+                            {lead.source !== 'referral' && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="mt-2"
+                                onClick={() => setShowAssignCounselorDialog(true)}
+                              >
+                                Assign Counselor
+                              </Button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Consultant Section */}
+                      <div>
+                        <h4 className="text-sm font-semibold text-muted-foreground mb-2">Referred by Consultant</h4>
+                        {leadAttributions.length > 0 ? (
+                          <div className="space-y-2">
+                            {leadAttributions.map((attr: any) => (
+                              <div key={attr.id} className="rounded-md border p-3">
+                                <div className="flex items-center justify-between">
+                                  <p className="font-medium">{attr.consultant?.name || 'Unknown'}</p>
+                                  <div className="flex items-center gap-1.5">
+                                    <Badge variant="outline" className="text-xs capitalize">
+                                      {attr.attribution_type}
+                                    </Badge>
+                                    {attr.is_verified ? (
+                                      <Badge className="text-xs bg-green-100 text-green-800">Verified</Badge>
+                                    ) : (
+                                      <Badge className="text-xs bg-yellow-100 text-yellow-800">Pending</Badge>
+                                    )}
+                                  </div>
+                                </div>
+                                {(attr.consultant?.email || attr.consultant?.phone || attr.attribution_percentage != null) && (
+                                  <dl className="grid grid-cols-2 gap-2 text-sm mt-2">
+                                    {attr.consultant?.email && (
+                                      <div>
+                                        <dt className="text-muted-foreground">Email</dt>
+                                        <dd>{attr.consultant.email}</dd>
+                                      </div>
+                                    )}
+                                    {attr.consultant?.phone && (
+                                      <div>
+                                        <dt className="text-muted-foreground">Phone</dt>
+                                        <dd>{attr.consultant.phone}</dd>
+                                      </div>
+                                    )}
+                                    {attr.attribution_percentage != null && (
+                                      <div>
+                                        <dt className="text-muted-foreground">Commission</dt>
+                                        <dd>{attr.attribution_percentage}%</dd>
+                                      </div>
+                                    )}
+                                  </dl>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="rounded-md border border-dashed p-3 text-center">
+                            <p className="text-sm text-muted-foreground">No consultant linked</p>
+                          </div>
+                        )}
+                      </div>
                     </CardContent>
                   </Card>
 
