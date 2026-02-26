@@ -612,6 +612,83 @@ export const PERMISSION_CATEGORIES = [
       { key: 'users.dashboard.view', label: 'View User Analytics Dashboard' },
       { key: 'ai_query.view', label: 'Access AI Assistant' }
     ]
+  },
+  {
+    name: 'Admission CRM',
+    key: 'admission',
+    permissions: [
+      // Dashboard & Analytics
+      { key: 'admission.dashboard.view', label: 'View Admission Dashboard' },
+      { key: 'admission.analytics.view', label: 'View Admission Analytics' },
+      { key: 'admission.group_dashboard.view', label: 'View Group Dashboard' },
+      { key: 'admission.insights.view', label: 'View AI Insights' },
+
+      // Lead Management
+      { key: 'admission.leads.view', label: 'View Leads' },
+      { key: 'admission.leads.create', label: 'Create Leads' },
+      { key: 'admission.leads.edit', label: 'Edit Leads' },
+      { key: 'admission.leads.delete', label: 'Delete Leads' },
+      { key: 'admission.leads.assign', label: 'Assign Leads to Counselors' },
+      { key: 'admission.leads.bulk_upload', label: 'Bulk Upload Leads' },
+      { key: 'admission.leads.bulk_status_update', label: 'Bulk Update Lead Status' },
+      { key: 'admission.leads.export', label: 'Export Leads' },
+
+      // Application Management
+      { key: 'admission.applications.view', label: 'View Applications' },
+      { key: 'admission.applications.create', label: 'Create Applications' },
+      { key: 'admission.applications.edit', label: 'Edit Applications' },
+      { key: 'admission.applications.delete', label: 'Delete Applications' },
+      { key: 'admission.applications.approve', label: 'Approve/Reject Applications' },
+
+      // Counselor Management
+      { key: 'admission.counselors.view', label: 'View Counselors' },
+      { key: 'admission.counselors.create', label: 'Create Counselors' },
+      { key: 'admission.counselors.edit', label: 'Edit Counselors' },
+      { key: 'admission.counselors.delete', label: 'Delete Counselors' },
+      { key: 'admission.counselors.performance.view', label: 'View Counselor Performance' },
+
+      // Consultant Management
+      { key: 'admission.consultants.view', label: 'View Education Consultants' },
+      { key: 'admission.consultants.create', label: 'Create Education Consultants' },
+      { key: 'admission.consultants.edit', label: 'Edit Education Consultants' },
+      { key: 'admission.consultants.delete', label: 'Delete Education Consultants' },
+      { key: 'admission.consultants.analytics.view', label: 'View Consultant Analytics' },
+      { key: 'admission.consultants.commissions.view', label: 'View Commissions' },
+      { key: 'admission.consultants.commissions.manage', label: 'Manage Commissions & Payouts' },
+      { key: 'admission.consultants.referrals.view', label: 'View Referrals' },
+      { key: 'admission.consultants.rewards.view', label: 'View Rewards' },
+      { key: 'admission.consultants.rewards.manage', label: 'Manage Rewards Configuration' },
+
+      // Marketing & Campaigns
+      { key: 'admission.marketing.view', label: 'View Marketing Campaigns' },
+      { key: 'admission.marketing.create', label: 'Create Marketing Campaigns' },
+      { key: 'admission.marketing.edit', label: 'Edit Marketing Campaigns' },
+      { key: 'admission.marketing.delete', label: 'Delete Marketing Campaigns' },
+      { key: 'admission.marketing.chat.view', label: 'View WhatsApp Chat' },
+      { key: 'admission.marketing.chat.manage', label: 'Manage WhatsApp Chat' },
+      { key: 'admission.marketing.chatbot.view', label: 'View Chatbot' },
+      { key: 'admission.marketing.chatbot.manage', label: 'Manage Chatbot & Knowledge Base' },
+      { key: 'admission.marketing.voice.view', label: 'View Voice Agents & Broadcast' },
+      { key: 'admission.marketing.voice.manage', label: 'Manage Voice Agents & Broadcast' },
+
+      // Data Quality
+      { key: 'admission.data_quality.view', label: 'View Data Quality Reports' },
+      { key: 'admission.data_quality.manage', label: 'Manage Data Quality (Dedup, Validation)' },
+
+      // Settings & Configuration
+      { key: 'admission.settings.view', label: 'View Admission Settings' },
+      { key: 'admission.settings.manage', label: 'Manage Admission Settings' },
+      { key: 'admission.settings.templates.view', label: 'View Communication Templates' },
+      { key: 'admission.settings.templates.manage', label: 'Manage Communication Templates' },
+      { key: 'admission.settings.workflows.view', label: 'View Workflows' },
+      { key: 'admission.settings.workflows.manage', label: 'Manage Workflows & Configuration' },
+      { key: 'admission.settings.assignment.view', label: 'View Assignment Rules' },
+      { key: 'admission.settings.assignment.manage', label: 'Manage Assignment Rules' },
+      { key: 'admission.settings.sources.view', label: 'View Lead Sources' },
+      { key: 'admission.settings.sources.manage', label: 'Manage Lead Sources' },
+      { key: 'admission.settings.whatsapp.view', label: 'View WhatsApp Settings' },
+      { key: 'admission.settings.whatsapp.manage', label: 'Manage WhatsApp Numbers & Settings' }
+    ]
   }
 ];
 

@@ -234,7 +234,8 @@
       "mcp__vercel__get_project",
       "WebFetch(domain:www.jkkn.ai)",
       "Bash(which openssl 2>/dev/null && openssl version 2>&1)",
-      "Bash(echo Certificate file updated:*)"
+      "Bash(echo Certificate file updated:*)",
+      "Bash(cd /d/Projects/MyJKKN && rm -rf .tsbuildinfo tsconfig.tsbuildinfo && npx tsc --noEmit 2>&1)"
     ],
     "deny": [],
     "ask": []

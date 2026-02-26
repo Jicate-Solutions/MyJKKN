@@ -8,6 +8,8 @@ import { usePermissions } from '@/hooks/use-permissions';
 
 export interface InstitutionAccessHook {
   institutions: AccessibleInstitution[];
+  /** The first accessible institution's ID, or the user's profile institution_id. Convenience for single-institution contexts. */
+  selectedInstitutionId: string | undefined;
   loading: boolean;
   error: string | null;
   refresh: () => Promise<void>;
@@ -113,6 +115,7 @@ export function useUserInstitutionAccess(): InstitutionAccessHook {
 
   return {
     institutions,
+    selectedInstitutionId: institutions[0]?.institution_id ?? profile?.institution_id ?? undefined,
     loading,
     error,
     refresh: fetchAccessibleInstitutions,

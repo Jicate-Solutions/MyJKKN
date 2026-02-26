@@ -1,6 +1,6 @@
 'use client';
 
-import { use, useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { logger } from '@/lib/utils/enhanced-logger';
@@ -59,6 +59,7 @@ import { usePermissions } from '@/hooks/use-permissions';
 import { useToast } from '@/hooks/use-toast';
 import { Timetable, UpdateTimetableDto } from '@/types/academics';
 import { cn } from '@/lib/utils';
+import { useResolvedRouteId } from '../_hooks/use-resolved-route-id';
 
 // Define the schema for timetable editing
 // Updated: 2025-10-08 - Added timetable_type support
@@ -121,25 +122,13 @@ const timetableFormSchema = z
 
 type TimetableFormValues = z.infer<typeof timetableFormSchema>;
 
-/**
- * Validates if a string is a valid UUID format
- * Also rejects TanStack Table's temporary drag IDs (%%drp:id:xxxxx%%)
- */
-function isValidUUID(id: string): boolean {
-  if (!id) return false;
-  // Reject TanStack Table temporary drag IDs
-  if (id.includes('%%drp:id:')) return false;
-  // Check UUID format
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
-}
-
-export default function EditTimetablePage({
-  params
-}: {
-  params: Promise<{ id: string }>;
-}) {
-  const { id: timetableId } = use(params);
+export default function EditTimetablePage() {
   const router = useRouter();
+
+  // Fix: 2026-02-25 - Use useResolvedRouteId to avoid Next.js DRP placeholder issue.
+  // During client-side navigation with cacheComponents, use(params) can resolve to
+  // %%drp:id:xxxx%% placeholders. useResolvedRouteId falls back to useParams()/pathname.
+  const { id: timetableId, isResolving, isInvalid } = useResolvedRouteId();
   const { updateTimetable } = useTimetables();
   const { isSuperAdmin, userProfile } = usePermissions();
   const { toast } = useToast();
@@ -298,11 +287,12 @@ export default function EditTimetablePage({
   // form.reset and fetchAcademicYears are called inside but shouldn't trigger re-runs
   useEffect(() => {
     const fetchTimetable = async () => {
-      // Validate timetable ID before making API calls
-      // This prevents errors from TanStack Table's temporary drag IDs (%%drp:id:xxxxx%%)
-      if (!isValidUUID(timetableId)) {
-        logger.error('academic/timetables', 'Invalid timetable ID format', { timetableId });
-        setError('Invalid timetable ID. Please navigate from the timetables list.');
+      // Skip fetch if ID is still resolving (Next.js DRP placeholder)
+      if (isResolving || isInvalid || !timetableId) {
+        if (isInvalid) {
+          logger.error('academic/timetables', 'Invalid timetable ID format', { timetableId });
+          setError('Invalid timetable ID. Please navigate from the timetables list.');
+        }
         setLoading(false);
         return;
       }
@@ -369,7 +359,7 @@ export default function EditTimetablePage({
 
     fetchTimetable();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [timetableId]); // Only re-run when timetableId changes
+  }, [timetableId, isResolving, isInvalid]); // Re-run when ID resolves from DRP placeholder
 
   // Initial data loading - fetch all required data
   useEffect(() => {
@@ -618,6 +608,11 @@ export default function EditTimetablePage({
     loadingDepartments ||
     loadingSemesters ||
     loadingSections;
+
+  // Show loading while Next.js DRP placeholder is resolving
+  if (isResolving) {
+    return <Loading title='Loading timetable data...' />;
+  }
 
   if (isLoading) {
     return <Loading title='Loading timetable data...' />;

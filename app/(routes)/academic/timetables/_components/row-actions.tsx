@@ -51,13 +51,13 @@ export function DataTableRowActions<TData>({
     isSuperAdmin || canAccess('academic.timetables', 'delete');
 
   // FIX: 2026-02-03 - Validate timetable ID before navigation
-  // TanStack Table can create temporary row IDs with pattern %%drp:id:xxxxx%%
-  // These are NOT valid UUIDs and will cause database errors if used in navigation
+  // Next.js DRP (Dynamic Route Parameter) placeholders (%%drp:id:xxxx%%)
+  // can appear during client-side navigation with cacheComponents enabled
   const isValidId = (id: string | undefined): boolean => {
     if (!id) return false;
-    // Check for temporary placeholder pattern
-    if (id.includes('%%drp:id:')) return false;
-    // Check for valid UUID format (basic check)
+    // Reject Next.js DRP placeholders
+    if (id.includes('%%drp:')) return false;
+    // Check for valid UUID format
     const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     return uuidPattern.test(id);
   };
