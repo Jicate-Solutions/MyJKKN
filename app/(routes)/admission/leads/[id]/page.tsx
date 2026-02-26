@@ -1299,74 +1299,18 @@ function LeadDetailPageContent() {
                     </CardContent>
                   </Card>
 
-                  {/* Assignment Details */}
+                  {/* Assignment Details — source-based: referral → consultant, others → counselor */}
                   <Card>
                     <CardHeader className="pb-3">
                       <CardTitle className="text-base flex items-center gap-2">
                         <User className="h-4 w-4" />
-                        Assignment Details
+                        {lead.source === 'referral' ? 'Consultant Details' : 'Assigned Counselor'}
                       </CardTitle>
                     </CardHeader>
-                    <CardContent className="space-y-4">
-                      {/* Counselor Section */}
-                      <div>
-                        <h4 className="text-sm font-semibold text-muted-foreground mb-2">Assigned Counselor</h4>
-                        {lead.counselor_id && lead.counselor ? (
-                          <div className="rounded-md border p-3 space-y-2">
-                            <div className="flex items-center justify-between">
-                              <p className="font-medium">{lead.counselor.name}</p>
-                              <Badge variant="outline" className="text-xs bg-green-50 text-green-700 border-green-200">
-                                Active
-                              </Badge>
-                            </div>
-                            <dl className="grid grid-cols-2 gap-2 text-sm">
-                              {lead.counselor.email && (
-                                <div>
-                                  <dt className="text-muted-foreground">Email</dt>
-                                  <dd>{lead.counselor.email}</dd>
-                                </div>
-                              )}
-                              {lead.counselor.phone && (
-                                <div>
-                                  <dt className="text-muted-foreground">Phone</dt>
-                                  <dd>{lead.counselor.phone}</dd>
-                                </div>
-                              )}
-                              {lead.counselor.designation && (
-                                <div>
-                                  <dt className="text-muted-foreground">Designation</dt>
-                                  <dd className="capitalize">{lead.counselor.designation}</dd>
-                                </div>
-                              )}
-                              {lead.assigned_at && (
-                                <div>
-                                  <dt className="text-muted-foreground">Assigned On</dt>
-                                  <dd>{new Date(lead.assigned_at).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}</dd>
-                                </div>
-                              )}
-                            </dl>
-                          </div>
-                        ) : (
-                          <div className="rounded-md border border-dashed p-3 text-center">
-                            <p className="text-sm text-muted-foreground">No counselor assigned</p>
-                            {lead.source !== 'referral' && (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="mt-2"
-                                onClick={() => setShowAssignCounselorDialog(true)}
-                              >
-                                Assign Counselor
-                              </Button>
-                            )}
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Consultant Section */}
-                      <div>
-                        <h4 className="text-sm font-semibold text-muted-foreground mb-2">Referred by Consultant</h4>
-                        {leadAttributions.length > 0 ? (
+                    <CardContent>
+                      {lead.source === 'referral' ? (
+                        /* Consultant section for referral leads */
+                        leadAttributions.length > 0 ? (
                           <div className="space-y-2">
                             {leadAttributions.map((attr: any) => (
                               <div key={attr.id} className="rounded-md border p-3">
@@ -1412,8 +1356,58 @@ function LeadDetailPageContent() {
                           <div className="rounded-md border border-dashed p-3 text-center">
                             <p className="text-sm text-muted-foreground">No consultant linked</p>
                           </div>
-                        )}
-                      </div>
+                        )
+                      ) : (
+                        /* Counselor section for non-referral leads */
+                        lead.counselor_id && lead.counselor ? (
+                          <div className="rounded-md border p-3 space-y-2">
+                            <div className="flex items-center justify-between">
+                              <p className="font-medium">{lead.counselor.name}</p>
+                              <Badge variant="outline" className="text-xs bg-green-50 text-green-700 border-green-200">
+                                Active
+                              </Badge>
+                            </div>
+                            <dl className="grid grid-cols-2 gap-2 text-sm">
+                              {lead.counselor.email && (
+                                <div>
+                                  <dt className="text-muted-foreground">Email</dt>
+                                  <dd>{lead.counselor.email}</dd>
+                                </div>
+                              )}
+                              {lead.counselor.phone && (
+                                <div>
+                                  <dt className="text-muted-foreground">Phone</dt>
+                                  <dd>{lead.counselor.phone}</dd>
+                                </div>
+                              )}
+                              {lead.counselor.designation && (
+                                <div>
+                                  <dt className="text-muted-foreground">Designation</dt>
+                                  <dd className="capitalize">{lead.counselor.designation}</dd>
+                                </div>
+                              )}
+                              {lead.assigned_at && (
+                                <div>
+                                  <dt className="text-muted-foreground">Assigned On</dt>
+                                  <dd>{new Date(lead.assigned_at).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}</dd>
+                                </div>
+                              )}
+                            </dl>
+                          </div>
+                        ) : (
+                          <div className="rounded-md border border-dashed p-3 text-center">
+                            <p className="text-sm text-muted-foreground">No counselor assigned</p>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="mt-2"
+                              onClick={() => setShowAssignCounselorDialog(true)}
+                            >
+                              Assign Counselor
+                            </Button>
+                          </div>
+                        )
+                      )}
                     </CardContent>
                   </Card>
 
