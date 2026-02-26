@@ -60,6 +60,15 @@ function getScoreCategoryColor(cat: string) {
   }
 }
 
+function getScoreCategoryColorLight(cat: string) {
+  switch (cat) {
+    case 'hot': return 'text-red-300';
+    case 'warm': return 'text-orange-300';
+    case 'cool': return 'text-cyan-300';
+    default: return 'text-blue-300';
+  }
+}
+
 function getScoreBg(score: number) {
   if (score >= 75) return 'bg-red-100 text-red-800';
   if (score >= 50) return 'bg-orange-100 text-orange-800';
@@ -254,7 +263,7 @@ export function getLeadColumns(
               <p className="font-semibold">Score Breakdown</p>
               <p>Profile: {quality} pts</p>
               <p>Stage progress: {stage} pts</p>
-              <p>Category: <span className={`capitalize font-medium ${getScoreCategoryColor(category)}`}>{category}</span></p>
+              <p>Category: <span className={`capitalize font-medium ${getScoreCategoryColorLight(category)}`}>{category}</span></p>
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>

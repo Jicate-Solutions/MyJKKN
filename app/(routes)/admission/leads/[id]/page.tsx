@@ -1071,10 +1071,10 @@ function LeadDetailPageContent() {
                             </TooltipTrigger>
                             <TooltipContent side="bottom" className="max-w-[220px] text-xs space-y-1 p-3">
                               <p className="font-semibold">Score Category Thresholds</p>
-                              <p className={`${computedScores.category === 'hot' ? 'font-bold' : ''} text-red-600`}>Hot: 75 – 100</p>
-                              <p className={`${computedScores.category === 'warm' ? 'font-bold' : ''} text-orange-600`}>Warm: 50 – 74</p>
-                              <p className={`${computedScores.category === 'cool' ? 'font-bold' : ''} text-cyan-600`}>Cool: 25 – 49</p>
-                              <p className={`${computedScores.category === 'cold' ? 'font-bold' : ''} text-blue-600`}>Cold: 0 – 24</p>
+                              <p className={`${computedScores.category === 'hot' ? 'font-bold' : 'opacity-70'} text-red-300`}>Hot: 75 – 100</p>
+                              <p className={`${computedScores.category === 'warm' ? 'font-bold' : 'opacity-70'} text-orange-300`}>Warm: 50 – 74</p>
+                              <p className={`${computedScores.category === 'cool' ? 'font-bold' : 'opacity-70'} text-cyan-300`}>Cool: 25 – 49</p>
+                              <p className={`${computedScores.category === 'cold' ? 'font-bold' : 'opacity-70'} text-blue-300`}>Cold: 0 – 24</p>
                               <p className="border-t pt-1 mt-1">Current score: <span className="font-medium">{computedScores.score}</span></p>
                             </TooltipContent>
                           </Tooltip>
@@ -1141,7 +1141,7 @@ function LeadDetailPageContent() {
                               <p className="font-semibold">Profile Quality ({computedScores.qualityFilledCount}/{computedScores.qualityTotalFields} fields)</p>
                               <div className="border-t pt-1.5 mt-1.5 grid grid-cols-2 gap-x-3 gap-y-0.5">
                                 {Object.entries(computedScores.qualityBreakdown).map(([field, filled]) => (
-                                  <p key={field} className={filled ? 'text-green-600' : 'text-muted-foreground'}>
+                                  <p key={field} className={filled ? 'text-green-300' : 'text-red-300/70'}>
                                     {filled ? '✓' : '✗'} {field}
                                   </p>
                                 ))}
