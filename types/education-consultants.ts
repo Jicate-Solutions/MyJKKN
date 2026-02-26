@@ -24,19 +24,57 @@ export type RewardType = 'cash' | 'voucher' | 'discount' | 'scholarship' | 'gift
 export type RewardStatus = 'pending' | 'earned' | 'approved' | 'redeemed' | 'expired' | 'cancelled';
 
 // ═══════════════════════════════════════════════════════════════════════════
+// JUNCTION: CONSULTANT ↔ INSTITUTION LINK
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** A row from consultant_institutions — the per-institution relationship. */
+export interface ConsultantInstitution {
+  id: string;
+  consultant_id: string;
+  institution_id: string;
+  status: ConsultantStatus;
+  tier: ConsultantTier;
+  contract_start_date: string | null;
+  contract_end_date: string | null;
+  contract_document_url: string | null;
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+  // Populated when joined
+  institution?: { id: string; name: string };
+}
+
+export interface CreateConsultantInstitutionInput {
+  consultant_id: string;
+  institution_id: string;
+  status?: ConsultantStatus;
+  tier?: ConsultantTier;
+  contract_start_date?: string | null;
+  contract_end_date?: string | null;
+  contract_document_url?: string | null;
+}
+
+export interface UpdateConsultantInstitutionInput {
+  id: string;
+  status?: ConsultantStatus;
+  tier?: ConsultantTier;
+  contract_start_date?: string | null;
+  contract_end_date?: string | null;
+  contract_document_url?: string | null;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // CORE ENTITY: EDUCATION CONSULTANT
 // ═══════════════════════════════════════════════════════════════════════════
 
 export interface EducationConsultant {
   id: string;
-  institution_id: string;
+  user_id?: string | null;
   name: string;
   email: string | null;
   phone: string | null;
   alternate_phone: string | null;
   consultant_type: ConsultantType;
-  status: ConsultantStatus;
-  tier: ConsultantTier;
   code: string | null;
   contact_person: string | null;
   website: string | null;
@@ -58,11 +96,6 @@ export interface EducationConsultant {
   bank_account_number: string | null;
   bank_account_holder: string | null;
   bank_ifsc: string | null;
-
-  // Contract
-  contract_start_date: string | null;
-  contract_end_date: string | null;
-  contract_document_url: string | null;
 
   // Profile
   profile_photo_url: string | null;
@@ -88,8 +121,20 @@ export interface EducationConsultant {
   created_at: string;
   updated_at: string;
 
-  // Relationships (optional populated)
+  // ── Fields populated from junction context ─────────────────────────────
+  // When querying with institution_id filter, the service merges these from
+  // the matching consultant_institutions row so UI components still work.
+  institution_id?: string;
+  status?: ConsultantStatus;
+  tier?: ConsultantTier;
+  contract_start_date?: string | null;
+  contract_end_date?: string | null;
+  contract_document_url?: string | null;
+
+  // ── Relationships (optional populated) ────────────────────────────────
   institution?: { id: string; name: string };
+  /** All institution links — populated on detail page. */
+  institutions?: ConsultantInstitution[];
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -97,14 +142,13 @@ export interface EducationConsultant {
 // ═══════════════════════════════════════════════════════════════════════════
 
 export interface CreateConsultantInput {
-  institution_id: string;
+  /** One or more institution IDs to link this consultant to on creation. */
+  institution_ids: string[];
   name: string;
   email?: string | null;
   phone?: string | null;
   alternate_phone?: string | null;
   consultant_type: ConsultantType;
-  status?: ConsultantStatus;
-  tier?: ConsultantTier;
   contact_person?: string | null;
   website?: string | null;
   gst_number?: string | null;
@@ -119,14 +163,18 @@ export interface CreateConsultantInput {
   bank_account_number?: string | null;
   bank_account_holder?: string | null;
   bank_ifsc?: string | null;
-  contract_start_date?: string | null;
-  contract_end_date?: string | null;
   covered_states?: string[];
   specialized_degrees?: string[];
   specialized_programs?: string[];
   internal_notes?: string | null;
   tags?: string[];
   profile_photo_url?: string | null;
+
+  // Per-institution defaults applied to all institution links on creation
+  status?: ConsultantStatus;
+  tier?: ConsultantTier;
+  contract_start_date?: string | null;
+  contract_end_date?: string | null;
 
   // Form aliases (remapped to DB columns in submit handler)
   address?: string | null;
@@ -136,11 +184,41 @@ export interface CreateConsultantInput {
   programs_handled?: string[];
 }
 
-export interface UpdateConsultantInput extends Partial<CreateConsultantInput> {
+export interface UpdateConsultantInput {
   id: string;
+  name?: string;
+  email?: string | null;
+  phone?: string | null;
+  alternate_phone?: string | null;
+  consultant_type?: ConsultantType;
+  contact_person?: string | null;
+  website?: string | null;
+  gst_number?: string | null;
+  pan_number?: string | null;
+  address_line1?: string | null;
+  city?: string | null;
+  state?: string | null;
+  country?: string | null;
+  pincode?: string | null;
+  bank_name?: string | null;
+  bank_branch?: string | null;
+  bank_account_number?: string | null;
+  bank_account_holder?: string | null;
+  bank_ifsc?: string | null;
+  covered_states?: string[];
+  specialized_degrees?: string[];
+  specialized_programs?: string[];
+  internal_notes?: string | null;
+  tags?: string[];
   profile_photo_url?: string | null;
-  contract_document_url?: string | null;
   relationship_score?: number | null;
+
+  // Form aliases
+  address?: string | null;
+  notes?: string | null;
+  geographic_coverage?: string[];
+  specializations?: string[];
+  programs_handled?: string[];
 }
 
 export interface ConsultantFilters {

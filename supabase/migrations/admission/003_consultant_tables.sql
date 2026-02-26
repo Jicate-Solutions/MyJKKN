@@ -259,3 +259,32 @@ CREATE TABLE IF NOT EXISTS consultant_payment_queries (
   updated_at timestamptz DEFAULT now()
 );
 ALTER TABLE consultant_payment_queries ENABLE ROW LEVEL SECURITY;
+
+-- ============================================================================
+-- 8. CONSULTANT INSTITUTIONS (junction table)
+-- Updated: 2026-02-26 - Refactored education_consultants to be a global entity.
+--   institution_id, status, tier, contract_start_date, contract_end_date,
+--   and contract_document_url were removed from education_consultants and moved here.
+--   One consultant row can now be linked to multiple institutions.
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS consultant_institutions (
+  id                    uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+  consultant_id         uuid        NOT NULL REFERENCES education_consultants(id) ON DELETE CASCADE,
+  institution_id        uuid        NOT NULL REFERENCES institutions(id) ON DELETE CASCADE,
+  status                text        NOT NULL DEFAULT 'active',
+  tier                  text        NOT NULL DEFAULT 'bronze',
+  contract_start_date   date,
+  contract_end_date     date,
+  contract_document_url text,
+  created_at            timestamptz DEFAULT now(),
+  updated_at            timestamptz DEFAULT now(),
+  created_by            uuid        REFERENCES profiles(id),
+  CONSTRAINT consultant_institutions_unique UNIQUE(consultant_id, institution_id)
+);
+COMMENT ON TABLE consultant_institutions IS
+  'Junction table linking consultants (global) to institutions. Per-institution: status, tier, contract.';
+
+CREATE INDEX IF NOT EXISTS idx_ci_consultant  ON consultant_institutions(consultant_id);
+CREATE INDEX IF NOT EXISTS idx_ci_institution ON consultant_institutions(institution_id);
+CREATE INDEX IF NOT EXISTS idx_ci_status      ON consultant_institutions(status);
+ALTER TABLE consultant_institutions ENABLE ROW LEVEL SECURITY;

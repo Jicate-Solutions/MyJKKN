@@ -12,7 +12,7 @@ import { DataTable } from '@/components/data-table/data-table';
 import { profileColumns } from './columns';
 import type { LearnerProfile } from '@/types/learner-profile';
 import { Button } from '@/components/ui/button';
-import { TrashIcon, ArrowRight } from 'lucide-react';
+import { TrashIcon, ArrowRight, ArrowUpDown } from 'lucide-react';
 import Link from 'next/link';
 import {
   AlertDialog,
@@ -24,11 +24,25 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Progress } from '@/components/ui/progress';
 import { LearnerProfileService } from '@/lib/services/learner-profile-service';
 import toast from 'react-hot-toast';
 import { usePermissions } from '@/hooks/use-permissions';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
+
+const SORT_OPTIONS = [
+  { value: 'first_name_asc',   label: 'Name (A → Z)',        sortBy: 'first_name',  sortOrder: 'asc'  },
+  { value: 'first_name_desc',  label: 'Name (Z → A)',        sortBy: 'first_name',  sortOrder: 'desc' },
+  { value: 'roll_number_asc',  label: 'Roll No. (A → Z)',    sortBy: 'roll_number', sortOrder: 'asc'  },
+  { value: 'roll_number_desc', label: 'Roll No. (Z → A)',    sortBy: 'roll_number', sortOrder: 'desc' },
+] as const;
 
 interface ProfilesTableServerProps {
   initialData: LearnerProfile[];
@@ -67,9 +81,28 @@ export function ProfilesTableServer({
   const [localMetadata, setLocalMetadata] = useState(metadata);
 
   const router = useRouter();
+  const searchParams = useSearchParams();
 
   // Permission check - Super admin has full access, others need 'learners.delete' permission
   const { isSuperAdmin, canAccess } = usePermissions();
+
+  // Derive current sort selection from URL params (server-side sort keys)
+  const currentSortBy = searchParams.get('sort_by') || 'first_name';
+  const currentSortOrder = searchParams.get('sort_order') || 'asc';
+  const currentSort =
+    SORT_OPTIONS.find(
+      (o) => o.sortBy === currentSortBy && o.sortOrder === currentSortOrder
+    )?.value ?? 'first_name_asc';
+
+  const handleSortChange = (value: string) => {
+    const option = SORT_OPTIONS.find((o) => o.value === value);
+    if (!option) return;
+    const params = new URLSearchParams(searchParams.toString());
+    params.set('sort_by', option.sortBy);
+    params.set('sort_order', option.sortOrder);
+    params.set('page', '1'); // reset to first page on sort change
+    router.push(`?${params.toString()}`);
+  };
   const canDeleteLearners = isSuperAdmin || canAccess('learners', 'delete');
 
   // Update local data when props change
@@ -197,6 +230,22 @@ export function ProfilesTableServer({
 
     return (
       <div className="flex items-center gap-2">
+        {/* Sort selector — always visible in the toolbar */}
+        <Select value={currentSort} onValueChange={handleSortChange}>
+          <SelectTrigger className="h-8 w-[165px] text-xs">
+            <ArrowUpDown className="mr-1.5 h-3.5 w-3.5 text-muted-foreground shrink-0" />
+            <SelectValue placeholder="Sort by..." />
+          </SelectTrigger>
+          <SelectContent align="end">
+            {SORT_OPTIONS.map((opt) => (
+              <SelectItem key={opt.value} value={opt.value} className="text-xs">
+                {opt.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        {/* Bulk actions — shown only when rows are selected */}
         {props.selectedRows.length > 0 && (
           <>
             <Button asChild size="sm" className="h-8">

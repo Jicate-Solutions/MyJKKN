@@ -45,7 +45,10 @@ CREATE POLICY "leads_insert" ON admission_leads FOR INSERT WITH CHECK (
     AND role IN ('admin', 'super_admin', 'staff', 'institution_admin', 'administrator')
   )
   OR EXISTS (
-    SELECT 1 FROM education_consultants WHERE user_id = auth.uid() AND status = 'active'
+    -- Updated: 2026-02-26 - status moved to consultant_institutions junction table
+    SELECT 1 FROM education_consultants ec
+    JOIN consultant_institutions ci ON ci.consultant_id = ec.id AND ci.status = 'active'
+    WHERE ec.user_id = auth.uid()
   )
 );
 CREATE POLICY "leads_update" ON admission_leads FOR UPDATE USING (

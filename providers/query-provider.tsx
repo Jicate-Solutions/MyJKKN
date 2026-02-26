@@ -14,7 +14,7 @@ export function QueryClientProvider({ children }: { children: ReactNode }) {
           queries: {
             staleTime: 5 * 60 * 1000, // 5 minutes - data stays fresh longer
             gcTime: 30 * 60 * 1000, // 30 minutes - keep in cache longer
-            refetchOnWindowFocus: true, // Re-enable: Refetch when tab regains focus after inactivity
+            refetchOnWindowFocus: false, // Disabled: was causing excessive refetches on every tab switch
             refetchOnMount: true, // Refetch on mount
             refetchOnReconnect: true, // Refetch on network reconnect
             retry: (failureCount, error) => {
