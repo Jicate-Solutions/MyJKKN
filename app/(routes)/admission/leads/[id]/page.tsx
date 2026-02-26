@@ -34,6 +34,10 @@ import {
   useApplicationMutations,
   useCounselorProfiles
 } from '@/hooks/admission';
+import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
+import { useDegrees } from '@/hooks/organization/use-degrees';
+import { useDepartments } from '@/hooks/organization/use-departments';
+import { usePrograms } from '@/hooks/organization/use-programs';
 import { ConsultantAttributionCard } from './_components/consultant-attribution-card';
 import { useConsultantsForDropdown, useLeadAttributions } from '@/hooks/admission/use-consultants';
 import { ConsultantService } from '@/lib/services/admission/consultant-service';
@@ -343,6 +347,9 @@ function LeadDetailPageContent() {
   const [selectedCounselorId, setSelectedCounselorId] = useState('');
 
   // Create application form state
+  const [selectedInstitutionId, setSelectedInstitutionId] = useState('');
+  const [selectedDegreeId, setSelectedDegreeId] = useState('');
+  const [selectedDepartmentId, setSelectedDepartmentId] = useState('');
   const [selectedProgramId, setSelectedProgramId] = useState('');
 
   // Validate UUID to handle Next.js PPR/DRP placeholders during prerender
@@ -543,17 +550,11 @@ function LeadDetailPageContent() {
     source: '',
   });
 
-  // Fetch institution name and programs for details display & Create Application dialog
+  // Fetch institution name for details display
   const [institutionName, setInstitutionName] = useState<string>('');
-  const [programs, setPrograms] = useState<{ id: string; program_name: string }[]>([]);
-  const [programsLoading, setProgramsLoading] = useState(false);
   useEffect(() => {
-    let cancelled = false;
     if (lead?.institution_id) {
-      setProgramsLoading(true);
       const supabase = createClientSupabaseClient();
-
-      // Fetch institution name
       (supabase as any)
         .from('institutions')
         .select('name')
@@ -564,25 +565,35 @@ function LeadDetailPageContent() {
             setInstitutionName(data.name);
           }
         });
-
-      // Fetch programs
-      supabase
-        .from('programs')
-        .select('id, program_name')
-        .eq('institution_id', lead.institution_id)
-        .eq('is_active', true)
-        .order('program_name')
-        .then(({ data, error }: { data: any; error: any }) => {
-          if (cancelled) return;
-          if (error) {
-            console.error('[admission/leads] Failed to fetch programs:', error.message);
-          } else {
-            setPrograms(data || []);
-          }
-          setProgramsLoading(false);
-        });
     }
-    return () => { cancelled = true; };
+  }, [lead?.institution_id]);
+
+  // Organization hierarchy for Create Application dialog
+  const { institutions } = useInstitutionsWithAccess();
+  const { data: degreesData, isLoading: loadingDegrees } = useDegrees({
+    institution_id: selectedInstitutionId || undefined,
+  });
+  const { data: departmentsData, isLoading: loadingDepartments } = useDepartments({
+    degree_id: selectedDegreeId || undefined,
+  });
+  const { data: programsData, isLoading: loadingPrograms } = usePrograms({
+    department_id: selectedDepartmentId || undefined,
+  });
+  const filteredDegrees = degreesData?.data || [];
+  const filteredDepartments = departmentsData?.data || [];
+  const filteredPrograms = programsData?.data || [];
+
+  // All programs for the lead's institution (used for Interested Programs display)
+  const { data: allInstitutionProgramsData, isLoading: programsLoading } = usePrograms({
+    institution_id: lead?.institution_id || undefined,
+  });
+  const programs = allInstitutionProgramsData?.data || [];
+
+  // Pre-select institution from lead data
+  useEffect(() => {
+    if (lead?.institution_id && !selectedInstitutionId) {
+      setSelectedInstitutionId(lead.institution_id);
+    }
   }, [lead?.institution_id]);
 
   // Counselors from profiles (role='counselor') — institution-scoped
@@ -863,7 +874,7 @@ function LeadDetailPageContent() {
     }
     createApplication.mutate(
       {
-        institution_id: lead.institution_id,
+        institution_id: selectedInstitutionId,
         lead_id: leadId,
         program_id: selectedProgramId,
         full_name: lead.full_name || '',
@@ -872,6 +883,8 @@ function LeadDetailPageContent() {
       },
       {
         onSuccess: () => {
+          setSelectedDegreeId('');
+          setSelectedDepartmentId('');
           setSelectedProgramId('');
           setShowCreateAppDialog(false);
         },
@@ -1885,7 +1898,7 @@ function LeadDetailPageContent() {
                   )}
 
                   {/* Create Application Dialog */}
-                  <Dialog open={showCreateAppDialog} onOpenChange={(open) => { setShowCreateAppDialog(open); if (!open) setSelectedProgramId(''); }}>
+                  <Dialog open={showCreateAppDialog} onOpenChange={(open) => { setShowCreateAppDialog(open); if (!open) { setSelectedDegreeId(''); setSelectedDepartmentId(''); setSelectedProgramId(''); } }}>
                     <DialogTrigger asChild>
                       <Button variant="outline" className="w-full justify-start" size="sm">
                         <Send className="h-4 w-4 mr-2" />
@@ -1900,25 +1913,79 @@ function LeadDetailPageContent() {
                         </DialogDescription>
                       </DialogHeader>
                       <div className="space-y-4 py-4">
+                        {/* Institution */}
                         <div>
-                          <Label htmlFor="app-program">Program *</Label>
-                          <Select value={selectedProgramId} onValueChange={setSelectedProgramId}>
-                            <SelectTrigger className="mt-2">
-                              <SelectValue placeholder="Select a program" />
+                          <Label>Institution *</Label>
+                          <Select value={selectedInstitutionId} onValueChange={(value) => {
+                            setSelectedInstitutionId(value);
+                            setSelectedDegreeId('');
+                            setSelectedDepartmentId('');
+                            setSelectedProgramId('');
+                          }}>
+                            <SelectTrigger className="mt-1.5">
+                              <SelectValue placeholder="Select institution" />
                             </SelectTrigger>
                             <SelectContent>
-                              {programsLoading ? (
-                                <SelectItem value="_loading" disabled>Loading programs...</SelectItem>
-                              ) : programs.length === 0 ? (
-                                <SelectItem value="_none" disabled>No programs found</SelectItem>
-                              ) : (
-                                programs.map((p) => (
-                                  <SelectItem key={p.id} value={p.id}>{p.program_name}</SelectItem>
-                                ))
-                              )}
+                              {institutions.map((inst) => (
+                                <SelectItem key={inst.id} value={inst.id}>{inst.name}</SelectItem>
+                              ))}
                             </SelectContent>
                           </Select>
                         </div>
+
+                        {/* Degree */}
+                        <div>
+                          <Label>Degree *</Label>
+                          <Select value={selectedDegreeId} onValueChange={(value) => {
+                            setSelectedDegreeId(value);
+                            setSelectedDepartmentId('');
+                            setSelectedProgramId('');
+                          }} disabled={!selectedInstitutionId || loadingDegrees}>
+                            <SelectTrigger className="mt-1.5">
+                              <SelectValue placeholder={loadingDegrees ? "Loading..." : "Select degree"} />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {filteredDegrees.map((deg: any) => (
+                                <SelectItem key={deg.id} value={deg.id}>{deg.degree_name}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        {/* Department */}
+                        <div>
+                          <Label>Department *</Label>
+                          <Select value={selectedDepartmentId} onValueChange={(value) => {
+                            setSelectedDepartmentId(value);
+                            setSelectedProgramId('');
+                          }} disabled={!selectedDegreeId || loadingDepartments}>
+                            <SelectTrigger className="mt-1.5">
+                              <SelectValue placeholder={loadingDepartments ? "Loading..." : "Select department"} />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {filteredDepartments.map((dept: any) => (
+                                <SelectItem key={dept.id} value={dept.id}>{dept.department_name}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        {/* Program */}
+                        <div>
+                          <Label>Program *</Label>
+                          <Select value={selectedProgramId} onValueChange={setSelectedProgramId} disabled={!selectedDepartmentId || loadingPrograms}>
+                            <SelectTrigger className="mt-1.5">
+                              <SelectValue placeholder={loadingPrograms ? "Loading..." : "Select program"} />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {filteredPrograms.map((prog: any) => (
+                                <SelectItem key={prog.id} value={prog.id}>{prog.program_name}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        {/* Lead info preview */}
                         <div className="rounded-md bg-muted p-3 text-sm space-y-1">
                           <p><span className="text-muted-foreground">Name:</span> {lead.full_name || '-'}</p>
                           <p><span className="text-muted-foreground">Email:</span> {lead.email || '-'}</p>
@@ -1926,7 +1993,7 @@ function LeadDetailPageContent() {
                         </div>
                       </div>
                       <DialogFooter>
-                        <Button variant="outline" onClick={() => { setShowCreateAppDialog(false); setSelectedProgramId(''); }}>Cancel</Button>
+                        <Button variant="outline" onClick={() => { setShowCreateAppDialog(false); setSelectedDegreeId(''); setSelectedDepartmentId(''); setSelectedProgramId(''); }}>Cancel</Button>
                         <Button onClick={handleCreateApplication} disabled={createApplication.isPending || !selectedProgramId}>
                           {createApplication.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
                           Create Application

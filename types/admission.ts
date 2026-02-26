@@ -75,6 +75,8 @@ export type ApplicationStatus =
   | 'approved'
   | 'rejected'
   | 'waitlisted'
+  | 'offer_sent'
+  | 'offer_accepted'
   | 'enrolled'
   | 'withdrawn';
 

@@ -156,6 +156,25 @@ export class ApplicationService {
   static async createApplicationFromLead(input: CreateApplicationInput): Promise<AdmissionApplication> {
     const { data: { user } } = await this.supabase.auth.getUser();
 
+    // Check for duplicate active application for same lead + program
+    if (input.lead_id && input.program_id) {
+      const { data: existing, error: dupError } = await this.supabase
+        .from('admission_applications')
+        .select('id')
+        .eq('lead_id', input.lead_id)
+        .eq('program_id', input.program_id)
+        .not('status', 'in', '("withdrawn","rejected")')
+        .limit(1);
+
+      if (dupError) {
+        console.error('[admission/applications] Error checking for duplicate application:', dupError);
+      }
+
+      if (existing && existing.length > 0) {
+        throw new Error('An active application already exists for this lead and program');
+      }
+    }
+
     // Generate application number
     const applicationNumber = await this.generateApplicationNumber(input.institution_id);
 

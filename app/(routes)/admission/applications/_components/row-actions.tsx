@@ -26,7 +26,19 @@ import {
 import type { AdmissionApplication } from '@/types/admission';
 import { useApplicationMutations } from '@/hooks/admission';
 import { usePermissions } from '@/hooks/use-permissions';
-import { Eye, CheckCircle, XCircle, Trash2 } from 'lucide-react';
+import {
+  Eye,
+  Pencil,
+  CheckCircle,
+  XCircle,
+  Trash2,
+  ClipboardCheck,
+  ThumbsUp,
+  ThumbsDown,
+  Send,
+  UserCheck,
+  GraduationCap
+} from 'lucide-react';
 
 interface DataTableRowActionsProps<TData> {
   row: Row<TData>;
@@ -38,8 +50,10 @@ export function DataTableRowActions<TData>({
   const router = useRouter();
   const app = row.original as AdmissionApplication;
   const { canAccess, isSuperAdmin } = usePermissions();
-  const { updateApplicationStatus } = useApplicationMutations();
+  const { updateApplicationStatus, deleteApplication } = useApplicationMutations();
   const [showWithdrawDialog, setShowWithdrawDialog] = useState(false);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [showRejectDialog, setShowRejectDialog] = useState(false);
 
   const canView = isSuperAdmin || canAccess('admission', 'view');
   const canEdit = isSuperAdmin || canAccess('admission', 'edit');
@@ -48,6 +62,19 @@ export function DataTableRowActions<TData>({
     updateApplicationStatus.mutate(
       { id: app.id, status: 'withdrawn' },
       { onSuccess: () => setShowWithdrawDialog(false) }
+    );
+  };
+
+  const handleDelete = () => {
+    deleteApplication.mutate(app.id, {
+      onSuccess: () => setShowDeleteDialog(false)
+    });
+  };
+
+  const handleReject = () => {
+    updateApplicationStatus.mutate(
+      { id: app.id, status: 'rejected' },
+      { onSuccess: () => setShowRejectDialog(false) }
     );
   };
 
@@ -63,7 +90,8 @@ export function DataTableRowActions<TData>({
             <span className="sr-only">Open menu</span>
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-[180px]">
+        <DropdownMenuContent align="end" className="w-[200px]">
+          {/* ── Navigation actions ── */}
           <DropdownMenuItem
             onSelect={() =>
               canView && router.push(`/admission/applications/${app.id}`)
@@ -74,6 +102,20 @@ export function DataTableRowActions<TData>({
             <Eye className="h-4 w-4 mr-2" />
             View Details
           </DropdownMenuItem>
+
+          <DropdownMenuItem
+            onSelect={() =>
+              canEdit &&
+              router.push(`/admission/applications/${app.id}?edit=true`)
+            }
+            disabled={!canEdit}
+            className={!canEdit ? 'opacity-50 cursor-not-allowed' : ''}
+          >
+            <Pencil className="h-4 w-4 mr-2" />
+            Edit
+          </DropdownMenuItem>
+
+          {/* ── Status-specific quick actions ── */}
 
           {app.status === 'draft' && (
             <>
@@ -92,12 +134,138 @@ export function DataTableRowActions<TData>({
                 <CheckCircle className="h-4 w-4 mr-2" />
                 Mark as Submitted
               </DropdownMenuItem>
+              <DropdownMenuItem
+                onSelect={() => canEdit && setShowDeleteDialog(true)}
+                disabled={!canEdit}
+                className={
+                  !canEdit
+                    ? 'opacity-50 cursor-not-allowed'
+                    : 'text-red-600'
+                }
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                Delete Draft
+              </DropdownMenuItem>
             </>
           )}
 
+          {app.status === 'submitted' && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onSelect={() =>
+                  canEdit &&
+                  updateApplicationStatus.mutate({
+                    id: app.id,
+                    status: 'under_review'
+                  })
+                }
+                disabled={!canEdit}
+                className={!canEdit ? 'opacity-50 cursor-not-allowed' : ''}
+              >
+                <ClipboardCheck className="h-4 w-4 mr-2" />
+                Start Review
+              </DropdownMenuItem>
+            </>
+          )}
+
+          {app.status === 'under_review' && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onSelect={() =>
+                  canEdit &&
+                  updateApplicationStatus.mutate({
+                    id: app.id,
+                    status: 'approved'
+                  })
+                }
+                disabled={!canEdit}
+                className={!canEdit ? 'opacity-50 cursor-not-allowed' : ''}
+              >
+                <ThumbsUp className="h-4 w-4 mr-2" />
+                Approve
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onSelect={() => canEdit && setShowRejectDialog(true)}
+                disabled={!canEdit}
+                className={
+                  !canEdit
+                    ? 'opacity-50 cursor-not-allowed'
+                    : 'text-red-600'
+                }
+              >
+                <ThumbsDown className="h-4 w-4 mr-2" />
+                Reject
+              </DropdownMenuItem>
+            </>
+          )}
+
+          {app.status === 'approved' && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onSelect={() =>
+                  canEdit &&
+                  updateApplicationStatus.mutate({
+                    id: app.id,
+                    status: 'offer_sent'
+                  })
+                }
+                disabled={!canEdit}
+                className={!canEdit ? 'opacity-50 cursor-not-allowed' : ''}
+              >
+                <Send className="h-4 w-4 mr-2" />
+                Send Offer
+              </DropdownMenuItem>
+            </>
+          )}
+
+          {app.status === 'offer_sent' && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onSelect={() =>
+                  canEdit &&
+                  updateApplicationStatus.mutate({
+                    id: app.id,
+                    status: 'offer_accepted'
+                  })
+                }
+                disabled={!canEdit}
+                className={!canEdit ? 'opacity-50 cursor-not-allowed' : ''}
+              >
+                <UserCheck className="h-4 w-4 mr-2" />
+                Mark Accepted
+              </DropdownMenuItem>
+            </>
+          )}
+
+          {app.status === 'offer_accepted' && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onSelect={() =>
+                  canEdit &&
+                  updateApplicationStatus.mutate({
+                    id: app.id,
+                    status: 'enrolled'
+                  })
+                }
+                disabled={!canEdit}
+                className={!canEdit ? 'opacity-50 cursor-not-allowed' : ''}
+              >
+                <GraduationCap className="h-4 w-4 mr-2" />
+                Mark Enrolled
+              </DropdownMenuItem>
+            </>
+          )}
+
+          {/* ── Destructive actions ── */}
           {app.status !== 'withdrawn' &&
             app.status !== 'rejected' &&
-            app.status !== 'enrolled' && (
+            app.status !== 'enrolled' &&
+            app.status !== 'draft' && (
               <>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
@@ -117,6 +285,7 @@ export function DataTableRowActions<TData>({
         </DropdownMenuContent>
       </DropdownMenu>
 
+      {/* Withdraw confirmation dialog */}
       <AlertDialog open={showWithdrawDialog} onOpenChange={setShowWithdrawDialog}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -136,6 +305,54 @@ export function DataTableRowActions<TData>({
               {updateApplicationStatus.isPending
                 ? 'Processing...'
                 : 'Withdraw'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Delete draft confirmation dialog */}
+      <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete draft application?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete draft application
+              &quot;{app.application_number}&quot;. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDelete}
+              disabled={deleteApplication.isPending}
+              className="bg-red-600 hover:bg-red-700"
+            >
+              {deleteApplication.isPending ? 'Deleting...' : 'Delete'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Reject confirmation dialog */}
+      <AlertDialog open={showRejectDialog} onOpenChange={setShowRejectDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Reject application?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will mark application &quot;{app.application_number}&quot; as
+              rejected. The applicant will need to re-apply if they wish to continue.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleReject}
+              disabled={updateApplicationStatus.isPending}
+              className="bg-red-600 hover:bg-red-700"
+            >
+              {updateApplicationStatus.isPending
+                ? 'Processing...'
+                : 'Reject'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

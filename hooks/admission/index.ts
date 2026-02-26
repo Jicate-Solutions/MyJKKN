@@ -571,7 +571,24 @@ export function useApplicationMutations() {
     }
   });
 
-  return { createApplication, updateApplication, updateApplicationStatus };
+  const deleteApplication = useMutation({
+    mutationFn: async (id: string) => {
+      return ApplicationService.deleteApplication(id);
+    },
+    onSuccess: () => {
+      toast.success('Application deleted successfully');
+      queryClient.invalidateQueries({ queryKey: ['admission-applications'] });
+      queryClient.invalidateQueries({ queryKey: ['admission-leads'] });
+      queryClient.invalidateQueries({ queryKey: ['admission-lead'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-summary'] });
+      queryClient.invalidateQueries({ queryKey: ['admission-dashboard'] });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to delete application');
+    }
+  });
+
+  return { createApplication, updateApplication, updateApplicationStatus, deleteApplication };
 }
 
 // ============================================
