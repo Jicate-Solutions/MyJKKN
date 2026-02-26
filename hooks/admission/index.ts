@@ -975,30 +975,19 @@ export function useFunnelAnalyticsDashboard(filtersOrId?: string | any) {
         'confirmed', 'declined', 'withdrew', 'expired'
       ];
 
-      // Fetch leads with stage info
+      // Fetch leads with stage info + counselor name
       let leadsQuery = (supabase as any)
         .from('admission_leads')
-        .select('id, stage, funnel_stage, stage_changed_at, created_at, is_hot_lead, combined_score, counselor_id');
+        .select('id, stage, funnel_stage, stage_changed_at, created_at, is_hot_lead, combined_score, counselor_id, counselor:admission_counselors(name)');
       if (institutionId) leadsQuery = leadsQuery.eq('institution_id', institutionId);
       const { data: leads } = await leadsQuery;
-
-      // Fetch stuck leads from the view
-      let stuckQuery = (supabase as any)
-        .from('v_stuck_leads')
-        .select('*')
-        .order('days_in_stage', { ascending: false });
-      if (institutionId) stuckQuery = stuckQuery.eq('institution_id', institutionId);
-      const { data: stuckData, error: stuckError } = await stuckQuery;
-
-      if (stuckError) {
-        console.error('[admission] v_stuck_leads query failed:', stuckError);
-      }
 
       const allLeads = leads || [];
       const totalLeads = allLeads.length || 1;
 
       // One week ago for WoW comparison
-      const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+      const now = Date.now();
+      const oneWeekAgo = new Date(now - 7 * 24 * 60 * 60 * 1000);
 
       // Build enhanced funnel data per stage
       const enhanced = STAGES.map(stageKey => {
@@ -1006,7 +995,6 @@ export function useFunnelAnalyticsDashboard(filtersOrId?: string | any) {
         const leadCount = stageLeads.length;
 
         // Avg days in stage
-        const now = Date.now();
         let totalDays = 0;
         stageLeads.forEach((l: any) => {
           const entered = l.stage_changed_at ? new Date(l.stage_changed_at).getTime() : new Date(l.created_at).getTime();
@@ -1053,17 +1041,33 @@ export function useFunnelAnalyticsDashboard(filtersOrId?: string | any) {
         return { stage: stageKey, conversionRate, dropOffRate, percentageReached };
       });
 
-      // Map stuck leads from the view to expected format
-      const stuckLeads = (stuckData || []).map((s: any) => ({
-        leadId: s.lead_id,
-        currentStage: s.current_stage,
-        counselorName: s.counselor_name || null,
-        daysInStage: s.days_in_stage || 0,
-        combinedScore: s.combined_score || 0,
-        isHotLead: s.is_hot_lead || false,
-        urgencyLevel: s.urgency_level || 'low',
-        suggestedAction: s.suggested_action || 'Follow up',
-      }));
+      // Compute stuck leads inline (leads in stage > 14 days)
+      const STUCK_THRESHOLD_MS = 14 * 24 * 60 * 60 * 1000;
+      const stuckLeads = allLeads
+        .filter((l: any) => {
+          const entered = l.stage_changed_at ? new Date(l.stage_changed_at).getTime() : new Date(l.created_at).getTime();
+          return (now - entered) > STUCK_THRESHOLD_MS;
+        })
+        .map((l: any) => {
+          const entered = l.stage_changed_at ? new Date(l.stage_changed_at).getTime() : new Date(l.created_at).getTime();
+          const daysInStage = Math.round((now - entered) / (1000 * 60 * 60 * 24));
+          const urgencyLevel = daysInStage > 30 ? 'critical' : daysInStage > 21 ? 'high' : 'medium';
+          return {
+            leadId: l.id,
+            currentStage: l.stage || l.funnel_stage,
+            counselorName: l.counselor?.name || null,
+            daysInStage,
+            combinedScore: l.combined_score || 0,
+            isHotLead: l.is_hot_lead || false,
+            urgencyLevel,
+            suggestedAction: daysInStage > 30
+              ? 'Urgent re-engagement needed'
+              : daysInStage > 21
+              ? 'Schedule follow-up call'
+              : 'Follow up',
+          };
+        })
+        .sort((a: any, b: any) => b.daysInStage - a.daysInStage);
 
       // Build bottleneck alerts
       const bottlenecks = enhanced

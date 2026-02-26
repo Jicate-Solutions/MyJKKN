@@ -16,18 +16,21 @@ export async function GET(request: NextRequest) {
     // Get user's institution
     const { data: profile } = await supabase
       .from('profiles')
-      .select('institution_id')
+      .select('institution_id, is_super_admin, role')
       .eq('id', user.id)
       .single();
 
-    if (!profile?.institution_id) {
+    const isSuperAdmin = profile?.is_super_admin === true || profile?.role === 'super_admin';
+
+    const { searchParams } = new URL(request.url);
+    const institutionId = searchParams.get('institution_id') || profile?.institution_id;
+
+    if (!isSuperAdmin && !institutionId) {
       return NextResponse.json({ error: 'No institution assigned' }, { status: 403 });
     }
 
-    const { searchParams } = new URL(request.url);
-
     const result = await WhatsAppChatService.getConversations({
-      institution_id: profile.institution_id,
+      institution_id: institutionId!,
       status: searchParams.get('status') || undefined,
       assigned_to: searchParams.get('assigned_to') || undefined,
       search: searchParams.get('search') || undefined,
