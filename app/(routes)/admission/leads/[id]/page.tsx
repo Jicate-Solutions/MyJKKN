@@ -59,7 +59,8 @@ import {
   Edit,
   Trash2,
   Loader2,
-  ExternalLink
+  ExternalLink,
+  Info
 } from 'lucide-react';
 import Link from 'next/link';
 import {
@@ -80,6 +81,12 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { toast } from 'sonner';
 import { AdmissionErrorBoundary } from '@/components/admission';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
@@ -344,7 +351,13 @@ function LeadDetailPageContent() {
 
   // Compute lead scores on-the-fly from available data
   const computedScores = useMemo(() => {
-    if (!lead) return { score: 0, category: 'Not Scored', engagement: 0, quality: 0 };
+    if (!lead) return {
+      score: 0, category: 'Not Scored', engagement: 0, quality: 0,
+      engagementBreakdown: {} as Record<string, { count: number; points: number }>,
+      qualityBreakdown: {} as Record<string, boolean>,
+      qualityFilledCount: 0, qualityTotalFields: 14,
+      messageCount: 0,
+    };
 
     // --- Engagement Score (0-100) based on activities ---
     const activityEntries = timeline.filter((t: any) => t.type === 'activity');
@@ -355,36 +368,64 @@ function LeadDetailPageContent() {
     });
 
     // Weighted points per activity type (capped)
-    const engagementPoints =
-      Math.min(activityTypes['call'] || 0, 5) * 15 +
-      Math.min(activityTypes['email'] || 0, 10) * 5 +
-      Math.min(activityTypes['whatsapp'] || 0, 10) * 10 +
-      Math.min(activityTypes['sms'] || 0, 10) * 5 +
-      Math.min(activityTypes['meeting'] || 0, 3) * 25 +
-      Math.min(activityTypes['task'] || 0, 5) * 10 +
-      Math.min(activityTypes['note'] || 0, 5) * 3 +
-      Math.min(communicationHistory.length, 20) * 2;
+    const engConfig: Array<[string, string, number, number]> = [
+      ['call', 'Calls', 15, 5],
+      ['email', 'Emails', 5, 10],
+      ['whatsapp', 'WhatsApp', 10, 10],
+      ['sms', 'SMS', 5, 10],
+      ['meeting', 'Meetings', 25, 3],
+      ['task', 'Tasks', 10, 5],
+      ['note', 'Notes', 3, 5],
+    ];
 
-    // Max possible: 5*15 + 10*5 + 10*10 + 10*5 + 3*25 + 5*10 + 5*3 + 20*2 = 75+50+100+50+75+50+15+40 = 455
+    let engagementPoints = 0;
+    const engagementBreakdown: Record<string, { count: number; points: number }> = {};
+    for (const [key, label, pts, cap] of engConfig) {
+      const count = activityTypes[key] || 0;
+      const points = Math.min(count, cap) * pts;
+      engagementPoints += points;
+      if (count > 0) engagementBreakdown[label] = { count, points };
+    }
+    const msgPoints = Math.min(communicationHistory.length, 20) * 2;
+    engagementPoints += msgPoints;
+    if (communicationHistory.length > 0) {
+      engagementBreakdown['Messages'] = { count: communicationHistory.length, points: msgPoints };
+    }
+
     const engagement = Math.min(100, Math.round((engagementPoints / 455) * 100));
 
     // --- Quality Score (0-100) based on profile completeness ---
+    const qualityChecks: Array<[string, boolean]> = [
+      ['Full Name', !!lead.full_name],
+      ['Email', !!lead.email],
+      ['Phone', !!lead.phone],
+      ['Date of Birth', !!lead.date_of_birth],
+      ['Gender', !!lead.gender],
+      ['Address', !!(lead.address_line1 || lead.city || lead.state)],
+      ['Pincode', !!lead.pincode],
+      ['Parent Name', !!lead.parent_name],
+      ['Parent Phone', !!lead.parent_phone],
+      ['Parent Email', !!lead.parent_email],
+      ['Interested Programs', !!(lead.interested_programs?.length)],
+      ['Source', !!lead.source],
+      ['Preferred Channel', !!lead.preferred_channel],
+    ];
+    const qualityWeights: Record<string, number> = {
+      'Full Name': 10, 'Email': 10, 'Phone': 10, 'Date of Birth': 5, 'Gender': 5,
+      'Address': 10, 'Pincode': 5, 'Parent Name': 10, 'Parent Phone': 5,
+      'Parent Email': 5, 'Interested Programs': 15, 'Source': 5, 'Preferred Channel': 5,
+    };
     let qualityPoints = 0;
-    const qualityMax = 100;
-    if (lead.full_name) qualityPoints += 10;
-    if (lead.email) qualityPoints += 10;
-    if (lead.phone) qualityPoints += 10;
-    if (lead.date_of_birth) qualityPoints += 5;
-    if (lead.gender) qualityPoints += 5;
-    if (lead.address_line1 || lead.city || lead.state) qualityPoints += 10;
-    if (lead.pincode) qualityPoints += 5;
-    if (lead.parent_name) qualityPoints += 10;
-    if (lead.parent_phone) qualityPoints += 5;
-    if (lead.parent_email) qualityPoints += 5;
-    if (lead.interested_programs?.length) qualityPoints += 15;
-    if (lead.source) qualityPoints += 5;
-    if (lead.preferred_channel) qualityPoints += 5;
-    const quality = Math.min(100, Math.round((qualityPoints / qualityMax) * 100));
+    const qualityBreakdown: Record<string, boolean> = {};
+    let qualityFilledCount = 0;
+    for (const [label, filled] of qualityChecks) {
+      qualityBreakdown[label] = filled;
+      if (filled) {
+        qualityPoints += qualityWeights[label] || 0;
+        qualityFilledCount++;
+      }
+    }
+    const quality = Math.min(100, qualityPoints);
 
     // --- Overall Score (weighted: 50% engagement, 50% quality) ---
     const score = Math.round(engagement * 0.5 + quality * 0.5);
@@ -392,7 +433,12 @@ function LeadDetailPageContent() {
     // --- Category ---
     const category = score >= 75 ? 'hot' : score >= 50 ? 'warm' : score >= 25 ? 'cool' : 'cold';
 
-    return { score, category, engagement, quality };
+    return {
+      score, category, engagement, quality,
+      engagementBreakdown, qualityBreakdown,
+      qualityFilledCount, qualityTotalFields: qualityChecks.length,
+      messageCount: communicationHistory.length,
+    };
   }, [lead, timeline, communicationHistory]);
 
   // Send message dialog state
@@ -981,23 +1027,58 @@ function LeadDetailPageContent() {
             {/* Left Column - Details & Tabs */}
             <div className="lg:col-span-2 space-y-6">
               {/* Score Cards */}
+              <TooltipProvider delayDuration={200}>
               <div className="grid grid-cols-4 gap-4">
+                {/* Overall Score */}
                 <Card>
                   <CardContent className="py-4">
                     <div className="flex items-center justify-between">
                       <div>
-                        <p className="text-xs text-muted-foreground">Score</p>
+                        <div className="flex items-center gap-1">
+                          <p className="text-xs text-muted-foreground">Score</p>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Info className="h-3 w-3 text-muted-foreground cursor-help" />
+                            </TooltipTrigger>
+                            <TooltipContent side="bottom" className="max-w-[260px] text-xs space-y-1.5 p-3">
+                              <p className="font-semibold">Overall Lead Score</p>
+                              <p>Weighted average of Engagement and Quality:</p>
+                              <p className="font-mono text-[11px]">Score = (Engagement × 50%) + (Quality × 50%)</p>
+                              <div className="border-t pt-1.5 mt-1.5 space-y-0.5">
+                                <p>Engagement: <span className="font-medium">{computedScores.engagement}</span> pts</p>
+                                <p>Quality: <span className="font-medium">{computedScores.quality}</span> pts</p>
+                              </div>
+                            </TooltipContent>
+                          </Tooltip>
+                        </div>
                         <p className="text-2xl font-bold">{computedScores.score}</p>
                       </div>
                       <Target className="h-8 w-8 text-primary opacity-50" />
                     </div>
                   </CardContent>
                 </Card>
+
+                {/* Category */}
                 <Card>
                   <CardContent className="py-4">
                     <div className="flex items-center justify-between">
                       <div>
-                        <p className="text-xs text-muted-foreground">Category</p>
+                        <div className="flex items-center gap-1">
+                          <p className="text-xs text-muted-foreground">Category</p>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Info className="h-3 w-3 text-muted-foreground cursor-help" />
+                            </TooltipTrigger>
+                            <TooltipContent side="bottom" className="max-w-[220px] text-xs space-y-1 p-3">
+                              <p className="font-semibold">Score Category Thresholds</p>
+                              <p className={`${computedScores.category === 'hot' ? 'font-bold' : ''} text-red-600`}>Hot: 75 – 100</p>
+                              <p className={`${computedScores.category === 'warm' ? 'font-bold' : ''} text-orange-600`}>Warm: 50 – 74</p>
+                              <p className={`${computedScores.category === 'cool' ? 'font-bold' : ''} text-cyan-600`}>Cool: 25 – 49</p>
+                              <p className={`${computedScores.category === 'cold' ? 'font-bold' : ''} text-blue-600`}>Cold: 0 – 24</p>
+                              <p className="border-t pt-1 mt-1">Current score: <span className="font-medium">{computedScores.score}</span></p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </div>
                         <p className={`text-2xl font-bold capitalize ${
                           computedScores.category === 'hot' ? 'text-red-600' :
                           computedScores.category === 'warm' ? 'text-orange-600' :
@@ -1011,22 +1092,63 @@ function LeadDetailPageContent() {
                     </div>
                   </CardContent>
                 </Card>
+
+                {/* Engagement */}
                 <Card>
                   <CardContent className="py-4">
                     <div className="flex items-center justify-between">
                       <div>
-                        <p className="text-xs text-muted-foreground">Engagement</p>
+                        <div className="flex items-center gap-1">
+                          <p className="text-xs text-muted-foreground">Engagement</p>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Info className="h-3 w-3 text-muted-foreground cursor-help" />
+                            </TooltipTrigger>
+                            <TooltipContent side="bottom" className="max-w-[260px] text-xs space-y-1.5 p-3">
+                              <p className="font-semibold">Engagement Score</p>
+                              <p>Based on activity interactions with this lead:</p>
+                              {Object.keys(computedScores.engagementBreakdown).length > 0 ? (
+                                <div className="border-t pt-1.5 mt-1.5 space-y-0.5">
+                                  {Object.entries(computedScores.engagementBreakdown).map(([label, data]) => (
+                                    <p key={label}>{label}: {data.count}× = <span className="font-medium">{data.points} pts</span></p>
+                                  ))}
+                                </div>
+                              ) : (
+                                <p className="text-muted-foreground italic border-t pt-1.5 mt-1.5">No activities recorded yet</p>
+                              )}
+                            </TooltipContent>
+                          </Tooltip>
+                        </div>
                         <p className="text-2xl font-bold">{computedScores.engagement}</p>
                       </div>
                       <TrendingUp className="h-8 w-8 text-blue-500 opacity-50" />
                     </div>
                   </CardContent>
                 </Card>
+
+                {/* Quality */}
                 <Card>
                   <CardContent className="py-4">
                     <div className="flex items-center justify-between">
                       <div>
-                        <p className="text-xs text-muted-foreground">Quality</p>
+                        <div className="flex items-center gap-1">
+                          <p className="text-xs text-muted-foreground">Quality</p>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Info className="h-3 w-3 text-muted-foreground cursor-help" />
+                            </TooltipTrigger>
+                            <TooltipContent side="bottom" className="max-w-[240px] text-xs space-y-1.5 p-3">
+                              <p className="font-semibold">Profile Quality ({computedScores.qualityFilledCount}/{computedScores.qualityTotalFields} fields)</p>
+                              <div className="border-t pt-1.5 mt-1.5 grid grid-cols-2 gap-x-3 gap-y-0.5">
+                                {Object.entries(computedScores.qualityBreakdown).map(([field, filled]) => (
+                                  <p key={field} className={filled ? 'text-green-600' : 'text-muted-foreground'}>
+                                    {filled ? '✓' : '✗'} {field}
+                                  </p>
+                                ))}
+                              </div>
+                            </TooltipContent>
+                          </Tooltip>
+                        </div>
                         <p className="text-2xl font-bold">{computedScores.quality}</p>
                       </div>
                       <Star className="h-8 w-8 text-yellow-500 opacity-50" />
@@ -1034,6 +1156,7 @@ function LeadDetailPageContent() {
                   </CardContent>
                 </Card>
               </div>
+              </TooltipProvider>
 
               {/* Tabs */}
               <Tabs defaultValue="activity" className="w-full">

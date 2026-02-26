@@ -6,8 +6,66 @@ import { DataTableColumnHeader } from '@/components/data-table/column-header';
 import { Badge } from '@/components/ui/badge';
 import Link from 'next/link';
 import { Flame, Star } from 'lucide-react';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import type { AdmissionLead } from '@/types/admission';
 import { DataTableRowActions } from './row-actions';
+
+// Funnel stages ordered by progression for scoring
+const STAGE_PROGRESSION: Record<string, number> = {
+  new: 0, contacted: 5, not_reachable: 3, interested: 10,
+  follow_up_scheduled: 12, engaged: 18, qualified: 25,
+  application_started: 30, application_submitted: 40,
+  documents_pending: 45, documents_verified: 55,
+  offer_sent: 60, offer_accepted: 70, token_paid: 75,
+  applied: 65, offered: 70, enrolled: 85, confirmed: 95,
+};
+
+/** Compute a quick score from lead row data (no activity data needed). */
+function computeLeadRowScore(lead: AdmissionLead) {
+  // Quality / profile completeness (0-50)
+  let quality = 0;
+  if (lead.full_name) quality += 5;
+  if (lead.email) quality += 5;
+  if (lead.phone) quality += 5;
+  if (lead.date_of_birth) quality += 3;
+  if (lead.gender) quality += 2;
+  if (lead.address_line1 || lead.city || lead.state) quality += 5;
+  if (lead.parent_name) quality += 5;
+  if (lead.parent_phone) quality += 3;
+  if (lead.interested_programs?.length) quality += 7;
+  if (lead.source) quality += 3;
+  if (lead.preferred_channel) quality += 2;
+  if (lead.is_hot_lead) quality += 5;
+
+  // Funnel stage progression (0-50)
+  const stagePoints = STAGE_PROGRESSION[lead.funnel_stage || 'new'] ?? 0;
+  const stage = Math.round(stagePoints * 0.5); // scale to 0-50
+
+  const total = Math.min(100, quality + stage);
+  const category = total >= 75 ? 'hot' : total >= 50 ? 'warm' : total >= 25 ? 'cool' : 'cold';
+  return { total, category, quality, stage };
+}
+
+function getScoreCategoryColor(cat: string) {
+  switch (cat) {
+    case 'hot': return 'text-red-600';
+    case 'warm': return 'text-orange-600';
+    case 'cool': return 'text-cyan-600';
+    default: return 'text-blue-600';
+  }
+}
+
+function getScoreBg(score: number) {
+  if (score >= 75) return 'bg-red-100 text-red-800';
+  if (score >= 50) return 'bg-orange-100 text-orange-800';
+  if (score >= 25) return 'bg-cyan-100 text-cyan-800';
+  return 'bg-blue-100 text-blue-800';
+}
 
 export const FUNNEL_STAGES = [
   { value: 'new', label: 'New' },
@@ -177,10 +235,35 @@ export function getLeadColumns(
       <DataTableColumnHeader column={column} title="Score" />
     ),
     cell: ({ row }) => {
-      const score = row.getValue('score') as number;
-      return <span className="font-medium">{score ?? 0}</span>;
+      const lead = row.original;
+      const { total, category, quality, stage } = computeLeadRowScore(lead);
+      return (
+        <TooltipProvider delayDuration={200}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className={`inline-flex items-center gap-1.5 font-medium cursor-default`}>
+                <Badge className={`${getScoreBg(total)} text-xs px-1.5 py-0`} variant="secondary">
+                  {total}
+                </Badge>
+                <span className={`text-xs capitalize ${getScoreCategoryColor(category)}`}>
+                  {category}
+                </span>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="text-xs space-y-1 max-w-[200px]">
+              <p className="font-semibold">Score Breakdown</p>
+              <p>Profile: {quality} pts</p>
+              <p>Stage progress: {stage} pts</p>
+              <p>Category: <span className={`capitalize font-medium ${getScoreCategoryColor(category)}`}>{category}</span></p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      );
     },
-    maxSize: 80
+    sortingFn: (rowA: Row<AdmissionLead>, rowB: Row<AdmissionLead>) => {
+      return computeLeadRowScore(rowA.original).total - computeLeadRowScore(rowB.original).total;
+    },
+    maxSize: 120
   },
   {
     id: 'priority',
