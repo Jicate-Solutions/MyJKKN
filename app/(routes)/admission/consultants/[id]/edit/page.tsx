@@ -240,8 +240,16 @@ function EditConsultantForm() {
   });
 
   const onSubmit = (data: UpdateConsultantInput) => {
-    // Transform form field names to match DB column names
-    const { address, notes, geographic_coverage, specializations, programs_handled, id: _id, ...rest } = data as any;
+    // Transform form field names to match DB column names.
+    // status/tier are stripped here — they live on consultant_institutions (junction table),
+    // not on education_consultants. Use updateConsultantInstitution to change them.
+    const {
+      address, notes, geographic_coverage, specializations, programs_handled,
+      status: _status, tier: _tier,
+      contract_start_date: _csd, contract_end_date: _ced,
+      id: _id,
+      ...rest
+    } = data as any;
     const dbData: Record<string, any> = {
       ...rest,
       id: consultantId,

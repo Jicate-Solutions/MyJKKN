@@ -191,6 +191,14 @@ export interface UpdateConsultantInput {
   phone?: string | null;
   alternate_phone?: string | null;
   consultant_type?: ConsultantType;
+  /** Kept for form binding only — stripped before calling updateConsultant (lives on junction table) */
+  status?: ConsultantStatus;
+  /** Kept for form binding only — stripped before calling updateConsultant (lives on junction table) */
+  tier?: ConsultantTier;
+  /** Kept for form binding only — stripped before calling updateConsultant (lives on junction table) */
+  contract_start_date?: string | null;
+  /** Kept for form binding only — stripped before calling updateConsultant (lives on junction table) */
+  contract_end_date?: string | null;
   contact_person?: string | null;
   website?: string | null;
   gst_number?: string | null;
