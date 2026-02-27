@@ -79,7 +79,7 @@ export class ScreeningExamService {
   /**
    * Fetch all screening exams for an institution
    */
-  static async getExams(institutionId: string, filters?: ScreeningExamFilters): Promise<ScreeningExamRow[]> {
+  static async getExams(institutionId: string | undefined, filters?: ScreeningExamFilters): Promise<ScreeningExamRow[]> {
     let query = this.supabase
       .from('screening_exams')
       .select(`
@@ -92,9 +92,9 @@ export class ScreeningExamService {
           form_data,
           status
         )
-      `)
-      .eq('institution_id', institutionId)
-      .order('scheduled_at', { ascending: false });
+      `);
+    if (institutionId) query = query.eq('institution_id', institutionId);
+    query = query.order('scheduled_at', { ascending: false });
 
     if (filters?.exam_type) {
       query = query.eq('exam_type', filters.exam_type);
