@@ -284,7 +284,7 @@ export class LoanService {
   // ---------------------------------------------------------------------------
 
   static async getApplications(
-    institutionId: string,
+    institutionId: string | undefined,
     filters?: LoanApplicationFilters
   ): Promise<LoanApplication[]> {
     const supabase = createClientSupabaseClient();
@@ -295,9 +295,9 @@ export class LoanService {
         *,
         lead:admission_leads(id, full_name, email, phone, funnel_stage),
         partner:admission_loan_partners(id, name, logo_url, interest_rate_min, interest_rate_max, max_loan_amount)
-      `)
-      .eq('institution_id', institutionId)
-      .order('created_at', { ascending: false });
+      `);
+    if (institutionId) query = query.eq('institution_id', institutionId);
+    query = query.order('created_at', { ascending: false });
 
     if (filters?.status) {
       query = query.eq('status', filters.status);
