@@ -176,14 +176,14 @@ export class CommunicationCostService {
    * Get total spend for an institution
    */
   static async getTotalSpend(params: {
-    institutionId: string;
+    institutionId: string | undefined;
     fromDate?: string;
     toDate?: string;
   }): Promise<number> {
     let query = (this.supabase as any)
       .from('communication_cost_log')
-      .select('total_cost')
-      .eq('institution_id', params.institutionId);
+      .select('total_cost');
+    if (params.institutionId) query = query.eq('institution_id', params.institutionId);
 
     if (params.fromDate) query = query.gte('created_at', params.fromDate);
     if (params.toDate) query = query.lte('created_at', params.toDate);
