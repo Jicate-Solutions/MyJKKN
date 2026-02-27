@@ -225,6 +225,19 @@ export class LeadService {
     if (!phoneRegex.test(cleanPhone)) {
       throw new Error('Invalid phone number. Must be a valid 10-digit Indian mobile number starting with 6, 7, 8, or 9.');
     }
+    // Validate optional phone fields if provided
+    if (leadData.alternate_phone) {
+      const cleanAlt = leadData.alternate_phone.trim().replace(/[\s\-()]/g, '');
+      if (!phoneRegex.test(cleanAlt)) {
+        throw new Error('Invalid alternate phone number. Must be a valid 10-digit Indian mobile number.');
+      }
+    }
+    if (leadData.parent_phone) {
+      const cleanParent = leadData.parent_phone.trim().replace(/[\s\-()]/g, '');
+      if (!phoneRegex.test(cleanParent)) {
+        throw new Error('Invalid parent phone number. Must be a valid 10-digit Indian mobile number.');
+      }
+    }
     if (!leadData.source) {
       throw new Error('Lead source is required');
     }
@@ -237,7 +250,7 @@ export class LeadService {
       institution_id: leadData.institution_id,
       full_name: leadData.full_name?.trim(),
       email: leadData.email || null,
-      phone: leadData.phone?.trim(),
+      phone: cleanPhone,
       source: leadData.source,
       funnel_stage: 'new' as FunnelStage,
       is_hot_lead: false,
