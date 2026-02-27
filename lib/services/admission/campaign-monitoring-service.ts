@@ -276,14 +276,15 @@ export class CampaignMonitoringService {
 
       if (totalSteps > 0 && campaign.total_leads_targeted > 0) {
         // Get a few leads to show in the active sequences
-        const { data: leads } = await getSupabase()
+        let leadsQuery = getSupabase()
           .from('admission_leads')
           .select(`
             id,
             learner_profile_id,
             learners_profiles!inner (full_name)
-          `)
-          .eq('institution_id', institutionId)
+          `);
+        if (institutionId) leadsQuery = leadsQuery.eq('institution_id', institutionId);
+        const { data: leads } = await leadsQuery
           .eq('is_active', true)
           .limit(3);
 
