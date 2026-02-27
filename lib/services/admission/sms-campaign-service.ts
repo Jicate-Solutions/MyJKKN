@@ -682,14 +682,14 @@ export class SMSCampaignService {
    * Get SMS campaign statistics
    */
   static async getCampaignStats(
-    institutionId: string,
+    institutionId: string | undefined,
     fromDate?: string,
     toDate?: string
   ): Promise<SMSCampaignStats> {
     let query = this.supabase
       .from('admission_sms_logs')
-      .select('status, cost, created_at')
-      .eq('institution_id', institutionId);
+      .select('status, cost, created_at');
+    if (institutionId) query = query.eq('institution_id', institutionId);
 
     if (fromDate) {
       query = query.gte('created_at', fromDate);
