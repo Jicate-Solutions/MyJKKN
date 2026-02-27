@@ -166,12 +166,14 @@ export class CampaignMonitoringService {
    * Get delivery metrics (sent, delivered, read, failed)
    * Note: This aggregates from workflow executions as proxy for message delivery
    */
-  static async getDeliveryMetrics(institutionId: string): Promise<DeliveryMetrics> {
+  static async getDeliveryMetrics(institutionId: string | undefined): Promise<DeliveryMetrics> {
     // Get workflow executions as proxy for message delivery stats
-    const { data: executions, error } = await getSupabase()
+    let query = getSupabase()
       .from('admission_workflow_executions')
       .select('status, actions_executed')
-      .eq('status', 'completed')
+      .eq('status', 'completed');
+    if (institutionId) query = query.eq('institution_id', institutionId);
+    const { data: executions, error } = await query
       .order('executed_at', { ascending: false })
       .limit(500);
 

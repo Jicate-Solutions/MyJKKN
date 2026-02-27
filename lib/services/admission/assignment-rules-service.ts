@@ -238,12 +238,13 @@ export class AssignmentRulesService {
   /**
    * Get assignment statistics for an institution
    */
-  static async getAssignmentStats(institutionId: string): Promise<AssignmentStats> {
+  static async getAssignmentStats(institutionId: string | undefined): Promise<AssignmentStats> {
     // Get rules count
-    const { data: rules, error: rulesError } = await this.supabase
+    let rulesQuery = this.supabase
       .from('admission_assignment_rules')
-      .select('id, is_active')
-      .eq('institution_id', institutionId);
+      .select('id, is_active');
+    if (institutionId) rulesQuery = rulesQuery.eq('institution_id', institutionId);
+    const { data: rules, error: rulesError } = await rulesQuery;
 
     if (rulesError) {
       console.warn('[admission/assignment-rules] Failed to fetch stats:', rulesError);
@@ -253,20 +254,21 @@ export class AssignmentRulesService {
     const activeRules = rules?.filter((r: { is_active: boolean }) => r.is_active).length || 0;
 
     // Get unassigned leads count
-    const { count: unassignedCount } = await this.supabase
+    let unassignedQuery = this.supabase
       .from('admission_leads')
-      .select('id', { count: 'exact', head: true })
-      .eq('institution_id', institutionId)
-      .is('counselor_id', null);
+      .select('id', { count: 'exact', head: true });
+    if (institutionId) unassignedQuery = unassignedQuery.eq('institution_id', institutionId);
+    const { count: unassignedCount } = await unassignedQuery.is('counselor_id', null);
 
     // Get today's assignments (leads with counselor assigned today)
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    const { count: assignedToday } = await this.supabase
+    let assignedQuery = this.supabase
       .from('admission_leads')
-      .select('id', { count: 'exact', head: true })
-      .eq('institution_id', institutionId)
+      .select('id', { count: 'exact', head: true });
+    if (institutionId) assignedQuery = assignedQuery.eq('institution_id', institutionId);
+    const { count: assignedToday } = await assignedQuery
       .not('counselor_id', 'is', null)
       .gte('updated_at', today.toISOString());
 
