@@ -628,7 +628,7 @@ function CallLogDashboardContent() {
                             </div>
                           </TableCell>
                           <TableCell>
-                            <span className="text-sm">{log.counselor?.name || 'Unknown'}</span>
+                            <span className="text-sm">{log.counselor?.full_name || 'Unknown'}</span>
                           </TableCell>
                           <TableCell>{getStatusBadge(log.status)}</TableCell>
                           <TableCell>{getDispositionBadge(log.call_disposition)}</TableCell>

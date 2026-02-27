@@ -2,7 +2,7 @@
 // POST /api/admission/calls/initiate — Initiate a click-to-call via Exotel
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getAuthUser } from '@/lib/supabase/server';
+import { getAuthUser, createServiceRoleClient } from '@/lib/supabase/server';
 import { TelephonyService } from '@/lib/services/telephony/telephony-service';
 import { logger } from '@/lib/utils/enhanced-logger';
 
@@ -55,6 +55,7 @@ export async function POST(request: NextRequest) {
       to: prospect_phone,
     });
 
+    const supabase = createServiceRoleClient();
     const result = await TelephonyService.initiateCall({
       institution_id,
       counselor_id: user.id,
@@ -62,7 +63,7 @@ export async function POST(request: NextRequest) {
       prospect_phone,
       lead_id,
       caller_id,
-    });
+    }, supabase);
 
     if (!result.success) {
       return NextResponse.json(

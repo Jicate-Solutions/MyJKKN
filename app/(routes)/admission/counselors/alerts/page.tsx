@@ -13,8 +13,7 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { PermissionGuard } from '@/components/auth/permission-guard';
-import { useAuth } from '@/hooks/use-auth';
-import { usePermissions } from '@/hooks/use-permissions';
+import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
 import { useAlertRules, useAlertHistory, useAlertMutations, useEventTypes } from '@/hooks/admission/use-activity-alerts';
 import {
   Bell, BellRing, MessageSquare, CreditCard, FileText, UserCheck, Bot, TrendingUp,
@@ -33,9 +32,7 @@ const EVENT_ICONS: Record<string, React.ElementType> = {
 };
 
 function AlertsPageContent() {
-  const { profile } = useAuth();
-  const { isSuperAdmin } = usePermissions();
-  const institutionId = isSuperAdmin ? undefined : profile?.institution_id;
+  const { selectedInstitutionId: institutionId } = useUserInstitutionAccess();
   const [activeTab, setActiveTab] = useState('rules');
 
   const { rules, isLoading: rulesLoading, refetch } = useAlertRules(institutionId);

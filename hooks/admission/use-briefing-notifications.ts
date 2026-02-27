@@ -7,7 +7,6 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { usePermissions } from '@/hooks/use-permissions';
 import {
   BriefingDeliveryService,
   type BriefingNotification,
@@ -98,11 +97,10 @@ export function useBriefing(briefingId: string | undefined) {
  * Get the latest briefing for an institution
  */
 export function useLatestBriefing(institutionId: string | undefined) {
-  const { isSuperAdmin } = usePermissions();
   return useQuery({
     queryKey: briefingNotificationsKeys.latestBriefing(institutionId || ''),
-    queryFn: () => BriefingDeliveryService.getLatestBriefing(institutionId ?? undefined),
-    enabled: isSuperAdmin || !!institutionId
+    queryFn: () => BriefingDeliveryService.getLatestBriefing(institutionId),
+    enabled: !!institutionId,
   });
 }
 
@@ -110,11 +108,29 @@ export function useLatestBriefing(institutionId: string | undefined) {
  * Get today's briefing for an institution
  */
 export function useTodaysBriefing(institutionId: string | undefined) {
-  const { isSuperAdmin } = usePermissions();
   return useQuery({
     queryKey: briefingNotificationsKeys.todaysBriefing(institutionId || ''),
-    queryFn: () => BriefingDeliveryService.getTodaysBriefing(institutionId ?? undefined),
-    enabled: isSuperAdmin || !!institutionId
+    queryFn: () => BriefingDeliveryService.getTodaysBriefing(institutionId),
+    enabled: !!institutionId,
+  });
+}
+
+/**
+ * Generate today's briefing on demand
+ */
+export function useGenerateBriefing() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ userId, institutionId }: { userId: string; institutionId: string }) =>
+      BriefingDeliveryService.generateDailyBriefing(userId, institutionId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: briefingNotificationsKeys.all });
+      toast.success('Daily briefing generated');
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to generate briefing');
+    },
   });
 }
 

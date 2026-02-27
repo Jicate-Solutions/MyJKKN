@@ -108,7 +108,7 @@ export class DailyBriefingService {
         institution_id: institutionId,
         user_id: userId,
         role,
-        date: briefingDate,
+        briefing_date: briefingDate,
         content,
         is_read: false
       })
@@ -133,7 +133,7 @@ export class DailyBriefingService {
       .from('admission_daily_briefings')
       .select('*')
       .eq('user_id', userId)
-      .eq('date', briefingDate)
+      .eq('briefing_date', briefingDate)
       .single();
 
     if (error) {
@@ -155,7 +155,7 @@ export class DailyBriefingService {
       .from('admission_daily_briefings')
       .select('*')
       .eq('user_id', userId)
-      .order('date', { ascending: false })
+      .order('briefing_date', { ascending: false })
       .limit(1)
       .single();
 
@@ -179,7 +179,7 @@ export class DailyBriefingService {
       .select('*')
       .eq('user_id', userId)
       .eq('is_read', false)
-      .order('date', { ascending: false });
+      .order('briefing_date', { ascending: false });
 
     if (error) {
       console.error('[DailyBriefingService] Error fetching unread briefings:', error);
@@ -200,7 +200,7 @@ export class DailyBriefingService {
       .from('admission_daily_briefings')
       .select('*')
       .eq('user_id', userId)
-      .order('date', { ascending: false })
+      .order('briefing_date', { ascending: false })
       .limit(limit);
 
     if (error) {

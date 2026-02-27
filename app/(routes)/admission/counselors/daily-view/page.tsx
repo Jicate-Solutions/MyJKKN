@@ -172,12 +172,14 @@ function CounselorViewPageContent() {
     );
   }
 
-  const isAnyMutating =
-    actions.isRescheduling ||
-    actions.isAddingNote ||
-    actions.isLoggingCall ||
-    actions.isAdvancingStage ||
-    actions.isAssigning;
+  // Resolve which specific leadId is currently being actioned.
+  // React Query exposes `.variables` on the in-flight mutation so we can
+  // isolate loading state to only the card that fired the action.
+  const actioningLeadId: string | undefined =
+    (actions.isLoggingCall    ? actions.logCall.variables?.leadId           : undefined) ??
+    (actions.isAdvancingStage ? actions.advanceStage.variables?.leadId      : undefined) ??
+    (actions.isRescheduling   ? actions.rescheduleFollowup.variables?.leadId : undefined) ??
+    (actions.isAddingNote     ? actions.addQuickNote.variables?.leadId      : undefined);
 
   return (
     <ContentLayout title="Counselor View">
@@ -411,7 +413,7 @@ function CounselorViewPageContent() {
                     onAddNote={(leadId, note) =>
                       actions.addQuickNote.mutate({ leadId, note })
                     }
-                    isActioning={isAnyMutating}
+                    actioningLeadId={actioningLeadId}
                   />
                 </div>
               )}
@@ -434,7 +436,7 @@ function CounselorViewPageContent() {
                     onAddNote={(leadId, note) =>
                       actions.addQuickNote.mutate({ leadId, note })
                     }
-                    isActioning={isAnyMutating}
+                    actioningLeadId={actioningLeadId}
                   />
                 </div>
               )}

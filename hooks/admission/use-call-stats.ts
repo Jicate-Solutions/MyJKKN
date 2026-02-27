@@ -2,7 +2,6 @@
 // React Query hook for call analytics / statistics
 
 import { useQuery } from '@tanstack/react-query';
-import { usePermissions } from '@/hooks/use-permissions';
 import type { CallStats } from '@/lib/services/telephony/telephony-service';
 
 // ============================================================================
@@ -41,7 +40,6 @@ export function useCallStats(
   fromDate?: string,
   toDate?: string
 ) {
-  const { isSuperAdmin } = usePermissions();
   const query = useQuery<CallStats>({
     queryKey: callStatsKeys.stats(institutionId || '', fromDate, toDate),
     queryFn: async () => {
@@ -59,7 +57,8 @@ export function useCallStats(
       const json = await res.json();
       return json.data;
     },
-    enabled: isSuperAdmin || !!institutionId,
+    // Always fetch. Super admins have no institution_id (returns all); others always have one.
+    enabled: true,
     staleTime: 60000, // 1 minute
   });
 

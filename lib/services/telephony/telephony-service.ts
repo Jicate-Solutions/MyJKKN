@@ -1,7 +1,8 @@
 // lib/services/telephony/telephony-service.ts
 // Telephony service for call management in the Admission module
-
-import { createClientSupabaseClient } from '@/lib/supabase/client';
+// NOTE: This service does NOT import any Supabase client — callers must inject one.
+// API routes should pass createServiceRoleClient(); client components are not
+// expected to call this service directly (they go through API routes).
 
 // ═══════════════════════════════════════════════════════════════════════════
 // TYPES
@@ -34,7 +35,7 @@ export interface CallLog {
 
   // Relationships (optional populated)
   lead?: { id: string; full_name: string; phone: string };
-  counselor?: { id: string; name: string };
+  counselor?: { id: string; full_name: string };
 }
 
 export interface CallLogFilters {
@@ -111,8 +112,6 @@ export interface UpdateCallNotesInput {
 // ═══════════════════════════════════════════════════════════════════════════
 
 export class TelephonyService {
-  private static supabase = createClientSupabaseClient();
-
   /**
    * Check if Exotel telephony integration is configured via environment variables.
    */
@@ -124,14 +123,14 @@ export class TelephonyService {
     );
   }
 
-  static async getCallLogs(filters: CallLogFilters): Promise<PaginatedCallLogs> {
+  static async getCallLogs(filters: CallLogFilters, supabase: any): Promise<PaginatedCallLogs> {
     const page = filters.page || 1;
     const limit = filters.limit || 20;
     const offset = (page - 1) * limit;
 
-    let query = (this.supabase as any)
+    let query = supabase
       .from('admission_call_logs')
-      .select('*, lead:admission_leads(id, full_name, phone), counselor:admission_counselors(id, name)', { count: 'exact' });
+      .select('*, lead:admission_leads(id, full_name, phone), counselor:profiles(id, full_name)', { count: 'exact' });
 
     if (filters.institution_id) query = query.eq('institution_id', filters.institution_id);
     if (filters.lead_id) query = query.eq('lead_id', filters.lead_id);
@@ -159,14 +158,18 @@ export class TelephonyService {
   }
 
   static async getCallStats(
-    institutionId: string,
+    institutionId: string | undefined,
+    supabase: any,
     fromDate?: string,
     toDate?: string
   ): Promise<CallStats> {
-    let query = (this.supabase as any)
+    let query = supabase
       .from('admission_call_logs')
-      .select('status, call_disposition, direction, duration_seconds, call_notes, counselor_id, created_at, counselor:admission_counselors(id, name)')
-      .eq('institution_id', institutionId);
+      .select('status, call_disposition, direction, duration_seconds, call_notes, counselor_id, created_at, counselor:profiles(id, full_name)');
+
+    // When institutionId is provided, scope to that institution.
+    // Super admins omit it to aggregate across all institutions.
+    if (institutionId) query = query.eq('institution_id', institutionId);
 
     if (fromDate) query = query.gte('created_at', fromDate);
     if (toDate) query = query.lte('created_at', toDate);
@@ -198,7 +201,7 @@ export class TelephonyService {
         if (!counselorMap[c.counselor_id]) {
           counselorMap[c.counselor_id] = {
             counselor_id: c.counselor_id,
-            counselor_name: c.counselor?.name || 'Unknown',
+            counselor_name: c.counselor?.full_name || 'Unknown',
             call_count: 0,
             total_duration: 0,
           };
@@ -245,10 +248,12 @@ export class TelephonyService {
     };
   }
 
-  static async initiateCall(input: InitiateCallInput): Promise<InitiateCallResult> {
+  static async initiateCall(input: InitiateCallInput, supabase: any): Promise<InitiateCallResult> {
     try {
-      // Create a call log record
-      const { data, error } = await (this.supabase as any)
+      // Create a call log record.
+      // call_sid is NOT NULL in the DB. We generate a placeholder UUID until the
+      // Exotel integration is wired up and returns the real SID.
+      const { data, error } = await supabase
         .from('admission_call_logs')
         .insert({
           institution_id: input.institution_id,
@@ -258,6 +263,7 @@ export class TelephonyService {
           from_number: input.counselor_phone,
           direction: 'outbound',
           status: 'initiated',
+          call_sid: `pending-${crypto.randomUUID()}`,
         })
         .select()
         .single();
@@ -279,13 +285,13 @@ export class TelephonyService {
     }
   }
 
-  static async updateCallNotes(callId: string, input: UpdateCallNotesInput): Promise<CallLog> {
+  static async updateCallNotes(callId: string, input: UpdateCallNotesInput, supabase: any): Promise<CallLog> {
     const update: Record<string, any> = {};
     if (input.call_notes !== undefined) update.call_notes = input.call_notes;
     if (input.call_disposition !== undefined) update.call_disposition = input.call_disposition;
     if (input.follow_up_date !== undefined) update.follow_up_date = input.follow_up_date;
 
-    const { data, error } = await (this.supabase as any)
+    const { data, error } = await supabase
       .from('admission_call_logs')
       .update(update)
       .eq('id', callId)

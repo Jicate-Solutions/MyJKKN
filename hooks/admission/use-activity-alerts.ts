@@ -3,7 +3,6 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { usePermissions } from '@/hooks/use-permissions';
 import {
   ActivityAlertService,
   type ActivityAlertRule,
@@ -30,11 +29,10 @@ export const activityAlertKeys = {
 // ============================================================================
 
 export function useAlertRules(institutionId?: string) {
-  const { isSuperAdmin } = usePermissions();
   const query = useQuery({
     queryKey: activityAlertKeys.rulesList({ institutionId: institutionId || '' }),
     queryFn: () => ActivityAlertService.getAlertRules({ institutionId: institutionId }),
-    enabled: isSuperAdmin || !!institutionId,
+    enabled: !!institutionId,
   });
 
   return {
@@ -47,11 +45,10 @@ export function useAlertRules(institutionId?: string) {
 }
 
 export function useAlertHistory(filters: AlertHistoryFilters) {
-  const { isSuperAdmin } = usePermissions();
   const query = useQuery({
     queryKey: activityAlertKeys.historyList(filters),
     queryFn: () => ActivityAlertService.getAlertHistory(filters),
-    enabled: isSuperAdmin || !!filters.institutionId,
+    enabled: !!filters.institutionId,
   });
 
   return {

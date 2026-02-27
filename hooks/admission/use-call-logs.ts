@@ -69,7 +69,8 @@ export function useCallLogs(filters: CallLogFilters) {
         totalPages: json.metadata?.totalPages || 0,
       };
     },
-    enabled: !!filters.institution_id,
+    // Always fetch. Super admins have no institution_id (returns all); others always have one.
+    enabled: true,
   });
 
   return {

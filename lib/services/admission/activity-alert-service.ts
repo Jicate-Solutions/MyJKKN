@@ -62,13 +62,13 @@ export interface AlertHistoryEntry {
 }
 
 export interface AlertRuleFilters {
-  institutionId: string;
+  institutionId?: string;   // undefined = all institutions (super admins)
   eventType?: AlertEventType;
   isEnabled?: boolean;
 }
 
 export interface AlertHistoryFilters {
-  institutionId: string;
+  institutionId?: string;   // undefined = all institutions (super admins)
   eventType?: AlertEventType;
   leadId?: string;
   fromDate?: string;
@@ -130,8 +130,12 @@ export class ActivityAlertService {
     let query = (this.supabase as any)
       .from('activity_alert_rules')
       .select('*')
-      .eq('institution_id', filters.institutionId)
       .order('event_type', { ascending: true });
+
+    // Super admins pass undefined to see all institutions
+    if (filters.institutionId) {
+      query = query.eq('institution_id', filters.institutionId);
+    }
 
     if (filters.eventType) {
       query = query.eq('event_type', filters.eventType);
@@ -277,8 +281,12 @@ export class ActivityAlertService {
     let query = (this.supabase as any)
       .from('activity_alert_history')
       .select('*', { count: 'exact' })
-      .eq('institution_id', filters.institutionId)
       .order('created_at', { ascending: false });
+
+    // Super admins pass undefined to see all institutions
+    if (filters.institutionId) {
+      query = query.eq('institution_id', filters.institutionId);
+    }
 
     if (filters.eventType) query = query.eq('event_type', filters.eventType);
     if (filters.leadId) query = query.eq('lead_id', filters.leadId);
