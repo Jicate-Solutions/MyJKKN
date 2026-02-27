@@ -13,7 +13,7 @@ export type AssignmentRuleType =
   | 'workload';
 
 export interface AssignmentCriterion {
-  field: string;
+  field: keyof LeadDataForAssignment;
   operator: 'equals' | 'contains' | 'greater_than' | 'less_than' | 'in';
   value: string | number | string[];
 }
@@ -300,9 +300,9 @@ export class AssignmentRulesService {
     if (rule.criteria && Array.isArray(rule.criteria)) {
       const fields = rule.criteria.map((c: AssignmentCriterion) => c.field);
       // FIX: program_interest does not exist in DB → use interested_programs
-      if (fields.includes('interested_programs') || fields.includes('program_interest')) type = 'program';
-      else if (fields.includes('location') || fields.includes('region')) type = 'location';
-      else if (fields.includes('score') || fields.includes('lead_score')) type = 'score';
+      if (fields.includes('interested_programs')) type = 'program';
+      else if (fields.includes('city') || fields.includes('state')) type = 'location';
+      else if (fields.includes('score')) type = 'score';
       else if (fields.includes('source')) type = 'source';
     }
     if (rule.action?.type === 'round_robin') type = 'round_robin';
@@ -341,9 +341,9 @@ export class AssignmentRulesService {
         // FIX: program_interest does not exist in DB → use interested_programs
         return [{ field: 'interested_programs', operator: 'equals', value: '' }];
       case 'location':
-        return [{ field: 'region', operator: 'equals', value: '' }];
+        return [{ field: 'city', operator: 'equals', value: '' }];
       case 'score':
-        return [{ field: 'lead_score', operator: 'greater_than', value: 70 }];
+        return [{ field: 'score', operator: 'greater_than', value: 70 }];
       case 'source':
         return [{ field: 'source', operator: 'equals', value: '' }];
       default:
@@ -388,7 +388,7 @@ export class AssignmentRulesService {
     if (!criteria || criteria.length === 0) return true;
 
     return criteria.every((criterion) => {
-      const leadValue = (lead as unknown as Record<string, unknown>)[criterion.field];
+      const leadValue = lead[criterion.field];
 
       switch (criterion.operator) {
         case 'equals':
@@ -429,14 +429,17 @@ export class AssignmentRulesService {
     if (!action?.counselor_ids || action.counselor_ids.length === 0) return null;
 
     if (action.type === 'assign_to_counselor') {
-      const { data: counselor } = await this.supabase
+      const { data: counselor, error: counselorError } = await this.supabase
         .from('admission_counselors')
         .select('id')
         .in('id', action.counselor_ids)
         .eq('is_active', true)
         .eq('institution_id', institutionId)
         .limit(1)
-        .single();
+        .maybeSingle();
+      if (counselorError) {
+        console.warn('[admission/assignment-rules] assign_to_counselor query failed:', counselorError);
+      }
       return counselor?.id ?? null;
     }
 
