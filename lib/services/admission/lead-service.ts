@@ -286,6 +286,22 @@ export class LeadService {
     if (leadData.parent_decision_status) insertData.parent_decision_status = leadData.parent_decision_status;
     if (leadData.academic_year) insertData.academic_year = leadData.academic_year;
 
+    // Check for duplicate: same phone in same institution (re-engagement exception: lost/dormant allowed)
+    const { data: existing, error: dupError } = await (this.supabase as any)
+      .from('admission_leads')
+      .select('id, full_name, funnel_stage')
+      .eq('institution_id', leadData.institution_id)
+      .eq('phone', cleanPhone)
+      .not('funnel_stage', 'in', '("lost","dormant")')
+      .limit(1);
+
+    if (!dupError && existing && existing.length > 0) {
+      throw new Error(
+        `Duplicate lead: a lead with this phone already exists — ${existing[0].full_name} (stage: ${existing[0].funnel_stage}). ` +
+        `Update the existing lead or mark it as lost before creating a new one.`
+      );
+    }
+
     const { data, error } = await (this.supabase as any).from('admission_leads')
       .insert(insertData)
       .select('*')
