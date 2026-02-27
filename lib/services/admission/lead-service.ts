@@ -292,13 +292,22 @@ export class LeadService {
       .select('id, full_name, funnel_stage')
       .eq('institution_id', leadData.institution_id)
       .eq('phone', cleanPhone)
-      .not('funnel_stage', 'in', '("lost","dormant")')
+      .not('funnel_stage', 'in', '(lost,dormant)')
       .limit(1);
 
+    if (dupError) {
+      console.warn('[admission/leads] Duplicate check query failed (proceeding with insert):', dupError);
+    }
+
     if (!dupError && existing && existing.length > 0) {
+      console.warn('[admission/leads] Duplicate lead rejected:', {
+        phone: cleanPhone,
+        existingId: existing[0].id,
+        existingStage: existing[0].funnel_stage,
+      });
       throw new Error(
-        `Duplicate lead: a lead with this phone already exists — ${existing[0].full_name} (stage: ${existing[0].funnel_stage}). ` +
-        `Update the existing lead or mark it as lost before creating a new one.`
+        'A lead with this phone number already exists for this institution. ' +
+        'Update the existing lead or mark it as lost before creating a new one.'
       );
     }
 

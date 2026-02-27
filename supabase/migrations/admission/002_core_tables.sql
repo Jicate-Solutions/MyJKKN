@@ -103,6 +103,10 @@ CREATE INDEX IF NOT EXISTS idx_admission_leads_score ON admission_leads(score DE
 CREATE INDEX IF NOT EXISTS idx_admission_leads_source ON admission_leads(source);
 CREATE INDEX IF NOT EXISTS idx_admission_leads_assigned_counselor ON admission_leads(assigned_counselor_id);
 CREATE INDEX IF NOT EXISTS idx_admission_leads_stage ON admission_leads(stage);
+-- Updated: 2026-02-27 — Prevent duplicate active leads with same phone per institution
+CREATE UNIQUE INDEX IF NOT EXISTS uq_admission_leads_active_phone
+  ON admission_leads (institution_id, phone)
+  WHERE funnel_stage NOT IN ('lost', 'dormant');
 
 -- ============================================================================
 -- 3. ADMISSION LEAD ACTIVITIES
