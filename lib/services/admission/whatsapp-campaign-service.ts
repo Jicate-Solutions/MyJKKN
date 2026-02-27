@@ -297,9 +297,9 @@ export class WhatsAppCampaignService {
   static async getMessages(filters: WhatsAppMessageFilters): Promise<WhatsAppMessage[]> {
     let query = this.supabase
       .from('admission_whatsapp_logs')
-      .select('*')
-      .eq('institution_id', filters.institutionId)
-      .order('created_at', { ascending: false });
+      .select('*');
+    if (filters.institutionId) query = query.eq('institution_id', filters.institutionId);
+    query = query.order('created_at', { ascending: false });
 
     if (filters.leadId) {
       query = query.eq('lead_id', filters.leadId);
