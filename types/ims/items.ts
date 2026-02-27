@@ -9,6 +9,7 @@ export interface ImsItem {
   code: string;
   name: string;
   description: string | null;
+  company_name: string | null;
   category_id: string;
   item_type: ImsItemType;
   base_unit_id: string;

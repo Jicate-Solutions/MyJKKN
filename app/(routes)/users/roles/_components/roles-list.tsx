@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Profile, CustomRole, UserRoleAssignment } from '@/types/auth';
-import { Shield, Users, Star, Loader2 } from 'lucide-react';
+import { Shield, Users, Star, Loader2, Store } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -35,6 +35,7 @@ import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 import { RoleService } from '@/lib/services/roles/role-service';
 import { UserRolesService } from '@/lib/services/users/user-roles-service';
+import { useImsStoresForSelect } from '@/hooks/ims/use-ims-stores';
 import { DataTable, PermissionColumnDef } from '@/components/ui/data-table';
 import {
   MultiRoleSelector,
@@ -96,6 +97,8 @@ export function RolesList({
     userId: string;
     userName: string;
     currentRoles: UserRoleAssignment[];
+    institutionId?: string | null;
+    currentAssignedStoreId?: string | null;
   } | null>(null);
   const [availableRoles, setAvailableRoles] = useState<CustomRole[]>([]);
   const [isLoadingRoles, setIsLoadingRoles] = useState(true);
@@ -105,6 +108,17 @@ export function RolesList({
   // State for multi-role editing
   const [editingRoleIds, setEditingRoleIds] = useState<string[]>([]);
   const [editingPrimaryRoleId, setEditingPrimaryRoleId] = useState<string>('');
+  // Store allocation — only relevant when store_admin is among selected roles
+  const [editingAssignedStoreId, setEditingAssignedStoreId] = useState<string>('');
+
+  // IMS stores for the currently-being-edited user's institution
+  // Filtered by institution_id so the admin only sees relevant stores.
+  // Hook is safe to call unconditionally — `enabled` guard is inside the hook.
+  const { data: imsStoresForSelect = [], isLoading: imsStoresLoading } =
+    useImsStoresForSelect(
+      pendingMultiRoleUpdate?.institutionId ?? null,
+      false  // never show all-institution stores in role assignment — scope to target user
+    );
 
   // Cache for user roles
   const [userRolesCache, setUserRolesCache] = useState<
@@ -114,11 +128,14 @@ export function RolesList({
     Record<string, boolean>
   >({});
 
-  // Fetch available roles
+  // Fetch available roles and ensure all system roles are bootstrapped
   useEffect(() => {
     const fetchRoles = async () => {
       try {
         setIsLoadingRoles(true);
+        // Bootstrap system roles (idempotent — safe to run on every page load)
+        await RoleService.ensureSuperAdminRole();
+        await RoleService.ensureAllSystemRoles();
         const roles = await RoleService.getAssignableRoles();
         setAvailableRoles(roles);
       } catch (error) {
@@ -199,13 +216,17 @@ export function RolesList({
     setPendingMultiRoleUpdate({
       userId: user.id,
       userName: user.full_name || user.email,
-      currentRoles: userRoles
+      currentRoles: userRoles,
+      institutionId: user.institution_id,
+      currentAssignedStoreId: user.assigned_store_id ?? null,
     });
     setEditingRoleIds(userRoles.map((r) => r.role_id));
     const primaryRole = userRoles.find((r) => r.is_primary);
     setEditingPrimaryRoleId(
       primaryRole?.role_id || (userRoles[0]?.role_id ?? '')
     );
+    // Pre-populate the store selector with the user's current store assignment (if any)
+    setEditingAssignedStoreId(user.assigned_store_id ?? '');
     setShowMultiRoleDialog(true);
   }, [userRolesCache]);
 
@@ -300,10 +321,22 @@ export function RolesList({
         effectivePrimaryRoleId = editingRoleIds[0];
       }
 
+      // Determine whether this role set includes store_admin.
+      // If yes, pass the chosen store (or null to clear). If no, pass undefined
+      // so the service leaves profiles.assigned_store_id untouched.
+      const hasStoreAdminRole = editingRoleIds.some(
+        (id) => availableRoles.find((r) => r.id === id)?.role_key === 'store_admin'
+      );
+      const storeIdToAssign: string | null | undefined = hasStoreAdminRole
+        ? (editingAssignedStoreId || null)
+        : undefined;
+
       await UserRolesService.assignRoles(
         pendingMultiRoleUpdate.userId,
         editingRoleIds,
-        effectivePrimaryRoleId
+        effectivePrimaryRoleId,
+        undefined,       // assignedBy
+        storeIdToAssign  // assignedStoreId
       );
 
       // Get the primary role key to update profiles.role
@@ -337,6 +370,7 @@ export function RolesList({
       setPendingMultiRoleUpdate(null);
       setEditingRoleIds([]);
       setEditingPrimaryRoleId('');
+      setEditingAssignedStoreId('');
     }
   };
 
@@ -603,6 +637,55 @@ export function RolesList({
                 </p>
               </div>
             )}
+
+            {/* Store Allocation — shown only when store_admin is among selected roles */}
+            {editingRoleIds.some(
+              (id) => availableRoles.find((r) => r.id === id)?.role_key === 'store_admin'
+            ) && (
+              <div className="space-y-2 border-t pt-4">
+                <label className="text-sm font-medium flex items-center gap-2">
+                  <Store className="h-4 w-4 text-muted-foreground" />
+                  Assign IMS Store
+                </label>
+                <p className="text-xs text-muted-foreground">
+                  The assigned store auto-loads when this user logs into IMS — no manual selection needed.
+                </p>
+                <Select
+                  value={editingAssignedStoreId}
+                  onValueChange={setEditingAssignedStoreId}
+                  disabled={isUpdating || imsStoresLoading}
+                >
+                  <SelectTrigger>
+                    <SelectValue
+                      placeholder={
+                        imsStoresLoading
+                          ? 'Loading stores...'
+                          : imsStoresForSelect.length === 0
+                          ? 'No stores — create one in IMS Settings first'
+                          : 'Select the store this user will manage...'
+                      }
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {imsStoresForSelect.map((store: any) => (
+                      <SelectItem key={store.id} value={store.id}>
+                        {store.name}
+                        {store.code && (
+                          <span className="ml-1 text-xs text-muted-foreground font-mono">
+                            ({store.code})
+                          </span>
+                        )}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {!editingAssignedStoreId && imsStoresForSelect.length > 0 && (
+                  <p className="text-xs text-amber-600 dark:text-amber-400">
+                    Without a store assignment, this user will see a &quot;Select a Store&quot; prompt on every IMS login.
+                  </p>
+                )}
+              </div>
+            )}
           </div>
 
           <DialogFooter className="flex-shrink-0 gap-2 sm:gap-0">
@@ -613,6 +696,7 @@ export function RolesList({
                 setPendingMultiRoleUpdate(null);
                 setEditingRoleIds([]);
                 setEditingPrimaryRoleId('');
+                setEditingAssignedStoreId('');
               }}
               disabled={isUpdating}
             >

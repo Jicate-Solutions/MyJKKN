@@ -3,7 +3,7 @@
 import { useEffect } from 'react';
 import { useStore } from '@/hooks/use-store';
 import { useImsActiveStore } from './use-ims-active-store';
-import { useImsStoreByInstitution } from './use-ims-stores';
+import { useImsStore, useImsStoreByInstitution } from './use-ims-stores';
 import { usePermissions } from '@/hooks/use-permissions';
 
 /**
@@ -33,23 +33,42 @@ export function useImsStoreContext() {
     userProfile?.role === 'store_admin' ||
     userRoles.some((r) => r.role_key === 'store_admin');
 
-  // For non-super-admins (including store_admin): auto-resolve their institution's store
   const userInstitutionId = userProfile?.institution_id ?? null;
-  const shouldAutoResolve = !storeId && !isSuperAdmin && !!userInstitutionId;
+
+  // ── Priority 2: DB-assigned store (written during role allocation) ──────────
+  // If the admin explicitly assigned a store to this user when granting store_admin,
+  // skip the institution first-match fallback and go directly to the correct store.
+  const assignedStoreId = (userProfile?.assigned_store_id as string | null | undefined) ?? null;
+  const shouldUseAssigned = !storeId && !isSuperAdmin && !!assignedStoreId;
+  const { data: assignedStore, isLoading: isAssignedLoading } = useImsStore(
+    shouldUseAssigned ? assignedStoreId! : ''
+  );
+
+  // ── Priority 3: Institution first-match fallback (original behaviour) ───────
+  // Only fires when no explicit store assignment exists.
+  // If assignedStoreId is set but the store was deleted, the user sees Gate D
+  // rather than silently falling back to a different institution store.
+  const shouldAutoResolve = !storeId && !isSuperAdmin && !assignedStoreId && !!userInstitutionId;
   const { data: autoStore, isLoading: isAutoResolving } = useImsStoreByInstitution(
     shouldAutoResolve ? userInstitutionId : null
   );
 
-  // Auto-select the resolved store for regular users and store_admins
+  // Auto-select: assigned store wins; institution fallback is second choice
   useEffect(() => {
-    if (shouldAutoResolve && autoStore) {
+    if (shouldUseAssigned && assignedStore) {
+      setActiveStore(
+        assignedStore.id,
+        assignedStore.institution_id ?? '',
+        assignedStore.name
+      );
+    } else if (shouldAutoResolve && autoStore) {
       setActiveStore(
         autoStore.id,
         autoStore.institution_id ?? '',
         autoStore.name
       );
     }
-  }, [shouldAutoResolve, autoStore, setActiveStore]);
+  }, [shouldUseAssigned, assignedStore, shouldAutoResolve, autoStore, setActiveStore]);
 
   const isStoreSelected = !!storeId;
 
@@ -58,7 +77,9 @@ export function useImsStoreContext() {
     institutionId: institutionId ?? userInstitutionId ?? '',
     storeName: storeName ?? null,
     isStoreSelected,
-    isResolving: shouldAutoResolve && isAutoResolving,
+    isResolving:
+      (shouldUseAssigned && isAssignedLoading) ||
+      (shouldAutoResolve && isAutoResolving),
     isSuperAdmin,
     isStoreAdmin,
     userProfile,

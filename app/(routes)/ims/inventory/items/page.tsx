@@ -58,6 +58,7 @@ import {
   Trash2,
   Package,
   Layers,
+  Upload,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useImsStoreContext } from '@/hooks/ims/use-ims-store-context';
@@ -77,6 +78,7 @@ import type {
   CreateImsItemDto,
   UpdateImsItemDto,
 } from '@/types/ims';
+import { BulkImportDialog } from './_components/bulk-import-dialog';
 
 const ITEM_TYPES: { label: string; value: ImsItemType }[] = [
   { label: 'Consumable', value: 'consumable' },
@@ -113,6 +115,7 @@ interface ItemFormData {
   code: string;
   name: string;
   description: string;
+  company_name: string;
   category_id: string;
   item_type: ImsItemType;
   base_unit_id: string;
@@ -136,6 +139,7 @@ const emptyFormData: ItemFormData = {
   code: '',
   name: '',
   description: '',
+  company_name: '',
   category_id: '',
   item_type: 'consumable',
   base_unit_id: '',
@@ -170,6 +174,7 @@ export default function InventoryItemsPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<ImsItemWithRelations | null>(null);
   const [formData, setFormData] = useState<ItemFormData>(emptyFormData);
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
 
   // Adjust stock dialog state
   const [adjustDialogOpen, setAdjustDialogOpen] = useState(false);
@@ -178,6 +183,8 @@ export default function InventoryItemsPage() {
     adjustment_type: 'correction',
     quantity: 0,
     reason: '',
+    batch_number: '',
+    expiry_date: '',
   });
   const [isAdjusting, setIsAdjusting] = useState(false);
 
@@ -214,6 +221,12 @@ export default function InventoryItemsPage() {
     setDialogOpen(true);
   };
 
+  // Invalidate item caches after bulk import completes
+  const handleImportComplete = () => {
+    queryClient.invalidateQueries({ queryKey: ['ims-items'] });
+    queryClient.invalidateQueries({ queryKey: ['ims-items-select'] });
+  };
+
   // Open dialog for editing
   const handleEdit = (item: ImsItemWithRelations) => {
     setEditingItem(item);
@@ -221,6 +234,7 @@ export default function InventoryItemsPage() {
       code: item.code,
       name: item.name,
       description: item.description || '',
+      company_name: item.company_name ?? '',
       category_id: item.category_id,
       item_type: item.item_type,
       base_unit_id: item.base_unit_id,
@@ -255,6 +269,7 @@ export default function InventoryItemsPage() {
           code: formData.code,
           name: formData.name,
           description: formData.description || null,
+          company_name: formData.company_name || null,
           category_id: formData.category_id,
           item_type: formData.item_type,
           base_unit_id: formData.base_unit_id,
@@ -279,6 +294,7 @@ export default function InventoryItemsPage() {
           code: formData.code,
           name: formData.name,
           description: formData.description || null,
+          company_name: formData.company_name || null,
           category_id: formData.category_id,
           item_type: formData.item_type,
           base_unit_id: formData.base_unit_id,
@@ -363,13 +379,15 @@ export default function InventoryItemsPage() {
           reason: adjustForm.reason,
           institution_id: institutionId || '',
           store_id: storeId || undefined,
+          batch_number: adjustForm.batch_number || undefined,
+          expiry_date: adjustForm.expiry_date || undefined,
         },
         profile?.id || ''
       );
       toast.success('Stock adjusted successfully');
       setAdjustDialogOpen(false);
       setAdjustingItem(null);
-      setAdjustForm({ adjustment_type: 'correction', quantity: 0, reason: '' });
+      setAdjustForm({ adjustment_type: 'correction', quantity: 0, reason: '', batch_number: '', expiry_date: '' });
       queryClient.invalidateQueries({ queryKey: ['ims-items'] });
     } catch (e: any) {
       toast.error(e?.message || 'Failed to adjust stock');
@@ -392,7 +410,15 @@ export default function InventoryItemsPage() {
               Manage your item catalog and pricing
             </p>
           </div>
-          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setImportDialogOpen(true)}
+            >
+              <Upload className="h-4 w-4 mr-2" />
+              Import Items
+            </Button>
+            <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild>
               <Button onClick={handleAddNew}>
                 <Plus className="h-4 w-4 mr-2" />
@@ -453,6 +479,19 @@ export default function InventoryItemsPage() {
                       setFormData((prev) => ({ ...prev, description: e.target.value }))
                     }
                     rows={2}
+                  />
+                </div>
+
+                {/* Company / Manufacturer */}
+                <div className="space-y-2">
+                  <Label htmlFor="company_name">Company / Manufacturer</Label>
+                  <Input
+                    id="company_name"
+                    placeholder="e.g. Sun Pharma, 3M, Natraj"
+                    value={formData.company_name}
+                    onChange={(e) =>
+                      setFormData((prev) => ({ ...prev, company_name: e.target.value }))
+                    }
                   />
                 </div>
 
@@ -838,7 +877,17 @@ export default function InventoryItemsPage() {
               </DialogFooter>
             </DialogContent>
           </Dialog>
+          </div>
         </div>
+
+        {/* Bulk Import Dialog */}
+        <BulkImportDialog
+          open={importDialogOpen}
+          onOpenChange={setImportDialogOpen}
+          storeId={storeId}
+          institutionId={institutionId || ''}
+          onImportComplete={handleImportComplete}
+        />
 
         {/* Adjust Stock Dialog */}
         <Dialog open={adjustDialogOpen} onOpenChange={setAdjustDialogOpen}>
@@ -898,6 +947,41 @@ export default function InventoryItemsPage() {
                   rows={2}
                 />
               </div>
+
+              {/* Batch Number — shown for batch-tracked items or loss-type adjustments */}
+              {(adjustingItem?.track_batch ||
+                ['damage', 'expiry', 'theft', 'return_to_supplier'].includes(adjustForm.adjustment_type)) && (
+                <div className="space-y-2">
+                  <Label>
+                    Batch Number{' '}
+                    <span className="text-muted-foreground text-xs">(optional)</span>
+                  </Label>
+                  <Input
+                    placeholder="e.g. B001"
+                    value={adjustForm.batch_number}
+                    onChange={(e) =>
+                      setAdjustForm((p) => ({ ...p, batch_number: e.target.value }))
+                    }
+                  />
+                </div>
+              )}
+
+              {/* Expiry Date — shown for expiry-tracked items or expiry-type adjustments */}
+              {(adjustingItem?.track_expiry || adjustForm.adjustment_type === 'expiry') && (
+                <div className="space-y-2">
+                  <Label>
+                    Expiry Date{' '}
+                    <span className="text-muted-foreground text-xs">(optional)</span>
+                  </Label>
+                  <Input
+                    type="date"
+                    value={adjustForm.expiry_date}
+                    onChange={(e) =>
+                      setAdjustForm((p) => ({ ...p, expiry_date: e.target.value }))
+                    }
+                  />
+                </div>
+              )}
             </div>
             <DialogFooter>
               <Button
@@ -989,6 +1073,7 @@ export default function InventoryItemsPage() {
                     <TableRow>
                       <TableHead>Code</TableHead>
                       <TableHead>Name / Category</TableHead>
+                      <TableHead>Company</TableHead>
                       <TableHead>Type</TableHead>
                       <TableHead>Base Unit</TableHead>
                       <TableHead className="text-right">Stock</TableHead>
@@ -1013,6 +1098,9 @@ export default function InventoryItemsPage() {
                                 {item.category?.name || '-'}
                               </p>
                             </div>
+                          </TableCell>
+                          <TableCell className="text-sm text-muted-foreground">
+                            {item.company_name ?? '—'}
                           </TableCell>
                           <TableCell>
                             <Badge
@@ -1076,7 +1164,7 @@ export default function InventoryItemsPage() {
                                 </DropdownMenuItem>
                                 <DropdownMenuItem onClick={() => {
                                   setAdjustingItem(item);
-                                  setAdjustForm({ adjustment_type: 'correction', quantity: 0, reason: '' });
+                                  setAdjustForm({ adjustment_type: 'correction', quantity: 0, reason: '', batch_number: '', expiry_date: '' });
                                   setAdjustDialogOpen(true);
                                 }}>
                                   <Layers className="h-4 w-4 mr-2" />

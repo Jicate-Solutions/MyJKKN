@@ -73,6 +73,9 @@ export interface Profile {
   student_status?: StudentStatus | null;
   student_profile_complete?: boolean | null;
 
+  // IMS store assignment (set during role allocation for store_admin users)
+  assigned_store_id?: string | null;
+
   // Multi-role support fields
   user_roles?: UserRoleAssignment[];
   primary_role?: UserRoleAssignment;

@@ -76,6 +76,8 @@ export interface ImsStockAdjustment {
   adjustment_type: ImsAdjustmentType;
   quantity: number;
   reason: string;
+  batch_number?: string | null;
+  expiry_date?: string | null;
   department_id: string | null;
   adjusted_by: string;
   institution_id: string;

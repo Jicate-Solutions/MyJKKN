@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { BeatLoader } from 'react-spinners';
 import { Card, CardContent } from '@/components/ui/card';
@@ -108,6 +109,7 @@ const emptyFormData: StoreFormData = {
 };
 
 export default function StoresPage() {
+  const router = useRouter();
   const { isSuperAdmin, userProfile } = usePermissions();
   const { data: jkknInstitutionData, isLoading: institutionsLoading } = useJkknInstitutions({ limit: 100 });
   const institutions = jkknInstitutionData?.data ?? [];
@@ -136,6 +138,7 @@ export default function StoresPage() {
   const filters: ImsStoreFilters = {
     search: debouncedSearch || undefined,
     is_active: activeFilter === 'all' ? undefined : activeFilter === 'active',
+    institution_id: isSuperAdmin ? undefined : (userProfile?.institution_id ?? undefined),
   };
 
   // Queries
@@ -150,7 +153,10 @@ export default function StoresPage() {
   // Open dialog for new store
   const handleAddNew = () => {
     setEditingStore(null);
-    setFormData(emptyFormData);
+    setFormData({
+      ...emptyFormData,
+      institution_id: !isSuperAdmin ? (userProfile?.institution_id ?? '') : '',
+    });
     setDialogOpen(true);
   };
 
@@ -239,6 +245,7 @@ export default function StoresPage() {
         };
         await createStore.mutateAsync(createData);
         toast.success('Store registered successfully');
+        router.push('/ims/dashboard');
       }
       setDialogOpen(false);
       setEditingStore(null);

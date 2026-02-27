@@ -14,7 +14,7 @@ export function useImsStores(filters: ImsStoreFilters) {
   return useQuery({
     queryKey: ['ims-stores', filters],
     queryFn: () => ImsStoreService.getStores(filters),
-    enabled: !!filters.institution_id,
+    enabled: true,
     staleTime: 10 * 60 * 1000,
   });
 }

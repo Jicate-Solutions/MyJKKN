@@ -89,6 +89,8 @@ export class ImsStockAdjustmentService {
       department_id?: string;
       institution_id: string;
       store_id?: string;
+      batch_number?: string;
+      expiry_date?: string;
     },
     userId: string
   ): Promise<ImsFinancialTransaction> {
@@ -125,6 +127,8 @@ export class ImsStockAdjustmentService {
           department_id: data.department_id || null,
           item_id: data.item_id,
           quantity: data.quantity,
+          batch_number: data.batch_number || null,
+          expiry_date: data.expiry_date || null,
           created_by: userId,
           institution_id: data.institution_id,
           store_id: data.store_id || null,

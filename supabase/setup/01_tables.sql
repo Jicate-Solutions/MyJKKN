@@ -1960,6 +1960,7 @@ CREATE TABLE IF NOT EXISTS public.ims_items (
     code TEXT NOT NULL UNIQUE,
     name TEXT NOT NULL,
     description TEXT,
+    company_name TEXT,
     category_id UUID REFERENCES public.ims_item_categories(id),
     item_type TEXT NOT NULL DEFAULT 'consumable'
         CHECK (item_type IN ('consumable', 'equipment', 'medicine', 'stationery', 'other')),
@@ -2381,6 +2382,8 @@ CREATE TABLE IF NOT EXISTS public.ims_financial_transactions (
     department_id UUID REFERENCES public.departments(id),
     item_id UUID REFERENCES public.ims_items(id),
     quantity NUMERIC(12,2),
+    batch_number TEXT,
+    expiry_date DATE,
     created_by UUID NOT NULL REFERENCES public.profiles(id),
     institution_id UUID,
     created_at TIMESTAMPTZ DEFAULT now()

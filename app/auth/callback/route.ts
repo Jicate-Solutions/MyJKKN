@@ -11,6 +11,45 @@ import { StudentValidationService } from '@/lib/services/auth/student-validation
 import { SessionTrackingService } from '@/lib/services/analytics/session-tracking-service';
 
 
+/**
+ * Resolve the appropriate JKKN system role for a new user on their first login.
+ *
+ * Lookup order:
+ * 1. learners_profiles — if the email matches a student, assign 'student'
+ * 2. profiles (pre-registered) — if a pre-registered row exists with a specific role, use it
+ * 3. Default — 'guest'
+ *
+ * Uses the service-role admin client so it bypasses RLS on both tables.
+ */
+async function resolveJkknRole(
+  email: string,
+  adminClient: ReturnType<typeof createServiceRoleClient>
+): Promise<string> {
+  if (!email) return 'guest';
+
+  // 1. Check if this email belongs to a JKKN learner (student)
+  const { data: learner } = await (adminClient as any)
+    .from('learners_profiles')
+    .select('id, lifecycle_status')
+    .or(`student_email.eq.${email},college_email.eq.${email}`)
+    .maybeSingle();
+
+  if (learner) return 'student';
+
+  // 2. Check if there is a pre-registered profile row with an explicit role
+  const { data: preReg } = await (adminClient as any)
+    .from('profiles')
+    .select('role')
+    .eq('email', email)
+    .eq('is_pre_registered', true)
+    .maybeSingle();
+
+  if (preReg?.role && preReg.role !== 'guest') return preReg.role as string;
+
+  // 3. Default fallback
+  return 'guest';
+}
+
 export async function GET(request: NextRequest) {
   try {
     const requestUrl = new URL(request.url);
@@ -308,11 +347,16 @@ export async function GET(request: NextRequest) {
       // If no profile exists, create one using admin client to bypass RLS
       // Fixed: 2025-12-27 - Use service role client to prevent RLS policy violations
       if (!actualProfile) {
+        // Resolve the role intelligently: check learners_profiles for students,
+        // then check for pre-registered profiles, then default to 'guest'.
+        const resolvedRole = await resolveJkknRole(user.email ?? '', adminClient);
+
         const newProfile = {
           id: user.id,
           email: user.email,
-          role: 'guest',
-          profile_completed: false,
+          role: resolvedRole,
+          // Known JKKN users skip the complete-profile page
+          profile_completed: resolvedRole !== 'guest',
           is_active: true
         };
 
@@ -357,6 +401,13 @@ export async function GET(request: NextRequest) {
           if (sessionError instanceof Error) {
             console.error('[Auth Callback] ❌ Error stack:', sessionError.stack);
           }
+        }
+
+        // Known JKKN users (student / pre-registered role) skip the profile wizard
+        if (resolvedRole !== 'guest') {
+          const dest = resolvedRole === 'student' ? '/' : '/dashboard';
+          console.log(`[Auth Callback] 🎓 JKKN ${resolvedRole} provisioned, redirecting to ${dest}`);
+          return NextResponse.redirect(new URL(dest, origin));
         }
 
         return NextResponse.redirect(new URL('/auth/complete-profile', origin));

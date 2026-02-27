@@ -401,7 +401,39 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admission/settings/workflows': 'admission.settings.workflows.view',
   '/admission/settings/workflow-config': 'admission.settings.workflows.manage',
   '/admission/settings/assignment-rules': 'admission.settings.assignment.view',
-  '/admission/settings/sources': 'admission.settings.sources.view'
+  '/admission/settings/sources': 'admission.settings.sources.view',
+
+  // IMS (Inventory Management System)
+  '/ims/dashboard': 'ims.dashboard.view',
+  // Inventory submenu items
+  '/ims/inventory/items': 'ims.inventory.view',
+  '/ims/inventory/categories': 'ims.inventory.view',
+  // Stock submenu items
+  '/ims/stock': 'ims.stock.view',
+  '/ims/stock/grn': 'ims.grn.view',
+  '/ims/stock/batches': 'ims.stock.view',
+  '/ims/stock/department': 'ims.stock.view',
+  '/ims/stock/adjustments': 'ims.stock.view',
+  // Indents submenu items
+  '/ims/indents': 'ims.indent.view',
+  '/ims/indents/new': 'ims.indent.create',
+  '/ims/indents/pending': 'ims.indent.approve',
+  // Sales submenu items
+  '/ims/sales': 'ims.sales.view',
+  '/ims/sales/history': 'ims.sales.view',
+  // Reports submenu items
+  '/ims/reports': 'ims.reports.view',
+  '/ims/reports/stock': 'ims.reports.view',
+  '/ims/reports/consumption': 'ims.reports.view',
+  '/ims/reports/indents': 'ims.reports.view',
+  '/ims/reports/sales': 'ims.reports.view',
+  // Financial (leaf node — no submenus)
+  '/ims/financial': 'ims.reports.view',
+  // Settings submenu items
+  '/ims/settings/stores': 'ims.settings.manage',
+  '/ims/settings/suppliers': 'ims.settings.manage',
+  '/ims/settings/units': 'ims.settings.manage',
+  '/ims/settings/unit-conversions': 'ims.settings.manage'
 };
 
 export function GetPages(pathname: string): MenuGroup[] {

@@ -151,12 +151,17 @@ export class UserRolesService {
    * @param roleIds - Array of custom_role IDs to assign
    * @param primaryRoleId - Which role should be marked as primary
    * @param assignedBy - The user performing the assignment
+   * @param assignedStoreId - IMS store to link to this user's profile.
+   *   Pass a UUID to set the store, null to explicitly clear it,
+   *   or undefined (default) to leave profiles.assigned_store_id untouched
+   *   (use undefined for non-IMS role changes to avoid unintended side effects).
    */
   static async assignRoles(
     userId: string,
     roleIds: string[],
     primaryRoleId: string,
-    assignedBy?: string
+    assignedBy?: string,
+    assignedStoreId?: string | null
   ): Promise<void> {
     if (!roleIds || roleIds.length === 0) {
       throw new Error('At least one role must be assigned');
@@ -191,13 +196,33 @@ export class UserRolesService {
         assigned_by: assignedBy || null
       }));
 
-      const { error: insertError } = await supabase 
+      const { error: insertError } = await supabase
         .from('user_roles')
         .insert(assignments as any);
 
       if (insertError) {
         console.error('[users/roles] Error inserting new roles:', insertError);
         throw insertError;
+      }
+
+      // Write store assignment only when caller explicitly passes the param.
+      // undefined = "don't touch this field" (non-IMS role updates)
+      // null      = "clear the store assignment"
+      // string    = "assign this store"
+      if (assignedStoreId !== undefined) {
+        const { error: profileError } = await (supabase as any)
+          .from('profiles')
+          .update({ assigned_store_id: assignedStoreId })
+          .eq('id', userId);
+
+        if (profileError) {
+          console.error('[users/roles] Failed to write assigned_store_id:', profileError);
+          throw profileError;
+        }
+
+        console.log(
+          `[users/roles] Store assignment updated for user ${userId}: ${assignedStoreId ?? 'cleared'}`
+        );
       }
 
       console.log(

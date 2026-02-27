@@ -14,6 +14,60 @@ type CustomRoleRow = Database['public']['Tables']['custom_roles']['Row'];
 type CustomRoleInsert = Database['public']['Tables']['custom_roles']['Insert'];
 type CustomRoleDbUpdate = Database['public']['Tables']['custom_roles']['Update'];
 
+/**
+ * Billing permission tiers per system role.
+ * Only the keys that differ from the default (no billing access) need to be listed.
+ * 'administrator' is handled separately — it receives all permissions.
+ */
+const SYSTEM_ROLE_BILLING_PERMISSIONS: Record<string, Record<string, boolean>> = {
+  // Principal: view all + approve discounts/refunds + reports
+  [SYSTEM_ROLES.PRINCIPAL]: {
+    'billing.schedule.view': true,
+    'billing.receipts.view': true,
+    'billing.discounts.view': true,
+    'billing.discounts.approve': true,
+    'billing.refunds.view': true,
+    'billing.refunds.approve': true,
+    'billing.invoices.view': true,
+    'billing.reports.view': true,
+  },
+  // HOD: view schedule/receipts/invoices/reports + approve discounts
+  [SYSTEM_ROLES.HOD]: {
+    'billing.schedule.view': true,
+    'billing.receipts.view': true,
+    'billing.discounts.view': true,
+    'billing.discounts.approve': true,
+    'billing.invoices.view': true,
+    'billing.reports.view': true,
+  },
+  // Faculty: view schedule + receipts + invoices (own institution)
+  [SYSTEM_ROLES.FACULTY]: {
+    'billing.schedule.view': true,
+    'billing.receipts.view': true,
+    'billing.invoices.view': true,
+  },
+  // Staff: view schedule + receipts + invoices
+  [SYSTEM_ROLES.STAFF]: {
+    'billing.schedule.view': true,
+    'billing.receipts.view': true,
+    'billing.invoices.view': true,
+  },
+  // Student: view own billing data (sidebar relabeling handles isolation)
+  [SYSTEM_ROLES.STUDENT]: {
+    'billing.schedule.view': true,
+    'billing.receipts.view': true,
+    'billing.invoices.view': true,
+  },
+  // Parent: read-only (schedule + invoices)
+  [SYSTEM_ROLES.PARENT]: {
+    'billing.schedule.view': true,
+    'billing.invoices.view': true,
+  },
+  // Guest and Driver: no billing access
+  [SYSTEM_ROLES.GUEST]: {},
+  [SYSTEM_ROLES.DRIVER]: {},
+};
+
 export class RoleService {
   private static supabase = createClientSupabaseClient();
 
@@ -114,6 +168,104 @@ export class RoleService {
       }
     } catch (error) {
       console.error('Error ensuring super_admin role:', error);
+    }
+  }
+
+  /**
+   * Ensures all system roles exist with the correct billing permission tiers.
+   *
+   * Idempotent — safe to call multiple times. Existing permissions are never
+   * removed; only missing billing keys are added.
+   *
+   * Call this after ensureSuperAdminRole() from any admin-authenticated context
+   * (e.g., the role-management page on mount, or a dedicated /api/roles/init route).
+   */
+  static async ensureAllSystemRoles(): Promise<void> {
+    const systemRoles = [
+      { key: SYSTEM_ROLES.ADMINISTRATOR, name: 'Administrator', desc: 'Full access to all features (same as Super Admin)' },
+      { key: SYSTEM_ROLES.PRINCIPAL,     name: 'Principal',     desc: 'View all and approve discounts/refunds' },
+      { key: SYSTEM_ROLES.HOD,           name: 'Head of Department', desc: 'View and approve discounts for own department' },
+      { key: SYSTEM_ROLES.FACULTY,       name: 'Faculty',       desc: 'View schedules, receipts and invoices' },
+      { key: SYSTEM_ROLES.STAFF,         name: 'Staff',         desc: 'View schedules, receipts and invoices' },
+      { key: SYSTEM_ROLES.STUDENT,       name: 'Student',       desc: 'View own billing information' },
+      { key: SYSTEM_ROLES.PARENT,        name: 'Parent',        desc: 'Read-only access to schedules and invoices' },
+      { key: SYSTEM_ROLES.GUEST,         name: 'Guest',         desc: 'Limited access — dashboard and profile only' },
+      { key: SYSTEM_ROLES.DRIVER,        name: 'Driver',        desc: 'Transport access only' },
+    ];
+
+    for (const roleSpec of systemRoles) {
+      try {
+        const billingPerms = SYSTEM_ROLE_BILLING_PERMISSIONS[roleSpec.key] ?? {};
+
+        const { data: existing, error: checkError } = await (this.supabase as any)
+          .from('custom_roles')
+          .select('permissions')
+          .eq('role_key', roleSpec.key)
+          .maybeSingle();
+
+        if (checkError) {
+          console.error(`[RoleService] Error checking ${roleSpec.key} role:`, checkError);
+          continue;
+        }
+
+        if (!existing) {
+          // Role doesn't exist — create it
+          const basePermissions: Record<string, boolean> =
+            roleSpec.key === SYSTEM_ROLES.ADMINISTRATOR
+              ? this.getAllPermissionsEnabled()                     // admin = all perms
+              : { ...DEFAULT_ROLE_PERMISSIONS, ...billingPerms };  // others = base + billing tier
+
+          const insertData: CustomRoleInsert = {
+            role_key: roleSpec.key,
+            role_name: roleSpec.name,
+            description: roleSpec.desc,
+            permissions: basePermissions as any,
+            is_system_role: true,
+          };
+
+          const { error: insertError } = await (this.supabase as any)
+            .from('custom_roles')
+            .insert([insertData]);
+
+          if (insertError) {
+            console.error(`[RoleService] Error creating ${roleSpec.key} role:`, insertError);
+          }
+        } else {
+          // Role exists — add any missing billing keys (never remove existing ones)
+          const currentPerms = ((existing as any).permissions as Record<string, boolean>) || {};
+          const missingBillingKeys = Object.keys(billingPerms).filter(k => !(k in currentPerms));
+
+          if (roleSpec.key === SYSTEM_ROLES.ADMINISTRATOR) {
+            // Administrator should always have all permissions
+            const allPerms = this.getAllPermissionsEnabled();
+            const missingAllKeys = Object.keys(allPerms).filter(k => !(k in currentPerms));
+            if (missingAllKeys.length > 0) {
+              const updatedPerms = { ...currentPerms, ...allPerms };
+              const { error: updateError } = await (this.supabase as any)
+                .from('custom_roles')
+                .update({ permissions: updatedPerms as any })
+                .eq('role_key', roleSpec.key);
+              if (updateError) {
+                console.error(`[RoleService] Error updating administrator permissions:`, updateError);
+              }
+            }
+          } else if (missingBillingKeys.length > 0) {
+            const updatedPerms = { ...currentPerms };
+            for (const key of missingBillingKeys) {
+              updatedPerms[key] = billingPerms[key];
+            }
+            const { error: updateError } = await (this.supabase as any)
+              .from('custom_roles')
+              .update({ permissions: updatedPerms as any })
+              .eq('role_key', roleSpec.key);
+            if (updateError) {
+              console.error(`[RoleService] Error updating ${roleSpec.key} billing permissions:`, updateError);
+            }
+          }
+        }
+      } catch (err) {
+        console.error(`[RoleService] Unexpected error for ${roleSpec.key}:`, err);
+      }
     }
   }
 
