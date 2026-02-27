@@ -44,7 +44,6 @@ export interface LeadScore {
   recommended_action: string | null;
   scoring_rule_id: string | null;
   calculated_at: string;
-  expires_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -305,10 +304,6 @@ export class LeadScoringEngineService {
       query = query.eq('score_category', filters.category);
     }
 
-    if (filters.expired_only) {
-      query = query.lt('expires_at', new Date().toISOString());
-    }
-
     query = query.order('total_score', { ascending: false });
 
     if (filters.limit) {
@@ -475,9 +470,9 @@ export class LeadScoringEngineService {
     // Top performers (top 5 by score)
     const topPerformers = allScores.slice(0, 5);
 
-    // Needs attention (bottom 5 or expired scores)
+    // Needs attention (bottom 5 by score)
     const needsAttention = allScores
-      .filter((s: LeadScore) => s.total_score < 30 || (s.expires_at && new Date(s.expires_at) < new Date()))
+      .filter((s: LeadScore) => s.total_score < 30)
       .slice(0, 5);
 
     return {
@@ -727,10 +722,7 @@ export class LeadScoringEngineService {
     },
     scoringRuleId: string
   ): Promise<void> {
-    // Set expiration to 7 days from now (configurable)
-    const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + 7);
-
+    // expires_at intentionally omitted: scores refresh on activity, not on a 7-day timer
     const scoreData = {
       lead_id: leadId,
       institution_id: institutionId,
@@ -743,7 +735,6 @@ export class LeadScoringEngineService {
       recommended_action: result.recommendedAction,
       scoring_rule_id: scoringRuleId,
       calculated_at: new Date().toISOString(),
-      expires_at: expiresAt.toISOString(),
     };
 
     const { error } = await this.supabase
