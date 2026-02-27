@@ -17,11 +17,6 @@ import { AssignmentRulesService, type LeadDataForAssignment } from './assignment
 export class LeadService {
   private static supabase = createClientSupabaseClient();
 
-  // Allow server-side routes to inject a service-role Supabase client
-  static setSupabaseClient(client: any): void {
-    LeadService.supabase = client;
-  }
-
   /**
    * Generate a unique lead number
    */
@@ -340,13 +335,18 @@ export class LeadService {
         state: data.state ?? undefined,
         score: data.score ?? 0,
       };
-      const counselorId = await AssignmentRulesService.executeRulesForLead(assignInput);
+      const counselorId = !data.counselor_id
+        ? await AssignmentRulesService.executeRulesForLead(assignInput)
+        : null;
       if (counselorId) {
         await (this.supabase as any)
           .from('admission_leads')
           .update({ counselor_id: counselorId, assigned_at: new Date().toISOString() })
           .eq('id', data.id);
-        await (this.supabase as any).rpc('admission_increment_counselor_leads', { p_counselor_id: counselorId });
+        const { error: rpcError } = await (this.supabase as any).rpc('admission_increment_counselor_leads', { p_counselor_id: counselorId });
+        if (rpcError) {
+          console.warn('[LeadService] Failed to increment counselor lead count:', { counselorId, error: rpcError });
+        }
         data.counselor_id = counselorId;
         data.assigned_at = new Date().toISOString();
       }

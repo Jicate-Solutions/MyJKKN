@@ -4297,6 +4297,7 @@ CREATE OR REPLACE FUNCTION admission_increment_counselor_leads(p_counselor_id uu
 RETURNS void
 LANGUAGE sql
 SECURITY DEFINER
+SET search_path = public
 AS $$
   UPDATE admission_counselors
   SET current_leads = current_leads + 1,
