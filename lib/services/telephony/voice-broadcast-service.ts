@@ -165,9 +165,9 @@ export class VoiceBroadcastService {
   }> {
     let query = (this.supabase as any)
       .from('admission_voice_broadcast_campaigns')
-      .select('*', { count: 'exact' })
-      .eq('institution_id', filters.institutionId)
-      .order('created_at', { ascending: false });
+      .select('*', { count: 'exact' });
+    if (filters.institutionId) query = query.eq('institution_id', filters.institutionId);
+    query = query.order('created_at', { ascending: false });
 
     if (filters.status) query = query.eq('status', filters.status);
     if (filters.fromDate) query = query.gte('created_at', filters.fromDate);
