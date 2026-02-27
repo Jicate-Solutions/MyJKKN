@@ -73,12 +73,12 @@ export class MeritListService {
   /**
    * Fetch all merit lists for an institution
    */
-  static async getMeritLists(institutionId: string, filters?: MeritListFilters): Promise<MeritListRow[]> {
+  static async getMeritLists(institutionId: string | undefined, filters?: MeritListFilters): Promise<MeritListRow[]> {
     let query = this.supabase
       .from('merit_lists')
-      .select('*')
-      .eq('institution_id', institutionId)
-      .order('created_at', { ascending: false });
+      .select('*');
+    if (institutionId) query = query.eq('institution_id', institutionId);
+    query = query.order('created_at', { ascending: false });
 
     if (filters?.program_id) {
       query = query.eq('program_id', filters.program_id);
