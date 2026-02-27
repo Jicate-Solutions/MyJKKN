@@ -292,7 +292,7 @@ export class CommunicationCostService {
   /**
    * Get full cost dashboard data
    */
-  static async getDashboard(institutionId: string): Promise<CostDashboard> {
+  static async getDashboard(institutionId: string | undefined): Promise<CostDashboard> {
     const now = new Date();
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
