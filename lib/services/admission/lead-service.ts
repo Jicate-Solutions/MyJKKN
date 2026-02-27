@@ -736,6 +736,37 @@ export class LeadService {
       console.warn('[LeadService] Could not log counselor assignment activity:', activityError);
     }
 
+    // Notify the assigned counselor via the notifications table (best-effort)
+    try {
+      const { data: counselorProfile } = await (this.supabase as any)
+        .from('admission_counselors')
+        .select('user_id, name')
+        .eq('id', counselorId)
+        .maybeSingle();
+
+      if (counselorProfile?.user_id) {
+        await (this.supabase as any)
+          .from('notifications')
+          .insert({
+            user_id: counselorProfile.user_id,
+            type: 'info',
+            category: 'admission',
+            priority: 'normal',
+            title: 'New Lead Assigned to You',
+            message: 'A lead has been assigned to you. Tap to view and follow up.',
+            metadata: {
+              event_type: 'lead_assigned',
+              lead_id: leadId,
+            },
+            action_url: `/admission/leads/${leadId}`,
+            action_label: 'View Lead',
+            channels: ['in_app'],
+          });
+      }
+    } catch (notifErr) {
+      console.warn('[LeadService] Could not send counselor assignment notification:', notifErr);
+    }
+
     return this.normalizeLead(data);
   }
 
