@@ -120,12 +120,13 @@ export class StatusTrackingService {
    * Get pipeline stats (counts by status)
    */
   static async getPipelineStats(
-    institutionId: string
+    institutionId: string | undefined
   ): Promise<StatusPipelineStats> {
-    const { data, error } = await (this.supabase as any)
+    let query = (this.supabase as any)
       .from('admission_applications')
-      .select('status')
-      .eq('institution_id', institutionId);
+      .select('status');
+    if (institutionId) query = query.eq('institution_id', institutionId);
+    const { data, error } = await query;
 
     if (error) {
       console.error('[admission/status-tracking] Error fetching pipeline stats:', error);
