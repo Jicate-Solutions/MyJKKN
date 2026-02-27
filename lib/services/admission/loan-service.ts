@@ -436,17 +436,18 @@ export class LoanService {
   // ANALYTICS
   // ---------------------------------------------------------------------------
 
-  static async getAnalytics(institutionId: string): Promise<LoanAnalyticsSummary> {
+  static async getAnalytics(institutionId: string | undefined): Promise<LoanAnalyticsSummary> {
     const supabase = createClientSupabaseClient();
 
     // Fetch all applications with partner info
-    const { data: applications, error } = await (supabase as any)
+    let analyticsQuery = (supabase as any)
       .from('admission_loan_applications')
       .select(`
         id, loan_amount, status, created_at, applied_at, decision_at, partner_id,
         partner:admission_loan_partners(id, name)
-      `)
-      .eq('institution_id', institutionId);
+      `);
+    if (institutionId) analyticsQuery = analyticsQuery.eq('institution_id', institutionId);
+    const { data: applications, error } = await analyticsQuery;
 
     if (error) throw error;
 
