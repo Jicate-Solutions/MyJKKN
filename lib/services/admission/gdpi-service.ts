@@ -540,12 +540,14 @@ export class GDPIService {
   /**
    * Get aggregate stats for the institution
    */
-  static async getStats(institutionId: string): Promise<GDPIStats> {
+  static async getStats(institutionId: string | undefined): Promise<GDPIStats> {
     // Fetch sessions
-    const { data: sessions, error: sessionsError } = await (this.supabase as any)
+    let sessionsQuery = (this.supabase as any)
       .from('admission_gdpi_sessions')
-      .select('id, type, status')
-      .eq('institution_id', institutionId);
+      .select('id, type, status');
+    if (institutionId) sessionsQuery = sessionsQuery.eq('institution_id', institutionId);
+
+    const { data: sessions, error: sessionsError } = await sessionsQuery;
 
     if (sessionsError) throw sessionsError;
 
