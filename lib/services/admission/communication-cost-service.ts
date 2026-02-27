@@ -150,9 +150,9 @@ export class CommunicationCostService {
   }> {
     let query = (this.supabase as any)
       .from('communication_cost_log')
-      .select('*', { count: 'exact' })
-      .eq('institution_id', filters.institutionId)
-      .order('created_at', { ascending: false });
+      .select('*', { count: 'exact' });
+    if (filters.institutionId) query = query.eq('institution_id', filters.institutionId);
+    query = query.order('created_at', { ascending: false });
 
     if (filters.channel) query = query.eq('channel', filters.channel);
     if (filters.eventType) query = query.eq('event_type', filters.eventType);
