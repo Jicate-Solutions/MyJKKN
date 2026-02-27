@@ -513,11 +513,12 @@ export class VoiceBroadcastService {
   /**
    * Get broadcast stats
    */
-  static async getStats(institutionId: string): Promise<BroadcastStats> {
-    const { data: campaigns, error } = await (this.supabase as any)
+  static async getStats(institutionId: string | undefined): Promise<BroadcastStats> {
+    let campaignsQuery = (this.supabase as any)
       .from('admission_voice_broadcast_campaigns')
-      .select('total_called, total_answered, total_listened, total_pressed_1, total_connected, total_failed')
-      .eq('institution_id', institutionId);
+      .select('total_called, total_answered, total_listened, total_pressed_1, total_connected, total_failed');
+    if (institutionId) campaignsQuery = campaignsQuery.eq('institution_id', institutionId);
+    const { data: campaigns, error } = await campaignsQuery;
 
     if (error) throw new Error(`Failed to fetch broadcast stats: ${error.message}`);
 
@@ -528,10 +529,11 @@ export class VoiceBroadcastService {
     const totalPressed1 = all.reduce((s: number, c: any) => s + (c.total_pressed_1 || 0), 0);
 
     // Get total cost from logs
-    const { data: costs } = await (this.supabase as any)
+    let costsQuery = (this.supabase as any)
       .from('admission_voice_broadcast_logs')
-      .select('cost')
-      .eq('institution_id', institutionId);
+      .select('cost');
+    if (institutionId) costsQuery = costsQuery.eq('institution_id', institutionId);
+    const { data: costs } = await costsQuery;
 
     const totalCost = (costs || []).reduce((s: number, c: any) => s + (Number(c.cost) || 0), 0);
 
