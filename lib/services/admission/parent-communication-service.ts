@@ -115,7 +115,7 @@ export class ParentCommunicationService {
    * Get recent communication logs (SMS + WhatsApp) for parent communication
    */
   static async getCommunicationLogs(
-    institutionId: string,
+    institutionId: string | undefined,
     options?: { limit?: number; leadId?: string }
   ): Promise<CommunicationLogEntry[]> {
     const limit = options?.limit || 50;
@@ -123,10 +123,9 @@ export class ParentCommunicationService {
     // Fetch SMS logs
     let smsQuery = (this.supabase as any)
       .from('admission_sms_logs')
-      .select('id, lead_id, phone_number, message_content, status, sent_at, delivered_at, created_at')
-      .eq('institution_id', institutionId)
-      .order('created_at', { ascending: false })
-      .limit(limit);
+      .select('id, lead_id, phone_number, message_content, status, sent_at, delivered_at, created_at');
+    if (institutionId) smsQuery = smsQuery.eq('institution_id', institutionId);
+    smsQuery = smsQuery.order('created_at', { ascending: false }).limit(limit);
 
     if (options?.leadId) {
       smsQuery = smsQuery.eq('lead_id', options.leadId);
@@ -135,10 +134,9 @@ export class ParentCommunicationService {
     // Fetch WhatsApp logs
     let waQuery = (this.supabase as any)
       .from('admission_whatsapp_logs')
-      .select('id, lead_id, recipient_phone, message_content, delivery_status, sent_at, delivered_at, created_at')
-      .eq('institution_id', institutionId)
-      .order('created_at', { ascending: false })
-      .limit(limit);
+      .select('id, lead_id, recipient_phone, message_content, delivery_status, sent_at, delivered_at, created_at');
+    if (institutionId) waQuery = waQuery.eq('institution_id', institutionId);
+    waQuery = waQuery.order('created_at', { ascending: false }).limit(limit);
 
     if (options?.leadId) {
       waQuery = waQuery.eq('lead_id', options.leadId);
