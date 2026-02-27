@@ -35,7 +35,7 @@ export interface LogCostInput {
 }
 
 export interface CostFilters {
-  institutionId: string;
+  institutionId: string | undefined;
   channel?: CostChannel;
   eventType?: CostEventType;
   fromDate?: string;
