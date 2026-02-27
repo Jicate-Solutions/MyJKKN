@@ -183,13 +183,14 @@ export class ScreeningExamService {
   /**
    * Get distinct exam names for filtering
    */
-  static async getExamNames(institutionId: string): Promise<string[]> {
-    const { data, error } = await this.supabase
+  static async getExamNames(institutionId: string | undefined): Promise<string[]> {
+    let query = this.supabase
       .from('screening_exams')
-      .select('exam_name')
-      .eq('institution_id', institutionId)
-      .not('exam_name', 'is', null)
-      .order('exam_name');
+      .select('exam_name');
+    if (institutionId) query = query.eq('institution_id', institutionId);
+    query = query.not('exam_name', 'is', null).order('exam_name');
+
+    const { data, error } = await query;
 
     if (error) throw error;
     const names = [...new Set((data || []).map(d => d.exam_name).filter(Boolean))] as string[];
