@@ -106,11 +106,12 @@ export class CampaignMonitoringService {
   /**
    * Get aggregate campaign statistics for an institution
    */
-  static async getCampaignStats(institutionId: string): Promise<CampaignStats> {
-    const { data: campaigns, error } = await getSupabase()
+  static async getCampaignStats(institutionId: string | undefined): Promise<CampaignStats> {
+    let query = getSupabase()
       .from('re_engagement_campaigns')
-      .select('status, total_leads_targeted, leads_re_engaged, leads_converted')
-      .eq('institution_id', institutionId);
+      .select('status, total_leads_targeted, leads_re_engaged, leads_converted');
+    if (institutionId) query = query.eq('institution_id', institutionId);
+    const { data: campaigns, error } = await query;
 
     if (error) {
       console.error('[admission/campaign-monitoring] Failed to fetch campaign stats:', error);
