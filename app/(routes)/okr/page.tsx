@@ -267,7 +267,7 @@ export default function OKRDashboardPage() {
                 </div>
               ) : objectives.filter(o => o.level === 'institution').length > 0 ? (
                 <div className="space-y-3">
-                  {objectives.filter(o => o.level === 'institution').slice(0, 3).map((obj) => (
+                  {objectives.filter(o => o.level === 'institution' && o.id).slice(0, 3).map((obj) => (
                     <Link key={obj.id} href={`/okr/objectives/${obj.id}`}>
                       <div className="p-3 border rounded-lg hover:border-primary transition-colors cursor-pointer">
                         <div className="flex items-start justify-between mb-2">
