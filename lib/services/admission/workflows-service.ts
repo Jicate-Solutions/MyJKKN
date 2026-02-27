@@ -108,12 +108,12 @@ export class WorkflowsService {
   /**
    * Get all workflows for an institution
    */
-  static async getWorkflows(institutionId: string): Promise<Workflow[]> {
-    const { data, error } = await this.supabase
+  static async getWorkflows(institutionId: string | undefined): Promise<Workflow[]> {
+    let query = this.supabase
       .from('admission_workflows')
-      .select('*')
-      .eq('institution_id', institutionId)
-      .order('created_at', { ascending: false });
+      .select('*');
+    if (institutionId) query = query.eq('institution_id', institutionId);
+    const { data, error } = await query.order('created_at', { ascending: false });
 
     if (error) {
       console.error('[admission/workflows] Failed to fetch workflows:', error);
