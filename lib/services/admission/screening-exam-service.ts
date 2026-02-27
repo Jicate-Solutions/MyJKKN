@@ -200,11 +200,11 @@ export class ScreeningExamService {
   /**
    * Get stats for screening exams
    */
-  static async getStats(institutionId: string, examName?: string) {
+  static async getStats(institutionId: string | undefined, examName?: string) {
     let query = this.supabase
       .from('screening_exams')
-      .select('id, status, raw_score, max_score, percentage, cutoff_met')
-      .eq('institution_id', institutionId);
+      .select('id, status, raw_score, max_score, percentage, cutoff_met');
+    if (institutionId) query = query.eq('institution_id', institutionId);
 
     if (examName) {
       query = query.eq('exam_name', examName);
