@@ -172,7 +172,7 @@ export class GDPIService {
    * List sessions for an institution with candidate/evaluator counts
    */
   static async getSessions(
-    institutionId: string,
+    institutionId: string | undefined,
     filters?: GDPISessionFilters
   ): Promise<GDPISession[]> {
     let query = (this.supabase as any)
@@ -181,9 +181,9 @@ export class GDPIService {
         *,
         admission_gdpi_candidates(id, status),
         admission_gdpi_evaluators(id)
-      `)
-      .eq('institution_id', institutionId)
-      .order('scheduled_at', { ascending: false });
+      `);
+    if (institutionId) query = query.eq('institution_id', institutionId);
+    query = query.order('scheduled_at', { ascending: false });
 
     if (filters?.type) {
       query = query.eq('type', filters.type);
