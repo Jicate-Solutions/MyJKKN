@@ -101,12 +101,13 @@ export class DataQualityService {
   // PHONE VALIDATION
   // ─────────────────────────────────────────────────────────────────────────
 
-  static async getPhoneValidationStats(institutionId: string): Promise<PhoneValidationStats> {
+  static async getPhoneValidationStats(institutionId: string | undefined): Promise<PhoneValidationStats> {
     const supabase = createClientSupabaseClient();
-    const { data, error } = await (supabase as any)
+    let query = (supabase as any)
       .from('admission_leads')
-      .select('id, phone')
-      .eq('institution_id', institutionId);
+      .select('id, phone');
+    if (institutionId) query = query.eq('institution_id', institutionId);
+    const { data, error } = await query;
 
     if (error) throw error;
     const leads = data || [];
