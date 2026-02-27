@@ -384,12 +384,13 @@ export class DataQualityService {
     };
   }
 
-  static async findDuplicates(institutionId: string): Promise<DuplicateGroup[]> {
+  static async findDuplicates(institutionId: string | undefined): Promise<DuplicateGroup[]> {
     const supabase = createClientSupabaseClient();
-    const { data, error } = await (supabase as any)
+    let dupeQuery = (supabase as any)
       .from('admission_leads')
-      .select('id, full_name, phone, email, source, created_at, score')
-      .eq('institution_id', institutionId)
+      .select('id, full_name, phone, email, source, created_at, score');
+    if (institutionId) dupeQuery = dupeQuery.eq('institution_id', institutionId);
+    const { data, error } = await dupeQuery
       .order('created_at', { ascending: true });
 
     if (error) throw error;
