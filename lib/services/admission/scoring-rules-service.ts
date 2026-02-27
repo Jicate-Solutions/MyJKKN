@@ -86,11 +86,12 @@ export class ScoringRulesService {
   /**
    * Get active scoring rule for an institution
    */
-  static async getActiveScoringRule(institutionId: string): Promise<ScoringRule | null> {
-    const { data, error } = await this.supabase
+  static async getActiveScoringRule(institutionId: string | undefined): Promise<ScoringRule | null> {
+    let query = this.supabase
       .from('admission_scoring_rules')
-      .select('*')
-      .eq('institution_id', institutionId)
+      .select('*');
+    if (institutionId) query = query.eq('institution_id', institutionId);
+    const { data, error } = await query
       .eq('is_active', true)
       .order('created_at', { ascending: false })
       .limit(1);
