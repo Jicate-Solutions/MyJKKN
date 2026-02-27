@@ -362,15 +362,16 @@ export class DataQualityService {
   // DEDUPLICATION
   // ─────────────────────────────────────────────────────────────────────────
 
-  static async getDeduplicationStats(institutionId: string): Promise<DeduplicationStats> {
+  static async getDeduplicationStats(institutionId: string | undefined): Promise<DeduplicationStats> {
     const groups = await this.findDuplicates(institutionId);
     const totalDuplicates = groups.reduce((sum, g) => sum + g.records.length - 1, 0);
 
     const supabase = createClientSupabaseClient();
-    const { count, error } = await (supabase as any)
+    let countQuery = (supabase as any)
       .from('admission_leads')
-      .select('id', { count: 'exact', head: true })
-      .eq('institution_id', institutionId);
+      .select('id', { count: 'exact', head: true });
+    if (institutionId) countQuery = countQuery.eq('institution_id', institutionId);
+    const { count, error } = await countQuery;
 
     if (error) throw error;
     const totalLeads = count || 0;
