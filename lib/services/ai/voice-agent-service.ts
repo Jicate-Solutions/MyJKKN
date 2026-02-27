@@ -406,9 +406,9 @@ export class VoiceAgentService {
   }> {
     let query = (this.supabase as any)
       .from('ai_voice_agent_calls')
-      .select('*', { count: 'exact' })
-      .eq('institution_id', filters.institutionId)
-      .order('created_at', { ascending: false });
+      .select('*', { count: 'exact' });
+    if (filters.institutionId) query = query.eq('institution_id', filters.institutionId);
+    query = query.order('created_at', { ascending: false });
 
     if (filters.agentType) query = query.eq('agent_type', filters.agentType);
     if (filters.agentConfigId) query = query.eq('agent_config_id', filters.agentConfigId);
