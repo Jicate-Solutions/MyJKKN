@@ -99,6 +99,7 @@ import { SMSCampaignService } from '@/lib/services/admission/sms-campaign-servic
 import { WhatsAppCampaignService } from '@/lib/services/admission/whatsapp-campaign-service';
 import { useQueryClient } from '@tanstack/react-query';
 import type { FunnelStage } from '@/types/admission';
+import { ALLOWED_STAGE_TRANSITIONS } from '@/lib/services/admission/lead-service';
 
 const FUNNEL_STAGES = [
   { value: 'new', label: 'New' },
@@ -1079,11 +1080,18 @@ function LeadDetailPageContent() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {FUNNEL_STAGES.map((stage) => (
-                        <SelectItem key={stage.value} value={stage.value}>
-                          {stage.label}
-                        </SelectItem>
-                      ))}
+                      {(() => {
+                        const allowedNextStages = lead?.funnel_stage
+                          ? ALLOWED_STAGE_TRANSITIONS[lead.funnel_stage as FunnelStage] ?? []
+                          : FUNNEL_STAGES.map(s => s.value);
+                        return FUNNEL_STAGES.filter(
+                          s => allowedNextStages.includes(s.value as FunnelStage) || s.value === lead?.funnel_stage
+                        ).map((stage) => (
+                          <SelectItem key={stage.value} value={stage.value}>
+                            {stage.label}
+                          </SelectItem>
+                        ));
+                      })()}
                     </SelectContent>
                   </Select>
                 </div>

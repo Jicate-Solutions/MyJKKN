@@ -31,11 +31,11 @@ export const ALLOWED_STAGE_TRANSITIONS: Record<FunnelStage, FunnelStage[]> = {
   application_started:    ['application_submitted', 'documents_pending', 'lost', 'dormant'],
   application_submitted:  ['documents_pending', 'documents_verified', 'lost', 'dormant'],
   documents_pending:      ['documents_verified', 'application_submitted', 'lost', 'dormant'],
-  documents_verified:     ['interview_scheduled', 'offer_sent', 'lost', 'dormant'],
+  documents_verified:     ['interview_scheduled', 'offer_sent', 'documents_pending', 'lost', 'dormant'],
   interview_scheduled:    ['interview_completed', 'documents_pending', 'lost', 'dormant'],
   interview_completed:    ['offer_sent', 'interviewed', 'lost', 'dormant'],
   offer_sent:             ['offer_accepted', 'declined', 'lost', 'dormant'],
-  offer_accepted:         ['token_paid', 'confirmed', 'declined', 'lost', 'dormant'],
+  offer_accepted:         ['token_paid', 'confirmed', 'offer_sent', 'declined', 'lost', 'dormant'],
   token_paid:             ['confirmed', 'enrolled', 'lost', 'dormant'],
   applied:                ['interviewed', 'documents_pending', 'lost', 'dormant'],
   interviewed:            ['offered', 'declined', 'lost', 'dormant'],
@@ -483,12 +483,13 @@ export class LeadService {
       .single();
 
     // Validate transition (skip if force=true — for super-admin overrides)
+    // currentStage is undefined for legacy rows with no funnel_stage — skip validation
     const currentStage = current?.funnel_stage as FunnelStage | undefined;
     if (!force && currentStage && currentStage !== newStage) {
       const allowed = ALLOWED_STAGE_TRANSITIONS[currentStage] ?? [];
       if (!allowed.includes(newStage)) {
         throw new Error(
-          `Invalid stage transition: "${currentStage}" → "${newStage}" is not allowed. ` +
+          `Invalid stage transition: "${currentStage}" -> "${newStage}" is not allowed. ` +
           `Allowed next stages: ${allowed.join(', ')}.`
         );
       }
