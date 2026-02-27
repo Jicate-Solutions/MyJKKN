@@ -269,20 +269,23 @@ export class RemindersService {
    * Search leads for creating reminders.
    */
   static async searchLeadsForReminder(
-    institutionId: string,
+    institutionId: string | undefined,
     search: string
   ): Promise<{ id: string; fullName: string; phone: string; stage: string }[]> {
     const supabase = createClientSupabaseClient();
     const sanitized = search.replace(/[%_]/g, '');
 
-    const { data, error } = await (supabase as any)
+    let query = (supabase as any)
       .from('admission_leads')
-      .select('id, full_name, phone, funnel_stage')
-      .eq('institution_id', institutionId)
+      .select('id, full_name, phone, funnel_stage');
+    if (institutionId) query = query.eq('institution_id', institutionId);
+    query = query
       .eq('is_active', true)
       .or(`full_name.ilike.%${sanitized}%,phone.ilike.%${sanitized}%`)
       .order('full_name', { ascending: true })
       .limit(20);
+
+    const { data, error } = await query;
 
     if (error) {
       console.error('[admission/reminders] Error searching leads:', error);
