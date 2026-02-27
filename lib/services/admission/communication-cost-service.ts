@@ -253,14 +253,14 @@ export class CommunicationCostService {
    * Get channel cost breakdown
    */
   static async getChannelBreakdown(params: {
-    institutionId: string;
+    institutionId: string | undefined;
     fromDate?: string;
     toDate?: string;
   }): Promise<ChannelCostSummary[]> {
     let query = (this.supabase as any)
       .from('communication_cost_log')
-      .select('channel, total_cost, quantity')
-      .eq('institution_id', params.institutionId);
+      .select('channel, total_cost, quantity');
+    if (params.institutionId) query = query.eq('institution_id', params.institutionId);
 
     if (params.fromDate) query = query.gte('created_at', params.fromDate);
     if (params.toDate) query = query.lte('created_at', params.toDate);
