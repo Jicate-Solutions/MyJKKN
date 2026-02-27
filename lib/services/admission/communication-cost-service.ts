@@ -202,18 +202,20 @@ export class CommunicationCostService {
    * Get monthly cost summary
    */
   static async getMonthlySummary(params: {
-    institutionId: string;
+    institutionId: string | undefined;
     months?: number;
   }): Promise<MonthlyCostSummary[]> {
     const monthsBack = params.months || 12;
     const startDate = new Date();
     startDate.setMonth(startDate.getMonth() - monthsBack);
 
-    const { data, error } = await (this.supabase as any)
+    let query = (this.supabase as any)
       .from('communication_cost_log')
-      .select('channel, total_cost, quantity, created_at')
-      .eq('institution_id', params.institutionId)
-      .gte('created_at', startDate.toISOString());
+      .select('channel, total_cost, quantity, created_at');
+    if (params.institutionId) query = query.eq('institution_id', params.institutionId);
+    query = query.gte('created_at', startDate.toISOString());
+
+    const { data, error } = await query;
 
     if (error) throw new Error(`Failed to fetch monthly summary: ${error.message}`);
 
