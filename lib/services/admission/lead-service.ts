@@ -226,17 +226,17 @@ export class LeadService {
       throw new Error('Invalid phone number. Must be a valid 10-digit Indian mobile number starting with 6, 7, 8, or 9.');
     }
     // Validate optional phone fields if provided
-    if (leadData.alternate_phone) {
-      const cleanAlt = leadData.alternate_phone.trim().replace(/[\s\-()]/g, '');
-      if (!phoneRegex.test(cleanAlt)) {
-        throw new Error('Invalid alternate phone number. Must be a valid 10-digit Indian mobile number.');
-      }
+    const cleanAlt = leadData.alternate_phone
+      ? leadData.alternate_phone.trim().replace(/[\s\-()]/g, '')
+      : undefined;
+    if (cleanAlt && !phoneRegex.test(cleanAlt)) {
+      throw new Error('Invalid alternate phone number. Must be a valid 10-digit Indian mobile number.');
     }
-    if (leadData.parent_phone) {
-      const cleanParent = leadData.parent_phone.trim().replace(/[\s\-()]/g, '');
-      if (!phoneRegex.test(cleanParent)) {
-        throw new Error('Invalid parent phone number. Must be a valid 10-digit Indian mobile number.');
-      }
+    const cleanParent = leadData.parent_phone
+      ? leadData.parent_phone.trim().replace(/[\s\-()]/g, '')
+      : undefined;
+    if (cleanParent && !phoneRegex.test(cleanParent)) {
+      throw new Error('Invalid parent phone number. Must be a valid 10-digit Indian mobile number.');
     }
     if (!leadData.source) {
       throw new Error('Lead source is required');
@@ -268,12 +268,12 @@ export class LeadService {
       insertData.interested_programs = leadData.interested_programs;
     }
     if (leadData.parent_name) insertData.parent_name = leadData.parent_name;
-    if (leadData.parent_phone) insertData.parent_phone = leadData.parent_phone;
+    if (cleanParent) insertData.parent_phone = cleanParent;
     if (leadData.parent_email) insertData.parent_email = leadData.parent_email;
     if (leadData.entry_date) insertData.entry_date = leadData.entry_date;
     if (leadData.notes) insertData.notes = leadData.notes;
     // Address fields
-    if (leadData.alternate_phone) insertData.alternate_phone = leadData.alternate_phone;
+    if (cleanAlt) insertData.alternate_phone = cleanAlt;
     if (leadData.date_of_birth) insertData.date_of_birth = leadData.date_of_birth;
     if (leadData.gender) insertData.gender = leadData.gender;
     if (leadData.address_line1) insertData.address_line1 = leadData.address_line1;
