@@ -320,9 +320,9 @@ export class CampaignMonitoringService {
   /**
    * Get recent execution logs for monitoring
    */
-  static async getExecutionLogs(institutionId: string, limit = 50): Promise<ExecutionLog[]> {
+  static async getExecutionLogs(institutionId: string | undefined, limit = 50): Promise<ExecutionLog[]> {
     // Get workflow executions
-    const { data: executions, error } = await getSupabase()
+    let execQuery = getSupabase()
       .from('admission_workflow_executions')
       .select(`
         id,
@@ -336,8 +336,9 @@ export class CampaignMonitoringService {
           name,
           institution_id
         )
-      `)
-      .eq('admission_workflows.institution_id', institutionId)
+      `);
+    if (institutionId) execQuery = execQuery.eq('admission_workflows.institution_id', institutionId);
+    const { data: executions, error } = await execQuery
       .order('executed_at', { ascending: false })
       .limit(limit);
 
