@@ -2365,19 +2365,19 @@ CREATE POLICY "lead_scores_delete" ON admission_lead_scores FOR DELETE USING (
 -- 2. ADMISSION TASKS
 -- institution_id: direct column
 -- ============================================================================
-CREATE POLICY "tasks_select" ON admission_tasks FOR SELECT USING (
+CREATE POLICY "admission_tasks_select" ON admission_tasks FOR SELECT USING (
   institution_id = auth_institution_id()
   OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
 );
-CREATE POLICY "tasks_insert" ON admission_tasks FOR INSERT WITH CHECK (
+CREATE POLICY "admission_tasks_insert" ON admission_tasks FOR INSERT WITH CHECK (
   institution_id = auth_institution_id()
   OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
 );
-CREATE POLICY "tasks_update" ON admission_tasks FOR UPDATE USING (
+CREATE POLICY "admission_tasks_update" ON admission_tasks FOR UPDATE USING (
   institution_id = auth_institution_id()
   OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
 );
-CREATE POLICY "tasks_delete" ON admission_tasks FOR DELETE USING (
+CREATE POLICY "admission_tasks_delete" ON admission_tasks FOR DELETE USING (
   institution_id = auth_institution_id()
   OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
 );
@@ -2434,7 +2434,11 @@ CREATE POLICY "briefings_select" ON admission_daily_briefings FOR SELECT USING (
   OR institution_id = auth_institution_id()
   OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
 );
-CREATE POLICY "briefings_insert" ON admission_daily_briefings FOR INSERT WITH CHECK (true);
+CREATE POLICY "briefings_insert" ON admission_daily_briefings FOR INSERT
+  WITH CHECK (
+    institution_id = auth_institution_id()
+    AND (user_id = auth.uid() OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'))
+  );
 CREATE POLICY "briefings_update" ON admission_daily_briefings FOR UPDATE USING (
   user_id = auth.uid()
 );
