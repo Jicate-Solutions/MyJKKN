@@ -293,22 +293,22 @@ export class InterviewService {
   /**
    * Get stats for interview slots/bookings
    */
-  static async getStats(institutionId: string, interviewType?: string) {
-    const slotsQuery = this.supabase
+  static async getStats(institutionId: string | undefined, interviewType?: string) {
+    let slotsQuery = this.supabase
       .from('interview_slots')
-      .select('id, capacity, booked_count, slot_date, is_available', { count: 'exact' })
-      .eq('institution_id', institutionId);
+      .select('id, capacity, booked_count, slot_date, is_available', { count: 'exact' });
+    if (institutionId) slotsQuery = slotsQuery.eq('institution_id', institutionId);
 
     if (interviewType) {
-      slotsQuery.eq('interview_type', interviewType);
+      slotsQuery = slotsQuery.eq('interview_type', interviewType);
     }
 
     const { data: slots, count: totalSlots } = await slotsQuery;
 
-    const bookingsQuery = this.supabase
+    let bookingsQuery = this.supabase
       .from('interview_bookings')
-      .select('id, status, outcome, score', { count: 'exact' })
-      .eq('institution_id', institutionId);
+      .select('id, status, outcome, score', { count: 'exact' });
+    if (institutionId) bookingsQuery = bookingsQuery.eq('institution_id', institutionId);
 
     const { data: bookings, count: totalBookings } = await bookingsQuery;
 
