@@ -69,6 +69,15 @@ export interface AssignmentStats {
   unassignedLeads: number;
 }
 
+export interface LeadDataForAssignment {
+  institution_id: string;
+  source?: string;
+  interested_programs?: string[];
+  city?: string;
+  state?: string;
+  score?: number;
+}
+
 export class AssignmentRulesService {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private static supabase: any = createClientSupabaseClient();
@@ -340,5 +349,114 @@ export class AssignmentRulesService {
       default:
         return [];
     }
+  }
+
+  // ============================================================================
+  // RULE EXECUTION
+  // ============================================================================
+
+  /**
+   * Evaluate active rules against a new lead and return the counselor_id to assign.
+   * Rules are evaluated in priority order (lowest number = highest priority).
+   * Returns null if no rule matches, no counselors are available, or no rules exist.
+   * This method is best-effort — callers should handle null gracefully.
+   */
+  static async executeRulesForLead(lead: LeadDataForAssignment): Promise<string | null> {
+    try {
+      const rules = await this.getActiveAssignmentRules(lead.institution_id);
+      if (rules.length === 0) return null;
+
+      for (const rule of rules) {
+        if (this.matchesCriteria(lead, rule.criteria)) {
+          const counselorId = await this.executeAction(rule.action, lead.institution_id);
+          if (counselorId) return counselorId;
+          // If action couldn't resolve a counselor, continue to next rule
+        }
+      }
+      return null;
+    } catch (err) {
+      console.warn('[admission/assignment-rules] executeRulesForLead failed (non-blocking):', err);
+      return null;
+    }
+  }
+
+  /**
+   * Check if a lead matches ALL criteria in a rule (AND logic).
+   * An empty criteria array matches every lead (catch-all rule).
+   */
+  private static matchesCriteria(lead: LeadDataForAssignment, criteria: AssignmentCriterion[]): boolean {
+    if (!criteria || criteria.length === 0) return true;
+
+    return criteria.every((criterion) => {
+      const leadValue = (lead as unknown as Record<string, unknown>)[criterion.field];
+
+      switch (criterion.operator) {
+        case 'equals':
+          return leadValue === criterion.value;
+
+        case 'contains':
+          if (Array.isArray(leadValue)) {
+            return (leadValue as string[]).includes(criterion.value as string);
+          }
+          return String(leadValue ?? '').toLowerCase().includes(String(criterion.value).toLowerCase());
+
+        case 'greater_than':
+          return Number(leadValue) > Number(criterion.value);
+
+        case 'less_than':
+          return Number(leadValue) < Number(criterion.value);
+
+        case 'in': {
+          const allowedValues = Array.isArray(criterion.value) ? criterion.value : [criterion.value];
+          if (Array.isArray(leadValue)) {
+            return (leadValue as string[]).some((v) => allowedValues.includes(v as never));
+          }
+          return allowedValues.includes(leadValue as never);
+        }
+
+        default:
+          return false;
+      }
+    });
+  }
+
+  /**
+   * Execute the matched rule's action and return the counselor id to assign.
+   * For round_robin: picks the active counselor with fewest current_leads (respects max_leads cap).
+   * For assign_to_counselor: picks the first available active counselor in the list.
+   */
+  private static async executeAction(action: AssignmentAction, institutionId: string): Promise<string | null> {
+    if (!action?.counselor_ids || action.counselor_ids.length === 0) return null;
+
+    if (action.type === 'assign_to_counselor') {
+      const { data: counselor } = await this.supabase
+        .from('admission_counselors')
+        .select('id')
+        .in('id', action.counselor_ids)
+        .eq('is_active', true)
+        .eq('institution_id', institutionId)
+        .limit(1)
+        .single();
+      return counselor?.id ?? null;
+    }
+
+    if (action.type === 'round_robin') {
+      // Pick the active counselor with fewest leads who hasn't hit their max_leads cap
+      const { data: counselors } = await this.supabase
+        .from('admission_counselors')
+        .select('id, current_leads, max_leads')
+        .in('id', action.counselor_ids)
+        .eq('is_active', true)
+        .eq('institution_id', institutionId)
+        .order('current_leads', { ascending: true });
+
+      if (!counselors || counselors.length === 0) return null;
+
+      const available = (counselors as { id: string; current_leads: number; max_leads: number }[])
+        .find((c) => c.current_leads < c.max_leads);
+      return available?.id ?? null;
+    }
+
+    return null;
   }
 }
