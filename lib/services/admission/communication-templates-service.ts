@@ -276,11 +276,12 @@ export class CommunicationTemplatesService {
   /**
    * Get template statistics for an institution
    */
-  static async getTemplateStats(institutionId: string): Promise<TemplateStats> {
-    const { data, error } = await this.supabase
+  static async getTemplateStats(institutionId: string | undefined): Promise<TemplateStats> {
+    let statsQuery = this.supabase
       .from('admission_communication_templates')
-      .select('id, channel, is_active')
-      .eq('institution_id', institutionId);
+      .select('id, channel, is_active');
+    if (institutionId) statsQuery = statsQuery.eq('institution_id', institutionId);
+    const { data, error } = await statsQuery;
 
     if (error) {
       console.warn('[admission/communication-templates] Failed to fetch stats:', error);
