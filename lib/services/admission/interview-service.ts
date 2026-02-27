@@ -225,7 +225,7 @@ export class InterviewService {
    * Fetch all bookings for an institution with optional filters
    */
   static async getBookings(
-    institutionId: string,
+    institutionId: string | undefined,
     filters?: { status?: string; slot_id?: string; application_id?: string }
   ): Promise<InterviewBookingRow[]> {
     let query = this.supabase
@@ -253,9 +253,9 @@ export class InterviewService {
           capacity,
           booked_count
         )
-      `)
-      .eq('institution_id', institutionId)
-      .order('booked_at', { ascending: false });
+      `);
+    if (institutionId) query = query.eq('institution_id', institutionId);
+    query = query.order('booked_at', { ascending: false });
 
     if (filters?.status) {
       query = query.eq('status', filters.status);
