@@ -245,13 +245,14 @@ export async function getLatestBriefing(institutionId: string | undefined): Prom
 /**
  * Get today's briefing for an institution
  */
-export async function getTodaysBriefing(institutionId: string): Promise<Briefing | null> {
+export async function getTodaysBriefing(institutionId: string | undefined): Promise<Briefing | null> {
   const today = new Date().toISOString().split('T')[0];
 
-  const { data, error } = await (supabase as any)
+  let query = (supabase as any)
     .from('admission_daily_briefings')
-    .select('*')
-    .eq('institution_id', institutionId)
+    .select('*');
+  if (institutionId) query = query.eq('institution_id', institutionId);
+  const { data, error } = await query
     .eq('briefing_date', today)
     .order('created_at', { ascending: false })
     .limit(1);
