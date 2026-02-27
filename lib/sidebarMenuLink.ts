@@ -114,6 +114,9 @@ import {
   // Admission CRM extra icons
   Radio,
   GitMerge,
+  // Startup Studio Icons
+  Rocket,
+  Zap,
 } from 'lucide-react';
 import { CustomRole } from '@/types/auth';
 import { FEATURE_FLAGS } from '@/lib/config/feature-flags';
@@ -582,6 +585,16 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/solutions/pipeline/[id]': 'solutions.view',
   '/solutions/pipeline/[id]/edit': 'solutions.edit',
   '/solutions/pipeline/analytics': 'solutions.view',
+
+  // Startup Studio Module
+  '/startup-studio': 'startup_studio.view',
+  '/startup-studio/cycles': 'startup_studio.cycles.view',
+  '/startup-studio/cycles/new': 'startup_studio.cycles.create',
+  '/startup-studio/events': 'startup_studio.events.view',
+  '/startup-studio/problem-bank': 'startup_studio.problem_bank.view',
+  '/startup-studio/nif': 'startup_studio.nif.view',
+  '/startup-studio/submissions': 'startup_studio.submissions.view',
+  '/startup-studio/analytics': 'startup_studio.analytics.view',
 
   // Talent Portals (Role-specific)
   '/talent/builder': 'talent.builder.view',
@@ -1862,6 +1875,71 @@ export function GetPages(pathname: string): MenuGroup[] {
             }
           ]
         }
+      ]
+    },
+    {
+      groupLabel: 'Startup Studio',
+      menus: [
+        {
+          href: '/startup-studio',
+          label: 'Dashboard',
+          active: pathname === '/startup-studio',
+          icon: Rocket,
+          submenus: []
+        },
+        {
+          href: '/startup-studio/cycles',
+          label: 'Flywheel Cycles',
+          active: pathname.startsWith('/startup-studio/cycles'),
+          icon: RefreshCw,
+          submenus: [
+            {
+              href: '/startup-studio/cycles',
+              label: 'All Cycles',
+              active: pathname === '/startup-studio/cycles'
+            },
+            {
+              href: '/startup-studio/cycles/new',
+              label: 'Start New Cycle',
+              active: pathname === '/startup-studio/cycles/new'
+            }
+          ]
+        },
+        {
+          href: '/startup-studio/events',
+          label: 'Events',
+          active: pathname.startsWith('/startup-studio/events'),
+          icon: CalendarDays,
+          submenus: []
+        },
+        {
+          href: '/startup-studio/problem-bank',
+          label: 'Problem Bank',
+          active: pathname.startsWith('/startup-studio/problem-bank'),
+          icon: Lightbulb,
+          submenus: []
+        },
+        {
+          href: '/startup-studio/nif',
+          label: 'NIF Pipeline',
+          active: pathname.startsWith('/startup-studio/nif'),
+          icon: Zap,
+          submenus: []
+        },
+        {
+          href: '/startup-studio/submissions',
+          label: 'Appathon',
+          active: pathname.startsWith('/startup-studio/submissions'),
+          icon: Trophy,
+          submenus: []
+        },
+        {
+          href: '/startup-studio/analytics',
+          label: 'Analytics',
+          active: pathname.startsWith('/startup-studio/analytics'),
+          icon: BarChart,
+          submenus: []
+        },
       ]
     },
     {

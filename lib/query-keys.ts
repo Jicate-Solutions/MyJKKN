@@ -727,6 +727,87 @@ export const solutionsHubKeys = {
 };
 
 // ============================================
+// Startup Studio Module Keys
+// ============================================
+export const startupStudioKeys = {
+  all: ['startup-studio'] as const,
+
+  // Cycles
+  cycles: {
+    all: ['startup-studio', 'cycles'] as const,
+    list: (filters?: FilterObject) =>
+      [...startupStudioKeys.cycles.all, 'list', filters] as const,
+    detail: (id: string) =>
+      [...startupStudioKeys.cycles.all, 'detail', id] as const,
+  },
+
+  // Events
+  events: {
+    all: ['startup-studio', 'events'] as const,
+    list: (filters?: FilterObject) =>
+      [...startupStudioKeys.events.all, 'list', filters] as const,
+    detail: (id: string) =>
+      [...startupStudioKeys.events.all, 'detail', id] as const,
+    bySlug: (slug: string) =>
+      [...startupStudioKeys.events.all, 'slug', slug] as const,
+    active: () =>
+      [...startupStudioKeys.events.all, 'active'] as const,
+  },
+
+  // Problem Bank
+  problemBank: {
+    all: ['startup-studio', 'problem-bank'] as const,
+    list: (filters?: FilterObject) =>
+      [...startupStudioKeys.problemBank.all, 'list', filters] as const,
+    detail: (id: string) =>
+      [...startupStudioKeys.problemBank.all, 'detail', id] as const,
+    top: () =>
+      [...startupStudioKeys.problemBank.all, 'top'] as const,
+  },
+
+  // NIF (Nattraja Incubation Forum)
+  nif: {
+    all: ['startup-studio', 'nif'] as const,
+    list: (filters?: FilterObject) =>
+      [...startupStudioKeys.nif.all, 'list', filters] as const,
+    detail: (id: string) =>
+      [...startupStudioKeys.nif.all, 'detail', id] as const,
+    stageCounts: () =>
+      [...startupStudioKeys.nif.all, 'stage-counts'] as const,
+    history: (candidateId: string) =>
+      [...startupStudioKeys.nif.all, 'history', candidateId] as const,
+  },
+
+  // Submissions
+  submissions: {
+    all: ['startup-studio', 'submissions'] as const,
+    list: (filters?: FilterObject) =>
+      [...startupStudioKeys.submissions.all, 'list', filters] as const,
+    detail: (id: string) =>
+      [...startupStudioKeys.submissions.all, 'detail', id] as const,
+    leaderboard: (eventId: string) =>
+      [...startupStudioKeys.submissions.all, 'leaderboard', eventId] as const,
+  },
+
+  // Analytics
+  analytics: {
+    all: ['startup-studio', 'analytics'] as const,
+    dashboard: (eventId?: string) =>
+      [...startupStudioKeys.analytics.all, 'dashboard', eventId] as const,
+    cycleStatus: (eventId?: string) =>
+      [...startupStudioKeys.analytics.all, 'cycle-status', eventId] as const,
+    problemThemes: () =>
+      [...startupStudioKeys.analytics.all, 'problem-themes'] as const,
+    nifStages: () =>
+      [...startupStudioKeys.analytics.all, 'nif-stages'] as const,
+    impact: (eventId?: string) =>
+      [...startupStudioKeys.analytics.all, 'impact', eventId] as const,
+    stepCompletion: (eventId?: string) =>
+      [...startupStudioKeys.analytics.all, 'step-completion', eventId] as const,
+  },
+};
+
+// ============================================
 // Combined Export
 // ============================================
 export const queryKeys = {
@@ -738,7 +819,8 @@ export const queryKeys = {
   admissions: admissionKeys,
   users: userKeys,
   resources: resourceKeys,
-  solutionsHub: solutionsHubKeys
+  solutionsHub: solutionsHubKeys,
+  startupStudio: startupStudioKeys
 } as const;
 
 // ============================================
