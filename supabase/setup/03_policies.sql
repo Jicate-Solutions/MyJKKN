@@ -2326,3 +2326,140 @@ CREATE POLICY "Users can view attachments for accessible requests"
 CREATE POLICY "Users can upload attachments to own requests"
     ON service_request_attachments FOR INSERT
     WITH CHECK (uploaded_by = auth.uid());
+
+-- ================================================================================
+-- SECTION: ADMISSION MODULE — Missing RLS Policies
+-- Updated: 2026-02-27 — Add missing RLS policies for 6 tables that had RLS
+--                        enabled but zero policies (all queries returned 0 rows)
+-- Pattern: auth_institution_id() helper + super_admin bypass (matches 004_rls_policies.sql)
+-- ================================================================================
+
+-- Ensure helper function exists (also defined in admission/004_rls_policies.sql)
+CREATE OR REPLACE FUNCTION auth_institution_id()
+RETURNS uuid LANGUAGE sql STABLE SECURITY INVOKER AS $$
+  SELECT institution_id FROM profiles WHERE id = auth.uid() LIMIT 1
+$$;
+
+-- ============================================================================
+-- 1. ADMISSION LEAD SCORES
+-- institution_id: direct column
+-- ============================================================================
+CREATE POLICY "lead_scores_select" ON admission_lead_scores FOR SELECT USING (
+  institution_id = auth_institution_id()
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+);
+CREATE POLICY "lead_scores_insert" ON admission_lead_scores FOR INSERT WITH CHECK (
+  institution_id = auth_institution_id()
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+);
+CREATE POLICY "lead_scores_update" ON admission_lead_scores FOR UPDATE USING (
+  institution_id = auth_institution_id()
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+);
+CREATE POLICY "lead_scores_delete" ON admission_lead_scores FOR DELETE USING (
+  institution_id = auth_institution_id()
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+);
+
+-- ============================================================================
+-- 2. ADMISSION TASKS
+-- institution_id: direct column
+-- ============================================================================
+CREATE POLICY "tasks_select" ON admission_tasks FOR SELECT USING (
+  institution_id = auth_institution_id()
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+);
+CREATE POLICY "tasks_insert" ON admission_tasks FOR INSERT WITH CHECK (
+  institution_id = auth_institution_id()
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+);
+CREATE POLICY "tasks_update" ON admission_tasks FOR UPDATE USING (
+  institution_id = auth_institution_id()
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+);
+CREATE POLICY "tasks_delete" ON admission_tasks FOR DELETE USING (
+  institution_id = auth_institution_id()
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+);
+
+-- ============================================================================
+-- 3. ADMISSION CALL LOGS
+-- institution_id: direct column
+-- ============================================================================
+CREATE POLICY "call_logs_select" ON admission_call_logs FOR SELECT USING (
+  institution_id = auth_institution_id()
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+);
+CREATE POLICY "call_logs_insert" ON admission_call_logs FOR INSERT WITH CHECK (
+  institution_id = auth_institution_id()
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+);
+CREATE POLICY "call_logs_update" ON admission_call_logs FOR UPDATE USING (
+  institution_id = auth_institution_id()
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+);
+CREATE POLICY "call_logs_delete" ON admission_call_logs FOR DELETE USING (
+  institution_id = auth_institution_id()
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+);
+
+-- ============================================================================
+-- 4. ADMISSION AI INSIGHTS
+-- institution_id: direct column
+-- ============================================================================
+CREATE POLICY "ai_insights_select" ON admission_ai_insights FOR SELECT USING (
+  institution_id = auth_institution_id()
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+);
+CREATE POLICY "ai_insights_insert" ON admission_ai_insights FOR INSERT WITH CHECK (
+  institution_id = auth_institution_id()
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+);
+CREATE POLICY "ai_insights_update" ON admission_ai_insights FOR UPDATE USING (
+  institution_id = auth_institution_id()
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+);
+CREATE POLICY "ai_insights_delete" ON admission_ai_insights FOR DELETE USING (
+  institution_id = auth_institution_id()
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+);
+
+-- ============================================================================
+-- 5. ADMISSION DAILY BRIEFINGS
+-- institution_id: direct column
+-- Special: also allows user_id = auth.uid() for personal briefing access
+-- ============================================================================
+CREATE POLICY "briefings_select" ON admission_daily_briefings FOR SELECT USING (
+  user_id = auth.uid()
+  OR institution_id = auth_institution_id()
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+);
+CREATE POLICY "briefings_insert" ON admission_daily_briefings FOR INSERT WITH CHECK (true);
+CREATE POLICY "briefings_update" ON admission_daily_briefings FOR UPDATE USING (
+  user_id = auth.uid()
+);
+CREATE POLICY "briefings_delete" ON admission_daily_briefings FOR DELETE USING (
+  user_id = auth.uid()
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+);
+
+-- ============================================================================
+-- 6. ADMISSION WORKFLOW CONFIGS
+-- institution_id: direct column
+-- ============================================================================
+CREATE POLICY "workflow_configs_select" ON admission_workflow_configs FOR SELECT USING (
+  institution_id = auth_institution_id()
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+);
+CREATE POLICY "workflow_configs_insert" ON admission_workflow_configs FOR INSERT WITH CHECK (
+  institution_id = auth_institution_id()
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+);
+CREATE POLICY "workflow_configs_update" ON admission_workflow_configs FOR UPDATE USING (
+  institution_id = auth_institution_id()
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+);
+CREATE POLICY "workflow_configs_delete" ON admission_workflow_configs FOR DELETE USING (
+  institution_id = auth_institution_id()
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+);
