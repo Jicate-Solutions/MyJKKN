@@ -184,11 +184,11 @@ export class MeritListService {
   /**
    * Get stats for merit lists
    */
-  static async getStats(institutionId: string, programId?: string) {
+  static async getStats(institutionId: string | undefined, programId?: string) {
     let query = this.supabase
       .from('merit_lists')
-      .select('id, total_entries, is_published, entries, cutoff_score')
-      .eq('institution_id', institutionId);
+      .select('id, total_entries, is_published, entries, cutoff_score');
+    if (institutionId) query = query.eq('institution_id', institutionId);
 
     if (programId) {
       query = query.eq('program_id', programId);
