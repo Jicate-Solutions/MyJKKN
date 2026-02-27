@@ -12,9 +12,15 @@ import type {
   LeadPriority
 } from '@/types/admission';
 import { sanitizeSearch } from '@/lib/config/pagination';
+import { AssignmentRulesService, type LeadDataForAssignment } from './assignment-rules-service';
 
 export class LeadService {
   private static supabase = createClientSupabaseClient();
+
+  // Allow server-side routes to inject a service-role Supabase client
+  static setSupabaseClient(client: any): void {
+    LeadService.supabase = client;
+  }
 
   /**
    * Generate a unique lead number
@@ -323,6 +329,30 @@ export class LeadService {
 
     // Log stage history
     await this.logStageHistory(data.id, null, 'new', user?.id);
+
+    // Auto-assign via rules — best-effort, never blocks lead creation
+    try {
+      const assignInput: LeadDataForAssignment = {
+        institution_id: data.institution_id,
+        source: data.source,
+        interested_programs: data.interested_programs ?? [],
+        city: data.city ?? undefined,
+        state: data.state ?? undefined,
+        score: data.score ?? 0,
+      };
+      const counselorId = await AssignmentRulesService.executeRulesForLead(assignInput);
+      if (counselorId) {
+        await (this.supabase as any)
+          .from('admission_leads')
+          .update({ counselor_id: counselorId, assigned_at: new Date().toISOString() })
+          .eq('id', data.id);
+        await (this.supabase as any).rpc('admission_increment_counselor_leads', { p_counselor_id: counselorId });
+        data.counselor_id = counselorId;
+        data.assigned_at = new Date().toISOString();
+      }
+    } catch (assignErr) {
+      console.warn('[LeadService] Auto-assignment skipped (lead created successfully):', assignErr);
+    }
 
     return this.normalizeLead(data);
   }

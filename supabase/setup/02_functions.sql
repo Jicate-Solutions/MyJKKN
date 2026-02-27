@@ -4291,3 +4291,15 @@ AS $$
     AND service_type_id = p_service_type_id
     AND status NOT IN ('closed', 'cancelled', 'rejected');
 $$;
+
+-- Updated: 2026-02-27 — Auto-assignment: atomic counselor lead count increment
+CREATE OR REPLACE FUNCTION admission_increment_counselor_leads(p_counselor_id uuid)
+RETURNS void
+LANGUAGE sql
+SECURITY DEFINER
+AS $$
+  UPDATE admission_counselors
+  SET current_leads = current_leads + 1,
+      updated_at = now()
+  WHERE id = p_counselor_id;
+$$;
