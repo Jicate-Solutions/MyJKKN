@@ -590,11 +590,12 @@ export class CampaignMonitoringService {
   /**
    * Get all campaigns for listing
    */
-  static async getCampaigns(institutionId: string): Promise<CampaignDetail[]> {
-    const { data, error } = await getSupabase()
+  static async getCampaigns(institutionId: string | undefined): Promise<CampaignDetail[]> {
+    let query = getSupabase()
       .from('re_engagement_campaigns')
-      .select('*')
-      .eq('institution_id', institutionId)
+      .select('*');
+    if (institutionId) query = query.eq('institution_id', institutionId);
+    const { data, error } = await query
       .order('created_at', { ascending: false });
 
     if (error) {
