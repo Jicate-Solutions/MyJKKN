@@ -699,6 +699,14 @@ export class LeadService {
   static async assignCounselor(leadId: string, counselorId: string, profileId?: string): Promise<AdmissionLead> {
     const { data: { user } } = await (this.supabase as any).auth.getUser();
 
+    // Read current counselor_id to detect reassignment
+    const { data: currentLead } = await (this.supabase as any)
+      .from('admission_leads')
+      .select('counselor_id')
+      .eq('id', leadId)
+      .maybeSingle();
+    const isNewAssignment = !currentLead?.counselor_id || currentLead.counselor_id !== counselorId;
+
     const { data, error } = await (this.supabase as any).from('admission_leads')
       .update({
         counselor_id: counselorId,
@@ -736,35 +744,38 @@ export class LeadService {
       console.warn('[LeadService] Could not log counselor assignment activity:', activityError);
     }
 
-    // Notify the assigned counselor via the notifications table (best-effort)
-    try {
-      const { data: counselorProfile } = await (this.supabase as any)
-        .from('admission_counselors')
-        .select('user_id, name')
-        .eq('id', counselorId)
-        .maybeSingle();
+    // Only notify for new assignments, not reassignments to the same counselor
+    if (isNewAssignment) {
+      // Notify the assigned counselor via the notifications table (best-effort)
+      try {
+        const { data: counselorProfile } = await (this.supabase as any)
+          .from('admission_counselors')
+          .select('user_id, name')
+          .eq('id', counselorId)
+          .maybeSingle();
 
-      if (counselorProfile?.user_id) {
-        await (this.supabase as any)
-          .from('notifications')
-          .insert({
-            user_id: counselorProfile.user_id,
-            type: 'info',
-            category: 'admission',
-            priority: 'normal',
-            title: 'New Lead Assigned to You',
-            message: 'A lead has been assigned to you. Tap to view and follow up.',
-            metadata: {
-              event_type: 'lead_assigned',
-              lead_id: leadId,
-            },
-            action_url: `/admission/leads/${leadId}`,
-            action_label: 'View Lead',
-            channels: ['in_app'],
-          });
+        if (counselorProfile?.user_id) {
+          await (this.supabase as any)
+            .from('notifications')
+            .insert({
+              user_id: counselorProfile.user_id,
+              type: 'info',
+              category: 'admission',
+              priority: 'normal',
+              title: 'New Lead Assigned to You',
+              message: `Lead "${(data as any).full_name ?? 'Unknown'}" has been assigned to you. Tap to view and follow up.`,
+              metadata: {
+                event_type: 'lead_assigned',
+                lead_id: leadId,
+              },
+              action_url: `/admission/leads/${leadId}`,
+              action_label: 'View Lead',
+              channels: ['PUSH', 'IN_APP'],
+            });
+        }
+      } catch (notifErr) {
+        console.warn('[LeadService] Could not send counselor assignment notification:', notifErr);
       }
-    } catch (notifErr) {
-      console.warn('[LeadService] Could not send counselor assignment notification:', notifErr);
     }
 
     return this.normalizeLead(data);
