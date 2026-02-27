@@ -80,12 +80,12 @@ export class AssignmentRulesService {
   /**
    * Get all assignment rules for an institution
    */
-  static async getAssignmentRules(institutionId: string): Promise<AssignmentRule[]> {
-    const { data, error } = await this.supabase
+  static async getAssignmentRules(institutionId: string | undefined): Promise<AssignmentRule[]> {
+    let query = this.supabase
       .from('admission_assignment_rules')
-      .select('*')
-      .eq('institution_id', institutionId)
-      .order('priority', { ascending: true });
+      .select('*');
+    if (institutionId) query = query.eq('institution_id', institutionId);
+    const { data, error } = await query.order('priority', { ascending: true });
 
     if (error) {
       console.error('[admission/assignment-rules] Failed to fetch rules:', error);
