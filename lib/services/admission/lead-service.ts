@@ -2,6 +2,7 @@
 // Admission CRM Lead Service - Supabase interactions
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import type { User } from '@supabase/supabase-js';
 import type {
   AdmissionLead,
   CreateLeadInput,
@@ -243,8 +244,16 @@ export class LeadService {
 
   /**
    * Create a new lead
+   *
+   * @param supabaseOverride - Optional Supabase client to use instead of the
+   *   shared static client. Pass a service-role client from server-side routes
+   *   (e.g. the inbound webhook) to bypass RLS without mutating shared state.
+   *   Each call receives its own scope — safe for concurrent serverless requests.
    */
-  static async createLead(leadData: CreateLeadInput): Promise<AdmissionLead> {
+  static async createLead(leadData: CreateLeadInput, user?: User, supabaseOverride?: any): Promise<AdmissionLead> {
+    // Use the injected client when provided; fall back to the shared static client.
+    const db = (supabaseOverride ?? LeadService.supabase) as any;
+
     // SECURITY: Validate required fields
     if (!leadData.institution_id) {
       throw new Error('Institution ID is required');
@@ -278,8 +287,11 @@ export class LeadService {
       throw new Error('Lead source is required');
     }
 
-    // Get current user for created_by
-    const { data: { user } } = await (this.supabase as any).auth.getUser();
+    // Get current user for created_by (skip auth call when user is passed in directly)
+    if (!user) {
+      const { data: { user: authUser } } = await db.auth.getUser();
+      user = authUser ?? undefined;
+    }
 
     // Only include columns that exist in admission_leads table
     const insertData: any = {
@@ -323,7 +335,7 @@ export class LeadService {
     if (leadData.academic_year) insertData.academic_year = leadData.academic_year;
 
     // Check for duplicate: same phone in same institution (re-engagement exception: lost/dormant allowed)
-    const { data: existing, error: dupError } = await (this.supabase as any)
+    const { data: existing, error: dupError } = await db
       .from('admission_leads')
       .select('id, full_name, funnel_stage')
       .eq('institution_id', leadData.institution_id)
@@ -342,12 +354,12 @@ export class LeadService {
         existingStage: existing[0].funnel_stage,
       });
       throw new Error(
-        'A lead with this phone number already exists for this institution. ' +
+        'Duplicate lead: A lead with this phone number already exists for this institution. ' +
         'Update the existing lead or mark it as lost before creating a new one.'
       );
     }
 
-    const { data, error } = await (this.supabase as any).from('admission_leads')
+    const { data, error } = await db.from('admission_leads')
       .insert(insertData)
       .select('*')
       .single();
@@ -358,7 +370,7 @@ export class LeadService {
     }
 
     // Log stage history
-    await this.logStageHistory(data.id, null, 'new', user?.id);
+    await this.logStageHistory(data.id, null, 'new', user?.id, undefined, db);
 
     // Auto-assign via rules — best-effort, never blocks lead creation
     try {
@@ -374,11 +386,11 @@ export class LeadService {
         ? await AssignmentRulesService.executeRulesForLead(assignInput)
         : null;
       if (counselorId) {
-        await (this.supabase as any)
+        await db
           .from('admission_leads')
           .update({ counselor_id: counselorId, assigned_at: new Date().toISOString() })
           .eq('id', data.id);
-        const { error: rpcError } = await (this.supabase as any).rpc('admission_increment_counselor_leads', { p_counselor_id: counselorId });
+        const { error: rpcError } = await db.rpc('admission_increment_counselor_leads', { p_counselor_id: counselorId });
         if (rpcError) {
           console.warn('[LeadService] Failed to increment counselor lead count:', { counselorId, error: rpcError });
         }
@@ -531,15 +543,20 @@ export class LeadService {
 
   /**
    * Log stage change history
+   *
+   * @param dbOverride - Optional Supabase client override; used when called
+   *   from within `createLead()` so the same injected client is propagated.
    */
   private static async logStageHistory(
     leadId: string,
     fromStage: FunnelStage | null,
     toStage: FunnelStage,
     changedBy?: string,
-    notes?: string
+    notes?: string,
+    dbOverride?: any
   ): Promise<void> {
-    const { error } = await (this.supabase as any).from('admission_lead_stage_history')
+    const db = (dbOverride ?? LeadService.supabase) as any;
+    const { error } = await db.from('admission_lead_stage_history')
       .insert({
         lead_id: leadId,
         from_stage: fromStage,
