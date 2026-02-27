@@ -94,11 +94,12 @@ export class InterviewService {
   /**
    * Fetch all interview slots for an institution with optional filters
    */
-  static async getSlots(institutionId: string, filters?: InterviewSlotFilters): Promise<InterviewSlotRow[]> {
+  static async getSlots(institutionId: string | undefined, filters?: InterviewSlotFilters): Promise<InterviewSlotRow[]> {
     let query = this.supabase
       .from('interview_slots')
-      .select('*')
-      .eq('institution_id', institutionId)
+      .select('*');
+    if (institutionId) query = query.eq('institution_id', institutionId);
+    query = query
       .order('slot_date', { ascending: true })
       .order('start_time', { ascending: true });
 
