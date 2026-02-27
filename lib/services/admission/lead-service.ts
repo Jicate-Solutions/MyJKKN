@@ -396,6 +396,37 @@ export class LeadService {
         }
         data.counselor_id = counselorId;
         data.assigned_at = new Date().toISOString();
+
+        // Notify the auto-assigned counselor (best-effort)
+        try {
+          const { data: counselorProfile } = await db
+            .from('admission_counselors')
+            .select('user_id')
+            .eq('id', counselorId)
+            .maybeSingle();
+
+          if (counselorProfile?.user_id) {
+            await db
+              .from('notifications')
+              .insert({
+                user_id: counselorProfile.user_id,
+                type: 'info',
+                category: 'admission',
+                priority: 'normal',
+                title: 'New Lead Assigned to You',
+                message: `Lead "${data.full_name ?? 'Unknown'}" has been assigned to you. Tap to view and follow up.`,
+                metadata: {
+                  event_type: 'lead_assigned',
+                  lead_id: data.id,
+                },
+                action_url: `/admission/leads/${data.id}`,
+                action_label: 'View Lead',
+                channels: ['PUSH', 'IN_APP'],
+              });
+          }
+        } catch (notifErr) {
+          console.warn('[LeadService] Could not notify auto-assigned counselor:', notifErr);
+        }
       }
     } catch (assignErr) {
       console.warn('[LeadService] Auto-assignment skipped (lead created successfully):', assignErr);

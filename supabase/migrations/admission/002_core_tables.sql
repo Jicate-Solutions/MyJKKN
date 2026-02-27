@@ -19,6 +19,10 @@ CREATE TABLE IF NOT EXISTS admission_counselors (
 );
 ALTER TABLE admission_counselors ENABLE ROW LEVEL SECURITY;
 
+-- Updated: 2026-02-27 — Add counselor workload tracking columns (used by auto-assignment)
+ALTER TABLE admission_counselors ADD COLUMN IF NOT EXISTS current_leads integer NOT NULL DEFAULT 0;
+ALTER TABLE admission_counselors ADD COLUMN IF NOT EXISTS max_leads integer NOT NULL DEFAULT 50;
+
 -- ============================================================================
 -- 2. ADMISSION LEADS (65 columns)
 -- ============================================================================
