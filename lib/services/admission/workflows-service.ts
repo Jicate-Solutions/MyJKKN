@@ -431,12 +431,13 @@ export class WorkflowsService {
   /**
    * Get workflow statistics for an institution
    */
-  static async getWorkflowStats(institutionId: string): Promise<WorkflowStats> {
+  static async getWorkflowStats(institutionId: string | undefined): Promise<WorkflowStats> {
     // Get workflows
-    const { data: workflows, error: workflowsError } = await this.supabase
+    let wfQuery = this.supabase
       .from('admission_workflows')
-      .select('id, is_active')
-      .eq('institution_id', institutionId);
+      .select('id, is_active');
+    if (institutionId) wfQuery = wfQuery.eq('institution_id', institutionId);
+    const { data: workflows, error: workflowsError } = await wfQuery;
 
     if (workflowsError) {
       console.warn('[admission/workflows] Failed to fetch workflow stats:', workflowsError);
