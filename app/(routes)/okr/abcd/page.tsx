@@ -129,7 +129,7 @@ export default function ABCDMatrixPage() {
                   because success may not be repeatable!
                 </p>
                 <div className="space-y-2 max-h-40 overflow-y-auto">
-                  {dCategoryAlerts.slice(0, 5).map((alert) => (
+                  {dCategoryAlerts.filter(a => a.objective_id).slice(0, 5).map((alert) => (
                     <Link
                       key={alert.key_result_id}
                       href={`/okr/objectives/${alert.objective_id}`}
