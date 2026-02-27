@@ -152,7 +152,7 @@ export class ReEngagementService {
   /**
    * Get re-engagement stats
    */
-  static async getStats(institutionId: string): Promise<ReEngagementStats> {
+  static async getStats(institutionId: string | undefined): Promise<ReEngagementStats> {
     const fourteenDaysAgo = new Date(
       Date.now() - 14 * 24 * 60 * 60 * 1000
     ).toISOString();
@@ -160,39 +160,40 @@ export class ReEngagementService {
       Date.now() - 60 * 24 * 60 * 60 * 1000
     ).toISOString();
 
+    // Total cold leads (14+ days inactive)
+    let coldQuery = (this.supabase as any)
+      .from('admission_leads')
+      .select('id', { count: 'exact' });
+    if (institutionId) coldQuery = coldQuery.eq('institution_id', institutionId);
+    coldQuery = coldQuery
+      .eq('is_active', true)
+      .or(`is_dormant.eq.true,last_contact_at.lt.${fourteenDaysAgo},last_contact_at.is.null`);
+
+    // Very cold (60+ days)
+    let veryColdQuery = (this.supabase as any)
+      .from('admission_leads')
+      .select('id', { count: 'exact' });
+    if (institutionId) veryColdQuery = veryColdQuery.eq('institution_id', institutionId);
+    veryColdQuery = veryColdQuery
+      .eq('is_active', true)
+      .or(`last_contact_at.lt.${sixtyDaysAgo},last_contact_at.is.null`);
+
+    // Dormant leads
+    let dormantQuery = (this.supabase as any)
+      .from('admission_leads')
+      .select('id', { count: 'exact' });
+    if (institutionId) dormantQuery = dormantQuery.eq('institution_id', institutionId);
+    dormantQuery = dormantQuery.eq('is_dormant', true);
+
+    // Active campaigns
+    let campaignQuery = (this.supabase as any)
+      .from('admission_drip_sequences')
+      .select('id', { count: 'exact' });
+    if (institutionId) campaignQuery = campaignQuery.eq('institution_id', institutionId);
+    campaignQuery = campaignQuery.eq('status', 'active');
+
     const [coldResult, veryColdResult, dormantResult, campaignResult] =
-      await Promise.all([
-        // Total cold leads (14+ days inactive)
-        (this.supabase as any)
-          .from('admission_leads')
-          .select('id', { count: 'exact' })
-          .eq('institution_id', institutionId)
-          .eq('is_active', true)
-          .or(
-            `is_dormant.eq.true,last_contact_at.lt.${fourteenDaysAgo},last_contact_at.is.null`
-          ),
-        // Very cold (60+ days)
-        (this.supabase as any)
-          .from('admission_leads')
-          .select('id', { count: 'exact' })
-          .eq('institution_id', institutionId)
-          .eq('is_active', true)
-          .or(
-            `last_contact_at.lt.${sixtyDaysAgo},last_contact_at.is.null`
-          ),
-        // Dormant leads
-        (this.supabase as any)
-          .from('admission_leads')
-          .select('id', { count: 'exact' })
-          .eq('institution_id', institutionId)
-          .eq('is_dormant', true),
-        // Active campaigns
-        (this.supabase as any)
-          .from('admission_drip_sequences')
-          .select('id', { count: 'exact' })
-          .eq('institution_id', institutionId)
-          .eq('status', 'active'),
-      ]);
+      await Promise.all([coldQuery, veryColdQuery, dormantQuery, campaignQuery]);
 
     return {
       totalColdLeads: coldResult.count || 0,
