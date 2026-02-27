@@ -245,9 +245,9 @@ export class CampaignMonitoringService {
   /**
    * Get active drip sequences currently running
    */
-  static async getActiveSequences(institutionId: string): Promise<ActiveSequence[]> {
+  static async getActiveSequences(institutionId: string | undefined): Promise<ActiveSequence[]> {
     // Get active campaigns with their sequences
-    const { data: campaigns, error: campaignsError } = await getSupabase()
+    let campaignsQuery = getSupabase()
       .from('re_engagement_campaigns')
       .select(`
         id,
@@ -256,8 +256,9 @@ export class CampaignMonitoringService {
         status,
         total_leads_targeted,
         created_at
-      `)
-      .eq('institution_id', institutionId)
+      `);
+    if (institutionId) campaignsQuery = campaignsQuery.eq('institution_id', institutionId);
+    const { data: campaigns, error: campaignsError } = await campaignsQuery
       .eq('status', 'active');
 
     if (campaignsError) {
