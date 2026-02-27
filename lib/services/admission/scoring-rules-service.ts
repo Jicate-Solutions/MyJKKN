@@ -68,12 +68,12 @@ export class ScoringRulesService {
   /**
    * Get all scoring rules for an institution
    */
-  static async getScoringRules(institutionId: string): Promise<ScoringRule[]> {
-    const { data, error } = await this.supabase
+  static async getScoringRules(institutionId: string | undefined): Promise<ScoringRule[]> {
+    let query = this.supabase
       .from('admission_scoring_rules')
-      .select('*')
-      .eq('institution_id', institutionId)
-      .order('created_at', { ascending: false });
+      .select('*');
+    if (institutionId) query = query.eq('institution_id', institutionId);
+    const { data, error } = await query.order('created_at', { ascending: false });
 
     if (error) {
       console.error('[admission/scoring-rules] Failed to fetch scoring rules:', error);
