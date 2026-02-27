@@ -99,7 +99,7 @@ export class RemindersService {
    * Classifies each as overdue/today/upcoming and assigns priority.
    */
   static async getFollowUpReminders(
-    institutionId: string,
+    institutionId: string | undefined,
     filters?: Omit<ReminderFilters, 'institutionId'>
   ): Promise<FollowUpReminder[]> {
     const supabase = createClientSupabaseClient();
@@ -108,8 +108,9 @@ export class RemindersService {
       .from('admission_leads')
       .select(
         'id, full_name, phone, email, funnel_stage, next_followup_at, counselor_id, last_contact_at, last_activity_at, is_hot_lead, is_priority, created_at, counselor:admission_counselors(id, name)'
-      )
-      .eq('institution_id', institutionId)
+      );
+    if (institutionId) query = query.eq('institution_id', institutionId);
+    query = query
       .eq('is_active', true)
       .not('next_followup_at', 'is', null)
       .order('next_followup_at', { ascending: true });
