@@ -273,12 +273,13 @@ export class DataQualityService {
     return { overall, completeness, validity, totalLeads };
   }
 
-  static async getFieldAnalysis(institutionId: string): Promise<FieldAnalysis[]> {
+  static async getFieldAnalysis(institutionId: string | undefined): Promise<FieldAnalysis[]> {
     const supabase = createClientSupabaseClient();
-    const { data, error } = await (supabase as any)
+    let query = (supabase as any)
       .from('admission_leads')
-      .select('*')
-      .eq('institution_id', institutionId);
+      .select('*');
+    if (institutionId) query = query.eq('institution_id', institutionId);
+    const { data, error } = await query;
 
     if (error) throw error;
     const leads = data || [];
