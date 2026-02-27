@@ -204,7 +204,7 @@ function QuadrantCard({
         {/* Items List (if showing details) */}
         {showDetails && items.length > 0 && (
           <div className="mt-3 space-y-2 max-h-32 overflow-y-auto">
-            {items.slice(0, 5).map((item) => (
+            {items.filter(item => item.objective_id).slice(0, 5).map((item) => (
               <Link
                 key={item.key_result_id}
                 href={`/okr/objectives/${item.objective_id}`}
