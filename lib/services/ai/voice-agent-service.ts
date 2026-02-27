@@ -709,8 +709,8 @@ Return as JSON: { "summary": "...", "intent_level": "...", "outcome": "...", "qu
   }): Promise<VoiceAgentAnalytics> {
     let query = (this.supabase as any)
       .from('ai_voice_agent_calls')
-      .select('agent_type, call_status, call_outcome, duration_seconds, qualification_score, created_at')
-      .eq('institution_id', params.institutionId);
+      .select('agent_type, call_status, call_outcome, duration_seconds, qualification_score, created_at');
+    if (params.institutionId) query = query.eq('institution_id', params.institutionId);
 
     if (params.fromDate) query = query.gte('created_at', params.fromDate);
     if (params.toDate) query = query.lte('created_at', params.toDate);
