@@ -1528,20 +1528,20 @@ export default function ObjectiveDetailPage() {
   const activateObjective = useActivateObjective();
   const archiveObjective = useArchiveObjective();
 
-  // Handle missing/invalid objectiveId
+  // Handle missing/invalid objectiveId — redirect to manage page
   if (!objectiveId) {
     return (
       <OKRErrorBoundary>
         <div className="container mx-auto p-6">
           <Card className="p-8 text-center">
-            <AlertTriangle className="h-12 w-12 mx-auto text-red-500 mb-4" />
-            <h2 className="text-xl font-semibold mb-2">Invalid Objective ID</h2>
-            <p className="text-gray-500 mb-4">
-              The objective ID is missing or invalid. Please select a valid objective.
+            <AlertTriangle className="h-12 w-12 mx-auto text-amber-500 mb-4" />
+            <h2 className="text-xl font-semibold mb-2">Objective Not Found</h2>
+            <p className="text-muted-foreground mb-4">
+              This objective link is invalid or the objective may have been deleted.
             </p>
-            <Button onClick={() => router.push('/okr/objectives')}>
+            <Button onClick={() => router.replace('/okr/manage')}>
               <ArrowLeft className="h-4 w-4 mr-2" />
-              Back to Objectives
+              Go to OKR Dashboard
             </Button>
           </Card>
         </div>
