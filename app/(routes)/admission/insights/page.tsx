@@ -50,12 +50,16 @@ export default function AIInsightsPage() {
     refetch,
   } = useAIInsightsDashboard(institutionId || '');
 
-  // Auto-generate insights on first load if none exist
+  // Auto-generate insights on first load if none exist.
+  // NOTE: generateInsights is intentionally excluded from deps — it comes from
+  // useMutation and changes reference every render, which would cause infinite
+  // re-triggers. isGenerating guards against concurrent calls.
   useEffect(() => {
-    if (institutionId && !isLoading && insights.length === 0) {
+    if (institutionId && !isLoading && !isGenerating && insights.length === 0) {
       generateInsights();
     }
-  }, [institutionId, isLoading, insights.length, generateInsights]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [institutionId, isLoading, isGenerating, insights.length]);
 
   if (institutionLoading) {
     return (
