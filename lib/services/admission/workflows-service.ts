@@ -134,11 +134,12 @@ export class WorkflowsService {
   /**
    * Get active workflows for an institution (for execution engine)
    */
-  static async getActiveWorkflows(institutionId: string): Promise<Workflow[]> {
-    const { data, error } = await this.supabase
+  static async getActiveWorkflows(institutionId: string | undefined): Promise<Workflow[]> {
+    let query = this.supabase
       .from('admission_workflows')
-      .select('*')
-      .eq('institution_id', institutionId)
+      .select('*');
+    if (institutionId) query = query.eq('institution_id', institutionId);
+    const { data, error } = await query
       .eq('is_active', true)
       .order('created_at', { ascending: false });
 
