@@ -91,7 +91,6 @@ export interface LeadScoreFilters {
   min_score?: number;
   max_score?: number;
   category?: string;
-  expired_only?: boolean;
   limit?: number;
   offset?: number;
 }
