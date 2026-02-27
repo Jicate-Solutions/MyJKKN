@@ -440,14 +440,14 @@ export class WhatsAppCampaignService {
    * Get WhatsApp campaign statistics for an institution
    */
   static async getCampaignStats(
-    institutionId: string,
+    institutionId: string | undefined,
     dateFrom?: string,
     dateTo?: string
   ): Promise<WhatsAppCampaignStats> {
     let query = this.supabase
       .from('admission_whatsapp_logs')
-      .select('delivery_status')
-      .eq('institution_id', institutionId);
+      .select('delivery_status');
+    if (institutionId) query = query.eq('institution_id', institutionId);
 
     if (dateFrom) {
       query = query.gte('created_at', dateFrom);
