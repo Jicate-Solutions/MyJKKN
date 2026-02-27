@@ -1854,7 +1854,7 @@ export default function ObjectiveDetailPage() {
       )}
 
       {/* Parent Objective Link */}
-      {objective.parent_objective && (
+      {objective.parent_objective?.id && (
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-base flex items-center gap-2">
@@ -1867,7 +1867,7 @@ export default function ObjectiveDetailPage() {
               variant="outline"
               className="w-full justify-between"
               onClick={() =>
-                router.push(`/okr/objectives/${objective.parent_objective?.id}`)
+                router.push(`/okr/objectives/${objective.parent_objective!.id}`)
               }
             >
               <span>{objective.parent_objective?.title}</span>
