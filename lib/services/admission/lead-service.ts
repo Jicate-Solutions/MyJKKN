@@ -14,6 +14,41 @@ import type {
 import { sanitizeSearch } from '@/lib/config/pagination';
 import { AssignmentRulesService, type LeadDataForAssignment } from './assignment-rules-service';
 
+// ────────────────────────────────────────────────────────────────────────────
+// Allowed stage transitions — defines the valid moves for each funnel stage.
+// 'lost' and 'dormant' are always allowed as exits from any active stage.
+// Terminated stages (declined, withdrew, expired, lost, dormant) allow
+// re-engagement back to 'new' or 'contacted'.
+// ────────────────────────────────────────────────────────────────────────────
+export const ALLOWED_STAGE_TRANSITIONS: Record<FunnelStage, FunnelStage[]> = {
+  new:                    ['contacted', 'not_reachable', 'lost', 'dormant'],
+  contacted:              ['interested', 'not_reachable', 'follow_up_scheduled', 'lost', 'dormant'],
+  not_reachable:          ['contacted', 'follow_up_scheduled', 'lost', 'dormant'],
+  interested:             ['engaged', 'qualified', 'follow_up_scheduled', 'not_reachable', 'lost', 'dormant'],
+  follow_up_scheduled:    ['contacted', 'not_reachable', 'interested', 'lost', 'dormant'],
+  engaged:                ['qualified', 'interested', 'follow_up_scheduled', 'lost', 'dormant'],
+  qualified:              ['application_started', 'applied', 'follow_up_scheduled', 'lost', 'dormant'],
+  application_started:    ['application_submitted', 'documents_pending', 'lost', 'dormant'],
+  application_submitted:  ['documents_pending', 'documents_verified', 'lost', 'dormant'],
+  documents_pending:      ['documents_verified', 'application_submitted', 'lost', 'dormant'],
+  documents_verified:     ['interview_scheduled', 'offer_sent', 'lost', 'dormant'],
+  interview_scheduled:    ['interview_completed', 'documents_pending', 'lost', 'dormant'],
+  interview_completed:    ['offer_sent', 'interviewed', 'lost', 'dormant'],
+  offer_sent:             ['offer_accepted', 'declined', 'lost', 'dormant'],
+  offer_accepted:         ['token_paid', 'confirmed', 'declined', 'lost', 'dormant'],
+  token_paid:             ['confirmed', 'enrolled', 'lost', 'dormant'],
+  applied:                ['interviewed', 'documents_pending', 'lost', 'dormant'],
+  interviewed:            ['offered', 'declined', 'lost', 'dormant'],
+  offered:                ['confirmed', 'declined', 'withdrew', 'lost', 'dormant'],
+  confirmed:              ['enrolled', 'withdrew', 'lost', 'dormant'],
+  enrolled:               ['lost', 'dormant'],
+  declined:               ['new', 'lost', 'dormant'],
+  withdrew:               ['new', 'lost', 'dormant'],
+  expired:                ['new', 'lost', 'dormant'],
+  lost:                   ['new', 'contacted', 'dormant'],
+  dormant:                ['new', 'contacted', 'lost'],
+};
+
 export class LeadService {
   private static supabase = createClientSupabaseClient();
 
@@ -441,11 +476,23 @@ export class LeadService {
   /**
    * Update lead funnel stage
    */
-  static async updateStage(leadId: string, newStage: FunnelStage, notes?: string): Promise<AdmissionLead> {
+  static async updateStage(leadId: string, newStage: FunnelStage, notes?: string, force = false): Promise<AdmissionLead> {
     const { data: current } = await (this.supabase as any).from('admission_leads')
       .select('funnel_stage')
       .eq('id', leadId)
       .single();
+
+    // Validate transition (skip if force=true — for super-admin overrides)
+    const currentStage = current?.funnel_stage as FunnelStage | undefined;
+    if (!force && currentStage && currentStage !== newStage) {
+      const allowed = ALLOWED_STAGE_TRANSITIONS[currentStage] ?? [];
+      if (!allowed.includes(newStage)) {
+        throw new Error(
+          `Invalid stage transition: "${currentStage}" → "${newStage}" is not allowed. ` +
+          `Allowed next stages: ${allowed.join(', ')}.`
+        );
+      }
+    }
 
     const { data: { user } } = await (this.supabase as any).auth.getUser();
 
