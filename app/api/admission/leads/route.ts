@@ -5,9 +5,17 @@
 // Callers: website contact forms, Google Ads lead extensions, Facebook Lead Ads,
 // and any third-party CRM integrations that push leads into MyJKKN.
 
+import { timingSafeEqual } from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { LeadService } from '@/lib/services/admission/lead-service';
+import type { LeadSource } from '@/types/admission';
+
+// Fix 3: runtime list of valid source values (union types don't exist at runtime)
+const VALID_SOURCES: LeadSource[] = [
+  'website', 'walk_in', 'referral', 'social_media', 'newspaper',
+  'education_fair', 'agent', 'publisher', 'google_ads', 'facebook_ads', 'other',
+];
 
 interface WebhookLeadPayload {
   institution_id: string;
@@ -15,16 +23,27 @@ interface WebhookLeadPayload {
   phone: string;
   email?: string;
   source?: string;
-  interested_programs?: string[];
+  interested_programs?: unknown[];
   utm_source?: string;
   utm_campaign?: string;
   notes?: string;
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
-  // 1. Validate API key — reject unauthenticated callers immediately
-  const apiKey = request.headers.get('X-API-Key');
-  if (!apiKey || apiKey !== process.env.ADMISSION_WEBHOOK_API_KEY) {
+  // 1. Validate API key — reject unauthenticated callers immediately.
+  //    Fix 1: timing-safe comparison prevents timing-based key enumeration.
+  const submittedKey = request.headers.get('X-API-Key') ?? '';
+  const expectedKey = process.env.ADMISSION_WEBHOOK_API_KEY ?? '';
+
+  const submittedBuf = Buffer.from(submittedKey);
+  const expectedBuf = Buffer.from(expectedKey);
+
+  const isValid =
+    expectedBuf.length > 0 &&
+    submittedBuf.length === expectedBuf.length &&
+    timingSafeEqual(submittedBuf, expectedBuf);
+
+  if (!isValid) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
@@ -56,15 +75,29 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     );
   }
 
-  // 4. Build notes with UTM attribution if provided
+  // 4. Build notes with UTM attribution if provided.
+  //    Fix 2: trim notes and utm values before including in the joined string.
   const enrichedNotes =
     [
-      notes,
-      utm_source ? `utm_source: ${utm_source}` : null,
-      utm_campaign ? `utm_campaign: ${utm_campaign}` : null,
+      notes?.trim(),
+      utm_source ? `utm_source: ${utm_source.trim()}` : null,
+      utm_campaign ? `utm_campaign: ${utm_campaign.trim()}` : null,
     ]
       .filter(Boolean)
       .join(' | ') || undefined;
+
+  // Fix 3: validate source against the LeadSource enum; default to 'website'
+  //        for unknown values so callers without exact source control still work.
+  const rawSource = source?.trim();
+  const validatedSource: LeadSource =
+    rawSource && VALID_SOURCES.includes(rawSource as LeadSource)
+      ? (rawSource as LeadSource)
+      : 'website';
+
+  // Fix 4: validate interested_programs — keep only non-empty strings, trim each.
+  const validatedPrograms = (interested_programs ?? [])
+    .filter((p): p is string => typeof p === 'string' && p.trim().length > 0)
+    .map((p) => p.trim());
 
   // 5. Create lead — service role client bypasses RLS for unauthenticated webhook.
   //    The client is injected via supabaseOverride to avoid mutating shared static
@@ -72,14 +105,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
     const serviceClient = createServiceRoleClient();
 
+    // Fix 2: all string fields explicitly trimmed at the route boundary.
     const lead = await LeadService.createLead(
       {
         institution_id,
         full_name: full_name.trim(),
-        phone,
-        email: email || undefined,
-        source: (source as any) || 'website',
-        interested_programs: interested_programs || [],
+        phone: phone.trim(),
+        email: email?.trim() || undefined,
+        source: validatedSource,
+        interested_programs: validatedPrograms,
         notes: enrichedNotes,
       },
       undefined, // no authenticated user session for webhooks
