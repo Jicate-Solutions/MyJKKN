@@ -162,7 +162,7 @@ export class StatusTrackingService {
    * Get recent activity log from campaign logs
    */
   static async getRecentActivity(
-    institutionId: string,
+    institutionId: string | undefined,
     limit: number = 20
   ): Promise<
     Array<{
@@ -173,10 +173,11 @@ export class StatusTrackingService {
       created_at: string;
     }>
   > {
-    const { data, error } = await (this.supabase as any)
+    let query = (this.supabase as any)
       .from('admission_campaign_logs')
-      .select('id, action, lead_id, step_type, created_at')
-      .eq('institution_id', institutionId)
+      .select('id, action, lead_id, step_type, created_at');
+    if (institutionId) query = query.eq('institution_id', institutionId);
+    const { data, error } = await query
       .order('created_at', { ascending: false })
       .limit(limit);
 
