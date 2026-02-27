@@ -231,12 +231,13 @@ export class DataQualityService {
     'gender',
   ];
 
-  static async getDataProfilingMetrics(institutionId: string): Promise<DataProfilingMetrics> {
+  static async getDataProfilingMetrics(institutionId: string | undefined): Promise<DataProfilingMetrics> {
     const supabase = createClientSupabaseClient();
-    const { data, error } = await (supabase as any)
+    let query = (supabase as any)
       .from('admission_leads')
-      .select('*')
-      .eq('institution_id', institutionId);
+      .select('*');
+    if (institutionId) query = query.eq('institution_id', institutionId);
+    const { data, error } = await query;
 
     if (error) throw error;
     const leads = data || [];
