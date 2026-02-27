@@ -219,6 +219,12 @@ export class LeadService {
     if (!leadData.phone?.trim()) {
       throw new Error('Phone number is required');
     }
+    // Validate Indian mobile number format (10 digits, first digit 6–9, optional +91/0 prefix)
+    const cleanPhone = leadData.phone.trim().replace(/[\s\-()]/g, '');
+    const phoneRegex = /^(\+91|0)?[6-9]\d{9}$/;
+    if (!phoneRegex.test(cleanPhone)) {
+      throw new Error('Invalid phone number. Must be a valid 10-digit Indian mobile number starting with 6, 7, 8, or 9.');
+    }
     if (!leadData.source) {
       throw new Error('Lead source is required');
     }

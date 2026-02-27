@@ -315,8 +315,11 @@ function NewLeadPageContent() {
 
     if (!formData.phone.trim()) {
       newErrors.phone = 'Phone number is required';
-    } else if (!/^\d{10}$/.test(formData.phone.replace(/\D/g, ''))) {
-      newErrors.phone = 'Invalid phone number';
+    } else {
+      const cleaned = formData.phone.replace(/[\s\-()]/g, '');
+      if (!/^(\+91|0)?[6-9]\d{9}$/.test(cleaned)) {
+        newErrors.phone = 'Enter a valid 10-digit Indian mobile number (starting with 6–9)';
+      }
     }
 
     if (formData.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
