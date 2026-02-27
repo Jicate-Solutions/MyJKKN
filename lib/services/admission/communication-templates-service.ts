@@ -124,11 +124,12 @@ export class CommunicationTemplatesService {
   /**
    * Get active templates for an institution (for use in workflows/campaigns)
    */
-  static async getActiveTemplates(institutionId: string, type?: TemplateType): Promise<CommunicationTemplate[]> {
+  static async getActiveTemplates(institutionId: string | undefined, type?: TemplateType): Promise<CommunicationTemplate[]> {
     let query = this.supabase
       .from('admission_communication_templates')
-      .select('*')
-      .eq('institution_id', institutionId)
+      .select('*');
+    if (institutionId) query = query.eq('institution_id', institutionId);
+    query = query
       .eq('is_active', true)
       .order('name', { ascending: true });
 
