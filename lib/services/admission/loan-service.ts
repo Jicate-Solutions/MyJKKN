@@ -156,21 +156,22 @@ export class LoanService {
   // PARTNERS
   // ---------------------------------------------------------------------------
 
-  static async getPartners(institutionId: string): Promise<LoanPartner[]> {
+  static async getPartners(institutionId: string | undefined): Promise<LoanPartner[]> {
     const supabase = createClientSupabaseClient();
-    const { data: partners, error } = await (supabase as any)
+    let partnersQuery = (supabase as any)
       .from('admission_loan_partners')
-      .select('*')
-      .eq('institution_id', institutionId)
-      .order('created_at', { ascending: false });
+      .select('*');
+    if (institutionId) partnersQuery = partnersQuery.eq('institution_id', institutionId);
+    const { data: partners, error } = await partnersQuery.order('created_at', { ascending: false });
 
     if (error) throw error;
 
     // Get application counts per partner
-    const { data: appCounts, error: appError } = await (supabase as any)
+    let appCountsQuery = (supabase as any)
       .from('admission_loan_applications')
-      .select('partner_id, status')
-      .eq('institution_id', institutionId);
+      .select('partner_id, status');
+    if (institutionId) appCountsQuery = appCountsQuery.eq('institution_id', institutionId);
+    const { data: appCounts, error: appError } = await appCountsQuery;
 
     if (appError) throw appError;
 
