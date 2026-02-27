@@ -171,7 +171,7 @@ export function useCounselorPerformance(
       dateRange?.to
     ),
     queryFn: () =>
-      fetchAdmissionPerformance(institutionId!, dateRange?.from, dateRange?.to),
+      fetchAdmissionPerformance(institutionId, dateRange?.from, dateRange?.to),
     enabled: isSuperAdmin || !!institutionId,
   });
 
