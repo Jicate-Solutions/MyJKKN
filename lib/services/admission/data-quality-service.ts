@@ -137,14 +137,15 @@ export class DataQualityService {
   }
 
   static async getInvalidPhones(
-    institutionId: string,
+    institutionId: string | undefined,
     options?: { search?: string; issueFilter?: string }
   ): Promise<InvalidPhoneRecord[]> {
     const supabase = createClientSupabaseClient();
-    const { data, error } = await (supabase as any)
+    let query = (supabase as any)
       .from('admission_leads')
-      .select('id, full_name, phone, email, source, created_at')
-      .eq('institution_id', institutionId)
+      .select('id, full_name, phone, email, source, created_at');
+    if (institutionId) query = query.eq('institution_id', institutionId);
+    const { data, error } = await query
       .order('created_at', { ascending: false });
 
     if (error) throw error;
