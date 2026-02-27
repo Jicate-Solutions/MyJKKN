@@ -131,14 +131,15 @@ export class ReEngagementService {
    * Get active drip sequences (re-engagement campaigns)
    */
   static async getCampaigns(
-    institutionId: string
+    institutionId: string | undefined
   ): Promise<ReEngagementCampaign[]> {
-    const { data, error } = await (this.supabase as any)
+    let query = (this.supabase as any)
       .from('admission_drip_sequences')
-      .select('*')
-      .eq('institution_id', institutionId)
-      .order('created_at', { ascending: false })
-      .limit(20);
+      .select('*');
+    if (institutionId) query = query.eq('institution_id', institutionId);
+    query = query.order('created_at', { ascending: false }).limit(20);
+
+    const { data, error } = await query;
 
     if (error) {
       console.error('[admission/re-engagement] Error fetching campaigns:', error);
