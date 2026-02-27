@@ -221,11 +221,12 @@ export async function getBriefing(briefingId: string): Promise<Briefing | null> 
 /**
  * Get the latest briefing for an institution
  */
-export async function getLatestBriefing(institutionId: string): Promise<Briefing | null> {
-  const { data, error } = await (supabase as any)
+export async function getLatestBriefing(institutionId: string | undefined): Promise<Briefing | null> {
+  let query = (supabase as any)
     .from('admission_daily_briefings')
-    .select('*')
-    .eq('institution_id', institutionId)
+    .select('*');
+  if (institutionId) query = query.eq('institution_id', institutionId);
+  const { data, error } = await query
     .order('briefing_date', { ascending: false })
     .limit(1)
     .single();
