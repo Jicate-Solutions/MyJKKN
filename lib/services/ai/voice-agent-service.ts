@@ -237,12 +237,14 @@ export class VoiceAgentService {
   /**
    * Get all agent configs for an institution
    */
-  static async getAgentConfigs(institutionId: string): Promise<VoiceAgentConfig[]> {
-    const { data, error } = await (this.supabase as any)
+  static async getAgentConfigs(institutionId: string | undefined): Promise<VoiceAgentConfig[]> {
+    let query = (this.supabase as any)
       .from('ai_voice_agent_configs')
-      .select('*')
-      .eq('institution_id', institutionId)
-      .order('agent_type', { ascending: true });
+      .select('*');
+    if (institutionId) query = query.eq('institution_id', institutionId);
+    query = query.order('agent_type', { ascending: true });
+
+    const { data, error } = await query;
 
     if (error) throw new Error(`Failed to fetch agent configs: ${error.message}`);
     return (data || []) as VoiceAgentConfig[];
