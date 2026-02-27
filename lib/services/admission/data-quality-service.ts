@@ -184,12 +184,13 @@ export class DataQualityService {
     return filtered;
   }
 
-  static async getPhoneIssueBreakdown(institutionId: string): Promise<PhoneIssueBreakdown[]> {
+  static async getPhoneIssueBreakdown(institutionId: string | undefined): Promise<PhoneIssueBreakdown[]> {
     const supabase = createClientSupabaseClient();
-    const { data, error } = await (supabase as any)
+    let query = (supabase as any)
       .from('admission_leads')
-      .select('phone')
-      .eq('institution_id', institutionId);
+      .select('phone');
+    if (institutionId) query = query.eq('institution_id', institutionId);
+    const { data, error } = await query;
 
     if (error) throw error;
 
