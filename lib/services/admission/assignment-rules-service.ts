@@ -98,11 +98,12 @@ export class AssignmentRulesService {
   /**
    * Get active assignment rules for an institution (for processing)
    */
-  static async getActiveAssignmentRules(institutionId: string): Promise<AssignmentRule[]> {
-    const { data, error } = await this.supabase
+  static async getActiveAssignmentRules(institutionId: string | undefined): Promise<AssignmentRule[]> {
+    let query = this.supabase
       .from('admission_assignment_rules')
-      .select('*')
-      .eq('institution_id', institutionId)
+      .select('*');
+    if (institutionId) query = query.eq('institution_id', institutionId);
+    const { data, error } = await query
       .eq('is_active', true)
       .order('priority', { ascending: true });
 
