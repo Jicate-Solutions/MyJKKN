@@ -658,7 +658,62 @@ export class ProductsService extends BaseService {
       .single();
 
     if (error) throw new Error(`Failed to update validation: ${error.message}`);
-    return data as SHProductValidation;
+
+    const validation = data as SHProductValidation;
+
+    // Auto-progress TRL when validation is verified (best-effort — don't fail the validation)
+    if (input.status === 'verified' && validation.product_id && validation.trl_level) {
+      try {
+        await this.autoProgressTRL(validation.product_id, validation.trl_level);
+      } catch (e) {
+        console.error('TRL auto-progression failed (validation update succeeded):', e);
+      }
+    }
+
+    return validation;
+  }
+
+  /**
+   * Auto-progress product TRL when a validation at a given level is verified.
+   * Only advances if the validated level is higher than current TRL and
+   * the product has at least one verified validation at that level.
+   */
+  private static async autoProgressTRL(
+    productId: string,
+    validatedLevel: number
+  ): Promise<void> {
+    // Get current product TRL
+    const { data: product } = await this.supabase
+      .from('sh_products')
+      .select('current_trl')
+      .eq('id', productId)
+      .single();
+
+    if (!product) return;
+
+    // Only advance if the validated level is greater than current TRL
+    if (validatedLevel <= product.current_trl) return;
+
+    // Check that there's at least one verified validation at the target level
+    const { count } = await this.supabase
+      .from('sh_product_validations')
+      .select('id', { count: 'exact', head: true })
+      .eq('product_id', productId)
+      .eq('trl_level', validatedLevel)
+      .eq('status', 'verified');
+
+    if (!count || count === 0) return;
+
+    // Auto-advance TRL
+    await this.supabase
+      .from('sh_products')
+      .update({
+        current_trl: validatedLevel,
+        trl_assessed_at: new Date().toISOString(),
+        trl_assessed_by: null, // auto-progression — column is UUID FK to profiles
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', productId);
   }
 
   /**

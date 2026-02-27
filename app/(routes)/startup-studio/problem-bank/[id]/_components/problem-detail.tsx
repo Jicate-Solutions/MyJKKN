@@ -44,11 +44,10 @@ const THEME_COLORS: Record<string, string> = {
   healthcare: 'bg-red-100 text-red-800',
   education: 'bg-blue-100 text-blue-800',
   agriculture: 'bg-green-100 text-green-800',
-  fintech: 'bg-amber-100 text-amber-800',
   environment: 'bg-emerald-100 text-emerald-800',
-  logistics: 'bg-purple-100 text-purple-800',
-  social: 'bg-pink-100 text-pink-800',
-  energy: 'bg-orange-100 text-orange-800',
+  community: 'bg-pink-100 text-pink-800',
+  operations: 'bg-amber-100 text-amber-800',
+  productivity: 'bg-purple-100 text-purple-800',
   other: 'bg-gray-100 text-gray-800',
 };
 
@@ -163,9 +162,9 @@ export function ProblemDetail({ id }: ProblemDetailProps) {
                 {problem.status.replace('_', ' ')}
               </Badge>
             )}
-            {problem.severity && (
+            {problem.severity_rating != null && (
               <Badge variant="outline">
-                Severity: {problem.severity}
+                Severity: {problem.severity_rating}
               </Badge>
             )}
           </div>
@@ -187,7 +186,7 @@ export function ProblemDetail({ id }: ProblemDetailProps) {
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <p className="text-base">{problem.statement ?? problem.description ?? 'No description provided.'}</p>
+          <p className="text-base">{problem.problem_statement ?? problem.statement ?? 'No description provided.'}</p>
 
           <div className="grid gap-4 sm:grid-cols-2">
             {problem.who_affected && (

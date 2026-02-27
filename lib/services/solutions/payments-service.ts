@@ -25,6 +25,7 @@ export interface PaymentWithDetails extends Payment {
     id: string;
     title: string;
     solution_code: string;
+    lead_department_id?: string;
     client?: {
       id: string;
       name: string;
@@ -37,6 +38,7 @@ export interface PaymentWithDetails extends Payment {
       id: string;
       title: string;
       solution_code: string;
+      lead_department_id?: string;
       client?: {
         id: string;
         name: string;
@@ -45,10 +47,12 @@ export interface PaymentWithDetails extends Payment {
   };
   program?: {
     id: string;
+    track?: string;
     solution?: {
       id: string;
       title: string;
       solution_code: string;
+      lead_department_id?: string;
       client?: {
         id: string;
         name: string;
@@ -61,6 +65,7 @@ export interface PaymentWithDetails extends Payment {
       id: string;
       title: string;
       solution_code: string;
+      lead_department_id?: string;
       client?: {
         id: string;
         name: string;
@@ -173,6 +178,7 @@ const PAYMENT_SELECT = `
     id,
     title,
     solution_code,
+    lead_department_id,
     client:sh_clients(id, name)
   ),
   phase:sh_solution_phases(
@@ -182,15 +188,18 @@ const PAYMENT_SELECT = `
       id,
       title,
       solution_code,
+      lead_department_id,
       client:sh_clients(id, name)
     )
   ),
   program:sh_training_programs(
     id,
+    track,
     solution:sh_solutions(
       id,
       title,
       solution_code,
+      lead_department_id,
       client:sh_clients(id, name)
     )
   ),
@@ -200,6 +209,7 @@ const PAYMENT_SELECT = `
       id,
       title,
       solution_code,
+      lead_department_id,
       client:sh_clients(id, name)
     )
   ),
@@ -698,15 +708,27 @@ export class PaymentsService extends BaseService {
     let departmentId: string | undefined;
     const hodDiscount = 0;
 
+    // Helper to unwrap Supabase array joins (single-row joins may return array or object)
+    const unwrap = (val: any) => Array.isArray(val) ? val[0] : val;
+
+    // Extract solution to get department_id
+    const getSolution = () => {
+      if (payment.solution) return unwrap(payment.solution);
+      if (payment.phase) return unwrap(unwrap(payment.phase)?.solution);
+      if (payment.program) return unwrap(unwrap(payment.program)?.solution);
+      if (payment.order) return unwrap(unwrap(payment.order)?.solution);
+      return null;
+    };
+    const solutionData = getSolution();
+    if (solutionData?.lead_department_id) {
+      departmentId = solutionData.lead_department_id;
+    }
+
     if (payment.phase) {
       splitType = 'software';
-      // Note: phaseData and solutionData can be used to get department_id and hod_discount from solution
-      // const phaseData = Array.isArray(payment.phase) ? payment.phase[0] : payment.phase;
-      // const solutionData = Array.isArray(phaseData?.solution) ? phaseData.solution[0] : phaseData?.solution;
     } else if (payment.program) {
-      // Note: programData can be used to determine track_a or track_b
-      // const programData = Array.isArray(payment.program) ? payment.program[0] : payment.program;
-      splitType = 'training_track_b';
+      const programData = unwrap(payment.program);
+      splitType = programData?.track === 'track_a' ? 'training_track_a' : 'training_track_b';
     } else if (payment.order) {
       splitType = 'content';
     }

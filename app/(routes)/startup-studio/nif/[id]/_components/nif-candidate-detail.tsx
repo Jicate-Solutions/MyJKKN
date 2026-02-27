@@ -55,11 +55,18 @@ export function NifCandidateDetail({ id }: NifCandidateDetailProps) {
   const historyList = Array.isArray(history) ? history : history?.data ?? [];
 
   const handleAdvance = async () => {
-    await advanceStage.mutateAsync({ id });
+    const currentStage = candidate?.current_stage ?? candidate?.stage ?? 'identified';
+    const STAGE_ORDER = ['identified', 'screened', 'shortlisted', 'incubating', 'graduated'];
+    const nextStageIndex = STAGE_ORDER.indexOf(currentStage) + 1;
+    if (nextStageIndex >= STAGE_ORDER.length) return;
+    const nextStage = STAGE_ORDER[nextStageIndex];
+    await advanceStage.mutateAsync({ id, data: { stage: nextStage } });
   };
 
   const handleReject = async () => {
-    await rejectCandidate.mutateAsync({ id });
+    const reason = window.prompt('Reason for rejection:');
+    if (!reason) return;
+    await rejectCandidate.mutateAsync({ id, data: { reason } });
   };
 
   if (isLoading) {
@@ -113,7 +120,7 @@ export function NifCandidateDetail({ id }: NifCandidateDetailProps) {
 
   const currentStage = candidate.current_stage ?? candidate.stage ?? 'identified';
   const stageConfig = STAGE_CONFIG[currentStage] ?? STAGE_CONFIG.identified;
-  const canAdvance = currentStage !== 'graduated' && currentStage !== 'rejected';
+  const canAdvance = currentStage !== 'graduated' && currentStage !== 'rejected' && currentStage !== 'on_hold';
   const canReject = currentStage !== 'rejected' && currentStage !== 'graduated';
 
   return (
@@ -359,9 +366,9 @@ export function NifCandidateDetail({ id }: NifCandidateDetailProps) {
                             </span>
                           )}
                         </div>
-                        {entry.notes && (
+                        {(entry.change_reason ?? entry.notes) && (
                           <p className="text-sm text-muted-foreground mt-2">
-                            {entry.notes}
+                            {entry.change_reason ?? entry.notes}
                           </p>
                         )}
                       </div>

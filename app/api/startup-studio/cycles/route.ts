@@ -31,12 +31,13 @@ export const GET = withAuth(async (request, auth) => {
 
 export const POST = withAuth(async (request, auth) => {
   const body = await request.json()
-  if (!body.user_id) {
+  const userId = body.user_id || auth.user.id
+  if (!userId) {
     return errorResponse('user_id is required', 400)
   }
 
   const result = await CyclesService.createCycle({
-    user_id: body.user_id,
+    user_id: userId,
     event_id: body.event_id,
     name: body.name,
   })

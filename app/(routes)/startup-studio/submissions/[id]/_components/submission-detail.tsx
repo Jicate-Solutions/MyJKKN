@@ -36,8 +36,8 @@ const STATUS_COLORS: Record<string, string> = {
   draft: 'bg-gray-100 text-gray-800',
   submitted: 'bg-blue-100 text-blue-800',
   under_review: 'bg-amber-100 text-amber-800',
-  reviewed: 'bg-purple-100 text-purple-800',
-  accepted: 'bg-green-100 text-green-800',
+  shortlisted: 'bg-purple-100 text-purple-800',
+  winner: 'bg-green-100 text-green-800',
   rejected: 'bg-red-100 text-red-800',
 };
 
@@ -222,7 +222,7 @@ export function SubmissionDetail({ id }: SubmissionDetailProps) {
       </Card>
 
       {/* URLs */}
-      {(submission.demo_url || submission.repo_url || submission.video_url) && (
+      {(submission.live_url || submission.lovable_url || submission.demo_video_url) && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -232,39 +232,39 @@ export function SubmissionDetail({ id }: SubmissionDetailProps) {
           </CardHeader>
           <CardContent>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {submission.demo_url && (
+              {submission.live_url && (
                 <a
-                  href={submission.demo_url}
+                  href={submission.live_url}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="flex items-center gap-2 p-3 border rounded-lg hover:bg-muted/50 transition-colors"
                 >
                   <Globe className="h-4 w-4 text-blue-600" />
-                  <span className="text-sm font-medium">Demo</span>
+                  <span className="text-sm font-medium">Live App</span>
                   <ExternalLink className="h-3.5 w-3.5 ml-auto text-muted-foreground" />
                 </a>
               )}
-              {submission.repo_url && (
+              {submission.lovable_url && (
                 <a
-                  href={submission.repo_url}
+                  href={submission.lovable_url}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="flex items-center gap-2 p-3 border rounded-lg hover:bg-muted/50 transition-colors"
                 >
                   <Github className="h-4 w-4" />
-                  <span className="text-sm font-medium">Repository</span>
+                  <span className="text-sm font-medium">Lovable Project</span>
                   <ExternalLink className="h-3.5 w-3.5 ml-auto text-muted-foreground" />
                 </a>
               )}
-              {submission.video_url && (
+              {submission.demo_video_url && (
                 <a
-                  href={submission.video_url}
+                  href={submission.demo_video_url}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="flex items-center gap-2 p-3 border rounded-lg hover:bg-muted/50 transition-colors"
                 >
                   <ExternalLink className="h-4 w-4 text-red-600" />
-                  <span className="text-sm font-medium">Video</span>
+                  <span className="text-sm font-medium">Demo Video</span>
                   <ExternalLink className="h-3.5 w-3.5 ml-auto text-muted-foreground" />
                 </a>
               )}

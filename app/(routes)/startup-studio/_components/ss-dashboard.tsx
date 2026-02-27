@@ -92,7 +92,7 @@ export function SSDashboard() {
               <Skeleton className="h-8 w-20" />
             ) : (
               <div className="text-2xl font-bold">
-                {stats?.total_cycles ?? 0}
+                {stats?.totalCycles ?? 0}
               </div>
             )}
             <p className="text-xs text-muted-foreground">All time</p>
@@ -109,7 +109,7 @@ export function SSDashboard() {
               <Skeleton className="h-8 w-20" />
             ) : (
               <div className="text-2xl font-bold">
-                {stats?.active_cycles ?? 0}
+                {stats?.activeCycles ?? 0}
               </div>
             )}
             <p className="text-xs text-muted-foreground">In progress</p>
@@ -126,7 +126,7 @@ export function SSDashboard() {
               <Skeleton className="h-8 w-20" />
             ) : (
               <div className="text-2xl font-bold">
-                {stats?.completed_cycles ?? 0}
+                {stats?.completedCycles ?? 0}
               </div>
             )}
             <p className="text-xs text-muted-foreground">Finished</p>
@@ -143,7 +143,7 @@ export function SSDashboard() {
               <Skeleton className="h-8 w-20" />
             ) : (
               <div className="text-2xl font-bold">
-                {stats?.total_problems ?? 0}
+                {stats?.totalProblems ?? 0}
               </div>
             )}
             <p className="text-xs text-muted-foreground">Discovered</p>
@@ -160,7 +160,7 @@ export function SSDashboard() {
               <Skeleton className="h-8 w-20" />
             ) : (
               <div className="text-2xl font-bold">
-                {stats?.nif_candidates ?? 0}
+                {stats?.nifCandidates ?? 0}
               </div>
             )}
             <p className="text-xs text-muted-foreground">In pipeline</p>
@@ -177,7 +177,7 @@ export function SSDashboard() {
               <Skeleton className="h-8 w-20" />
             ) : (
               <div className="text-2xl font-bold">
-                {stats?.total_users_reached ?? 0}
+                {stats?.totalUsersReached ?? 0}
               </div>
             )}
             <p className="text-xs text-muted-foreground">Impact</p>
@@ -273,7 +273,7 @@ export function SSDashboard() {
               <div className="space-y-3">
                 {[1, 2, 3, 4, 5, 6, 7, 8].map((step) => {
                   const rate = Array.isArray(stepRates)
-                    ? stepRates.find((r: any) => r.step === step)?.completion_rate ?? 0
+                    ? stepRates.find((r: any) => r.step === step)?.percentage ?? 0
                     : (stepRates as any)[step] ?? (stepRates as any)[`step_${step}`] ?? 0;
                   const percentage = typeof rate === 'number' ? Math.round(rate * 100) / 100 : 0;
 
