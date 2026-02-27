@@ -271,7 +271,7 @@ export default function ABCDMatrixPage() {
                     </div>
                   ) : analysisData.length > 0 ? (
                     <div className="space-y-2">
-                      {analysisData.map((item) => {
+                      {analysisData.filter(item => item.objective_id).map((item) => {
                         const config = item.abcd_category
                           ? ABCD_CATEGORY_CONFIG[item.abcd_category]
                           : null;
