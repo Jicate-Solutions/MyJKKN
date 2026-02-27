@@ -316,12 +316,13 @@ export class DataQualityService {
     });
   }
 
-  static async getDataIssues(institutionId: string): Promise<DataIssue[]> {
+  static async getDataIssues(institutionId: string | undefined): Promise<DataIssue[]> {
     const supabase = createClientSupabaseClient();
-    const { data, error } = await (supabase as any)
+    let query = (supabase as any)
       .from('admission_leads')
-      .select('phone, email, city, state, address_line1, interested_programs, source')
-      .eq('institution_id', institutionId);
+      .select('phone, email, city, state, address_line1, interested_programs, source');
+    if (institutionId) query = query.eq('institution_id', institutionId);
+    const { data, error } = await query;
 
     if (error) throw error;
     const leads = data || [];
