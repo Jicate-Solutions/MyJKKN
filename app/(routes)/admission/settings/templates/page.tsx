@@ -968,6 +968,14 @@ function AdmissionTemplatesPageContent() {
                         <strong>Subject:</strong> {template.subject}
                       </p>
                     )}
+                    {template.attachment_type && (
+                      <div className="flex items-center gap-1 mt-1">
+                        {template.attachment_type === 'image' && <ImageIcon className="h-3 w-3 text-muted-foreground" />}
+                        {template.attachment_type === 'video' && <Film className="h-3 w-3 text-muted-foreground" />}
+                        {template.attachment_type === 'document' && <DocIcon className="h-3 w-3 text-muted-foreground" />}
+                        <span className="text-xs text-muted-foreground capitalize">{template.attachment_type}</span>
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
               ))}
@@ -1327,6 +1335,40 @@ function AdmissionTemplatesPageContent() {
                             </Badge>
                           ))}
                         </div>
+                      </div>
+                    )}
+
+                    {/* Media attachment preview */}
+                    {previewTemplate.attachment_type && previewTemplate.attachment_url && (
+                      <div className="space-y-1">
+                        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                          Media Attachment
+                        </p>
+                        {previewTemplate.attachment_type === 'image' ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={previewTemplate.attachment_url}
+                            alt="Template media"
+                            className="rounded border max-h-48 object-contain"
+                            onError={(e) => {
+                              (e.currentTarget as HTMLImageElement).style.display = 'none';
+                            }}
+                          />
+                        ) : (
+                          <a
+                            href={previewTemplate.attachment_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-2 text-sm text-primary underline"
+                          >
+                            {previewTemplate.attachment_type === 'video' ? (
+                              <Film className="h-4 w-4 shrink-0" />
+                            ) : (
+                              <DocIcon className="h-4 w-4 shrink-0" />
+                            )}
+                            View {previewTemplate.attachment_type}
+                          </a>
+                        )}
                       </div>
                     )}
                   </div>
