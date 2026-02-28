@@ -1,6 +1,7 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { cache } from 'react';
 import { logger } from '@/lib/utils/enhanced-logger';
+import type { TimetableData } from '@/types/academics';
 import type {
   AttendanceStats,
   PendingAttendancePeriod,
@@ -558,9 +559,9 @@ export class AttendanceDashboardService {
       const staffIds = new Set<string>();
 
       timetablesData?.forEach((timetable) => {
-        const timetableData = timetable.timetable_data as any;
+        const timetableData = timetable.timetable_data as TimetableData | null;
         if (timetableData) {
-          Object.values(timetableData).forEach((daySlots: any) => {
+          Object.values(timetableData).forEach((daySlots) => {
             if (daySlots && typeof daySlots === 'object') {
               Object.values(daySlots).forEach((slot: any) => {
                 if (slot?.course_id) courseIds.add(slot.course_id);
@@ -624,12 +625,12 @@ export class AttendanceDashboardService {
             return; // Skip this timetable for this date
           }
 
-          const timetableData = timetable.timetable_data as any;
+          const timetableData = timetable.timetable_data as TimetableData | null;
           const periods = timetable.periods as any;
 
           if (timetableData && timetableData[dayOfWeek]) {
             Object.entries(timetableData[dayOfWeek]).forEach(
-              ([periodId, slot]: [string, any]) => {
+              ([periodId, slot]) => {
                 if (slot && !slot.is_break_slot && slot.course_id) {
                   const periodInfo = Array.isArray(periods)
                     ? periods.find((p: any) => p.period_id === periodId)

@@ -689,6 +689,8 @@ export interface PracticalConflictCheck {
 
 /** A single slot within a timetable period */
 export interface TimetableSlotData {
+  /** Some legacy data paths write an `id` field alongside `slot_id` */
+  id?: string | null;
   course_id?: string | null;
   staff_ids?: string[];
   section_id?: string | null;
