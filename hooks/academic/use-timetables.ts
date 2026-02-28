@@ -190,6 +190,22 @@ export function useTimetables(initialFilters: TimetableFilters = {}) {
     [fetchTimetables]
   );
 
+  const getAllStaffConflicts = useCallback(async () => {
+    return TimetableService.getAllStaffConflicts();
+  }, []);
+
+  const syncStaffAssignment = useCallback(
+    async (params: {
+      timetableId: string;
+      courseId: string;
+      oldStaffId: string;
+      newStaffId: string;
+    }) => {
+      return TimetableService.syncStaffAssignment(params);
+    },
+    []
+  );
+
   return {
     timetables,
     loading,
@@ -203,6 +219,8 @@ export function useTimetables(initialFilters: TimetableFilters = {}) {
     updateTimetable,
     deleteTimetable,
     saveTimetableAsTemplate,
-    createFromTemplate
+    createFromTemplate,
+    getAllStaffConflicts,
+    syncStaffAssignment
   };
 }

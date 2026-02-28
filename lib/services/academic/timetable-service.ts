@@ -2556,4 +2556,38 @@ Please select a different date period that doesn't overlap.`
       throw error;
     }
   }
+
+  // Added: 2026-02-28 - Task 2.3: Extracted from conflicts page to service layer
+  static async getAllStaffConflicts(): Promise<any[]> {
+    const { data, error } = await (this.supabase as any)
+      .rpc('get_all_timetable_staff_conflicts');
+
+    if (error) {
+      logger.error('academic/timetables', 'Failed to fetch staff conflicts', error);
+      return [];
+    }
+    return data ?? [];
+  }
+
+  // Added: 2026-02-28 - Task 2.3: Extracted from conflicts page to service layer
+  static async syncStaffAssignment(params: {
+    timetableId: string;
+    courseId: string;
+    oldStaffId: string;
+    newStaffId: string;
+  }): Promise<{ success: boolean; error?: string }> {
+    const { error } = await (this.supabase as any)
+      .rpc('sync_timetable_staff_assignment', {
+        p_timetable_id: params.timetableId,
+        p_course_id: params.courseId,
+        p_old_staff_id: params.oldStaffId,
+        p_new_staff_id: params.newStaffId,
+      });
+
+    if (error) {
+      logger.error('academic/timetables', 'Failed to sync staff assignment', { params, error });
+      return { success: false, error: error.message };
+    }
+    return { success: true };
+  }
 }

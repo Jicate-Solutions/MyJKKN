@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { logger } from '@/lib/utils/enhanced-logger';
+import { useTimetables } from '@/hooks/academic/use-timetables';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -55,9 +55,9 @@ export default function TimetableConflictsPage() {
     'missing-plans': 1
   });
   const [pageSize] = useState(10);
-  const supabase = createClientSupabaseClient();
 
   const { isSuperAdmin, isLoading: permissionsLoading } = usePermissions();
+  const { getAllStaffConflicts, syncStaffAssignment } = useTimetables();
 
   // Check super admin permissions
   useEffect(() => {
@@ -80,12 +80,7 @@ export default function TimetableConflictsPage() {
       setLoading(true);
       setError(null);
 
-      // Call the database function directly
-      const { data: conflictData, error: conflictError } = await (supabase as any).rpc(
-        'get_all_timetable_staff_conflicts'
-      );
-
-      if (conflictError) throw conflictError;
+      const conflictData = await getAllStaffConflicts();
 
       setConflicts(conflictData || []);
     } catch (err) {
@@ -112,38 +107,26 @@ export default function TimetableConflictsPage() {
         setSyncingTimetable(conflict.timetable_id);
       }
 
-      // Call the sync function directly
-      const { data: syncResult, error: syncError } = await (supabase as any).rpc(
-        'sync_timetable_staff_assignment' as any,
-        {
-          p_timetable_id: conflict.timetable_id,
-          p_course_id: conflict.course_id,
-          p_old_staff_id: conflict.timetable_staff_id,
-          p_new_staff_id: conflict.planned_staff_id
-        } as any
-      );
+      const result = await syncStaffAssignment({
+        timetableId: conflict.timetable_id,
+        courseId: conflict.course_id,
+        oldStaffId: conflict.timetable_staff_id,
+        newStaffId: conflict.planned_staff_id
+      });
 
-      if (syncError) {
-        logger.error('academic/timetables', 'Sync error', syncError);
-        throw new Error(syncError.message || 'Database sync function failed');
+      if (!result.success) {
+        logger.error('academic/timetables', 'Sync error', result.error);
+        throw new Error(result.error || 'Database sync function failed');
       }
 
-      if (syncResult) {
-        if (showIndividualToast) {
-          toast.success(`✅ ${conflict.timetable_name} synced successfully!`);
-          // Refresh the conflicts list after individual sync
-          setTimeout(() => {
-            loadConflicts();
-          }, 300);
-        }
-        return { success: true };
-      } else {
-        const errorMsg = 'Sync function returned false - check database logs';
-        if (showIndividualToast) {
-          toast.error('❌ ' + errorMsg);
-        }
-        return { success: false, error: errorMsg };
+      if (showIndividualToast) {
+        toast.success(`✅ ${conflict.timetable_name} synced successfully!`);
+        // Refresh the conflicts list after individual sync
+        setTimeout(() => {
+          loadConflicts();
+        }, 300);
       }
+      return { success: true };
     } catch (error) {
       logger.error('academic/timetables', 'Sync error', error);
       const errorMessage =
