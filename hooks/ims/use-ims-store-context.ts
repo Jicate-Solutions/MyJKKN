@@ -25,13 +25,21 @@ export function useImsStoreContext() {
   const storeName = useStore(useImsActiveStore, (s) => s.storeName);
   const setActiveStore = useImsActiveStore((s) => s.setActiveStore);
 
-  // store_admin is an IMS-level administrator — treated like super_admin for gate purposes
-  // Check BOTH profiles.role (primary) AND user_roles array (secondary assignments).
-  // A student whose primary role is 'student' but has store_admin as a secondary role
-  // should still be recognised as a store admin for IMS gate purposes.
+  // A user is treated as "store-admin-like" for IMS gate purposes if:
+  // (a) their primary/legacy role is store_admin, OR
+  // (b) any of their assigned roles has role_key === 'store_admin', OR
+  // (c) any of their assigned roles has at least one IMS permission key
+  //     (covers custom roles like pos_operator, ims_handler, etc.)
   const isStoreAdmin =
     userProfile?.role === 'store_admin' ||
-    userRoles.some((r) => r.role_key === 'store_admin');
+    userRoles.some(
+      (r) =>
+        r.role_key === 'store_admin' ||
+        (r.permissions != null &&
+          Object.keys(r.permissions as Record<string, unknown>).some((k) =>
+            k.startsWith('ims')
+          ))
+    );
 
   const userInstitutionId = userProfile?.institution_id ?? null;
 

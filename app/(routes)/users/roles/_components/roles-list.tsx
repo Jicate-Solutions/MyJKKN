@@ -111,6 +111,24 @@ export function RolesList({
   // Store allocation — only relevant when store_admin is among selected roles
   const [editingAssignedStoreId, setEditingAssignedStoreId] = useState<string>('');
 
+  // Determines whether any of the currently-selected roles is an IMS role.
+  // Detects store_admin by key, OR any custom role whose permissions include an 'ims' key.
+  const hasImsRole = useMemo(
+    () =>
+      editingRoleIds.some((id) => {
+        const role = availableRoles.find((r) => r.id === id);
+        if (!role) return false;
+        if (role.role_key === 'store_admin') return true;
+        return (
+          role.permissions != null &&
+          Object.keys(role.permissions as Record<string, unknown>).some((k) =>
+            k.startsWith('ims')
+          )
+        );
+      }),
+    [editingRoleIds, availableRoles]
+  );
+
   // IMS stores for the currently-being-edited user's institution
   // Filtered by institution_id so the admin only sees relevant stores.
   // Hook is safe to call unconditionally — `enabled` guard is inside the hook.
@@ -321,13 +339,10 @@ export function RolesList({
         effectivePrimaryRoleId = editingRoleIds[0];
       }
 
-      // Determine whether this role set includes store_admin.
-      // If yes, pass the chosen store (or null to clear). If no, pass undefined
-      // so the service leaves profiles.assigned_store_id untouched.
-      const hasStoreAdminRole = editingRoleIds.some(
-        (id) => availableRoles.find((r) => r.id === id)?.role_key === 'store_admin'
-      );
-      const storeIdToAssign: string | null | undefined = hasStoreAdminRole
+      // Use the hasImsRole memoized value defined above the dialog.
+      // Pass store for any IMS role (not only store_admin), so custom IMS roles also
+      // get profiles.assigned_store_id written during role assignment.
+      const storeIdToAssign: string | null | undefined = hasImsRole
         ? (editingAssignedStoreId || null)
         : undefined;
 
@@ -638,10 +653,8 @@ export function RolesList({
               </div>
             )}
 
-            {/* Store Allocation — shown only when store_admin is among selected roles */}
-            {editingRoleIds.some(
-              (id) => availableRoles.find((r) => r.id === id)?.role_key === 'store_admin'
-            ) && (
+            {/* Store Allocation — shown for store_admin AND any custom IMS role */}
+            {hasImsRole && (
               <div className="space-y-2 border-t pt-4">
                 <label className="text-sm font-medium flex items-center gap-2">
                   <Store className="h-4 w-4 text-muted-foreground" />
@@ -679,9 +692,25 @@ export function RolesList({
                     ))}
                   </SelectContent>
                 </Select>
+                {imsStoresForSelect.length === 0 && !imsStoresLoading && (
+                  <p className="text-xs text-destructive">
+                    No stores found for this user&apos;s institution. A Super Admin must create a store
+                    in{' '}
+                    <a
+                      href="/ims/settings/stores"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="underline font-medium"
+                    >
+                      IMS → Settings → Stores
+                    </a>{' '}
+                    before a store can be assigned.
+                  </p>
+                )}
                 {!editingAssignedStoreId && imsStoresForSelect.length > 0 && (
                   <p className="text-xs text-amber-600 dark:text-amber-400">
-                    Without a store assignment, this user will see a &quot;Select a Store&quot; prompt on every IMS login.
+                    Without a store assignment, this user will see a &quot;Select a Store&quot; prompt
+                    on every IMS login.
                   </p>
                 )}
               </div>

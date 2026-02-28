@@ -7,6 +7,7 @@ export type ImsIndentStatus =
   | 'pending_approval'
   | 'approved'
   | 'rejected'
+  | 'cancelled'
   | 'pending_issue'
   | 'partially_issued'
   | 'issued'
@@ -92,6 +93,7 @@ export const INDENT_STATUS_CONFIG: Record<ImsIndentStatus, { label: string; vari
   pending_approval: { label: 'Pending Approval', variant: 'outline' },
   approved: { label: 'Approved', variant: 'default' },
   rejected: { label: 'Rejected', variant: 'destructive' },
+  cancelled: { label: 'Cancelled', variant: 'destructive' },
   pending_issue: { label: 'Pending Issue', variant: 'outline' },
   partially_issued: { label: 'Partially Issued', variant: 'outline' },
   issued: { label: 'Issued', variant: 'default' },

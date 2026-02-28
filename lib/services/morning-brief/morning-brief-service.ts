@@ -37,7 +37,7 @@ async function fetchAttendanceSnapshot(
     const studentsQuery = supabase
       .from('learners_profiles')
       .select('*', { count: 'exact', head: true })
-      .eq('status', 'active');
+      .eq('lifecycle_status', 'active');
 
     if (institutionId) {
       studentsQuery.eq('institution_id', institutionId);

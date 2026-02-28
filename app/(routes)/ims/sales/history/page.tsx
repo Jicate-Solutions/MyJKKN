@@ -237,6 +237,7 @@ export default function SalesHistoryPage() {
                     <SelectItem value="cash">Cash</SelectItem>
                     <SelectItem value="gpay">GPay</SelectItem>
                     <SelectItem value="card">Card</SelectItem>
+                    <SelectItem value="upi_qr">UPI QR</SelectItem>
                     <SelectItem value="mixed">Mixed</SelectItem>
                   </SelectContent>
                 </Select>

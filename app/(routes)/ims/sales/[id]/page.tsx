@@ -62,6 +62,7 @@ const PAYMENT_LABELS: Record<string, string> = {
   cash: 'Cash',
   gpay: 'GPay',
   card: 'Card',
+  upi_qr: 'UPI QR',
   mixed: 'Mixed',
 };
 

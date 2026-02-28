@@ -10,7 +10,7 @@ import { useImsStoreContext } from '@/hooks/ims/use-ims-store-context';
 export default function ImsLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
-  const { storeId, isStoreSelected, isSuperAdmin, isStoreAdmin, isResolving } = useImsStoreContext();
+  const { storeId, isStoreSelected, isSuperAdmin, isStoreAdmin, isResolving, userProfile } = useImsStoreContext();
 
   // Allow the stores settings page through always — that's where stores are created
   const isStoreManagementPage = pathname?.startsWith('/ims/settings/stores');
@@ -61,30 +61,44 @@ export default function ImsLayout({ children }: { children: React.ReactNode }) {
   // super_admin must always pick manually; store_admin lands here only when auto-resolution
   // fails (e.g. institution_id mismatch or no store created yet for their institution)
   if (!isStoreSelected && isAdminLike && !isStoreManagementPage) {
+    // Detect the specific case where store_admin has no institution_id set on their profile.
+    // This is a data configuration issue — the admin never assigned them to an institution.
+    const hasNoInstitution = !isSuperAdmin && isStoreAdmin && !userProfile?.institution_id;
+
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] gap-6 p-6">
         <Card className="w-full max-w-md">
           <CardContent className="pt-6 text-center space-y-4">
             <Store className="h-12 w-12 mx-auto text-muted-foreground" />
-            <h2 className="text-xl font-semibold">Select a Store</h2>
+            <h2 className="text-xl font-semibold">
+              {hasNoInstitution ? 'Institution Not Assigned' : 'Select a Store'}
+            </h2>
             <p className="text-muted-foreground text-sm">
-              {isSuperAdmin
+              {hasNoInstitution
+                ? 'Your account has the store_admin role but is not linked to any institution. Please ask a super admin to assign your institution in the user management panel.'
+                : isSuperAdmin
                 ? 'As a super admin, please select which store you want to manage. Each store operates as an independent IMS instance.'
-                : 'Please select your store to continue, or register a new one if none exists yet.'}
+                : 'Please select your store to continue. Contact your administrator if no store appears in the list.'}
             </p>
-            <div className="max-w-[280px] mx-auto">
-              <StoreSwitcher />
-            </div>
-            <div className="pt-2">
-              <Button
-                variant="link"
-                size="sm"
-                onClick={() => router.push('/ims/settings/stores')}
-              >
-                Register a new store
-                <ArrowRight className="h-4 w-4 ml-1" />
-              </Button>
-            </div>
+            {!hasNoInstitution && (
+              <>
+                <div className="max-w-[280px] mx-auto">
+                  <StoreSwitcher />
+                </div>
+                {isSuperAdmin && (
+                  <div className="pt-2">
+                    <Button
+                      variant="link"
+                      size="sm"
+                      onClick={() => router.push('/ims/settings/stores')}
+                    >
+                      Register a new store
+                      <ArrowRight className="h-4 w-4 ml-1" />
+                    </Button>
+                  </div>
+                )}
+              </>
+            )}
           </CardContent>
         </Card>
       </div>

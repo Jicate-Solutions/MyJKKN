@@ -238,7 +238,9 @@
       "Bash(cd /d/Projects/MyJKKN && rm -rf .tsbuildinfo tsconfig.tsbuildinfo && npx tsc --noEmit 2>&1)",
       "Bash(wait:*)",
       "Bash(claude update:*)",
-      "Bash(tasklist:*)"
+      "Bash(tasklist:*)",
+      "Bash(sed:*)",
+      "Bash(Remove-Item:*)"
     ],
     "deny": [],
     "ask": []

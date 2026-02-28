@@ -68,7 +68,8 @@ export type ImsAdjustmentType =
   | 'theft'
   | 'return_to_supplier'
   | 'transfer'
-  | 'correction';
+  | 'correction'
+  | 'write_off';
 
 export interface ImsStockAdjustment {
   id: string;

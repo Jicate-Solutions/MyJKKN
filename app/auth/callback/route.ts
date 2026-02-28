@@ -9,17 +9,86 @@ import { createServiceRoleClient } from '@/lib/supabase/server';
 import { FEATURE_FLAGS } from '@/lib/config/feature-flags';
 import { StudentValidationService } from '@/lib/services/auth/student-validation-service';
 import { SessionTrackingService } from '@/lib/services/analytics/session-tracking-service';
+import type { JkknLearner } from '@/types/jkkn-api/learners';
+
+// Lifecycle statuses that represent a current or enrolling student.
+// Graduated / alumni / exited / inactive / rejected are intentionally excluded
+// so that ex-students who return as staff are not misclassified.
+const ACTIVE_STUDENT_STATUSES = ['active', 'approved', 'pending', 'waitlisted', 'enquiry'];
+
+/**
+ * Query the live JKKN API to check if an email belongs to an active student.
+ * This is the authoritative source — more reliable than the local learners_profiles
+ * sync which may be stale.
+ *
+ * Returns false (not a student) on any network/API error so that login is never
+ * blocked by a JKKN API outage.
+ */
+async function checkJkknApiStudentStatus(email: string): Promise<boolean> {
+  const apiBase = process.env.JKKN_API_BASE_URL ?? 'https://www.jkkn.ai/api';
+  const apiKey  = process.env.JKKN_API_KEY;
+
+  if (!apiKey) {
+    console.warn('[Auth Callback] JKKN_API_KEY not set — skipping JKKN API student check');
+    return false;
+  }
+
+  try {
+    // Use college_email for an exact field match — avoids false positives from
+    // the generic text search. The client-side .find() below is a secondary guard.
+    const params = new URLSearchParams({ college_email: email, limit: '5' });
+    const res = await fetch(
+      `${apiBase}/api-management/learners/profiles?${params}`,
+      {
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        cache: 'no-store', // Auth decisions must never use stale data
+      }
+    );
+
+    if (!res.ok) {
+      console.warn('[Auth Callback] JKKN API returned', res.status, '— treating as non-student');
+      return false;
+    }
+
+    const body = await res.json();
+    const learners: JkknLearner[] = body.data ?? [];
+
+    // Exact email match — search may return partial matches
+    const match = learners.find(
+      (l) =>
+        (l.student_email?.toLowerCase() === email.toLowerCase() ||
+          l.college_email?.toLowerCase() === email.toLowerCase()) &&
+        l.lifecycle_status != null &&
+        ACTIVE_STUDENT_STATUSES.includes(l.lifecycle_status)
+    );
+
+    console.log(
+      '[Auth Callback] JKKN API student check for', email,
+      '→', match ? `student (${match.lifecycle_status})` : 'not a student'
+    );
+    return !!match;
+  } catch (err) {
+    console.error('[Auth Callback] JKKN API student check failed (non-blocking):', err);
+    return false;
+  }
+}
 
 
 /**
  * Resolve the appropriate JKKN system role for a new user on their first login.
  *
  * Lookup order:
- * 1. learners_profiles — if the email matches a student, assign 'student'
- * 2. profiles (pre-registered) — if a pre-registered row exists with a specific role, use it
+ * 1. profiles (pre-registered) — if a pre-registered row exists with a specific role, use it.
+ *    This takes priority so that ex-students who are now staff get the correct role.
+ * 2. JKKN API — query the live jkkn.ai API to check if the email is an active student.
+ *    Only active lifecycle statuses qualify; graduated/alumni/exited are excluded.
+ *    Falls back gracefully if the JKKN API is unreachable.
  * 3. Default — 'guest'
  *
- * Uses the service-role admin client so it bypasses RLS on both tables.
+ * Uses the service-role admin client for the pre-registration check (bypasses RLS).
  */
 async function resolveJkknRole(
   email: string,
@@ -27,16 +96,9 @@ async function resolveJkknRole(
 ): Promise<string> {
   if (!email) return 'guest';
 
-  // 1. Check if this email belongs to a JKKN learner (student)
-  const { data: learner } = await (adminClient as any)
-    .from('learners_profiles')
-    .select('id, lifecycle_status')
-    .or(`student_email.eq.${email},college_email.eq.${email}`)
-    .maybeSingle();
-
-  if (learner) return 'student';
-
-  // 2. Check if there is a pre-registered profile row with an explicit role
+  // 1. Check if there is a pre-registered profile row with an explicit role.
+  //    Pre-registration always wins — allows admins to designate roles for staff
+  //    even if that person's email also appears in the JKKN learners list.
   const { data: preReg } = await (adminClient as any)
     .from('profiles')
     .select('role')
@@ -45,6 +107,12 @@ async function resolveJkknRole(
     .maybeSingle();
 
   if (preReg?.role && preReg.role !== 'guest') return preReg.role as string;
+
+  // 2. Query the live JKKN API to check if this email is an active student.
+  //    Using the API (not the local learners_profiles table) ensures we always
+  //    have the most up-to-date lifecycle status.
+  const isActiveStudent = await checkJkknApiStudentStatus(email);
+  if (isActiveStudent) return 'student';
 
   // 3. Default fallback
   return 'guest';

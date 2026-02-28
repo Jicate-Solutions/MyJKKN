@@ -34,56 +34,19 @@ export default async function MyProfilePage() {
     redirect(`/auth/login?reason=${validation.reason}`);
   }
 
-  // Step 4: Fetch learner profile data with all relationships
-  const { data: learnerProfile, error: profileError } = await supabase
+  // Step 4: Fetch learner profile data — flat select only.
+  // PostgREST requires FK constraints in the schema cache to resolve embedded join syntax.
+  // The 9 FKs from learners_profiles to org tables were dropped to allow JKKN sync
+  // upserts (org tables are empty mirrors; referenced UUIDs don't exist locally).
+  // Fix: select('*') for the base row, then batch-fetch each related record in parallel.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: rawProfile, error: profileError } = await (supabase as any)
     .from('learners_profiles')
-    .select(`
-      *,
-      institution:institution_id (
-        name,
-        id
-      ),
-      degree:degree_id (
-        degree_name,
-        degree_id,
-        id
-      ),
-      department:department_id (
-        department_name,
-        id
-      ),
-      program:program_id (
-        program_name,
-        id
-      ),
-      semester:semester_id (
-        semester_name,
-        semester_code,
-        id
-      ),
-      section:section_id (
-        section_name,
-        id
-      ),
-      academic_year:academic_year_id (
-        academic_year_name,
-        id
-      ),
-      regulation:regulation_id (
-        regulation_year,
-        regulation_code,
-        id
-      ),
-      batch:batch_id (
-        batch_name,
-        batch_code,
-        id
-      )
-    `)
+    .select('*')
     .eq('id', profile.learner_id)
     .single();
 
-  if (profileError || !learnerProfile) {
+  if (profileError || !rawProfile) {
     console.error('[my-profile] Error fetching learner profile:', {
       error: profileError,
       learnerId: profile.learner_id,
@@ -117,6 +80,73 @@ export default async function MyProfilePage() {
       </ContentLayout>
     );
   }
+
+  // Step 5: Batch-fetch related org records in parallel using raw FK ID columns.
+  // Each lookup is skipped (null) when the FK ID is absent (pre-enrollment learners).
+  const institutionId = rawProfile.institution_id as string | null;
+  const degreeId = rawProfile.degree_id as string | null;
+  const departmentId = rawProfile.department_id as string | null;
+  const programId = rawProfile.program_id as string | null;
+  const semesterId = rawProfile.semester_id as string | null;
+  const sectionId = rawProfile.section_id as string | null;
+  const academicYearId = rawProfile.academic_year_id as string | null;
+  const regulationId = rawProfile.regulation_id as string | null;
+  const batchId = rawProfile.batch_id as string | null;
+
+  const [
+    { data: instRow },
+    { data: degreeRow },
+    { data: deptRow },
+    { data: progRow },
+    { data: semRow },
+    { data: sectRow },
+    { data: ayRow },
+    { data: regRow },
+    { data: batchRow },
+  ] = await Promise.all([
+    institutionId
+      ? supabase.from('institutions').select('id, name').eq('id', institutionId).single()
+      : Promise.resolve({ data: null, error: null }),
+    degreeId
+      ? supabase.from('degrees').select('id, degree_name').eq('id', degreeId).single()
+      : Promise.resolve({ data: null, error: null }),
+    departmentId
+      ? supabase.from('departments').select('id, department_name').eq('id', departmentId).single()
+      : Promise.resolve({ data: null, error: null }),
+    programId
+      ? supabase.from('programs').select('id, program_name').eq('id', programId).single()
+      : Promise.resolve({ data: null, error: null }),
+    semesterId
+      ? supabase.from('semesters').select('id, semester_name, semester_code').eq('id', semesterId).single()
+      : Promise.resolve({ data: null, error: null }),
+    sectionId
+      ? supabase.from('sections').select('id, section_name').eq('id', sectionId).single()
+      : Promise.resolve({ data: null, error: null }),
+    academicYearId
+      ? supabase.from('academic_years').select('id, academic_year_name').eq('id', academicYearId).single()
+      : Promise.resolve({ data: null, error: null }),
+    regulationId
+      ? supabase.from('regulations').select('id, regulation_year, regulation_code').eq('id', regulationId).single()
+      : Promise.resolve({ data: null, error: null }),
+    batchId
+      ? supabase.from('batches').select('id, batch_name, batch_code').eq('id', batchId).single()
+      : Promise.resolve({ data: null, error: null }),
+  ]);
+
+  // Compose final profile object matching the LearnerProfile shape
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const learnerProfile = {
+    ...rawProfile,
+    institution: instRow ?? undefined,
+    degree: degreeRow ?? undefined,
+    department: deptRow ?? undefined,
+    program: progRow ?? undefined,
+    semester: semRow ?? undefined,
+    section: sectRow ?? undefined,
+    academic_year: ayRow ?? undefined,
+    regulation: regRow ?? undefined,
+    batch: batchRow ?? undefined,
+  };
 
   return (
     <ContentLayout title="My Profile">

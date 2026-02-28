@@ -18,7 +18,6 @@ interface UpiQrPaymentProps {
 interface QrData {
   qrBase64: string;
   transactionRef: string;
-  upiString: string;
   expiresAt: string;
 }
 

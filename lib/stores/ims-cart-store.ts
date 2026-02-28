@@ -10,6 +10,7 @@ export interface ImsCartItem {
   unit_price: number;
   cost_price: number;
   max_quantity: number;
+  discount_percent: number;
 }
 
 export interface ImsCartState {
@@ -22,7 +23,7 @@ export interface ImsCartState {
 
   // Actions
   setStoreScope: (storeId: string) => void;
-  addItem: (item: Omit<ImsCartItem, 'quantity'> & { quantity?: number }) => void;
+  addItem: (item: Omit<ImsCartItem, 'quantity' | 'discount_percent'> & { quantity?: number; discount_percent?: number }) => void;
   removeItem: (itemId: string) => void;
   updateQuantity: (itemId: string, quantity: number) => void;
   setCustomer: (type: ImsCustomerType, name: string, phone: string) => void;
