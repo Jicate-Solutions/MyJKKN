@@ -1,12 +1,15 @@
 // hooks/academic/use-leaves.ts
 // React hook for managing institution leaves
-// Created: 2025-12-16
+// Migrated to React Query: 2026-02-28
 //
-// Pattern: useState, useRef for filters, setTimeout pattern
+// Pattern: useQuery for list, useMutation for CUD operations
+//          useLeave, usePendingLeaves, useUpcomingLeaves also migrated
 
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useMemo, useEffect } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { LeaveService } from '@/lib/services/academic/leave-service';
 import { usePermissions } from '@/hooks/use-permissions';
+import { QUERY_CONFIG } from '@/lib/config/query-config';
 import type {
   InstitutionLeave,
   LeaveFilters,
@@ -14,218 +17,198 @@ import type {
   UpdateLeaveDto
 } from '@/types/leaves';
 
+// ─── Query keys ──────────────────────────────────────────────────────────────
+
+export const LEAVE_KEYS = {
+  all: ['leaves'] as const,
+  list: (filters: LeaveFilters) => ['leaves', 'list', filters] as const,
+  detail: (id: string) => ['leaves', 'detail', id] as const,
+  pending: (institutionId: string, limit: number) =>
+    ['leaves', 'pending', institutionId, limit] as const,
+  upcoming: (institutionId: string, days: number) =>
+    ['leaves', 'upcoming', institutionId, days] as const,
+};
+
+// ─── Main hook ───────────────────────────────────────────────────────────────
+
 export function useLeaves(initialFilters: LeaveFilters = {}) {
   const { isSuperAdmin, userProfile } = usePermissions();
-  const [leaves, setLeaves] = useState<InstitutionLeave[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+
+  // Filters live in local state
   const [filters, setFilters] = useState<LeaveFilters>(initialFilters);
-  const [metadata, setMetadata] = useState({
+
+  // Sync initialFilters changes (e.g. route-driven filter resets)
+  useEffect(() => {
+    setFilters(initialFilters);
+    // Intentionally not watching initialFilters reference — use JSON comparison
+    // to avoid re-running when parent re-renders with same values.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [JSON.stringify(initialFilters)]);
+
+  // Institution-aware effective filters
+  const effectiveFilters = useMemo<LeaveFilters>(
+    () => ({
+      ...filters,
+      ...(!isSuperAdmin &&
+        userProfile?.institution_id && {
+          institution_id: userProfile.institution_id,
+        }),
+    }),
+    [filters, isSuperAdmin, userProfile?.institution_id]
+  );
+
+  const query = useQuery({
+    queryKey: LEAVE_KEYS.list(effectiveFilters),
+    queryFn: () =>
+      isSuperAdmin
+        ? LeaveService.getLeaves(effectiveFilters)
+        : LeaveService.getLeavesWithAccess(
+            effectiveFilters,
+            userProfile?.institution_id,
+            false
+          ),
+    enabled: true,
+    ...QUERY_CONFIG.DYNAMIC_DATA,
+  });
+
+  // ── Derived state ──────────────────────────────────────────────────────────
+
+  const leaves: InstitutionLeave[] = query.data?.data ?? [];
+  const metadata = query.data?.metadata ?? {
     total: 0,
     page: 1,
     limit: 10,
-    totalPages: 0
+    totalPages: 0,
+  };
+
+  // ── Filter helpers ─────────────────────────────────────────────────────────
+
+  const updateFilters = (newFilters: Partial<LeaveFilters>) => {
+    setFilters((current) => ({
+      ...current,
+      ...newFilters,
+      page: 1, // Reset to first page when filters change
+    }));
+  };
+
+  const changePage = (page: number) => {
+    setFilters((current) => ({ ...current, page }));
+  };
+
+  // ── Imperative refetch (backward compat) ───────────────────────────────────
+
+  const fetchLeaves = async (newFilters?: LeaveFilters) => {
+    if (newFilters) {
+      setFilters(newFilters);
+    } else {
+      await queryClient.invalidateQueries({
+        queryKey: LEAVE_KEYS.list(effectiveFilters),
+      });
+    }
+  };
+
+  // ── Mutations ─────────────────────────────────────────────────────────────
+
+  const createMutation = useMutation({
+    mutationFn: (data: CreateLeaveDto) => LeaveService.createLeave(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: LEAVE_KEYS.all });
+    },
   });
 
-  // Use ref to track the current filters to avoid stale closure issues
-  const filtersRef = useRef(filters);
-  filtersRef.current = filters;
-
-  const fetchLeaves = useCallback(
-    async (newFilters?: LeaveFilters) => {
-      try {
-        setLoading(true);
-        setError(null);
-        // Use the passed filters or the current filters from ref
-        const currentFilters = newFilters || filtersRef.current;
-
-        // Use institution-aware method if user is not super admin
-        const result = isSuperAdmin
-          ? await LeaveService.getLeaves(currentFilters)
-          : await LeaveService.getLeavesWithAccess(
-              currentFilters,
-              userProfile?.institution_id,
-              false
-            );
-        setLeaves(result.data);
-        setMetadata(result.metadata);
-
-        if (newFilters) {
-          setFilters(newFilters);
-        }
-      } catch (err) {
-        console.error('Error fetching leaves:', err);
-        setError(err instanceof Error ? err.message : 'An error occurred');
-      } finally {
-        setLoading(false);
-      }
+  const updateMutation = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: UpdateLeaveDto }) =>
+      LeaveService.updateLeave(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: LEAVE_KEYS.all });
     },
-    [isSuperAdmin, userProfile?.institution_id]
-  );
+  });
 
-  const updateFilters = useCallback(
-    (newFilters: Partial<LeaveFilters>) => {
-      setFilters((currentFilters) => {
-        const updatedFilters = {
-          ...currentFilters,
-          ...newFilters,
-          page: 1 // Reset to first page when filters change
-        };
-        // Use setTimeout to break the synchronous update cycle
-        setTimeout(() => {
-          fetchLeaves(updatedFilters);
-        }, 0);
-        return updatedFilters;
-      });
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => LeaveService.deleteLeave(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: LEAVE_KEYS.all });
     },
-    [fetchLeaves]
-  );
+  });
 
-  const changePage = useCallback(
-    (page: number) => {
-      setFilters((currentFilters) => {
-        const updatedFilters = { ...currentFilters, page };
-        setTimeout(() => {
-          fetchLeaves(updatedFilters);
-        }, 0);
-        return updatedFilters;
-      });
+  const approveMutation = useMutation({
+    mutationFn: ({ id, comments }: { id: string; comments?: string }) => {
+      if (!userProfile?.id) throw new Error('User not authenticated');
+      return LeaveService.approveLeave(id, userProfile.id, comments);
     },
-    [fetchLeaves]
-  );
-
-  // Update filtersRef when initialFilters change
-  useEffect(() => {
-    if (JSON.stringify(initialFilters) !== JSON.stringify(filtersRef.current)) {
-      setFilters(initialFilters);
-    }
-  }, [initialFilters]);
-
-  const createLeave = useCallback(
-    async (data: CreateLeaveDto) => {
-      try {
-        setLoading(true);
-        setError(null);
-        const result = await LeaveService.createLeave(data);
-        // Refresh leaves list
-        fetchLeaves();
-        return result;
-      } catch (err) {
-        console.error('Error creating leave:', err);
-        setError(err instanceof Error ? err.message : 'An error occurred');
-        throw err;
-      } finally {
-        setLoading(false);
-      }
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: LEAVE_KEYS.all });
     },
-    [fetchLeaves]
-  );
+  });
 
-  const updateLeave = useCallback(
-    async (id: string, data: UpdateLeaveDto) => {
-      try {
-        setLoading(true);
-        setError(null);
-        const result = await LeaveService.updateLeave(id, data);
-        // Refresh leaves list
-        fetchLeaves();
-        return result;
-      } catch (err) {
-        console.error('Error updating leave:', err);
-        setError(err instanceof Error ? err.message : 'An error occurred');
-        throw err;
-      } finally {
-        setLoading(false);
-      }
+  const rejectMutation = useMutation({
+    mutationFn: ({ id, reason }: { id: string; reason: string }) => {
+      if (!userProfile?.id) throw new Error('User not authenticated');
+      return LeaveService.rejectLeave(id, userProfile.id, reason);
     },
-    [fetchLeaves]
-  );
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: LEAVE_KEYS.all });
+    },
+  });
 
-  const deleteLeave = useCallback(
-    async (id: string) => {
-      try {
-        setLoading(true);
-        setError(null);
-        await LeaveService.deleteLeave(id);
-        // Refresh leaves list
-        fetchLeaves();
-      } catch (err) {
-        console.error('Error deleting leave:', err);
-        setError(err instanceof Error ? err.message : 'An error occurred');
-        throw err;
-      } finally {
-        setLoading(false);
-      }
+  const cancelMutation = useMutation({
+    mutationFn: (id: string) => LeaveService.cancelLeave(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: LEAVE_KEYS.all });
     },
-    [fetchLeaves]
-  );
+  });
 
-  const approveLeave = useCallback(
-    async (id: string, comments?: string) => {
-      try {
-        setLoading(true);
-        setError(null);
-        if (!userProfile?.id) throw new Error('User not authenticated');
-        const result = await LeaveService.approveLeave(id, userProfile.id, comments);
-        // Refresh leaves list
-        fetchLeaves();
-        return result;
-      } catch (err) {
-        console.error('Error approving leave:', err);
-        setError(err instanceof Error ? err.message : 'An error occurred');
-        throw err;
-      } finally {
-        setLoading(false);
-      }
-    },
-    [fetchLeaves, userProfile?.id]
-  );
+  // ── Backward-compatible async wrappers ────────────────────────────────────
 
-  const rejectLeave = useCallback(
-    async (id: string, reason: string) => {
-      try {
-        setLoading(true);
-        setError(null);
-        if (!userProfile?.id) throw new Error('User not authenticated');
-        const result = await LeaveService.rejectLeave(id, userProfile.id, reason);
-        // Refresh leaves list
-        fetchLeaves();
-        return result;
-      } catch (err) {
-        console.error('Error rejecting leave:', err);
-        setError(err instanceof Error ? err.message : 'An error occurred');
-        throw err;
-      } finally {
-        setLoading(false);
-      }
-    },
-    [fetchLeaves, userProfile?.id]
-  );
+  const createLeave = async (data: CreateLeaveDto) => {
+    return createMutation.mutateAsync(data);
+  };
 
-  const cancelLeave = useCallback(
-    async (id: string) => {
-      try {
-        setLoading(true);
-        setError(null);
-        const result = await LeaveService.cancelLeave(id);
-        // Refresh leaves list
-        fetchLeaves();
-        return result;
-      } catch (err) {
-        console.error('Error cancelling leave:', err);
-        setError(err instanceof Error ? err.message : 'An error occurred');
-        throw err;
-      } finally {
-        setLoading(false);
-      }
-    },
-    [fetchLeaves]
-  );
+  const updateLeave = async (id: string, data: UpdateLeaveDto) => {
+    return updateMutation.mutateAsync({ id, data });
+  };
+
+  const deleteLeave = async (id: string) => {
+    return deleteMutation.mutateAsync(id);
+  };
+
+  const approveLeave = async (id: string, comments?: string) => {
+    return approveMutation.mutateAsync({ id, comments });
+  };
+
+  const rejectLeave = async (id: string, reason: string) => {
+    return rejectMutation.mutateAsync({ id, reason });
+  };
+
+  const cancelLeave = async (id: string) => {
+    return cancelMutation.mutateAsync(id);
+  };
+
+  // ── Aggregate loading/error ────────────────────────────────────────────────
+
+  const isMutating =
+    createMutation.isPending ||
+    updateMutation.isPending ||
+    deleteMutation.isPending ||
+    approveMutation.isPending ||
+    rejectMutation.isPending ||
+    cancelMutation.isPending;
+
+  const mutationError =
+    createMutation.error ||
+    updateMutation.error ||
+    deleteMutation.error ||
+    approveMutation.error ||
+    rejectMutation.error ||
+    cancelMutation.error;
 
   return {
     leaves,
-    loading,
-    error,
+    loading: query.isPending || isMutating,
+    error: (query.error || mutationError)
+      ? String(query.error ?? mutationError)
+      : null,
     metadata,
     filters,
     updateFilters,
@@ -236,123 +219,76 @@ export function useLeaves(initialFilters: LeaveFilters = {}) {
     deleteLeave,
     approveLeave,
     rejectLeave,
-    cancelLeave
+    cancelLeave,
+    // React Query extras
+    refetch: query.refetch,
+    isFetching: query.isFetching,
   };
 }
+
+// ─── Single leave ─────────────────────────────────────────────────────────────
 
 /**
  * Hook for fetching a single leave by ID
  */
 export function useLeave(id: string | null) {
-  const [leave, setLeave] = useState<InstitutionLeave | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const fetchLeave = useCallback(async () => {
-    if (!id) {
-      setLeave(null);
-      return;
-    }
-
-    try {
-      setLoading(true);
-      setError(null);
-      const result = await LeaveService.getLeave(id);
-      setLeave(result);
-    } catch (err) {
-      console.error('Error fetching leave:', err);
-      setError(err instanceof Error ? err.message : 'An error occurred');
-    } finally {
-      setLoading(false);
-    }
-  }, [id]);
-
-  useEffect(() => {
-    fetchLeave();
-  }, [fetchLeave]);
+  const query = useQuery({
+    queryKey: id ? LEAVE_KEYS.detail(id) : LEAVE_KEYS.all,
+    queryFn: () => LeaveService.getLeave(id!),
+    enabled: !!id,
+    ...QUERY_CONFIG.DYNAMIC_DATA,
+  });
 
   return {
-    leave,
-    loading,
-    error,
-    refetch: fetchLeave
+    leave: query.data ?? null,
+    loading: query.isPending,
+    error: query.error ? String(query.error) : null,
+    refetch: query.refetch,
   };
 }
+
+// ─── Pending leaves ───────────────────────────────────────────────────────────
 
 /**
  * Hook for pending leaves
  */
 export function usePendingLeaves(institutionId: string | null, limit: number = 10) {
-  const [leaves, setLeaves] = useState<InstitutionLeave[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const fetchPendingLeaves = useCallback(async () => {
-    if (!institutionId) {
-      setLeaves([]);
-      return;
-    }
-
-    try {
-      setLoading(true);
-      setError(null);
-      const result = await LeaveService.getPendingLeaves(institutionId, limit);
-      setLeaves(result);
-    } catch (err) {
-      console.error('Error fetching pending leaves:', err);
-      setError(err instanceof Error ? err.message : 'An error occurred');
-    } finally {
-      setLoading(false);
-    }
-  }, [institutionId, limit]);
-
-  useEffect(() => {
-    fetchPendingLeaves();
-  }, [fetchPendingLeaves]);
+  const query = useQuery({
+    queryKey: institutionId
+      ? LEAVE_KEYS.pending(institutionId, limit)
+      : LEAVE_KEYS.all,
+    queryFn: () => LeaveService.getPendingLeaves(institutionId!, limit),
+    enabled: !!institutionId,
+    ...QUERY_CONFIG.DYNAMIC_DATA,
+  });
 
   return {
-    leaves,
-    loading,
-    error,
-    refetch: fetchPendingLeaves
+    leaves: query.data ?? [],
+    loading: query.isPending,
+    error: query.error ? String(query.error) : null,
+    refetch: query.refetch,
   };
 }
+
+// ─── Upcoming leaves ──────────────────────────────────────────────────────────
 
 /**
  * Hook for upcoming leaves
  */
 export function useUpcomingLeaves(institutionId: string | null, days: number = 30) {
-  const [leaves, setLeaves] = useState<InstitutionLeave[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const fetchUpcomingLeaves = useCallback(async () => {
-    if (!institutionId) {
-      setLeaves([]);
-      return;
-    }
-
-    try {
-      setLoading(true);
-      setError(null);
-      const result = await LeaveService.getUpcomingLeaves(institutionId, days);
-      setLeaves(result);
-    } catch (err) {
-      console.error('Error fetching upcoming leaves:', err);
-      setError(err instanceof Error ? err.message : 'An error occurred');
-    } finally {
-      setLoading(false);
-    }
-  }, [institutionId, days]);
-
-  useEffect(() => {
-    fetchUpcomingLeaves();
-  }, [fetchUpcomingLeaves]);
+  const query = useQuery({
+    queryKey: institutionId
+      ? LEAVE_KEYS.upcoming(institutionId, days)
+      : LEAVE_KEYS.all,
+    queryFn: () => LeaveService.getUpcomingLeaves(institutionId!, days),
+    enabled: !!institutionId,
+    ...QUERY_CONFIG.DYNAMIC_DATA,
+  });
 
   return {
-    leaves,
-    loading,
-    error,
-    refetch: fetchUpcomingLeaves
+    leaves: query.data ?? [],
+    loading: query.isPending,
+    error: query.error ? String(query.error) : null,
+    refetch: query.refetch,
   };
 }

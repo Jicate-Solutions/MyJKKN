@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { StaffPlanService } from '@/lib/services/academic/staff-plan-service';
+import { QUERY_CONFIG } from '@/lib/config/query-config';
 
 interface AvailableCourse {
   id: string;
@@ -10,51 +11,53 @@ interface AvailableCourse {
   mapping_id: string;
 }
 
-export function useAvailableCourses() {
-  const [courses, setCourses] = useState<AvailableCourse[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+interface AvailableCourseFilters {
+  institutionId: string;
+  departmentId: string;
+  programId: string;
+  semesterId: string;
+}
 
-  const fetchAvailableCourses = useCallback(
-    async (
-      institutionId: string,
-      departmentId: string,
-      programId: string,
-      semesterId: string
-    ) => {
-      try {
-        setLoading(true);
-        setError(null);
+// ─── Query keys ──────────────────────────────────────────────────────────────
 
-        // Only proceed if all required IDs are provided
-        if (!institutionId || !departmentId || !programId || !semesterId) {
-          setCourses([]);
-          return;
-        }
+export const AVAILABLE_COURSES_KEYS = {
+  all: ['available-courses'] as const,
+  list: (filters: AvailableCourseFilters) =>
+    ['available-courses', 'list', filters] as const,
+};
 
-        const result = await StaffPlanService.getAvailableCoursesFromMappings(
-          institutionId,
-          departmentId,
-          programId,
-          semesterId
-        );
+// ─── Hooks ───────────────────────────────────────────────────────────────────
 
-        setCourses(result);
-      } catch (err) {
-        console.error('Error fetching available courses:', err);
-        setError(err instanceof Error ? err.message : 'An error occurred');
-        setCourses([]);
-      } finally {
-        setLoading(false);
-      }
-    },
-    []
-  );
+export function useAvailableCourses(filters?: AvailableCourseFilters) {
+  const enabled =
+    !!filters?.institutionId &&
+    !!filters?.departmentId &&
+    !!filters?.programId &&
+    !!filters?.semesterId;
+
+  const query = useQuery<AvailableCourse[]>({
+    queryKey: filters
+      ? AVAILABLE_COURSES_KEYS.list(filters)
+      : AVAILABLE_COURSES_KEYS.all,
+    queryFn: () =>
+      StaffPlanService.getAvailableCoursesFromMappings(
+        filters!.institutionId,
+        filters!.departmentId,
+        filters!.programId,
+        filters!.semesterId
+      ),
+    enabled,
+    ...QUERY_CONFIG.SEMI_STABLE_DATA,
+  });
 
   return {
-    courses,
-    loading,
-    error,
-    fetchAvailableCourses
+    // Backward-compatible names
+    courses: query.data ?? [],
+    loading: query.isPending,
+    error: query.error ? String(query.error) : null,
+    // React Query extras for consumers that want them
+    refetch: query.refetch,
+    isLoading: query.isPending,
+    isFetching: query.isFetching,
   };
 }
