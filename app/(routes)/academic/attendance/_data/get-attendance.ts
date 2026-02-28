@@ -2,7 +2,17 @@
  * Server-side data fetching for Daily Attendance Records
  */
 
-
+/**
+ * SERVER-SIDE DATA FETCHER — runs in React Server Components using server Supabase client.
+ * Client-side mirror: {@link AttendanceService#getConsolidatedAttendance} in lib/services/academic/attendance-service.ts
+ *
+ * NOTE: This fetcher queries `daily_attendance` (the admin list view of attendance records).
+ * The service mirror queries `student_attendance` (per-student consolidated records).
+ * These are intentionally different tables serving different UI purposes — do not conflate.
+ *
+ * Do not replace with service call — server vs client Supabase boundary.
+ * Keep query shapes in sync when modifying either side.
+ */
 
 import { createClient } from '@/lib/supabase/server';
 

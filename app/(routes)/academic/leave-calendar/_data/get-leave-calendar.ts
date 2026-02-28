@@ -2,7 +2,17 @@
  * Server-side data fetching for Leave Calendar View
  */
 
-
+/**
+ * SERVER-SIDE DATA FETCHER — runs in React Server Components using server Supabase client.
+ * Client-side mirror: {@link LeaveCalendarService#getMonthlyCalendarData} in lib/services/academic/leave-calendar-service.ts
+ *
+ * NOTE: The service mirror delegates to the `get_leaves_for_month` database RPC for the raw leave
+ * data. This fetcher queries `institution_leaves` directly. The calendar transformation logic
+ * (building day-by-day breakdown) is duplicated in both — keep in sync.
+ *
+ * Do not replace with service call — server vs client Supabase boundary.
+ * Keep query shapes in sync when modifying either side.
+ */
 
 import { createClient } from '@/lib/supabase/server';
 

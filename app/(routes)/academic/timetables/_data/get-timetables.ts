@@ -4,7 +4,17 @@
  * Cached server function for fetching timetables with filters.
  */
 
-
+/**
+ * SERVER-SIDE DATA FETCHER — runs in React Server Components using server Supabase client.
+ * Client-side mirror: {@link TimetableService#getTimetables} in lib/services/academic/timetable-service.ts
+ *
+ * NOTE: The service mirror uses FK-alias join syntax (e.g. `institution:institution_id(id, name)`)
+ * while this fetcher uses table-name alias syntax (e.g. `institution:institutions(id, name)`).
+ * Both resolve to the same data in PostgREST — keep select fields in sync.
+ *
+ * Do not replace with service call — server vs client Supabase boundary.
+ * Keep query shapes in sync when modifying either side.
+ */
 
 import { createClient } from '@/lib/supabase/server';
 

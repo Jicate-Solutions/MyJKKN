@@ -2,7 +2,17 @@
  * Server-side data fetching for Staff Planning List
  */
 
-
+/**
+ * SERVER-SIDE DATA FETCHER — runs in React Server Components using server Supabase client.
+ * Client-side mirror: {@link StaffPlanService#getStaffPlans} in lib/services/academic/staff-plan-service.ts
+ *
+ * NOTE: The service mirror calls the `get_consolidated_staff_plans` database RPC (with fallback to
+ * a direct `staff_plans` query). This fetcher queries `staff_plans` directly. Both target the same
+ * underlying data but the service consolidates duplicate plans via RPC.
+ *
+ * Do not replace with service call — server vs client Supabase boundary.
+ * Keep query shapes in sync when modifying either side.
+ */
 
 import { createClient } from '@/lib/supabase/server';
 
