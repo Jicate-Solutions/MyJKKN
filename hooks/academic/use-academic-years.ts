@@ -81,15 +81,12 @@ export function useAcademicYears(initialFilters: AcademicYearFilters = {}) {
     async (newFilters?: AcademicYearFilters) => {
       if (newFilters) {
         setFilters(newFilters);
-        // Invalidate so the updated key fetches fresh data
-        await queryClient.invalidateQueries({
-          queryKey: ACADEMIC_YEAR_KEYS.list(newFilters),
-        });
+        // setFilters triggers a re-render; useQuery picks up the new key and fetches automatically.
       } else {
         await query.refetch();
       }
     },
-    [query, queryClient]
+    [query]
   );
 
   // refetchWithCurrentFilters — kept for the one caller that uses it

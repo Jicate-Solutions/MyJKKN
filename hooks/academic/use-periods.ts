@@ -78,14 +78,12 @@ export function usePeriods(initialFilters: PeriodFilters = {}) {
     async (newFilters?: PeriodFilters) => {
       if (newFilters) {
         setFilters(newFilters);
-        await queryClient.invalidateQueries({
-          queryKey: PERIOD_KEYS.list(newFilters),
-        });
+        // setFilters triggers a re-render; useQuery picks up the new key and fetches automatically.
       } else {
         await query.refetch();
       }
     },
-    [query, queryClient]
+    [query]
   );
 
   // ------------------------------------------------------------------

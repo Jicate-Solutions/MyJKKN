@@ -79,14 +79,12 @@ export function useRegulations(initialFilters: RegulationFilters = {}) {
     async (newFilters?: RegulationFilters) => {
       if (newFilters) {
         setFilters(newFilters);
-        await queryClient.invalidateQueries({
-          queryKey: REGULATION_KEYS.list(newFilters),
-        });
+        // setFilters triggers a re-render; useQuery picks up the new key and fetches automatically.
       } else {
         await query.refetch();
       }
     },
-    [query, queryClient]
+    [query]
   );
 
   // ------------------------------------------------------------------

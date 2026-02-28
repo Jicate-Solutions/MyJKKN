@@ -80,14 +80,12 @@ export function useBatches(initialFilters: BatchFilters = {}) {
     async (newFilters?: BatchFilters) => {
       if (newFilters) {
         setFilters(newFilters);
-        await queryClient.invalidateQueries({
-          queryKey: BATCH_KEYS.list(newFilters),
-        });
+        // setFilters triggers a re-render; useQuery picks up the new key and fetches automatically.
       } else {
         await query.refetch();
       }
     },
-    [query, queryClient]
+    [query]
   );
 
   // ------------------------------------------------------------------
