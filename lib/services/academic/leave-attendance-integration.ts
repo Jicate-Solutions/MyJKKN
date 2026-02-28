@@ -301,12 +301,17 @@ export class LeaveAttendanceIntegration {
         .from('student_attendance')
         .select('section_id, semester_id, department_id')
         .eq('period_slot_id', timetableSlotId)
+        .eq('institution_id', institutionId)  // scope to correct institution
         .limit(1)
         .maybeSingle();
 
-      if (attError || !attendanceRef) {
-        logger.warn('academic/leave-attendance', 'No attendance record found for slot, skipping leave integration', { timetableSlotId });
-        // If we can't get the slot, allow attendance (fail-open)
+      if (attError) {
+        logger.error('academic/leaves', 'DB error resolving slot context for leave check', { timetableSlotId, error: attError });
+        return { allowed: true };
+      }
+      if (!attendanceRef) {
+        // No rows means slot has never been used; fail-open is intentional
+        logger.warn('academic/leaves', 'No attendance record found for slot, skipping leave integration', { timetableSlotId });
         return { allowed: true };
       }
 
