@@ -1,162 +1,158 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+// hooks/academic/use-periods.ts
+// Updated: 2026-02-28 — Migrated from useState/useCallback/useEffect to React Query
+// Previous: manual fetch with useRef to avoid stale closures + setTimeout hacks
+
+import { useState, useCallback } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { QUERY_CONFIG } from '@/lib/config/query-config';
 import { PeriodService } from '@/lib/services/academic/period-service';
 import { usePermissions } from '@/hooks/use-permissions';
+import { toast } from 'react-hot-toast';
 import type {
   Period,
   PeriodFilters,
   CreatePeriodDto,
-  UpdatePeriodDto
+  UpdatePeriodDto,
 } from '@/types/academics';
 
+// ---------------------------------------------------------------------------
+// Query keys
+// ---------------------------------------------------------------------------
+export const PERIOD_KEYS = {
+  all: ['periods'] as const,
+  list: (filters: PeriodFilters) => ['periods', 'list', filters] as const,
+} as const;
+
+// ---------------------------------------------------------------------------
+// usePeriods — paginated list + CRUD mutations (backward-compatible)
+//
+// Callers destructure (across all files):
+//   { createPeriod }   (periods/new/page.tsx — only needs the mutation)
+// All previously exported fields are still present for other potential callers.
+// ---------------------------------------------------------------------------
 export function usePeriods(initialFilters: PeriodFilters = {}) {
   const { isSuperAdmin, userProfile } = usePermissions();
-  const [periods, setPeriods] = useState<Period[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+
   const [filters, setFilters] = useState<PeriodFilters>(initialFilters);
-  const [metadata, setMetadata] = useState({
-    total: 0,
-    page: 1,
-    limit: 10,
-    totalPages: 0
+
+  // ------------------------------------------------------------------
+  // List query
+  // ------------------------------------------------------------------
+  const query = useQuery({
+    queryKey: PERIOD_KEYS.list(filters),
+    queryFn: () => {
+      return isSuperAdmin
+        ? PeriodService.getPeriods(filters)
+        : PeriodService.getPeriodsWithAccess(
+            filters,
+            userProfile?.institution_id,
+            false
+          );
+    },
+    enabled: isSuperAdmin !== undefined,
+    ...QUERY_CONFIG.STABLE_DATA,
   });
 
-  // Use ref to track the current filters to avoid stale closure issues
-  const filtersRef = useRef(filters);
-  filtersRef.current = filters;
+  const periods: Period[] = query.data?.data ?? [];
+  const rawMeta = query.data?.metadata;
+  const metadata = {
+    total: rawMeta?.total ?? 0,
+    page: filters.page ?? 1,
+    limit: filters.limit ?? 10,
+    totalPages: Math.ceil((rawMeta?.total ?? 0) / (filters.limit ?? 10)),
+  };
+
+  // ------------------------------------------------------------------
+  // Filter helpers
+  // ------------------------------------------------------------------
+  const updateFilters = useCallback((newFilters: Partial<PeriodFilters>) => {
+    setFilters((prev) => ({ ...prev, ...newFilters, page: 1 }));
+  }, []);
+
+  const changePage = useCallback((newPage: number) => {
+    setFilters((prev) => ({ ...prev, page: newPage }));
+  }, []);
 
   const fetchPeriods = useCallback(
     async (newFilters?: PeriodFilters) => {
-      try {
-        setLoading(true);
-        setError(null);
-        // Use the passed filters or the current filters from ref
-        const currentFilters = newFilters || filtersRef.current;
-
-        // Use institution-aware method if user is not super admin
-        const result = isSuperAdmin
-          ? await PeriodService.getPeriods(currentFilters)
-          : await PeriodService.getPeriodsWithAccess(
-              currentFilters,
-              userProfile?.institution_id,
-              false
-            );
-        setPeriods(result.data);
-        setMetadata(result.metadata);
-
-        if (newFilters) {
-          setFilters(newFilters);
-        }
-      } catch (err) {
-        console.error('Error fetching periods:', err);
-        setError(err instanceof Error ? err.message : 'An error occurred');
-      } finally {
-        setLoading(false);
+      if (newFilters) {
+        setFilters(newFilters);
+        await queryClient.invalidateQueries({
+          queryKey: PERIOD_KEYS.list(newFilters),
+        });
+      } else {
+        await query.refetch();
       }
     },
-    [isSuperAdmin, userProfile?.institution_id] // Removed 'filters' dependency
+    [query, queryClient]
   );
 
-  const updateFilters = useCallback(
-    (newFilters: Partial<PeriodFilters>) => {
-      setFilters((currentFilters) => {
-        const updatedFilters = {
-          ...currentFilters,
-          ...newFilters,
-          page: 1 // Reset to first page when filters change
-        };
-        // Use setTimeout to break the synchronous update cycle
-        setTimeout(() => {
-          fetchPeriods(updatedFilters);
-        }, 0);
-        return updatedFilters;
-      });
+  // ------------------------------------------------------------------
+  // Mutations
+  // ------------------------------------------------------------------
+  const createMutation = useMutation({
+    mutationFn: (data: CreatePeriodDto) => PeriodService.createPeriod(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: PERIOD_KEYS.all });
+      toast.success('Period created successfully');
     },
-    [fetchPeriods]
-  );
-
-  const changePage = useCallback(
-    (page: number) => {
-      setFilters((currentFilters) => {
-        const updatedFilters = { ...currentFilters, page };
-        // Use setTimeout to break the synchronous update cycle
-        setTimeout(() => {
-          fetchPeriods(updatedFilters);
-        }, 0);
-        return updatedFilters;
-      });
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to create period');
     },
-    [fetchPeriods]
-  );
+  });
 
-  // Update filtersRef when initialFilters change
-  useEffect(() => {
-    if (JSON.stringify(initialFilters) !== JSON.stringify(filtersRef.current)) {
-      setFilters(initialFilters);
-    }
-  }, [initialFilters]);
+  const updateMutation = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: UpdatePeriodDto }) =>
+      PeriodService.updatePeriod(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: PERIOD_KEYS.all });
+      toast.success('Period updated successfully');
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to update period');
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => PeriodService.deletePeriod(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: PERIOD_KEYS.all });
+      toast.success('Period deleted successfully');
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to delete period');
+    },
+  });
 
   const createPeriod = useCallback(
     async (data: CreatePeriodDto) => {
-      try {
-        setLoading(true);
-        setError(null);
-        await PeriodService.createPeriod(data);
-        // Refresh periods list
-        fetchPeriods();
-      } catch (err) {
-        console.error('Error creating period:', err);
-        setError(err instanceof Error ? err.message : 'An error occurred');
-        throw err;
-      } finally {
-        setLoading(false);
-      }
+      await createMutation.mutateAsync(data);
     },
-    [fetchPeriods]
+    [createMutation]
   );
 
   const updatePeriod = useCallback(
     async (id: string, data: UpdatePeriodDto) => {
-      try {
-        setLoading(true);
-        setError(null);
-        await PeriodService.updatePeriod(id, data);
-        // Refresh periods list
-        fetchPeriods();
-      } catch (err) {
-        console.error('Error updating period:', err);
-        setError(err instanceof Error ? err.message : 'An error occurred');
-        throw err;
-      } finally {
-        setLoading(false);
-      }
+      await updateMutation.mutateAsync({ id, data });
     },
-    [fetchPeriods]
+    [updateMutation]
   );
 
   const deletePeriod = useCallback(
     async (id: string) => {
-      try {
-        setLoading(true);
-        setError(null);
-        await PeriodService.deletePeriod(id);
-        // Refresh periods list
-        fetchPeriods();
-      } catch (err) {
-        console.error('Error deleting period:', err);
-        setError(err instanceof Error ? err.message : 'An error occurred');
-        throw err;
-      } finally {
-        setLoading(false);
-      }
+      await deleteMutation.mutateAsync(id);
     },
-    [fetchPeriods]
+    [deleteMutation]
   );
+
+  const isMutating =
+    createMutation.isPending || updateMutation.isPending || deleteMutation.isPending;
 
   return {
     periods,
-    loading,
-    error,
+    loading: query.isLoading || query.isFetching || isMutating,
+    error: query.error ? (query.error as Error).message : null,
     metadata,
     filters,
     updateFilters,
@@ -164,6 +160,6 @@ export function usePeriods(initialFilters: PeriodFilters = {}) {
     fetchPeriods,
     createPeriod,
     updatePeriod,
-    deletePeriod
+    deletePeriod,
   };
 }
