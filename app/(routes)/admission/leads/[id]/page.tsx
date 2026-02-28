@@ -586,7 +586,8 @@ function LeadDetailPageContent() {
   // Edit lead dialog state
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [editForm, setEditForm] = useState({
-    full_name: '',
+    first_name: '',
+    last_name: '',
     email: '',
     phone: '',
     alternate_phone: '',
@@ -690,7 +691,8 @@ function LeadDetailPageContent() {
     const districts = stateId ? getDistrictsByState(stateId) : [];
     const districtId = districts.find((d) => d.name === l.district)?.id || '';
     setEditForm({
-      full_name: l.full_name || '',
+      first_name: l.first_name || '',
+      last_name: l.last_name || '',
       email: l.email || '',
       phone: l.phone || '',
       alternate_phone: l.alternate_phone || '',
@@ -729,8 +731,8 @@ function LeadDetailPageContent() {
   };
 
   const handleEditSubmit = async () => {
-    if (!lead || !editForm.full_name.trim() || !editForm.phone.trim()) {
-      toast.error('Full name and phone are required');
+    if (!lead || !editForm.first_name.trim() || !editForm.phone.trim()) {
+      toast.error('First name and phone are required');
       return;
     }
     const selectedState = indianStates.find((s) => s.id === editForm.state);
@@ -739,7 +741,8 @@ function LeadDetailPageContent() {
       {
         id: lead.id,
         data: {
-          full_name: editForm.full_name.trim(),
+          first_name: editForm.first_name.trim(),
+          last_name: editForm.last_name.trim() || null,
           email: editForm.email?.trim() || null,
           phone: editForm.phone.trim(),
           alternate_phone: editForm.alternate_phone?.trim() || null,
@@ -2209,12 +2212,22 @@ function LeadDetailPageContent() {
                   <h4 className="text-sm font-semibold text-muted-foreground">Personal Information</h4>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <Label htmlFor="edit-full_name">Full Name *</Label>
+                      <Label htmlFor="edit-first_name">First Name *</Label>
                       <Input
-                        id="edit-full_name"
-                        value={editForm.full_name}
-                        onChange={(e) => handleEditChange('full_name', e.target.value)}
+                        id="edit-first_name"
+                        value={editForm.first_name}
+                        onChange={(e) => handleEditChange('first_name', e.target.value)}
                         className="mt-1"
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="edit-last_name">Last Name</Label>
+                      <Input
+                        id="edit-last_name"
+                        value={editForm.last_name}
+                        onChange={(e) => handleEditChange('last_name', e.target.value)}
+                        className="mt-1"
+                        placeholder="Optional"
                       />
                     </div>
                     <div>
