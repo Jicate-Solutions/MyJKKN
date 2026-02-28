@@ -307,7 +307,7 @@ export function useLeaveDatesInRange(
         endDate!
       ),
     enabled,
-    ...QUERY_CONFIG.STABLE_DATA,
+    ...QUERY_CONFIG.DYNAMIC_DATA,
   });
 
   return {
@@ -388,7 +388,7 @@ export function useBlockedDates(
         sectionId
       ),
     enabled,
-    ...QUERY_CONFIG.STABLE_DATA,
+    ...QUERY_CONFIG.DYNAMIC_DATA,
   });
 
   return {

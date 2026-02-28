@@ -9,6 +9,7 @@ import { useState, useMemo, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { LeaveService } from '@/lib/services/academic/leave-service';
 import { usePermissions } from '@/hooks/use-permissions';
+import toast from 'react-hot-toast';
 import { QUERY_CONFIG } from '@/lib/config/query-config';
 import type {
   InstitutionLeave,
@@ -115,6 +116,7 @@ export function useLeaves(initialFilters: LeaveFilters = {}) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: LEAVE_KEYS.all });
     },
+    onError: () => { toast.error('Failed to create leave'); },
   });
 
   const updateMutation = useMutation({
@@ -123,6 +125,7 @@ export function useLeaves(initialFilters: LeaveFilters = {}) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: LEAVE_KEYS.all });
     },
+    onError: () => { toast.error('Failed to update leave'); },
   });
 
   const deleteMutation = useMutation({
@@ -130,6 +133,7 @@ export function useLeaves(initialFilters: LeaveFilters = {}) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: LEAVE_KEYS.all });
     },
+    onError: () => { toast.error('Failed to delete leave'); },
   });
 
   const approveMutation = useMutation({
@@ -140,6 +144,7 @@ export function useLeaves(initialFilters: LeaveFilters = {}) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: LEAVE_KEYS.all });
     },
+    onError: () => { toast.error('Failed to approve leave'); },
   });
 
   const rejectMutation = useMutation({
@@ -150,6 +155,7 @@ export function useLeaves(initialFilters: LeaveFilters = {}) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: LEAVE_KEYS.all });
     },
+    onError: () => { toast.error('Failed to reject leave'); },
   });
 
   const cancelMutation = useMutation({
@@ -157,32 +163,33 @@ export function useLeaves(initialFilters: LeaveFilters = {}) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: LEAVE_KEYS.all });
     },
+    onError: () => { toast.error('Failed to cancel leave'); },
   });
 
   // ── Backward-compatible async wrappers ────────────────────────────────────
 
   const createLeave = async (data: CreateLeaveDto) => {
-    return createMutation.mutateAsync(data);
+    try { return await createMutation.mutateAsync(data); } catch { return null; }
   };
 
   const updateLeave = async (id: string, data: UpdateLeaveDto) => {
-    return updateMutation.mutateAsync({ id, data });
+    try { return await updateMutation.mutateAsync({ id, data }); } catch { return null; }
   };
 
   const deleteLeave = async (id: string) => {
-    return deleteMutation.mutateAsync(id);
+    try { return await deleteMutation.mutateAsync(id); } catch { return null; }
   };
 
   const approveLeave = async (id: string, comments?: string) => {
-    return approveMutation.mutateAsync({ id, comments });
+    try { return await approveMutation.mutateAsync({ id, comments }); } catch { return null; }
   };
 
   const rejectLeave = async (id: string, reason: string) => {
-    return rejectMutation.mutateAsync({ id, reason });
+    try { return await rejectMutation.mutateAsync({ id, reason }); } catch { return null; }
   };
 
   const cancelLeave = async (id: string) => {
-    return cancelMutation.mutateAsync(id);
+    try { return await cancelMutation.mutateAsync(id); } catch { return null; }
   };
 
   // ── Aggregate loading/error ────────────────────────────────────────────────
