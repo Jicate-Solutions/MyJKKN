@@ -508,6 +508,155 @@ function AdmissionTemplatesPageContent() {
                       />
                     </div>
 
+                    {/* WhatsApp Media Attachment — only shown for WhatsApp channel */}
+                    {formData.channel === 'whatsapp' && (
+                      <div className="space-y-3 p-3 border rounded-md bg-muted/30">
+                        <Label className="flex items-center gap-2 text-sm font-medium">
+                          <ImageIcon className="h-4 w-4" />
+                          Media Attachment
+                          <span className="text-xs font-normal text-muted-foreground">(Optional)</span>
+                        </Label>
+
+                        {/* Attachment type selector */}
+                        <div className="flex gap-2 flex-wrap">
+                          {([
+                            { value: null, label: 'None' },
+                            { value: 'image' as const, label: 'Image', icon: ImageIcon },
+                            { value: 'video' as const, label: 'Video', icon: Film },
+                            { value: 'document' as const, label: 'Document', icon: DocIcon },
+                          ] as const).map((opt) => (
+                            <Button
+                              key={String(opt.value)}
+                              type="button"
+                              variant={formData.attachment_type === opt.value ? 'default' : 'outline'}
+                              size="sm"
+                              onClick={() =>
+                                setFormData({ ...formData, attachment_type: opt.value, attachment_url: null })
+                              }
+                            >
+                              {('icon' in opt && opt.icon) ? <opt.icon className="h-3 w-3 mr-1" /> : null}
+                              {opt.label}
+                            </Button>
+                          ))}
+                        </div>
+
+                        {/* URL / Upload tabs */}
+                        {formData.attachment_type && (
+                          <div className="space-y-2">
+                            <div className="flex gap-1 border-b">
+                              <button
+                                type="button"
+                                className={`px-3 py-1.5 text-sm border-b-2 transition-colors ${
+                                  mediaInputMode === 'url'
+                                    ? 'border-primary text-primary font-medium'
+                                    : 'border-transparent text-muted-foreground hover:text-foreground'
+                                }`}
+                                onClick={() => setMediaInputMode('url')}
+                              >
+                                <Link2 className="h-3 w-3 inline mr-1" />
+                                Paste URL
+                              </button>
+                              <button
+                                type="button"
+                                className={`px-3 py-1.5 text-sm border-b-2 transition-colors ${
+                                  mediaInputMode === 'upload'
+                                    ? 'border-primary text-primary font-medium'
+                                    : 'border-transparent text-muted-foreground hover:text-foreground'
+                                }`}
+                                onClick={() => setMediaInputMode('upload')}
+                              >
+                                <Upload className="h-3 w-3 inline mr-1" />
+                                Upload File
+                              </button>
+                            </div>
+
+                            {mediaInputMode === 'url' && (
+                              <div className="flex gap-2">
+                                <Input
+                                  placeholder={
+                                    formData.attachment_type === 'image'
+                                      ? 'https://example.com/photo.jpg'
+                                      : formData.attachment_type === 'video'
+                                      ? 'https://example.com/video.mp4'
+                                      : 'https://example.com/brochure.pdf'
+                                  }
+                                  value={formData.attachment_url || ''}
+                                  onChange={(e) =>
+                                    setFormData({ ...formData, attachment_url: e.target.value || null })
+                                  }
+                                />
+                                {formData.attachment_url && (
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => setFormData({ ...formData, attachment_url: null })}
+                                  >
+                                    <XIcon className="h-4 w-4" />
+                                  </Button>
+                                )}
+                              </div>
+                            )}
+
+                            {mediaInputMode === 'upload' && (
+                              <div className="space-y-2">
+                                <div className="flex items-center gap-2">
+                                  <label className="cursor-pointer">
+                                    <input
+                                      type="file"
+                                      className="hidden"
+                                      accept={
+                                        formData.attachment_type === 'image'
+                                          ? 'image/jpeg,image/png,image/gif,image/webp'
+                                          : formData.attachment_type === 'video'
+                                          ? 'video/mp4,video/quicktime'
+                                          : 'application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+                                      }
+                                      onChange={(e) => {
+                                        const file = e.target.files?.[0];
+                                        if (file) handleMediaUpload(file);
+                                      }}
+                                      disabled={isUploadingMedia}
+                                    />
+                                    <Button type="button" variant="outline" size="sm" asChild disabled={isUploadingMedia}>
+                                      <span>
+                                        {isUploadingMedia ? (
+                                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                        ) : (
+                                          <Upload className="h-4 w-4 mr-2" />
+                                        )}
+                                        {isUploadingMedia ? 'Uploading…' : 'Choose File'}
+                                      </span>
+                                    </Button>
+                                  </label>
+                                  {formData.attachment_url && !isUploadingMedia && (
+                                    <span className="text-xs text-green-600">✓ Uploaded</span>
+                                  )}
+                                </div>
+                                {formData.attachment_url && (
+                                  <p className="text-xs text-muted-foreground truncate max-w-sm">
+                                    {formData.attachment_url}
+                                  </p>
+                                )}
+                              </div>
+                            )}
+
+                            {formData.attachment_type === 'image' && formData.attachment_url && (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img
+                                src={formData.attachment_url}
+                                alt="Attachment preview"
+                                className="rounded border max-h-32 object-contain mt-1"
+                                onError={(e) => {
+                                  (e.currentTarget as HTMLImageElement).style.display = 'none';
+                                }}
+                              />
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
                     <div className="space-y-2">
                       <Label className="flex items-center gap-2">
                         <Variable className="h-4 w-4" />
@@ -924,6 +1073,155 @@ function AdmissionTemplatesPageContent() {
                   onChange={(e) => setFormData({ ...formData, content: e.target.value })}
                 />
               </div>
+
+              {/* WhatsApp Media Attachment — only shown for WhatsApp channel */}
+              {formData.channel === 'whatsapp' && (
+                <div className="space-y-3 p-3 border rounded-md bg-muted/30">
+                  <Label className="flex items-center gap-2 text-sm font-medium">
+                    <ImageIcon className="h-4 w-4" />
+                    Media Attachment
+                    <span className="text-xs font-normal text-muted-foreground">(Optional)</span>
+                  </Label>
+
+                  {/* Attachment type selector */}
+                  <div className="flex gap-2 flex-wrap">
+                    {([
+                      { value: null, label: 'None' },
+                      { value: 'image' as const, label: 'Image', icon: ImageIcon },
+                      { value: 'video' as const, label: 'Video', icon: Film },
+                      { value: 'document' as const, label: 'Document', icon: DocIcon },
+                    ] as const).map((opt) => (
+                      <Button
+                        key={String(opt.value)}
+                        type="button"
+                        variant={formData.attachment_type === opt.value ? 'default' : 'outline'}
+                        size="sm"
+                        onClick={() =>
+                          setFormData({ ...formData, attachment_type: opt.value, attachment_url: null })
+                        }
+                      >
+                        {('icon' in opt && opt.icon) ? <opt.icon className="h-3 w-3 mr-1" /> : null}
+                        {opt.label}
+                      </Button>
+                    ))}
+                  </div>
+
+                  {/* URL / Upload tabs */}
+                  {formData.attachment_type && (
+                    <div className="space-y-2">
+                      <div className="flex gap-1 border-b">
+                        <button
+                          type="button"
+                          className={`px-3 py-1.5 text-sm border-b-2 transition-colors ${
+                            mediaInputMode === 'url'
+                              ? 'border-primary text-primary font-medium'
+                              : 'border-transparent text-muted-foreground hover:text-foreground'
+                          }`}
+                          onClick={() => setMediaInputMode('url')}
+                        >
+                          <Link2 className="h-3 w-3 inline mr-1" />
+                          Paste URL
+                        </button>
+                        <button
+                          type="button"
+                          className={`px-3 py-1.5 text-sm border-b-2 transition-colors ${
+                            mediaInputMode === 'upload'
+                              ? 'border-primary text-primary font-medium'
+                              : 'border-transparent text-muted-foreground hover:text-foreground'
+                          }`}
+                          onClick={() => setMediaInputMode('upload')}
+                        >
+                          <Upload className="h-3 w-3 inline mr-1" />
+                          Upload File
+                        </button>
+                      </div>
+
+                      {mediaInputMode === 'url' && (
+                        <div className="flex gap-2">
+                          <Input
+                            placeholder={
+                              formData.attachment_type === 'image'
+                                ? 'https://example.com/photo.jpg'
+                                : formData.attachment_type === 'video'
+                                ? 'https://example.com/video.mp4'
+                                : 'https://example.com/brochure.pdf'
+                            }
+                            value={formData.attachment_url || ''}
+                            onChange={(e) =>
+                              setFormData({ ...formData, attachment_url: e.target.value || null })
+                            }
+                          />
+                          {formData.attachment_url && (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => setFormData({ ...formData, attachment_url: null })}
+                            >
+                              <XIcon className="h-4 w-4" />
+                            </Button>
+                          )}
+                        </div>
+                      )}
+
+                      {mediaInputMode === 'upload' && (
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-2">
+                            <label className="cursor-pointer">
+                              <input
+                                type="file"
+                                className="hidden"
+                                accept={
+                                  formData.attachment_type === 'image'
+                                    ? 'image/jpeg,image/png,image/gif,image/webp'
+                                    : formData.attachment_type === 'video'
+                                    ? 'video/mp4,video/quicktime'
+                                    : 'application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+                                }
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0];
+                                  if (file) handleMediaUpload(file);
+                                }}
+                                disabled={isUploadingMedia}
+                              />
+                              <Button type="button" variant="outline" size="sm" asChild disabled={isUploadingMedia}>
+                                <span>
+                                  {isUploadingMedia ? (
+                                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                  ) : (
+                                    <Upload className="h-4 w-4 mr-2" />
+                                  )}
+                                  {isUploadingMedia ? 'Uploading…' : 'Choose File'}
+                                </span>
+                              </Button>
+                            </label>
+                            {formData.attachment_url && !isUploadingMedia && (
+                              <span className="text-xs text-green-600">✓ Uploaded</span>
+                            )}
+                          </div>
+                          {formData.attachment_url && (
+                            <p className="text-xs text-muted-foreground truncate max-w-sm">
+                              {formData.attachment_url}
+                            </p>
+                          )}
+                        </div>
+                      )}
+
+                      {formData.attachment_type === 'image' && formData.attachment_url && (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={formData.attachment_url}
+                          alt="Attachment preview"
+                          className="rounded border max-h-32 object-contain mt-1"
+                          onError={(e) => {
+                            (e.currentTarget as HTMLImageElement).style.display = 'none';
+                          }}
+                        />
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div className="space-y-2">
                 <Label className="flex items-center gap-2">
