@@ -8,7 +8,7 @@ import {
  * AdmissionAIService
  *
  * Service for generating AI-powered insights from admissions analytics data
- * using Claude 3.5 Haiku API.
+ * using Claude claude-sonnet-4-6 API.
  *
  * Features:
  * - Comprehensive analysis of admissions analytics
@@ -60,11 +60,10 @@ export class AdmissionAIService {
       // Build comprehensive prompt
       const prompt = this.buildAnalysisPrompt(analyticsSummary, analytics);
 
-      // Call Claude API with Claude 3.5 Haiku
+      // Call Claude API with Claude claude-sonnet-4-5
       const response = await client.messages.create({
-        model: 'claude-3-5-haiku-20241022',
+        model: 'claude-sonnet-4-5',
         max_tokens: 4096,
-        temperature: 0.7,
         messages: [
           {
             role: 'user',
@@ -207,7 +206,7 @@ ${referenceSources
   }
 
   /**
-   * Build comprehensive analysis prompt for Claude 3.5 Haiku
+   * Build comprehensive analysis prompt for Claude claude-sonnet-4-6
    */
   private static buildAnalysisPrompt(
     summary: string,

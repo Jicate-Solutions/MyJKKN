@@ -529,8 +529,9 @@ export class CounselorDailyViewService {
   }
 
   /**
-   * Fetch active profiles with role='counselor' for an institution.
-   * This is the primary source of truth for counselor dropdowns.
+   * Fetch active profiles with counselor role for an institution.
+   * Checks BOTH sources: profiles.role='counselor' (primary role) AND
+   * user_roles junction table (multi-role users), then deduplicates by id.
    */
   static async getCounselorProfiles(institutionId: string): Promise<Array<{
     profile_id: string;
@@ -540,16 +541,43 @@ export class CounselorDailyViewService {
     designation: string | null;
   }>> {
     const supabase = createClientSupabaseClient();
-    const { data, error } = await (supabase as any)
+
+    // Step 1a: Get the counselor role_id from custom_roles.
+    const { data: roleRow } = await (supabase as any)
+      .from('custom_roles')
+      .select('id')
+      .eq('role_key', 'counselor')
+      .maybeSingle();
+
+    // Step 1b: Get all user_ids assigned that role via the junction table.
+    const junctionUserIds: string[] = [];
+    if (roleRow?.id) {
+      const { data: urRows } = await (supabase as any)
+        .from('user_roles')
+        .select('user_id')
+        .eq('role_id', roleRow.id);
+      (urRows || []).forEach((r: any) => junctionUserIds.push(r.user_id));
+    }
+
+    // Step 2: OR filter — primary role='counselor' OR assigned via user_roles.
+    // Using PostgREST filter syntax: id.in.(uuid1,uuid2,...)
+    let query = (supabase as any)
       .from('profiles')
       .select('id, full_name, email, phone_number, designation')
-      .eq('role', 'counselor')
       .eq('institution_id', institutionId)
       .eq('is_active', true)
       .order('full_name');
 
+    if (junctionUserIds.length > 0) {
+      query = query.or(`role.eq.counselor,id.in.(${junctionUserIds.join(',')})`);
+    } else {
+      query = query.eq('role', 'counselor');
+    }
+
+    const { data, error } = await query;
+
     if (error) {
-      // Intentionally throws (unlike getCounselors) so React Query surfaces an error state rather than silently showing an empty list.
+      // Intentionally throws so React Query surfaces an error state rather than silently showing an empty list.
       console.error('[CounselorDailyViewService] Failed to fetch counselor profiles:', error);
       throw new Error('Failed to fetch counselors');
     }

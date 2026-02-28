@@ -179,78 +179,25 @@ export class AIInsightsService {
   // ==========================================================================
 
   /**
-   * Generate and store insights by analyzing lead data
+   * Generate AI-powered insights via the server-side API route.
+   * Delegates to /api/admission/insights/generate which uses Claude claude-sonnet-4-6
+   * and a service-role Supabase client (bypasses RLS for read/write).
    */
   static async generateInsights(institutionId: string): Promise<AIInsight[]> {
-    const insights: Omit<AIInsight, 'id' | 'created_at' | 'updated_at'>[] = [];
+    const response = await fetch('/api/admission/insights/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ institutionId }),
+    });
 
-    try {
-      // Fetch leads data (counselor_id FK → profiles, not admission_counselors)
-      const { data: leads, error: leadsError } = await (this.supabase as any)
-        .from('admission_leads')
-        .select('*')
-        .eq('institution_id', institutionId);
-
-      if (leadsError) {
-        console.error('[AIInsightsService] Error fetching leads:', leadsError);
-        throw leadsError;
-      }
-
-      const allLeads = (leads || []) as AdmissionLead[];
-
-      // Generate various insights
-      const hotLeadsInsight = this.analyzeHotLeadsNoContact(allLeads, institutionId);
-      if (hotLeadsInsight) insights.push(hotLeadsInsight);
-
-      const staleLeadsInsight = this.analyzeStaleLeads(allLeads, institutionId);
-      if (staleLeadsInsight) insights.push(staleLeadsInsight);
-
-      const conversionInsight = this.analyzeConversionOpportunities(allLeads, institutionId);
-      if (conversionInsight) insights.push(conversionInsight);
-
-      const sourceInsight = this.analyzeSourcePerformance(allLeads, institutionId);
-      if (sourceInsight) insights.push(sourceInsight);
-
-      const todayFollowupsInsight = this.analyzeTodayFollowups(allLeads, institutionId);
-      if (todayFollowupsInsight) insights.push(todayFollowupsInsight);
-
-      const overdueFollowupsInsight = this.analyzeOverdueFollowups(allLeads, institutionId);
-      if (overdueFollowupsInsight) insights.push(overdueFollowupsInsight);
-
-      const unassignedLeadsInsight = this.analyzeUnassignedLeads(allLeads, institutionId);
-      if (unassignedLeadsInsight) insights.push(unassignedLeadsInsight);
-
-      const weeklyTrendInsight = this.analyzeWeeklyTrend(allLeads, institutionId);
-      if (weeklyTrendInsight) insights.push(weeklyTrendInsight);
-
-      // Clear existing non-dismissed insights and insert new ones
-      await (this.supabase as any)
-        .from('admission_ai_insights')
-        .delete()
-        .eq('institution_id', institutionId)
-        .eq('is_dismissed', false);
-
-      if (insights.length > 0) {
-        // Convert service shape → DB column shape before inserting
-        const rows = insights.map(AIInsightsService.mapInsightToRow);
-        const { data: inserted, error: insertError } = await (this.supabase as any)
-          .from('admission_ai_insights')
-          .insert(rows)
-          .select();
-
-        if (insertError) {
-          console.error('[AIInsightsService] Error inserting insights:', insertError);
-          throw insertError;
-        }
-
-        return (inserted || []).map(AIInsightsService.mapRowToInsight);
-      }
-
-      return [];
-    } catch (error) {
-      console.error('[AIInsightsService] Error generating insights:', error);
-      throw error;
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({ error: 'Unknown error' }));
+      console.error('[AIInsightsService] API route error:', err);
+      throw new Error(err.error || `Failed to generate insights (${response.status})`);
     }
+
+    const { insights } = await response.json();
+    return (insights || []).map(AIInsightsService.mapRowToInsight);
   }
 
   // ==========================================================================
