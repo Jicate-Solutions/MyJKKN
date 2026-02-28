@@ -104,9 +104,9 @@ export default function AttendanceReportDetailPage() {
   // Fetch staff ID for faculty users
   useEffect(() => {
     const fetchStaffId = async () => {
-      if (profile?.role === 'faculty' && profile?.id) {
+      if (profile?.role === 'faculty' && profile?.id && profile?.institution_id) {
         setRoleLoading(true);
-        const staffData = await AttendanceService.getStaffByProfileId(profile.id);
+        const staffData = await AttendanceService.getStaffByProfileId(profile.id, profile.institution_id);
         if (staffData) {
           setFacultyStaffId(staffData.id);
         }
@@ -115,7 +115,7 @@ export default function AttendanceReportDetailPage() {
     };
 
     fetchStaffId();
-  }, [profile]);
+  }, [profile?.role, profile?.id, profile?.institution_id]);
 
   // Determine if we should delay showing data for faculty users
   const isRegularFaculty =

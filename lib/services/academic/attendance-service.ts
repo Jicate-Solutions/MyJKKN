@@ -3852,15 +3852,23 @@ export class AttendanceService {
    * Resolve the staff record for a given auth profile ID.
    * Used by report pages to map the logged-in user's profile to their staff row.
    */
-  static async getStaffByProfileId(profileId: string): Promise<{ id: string } | null> {
+  static async getStaffByProfileId(
+    profileId: string,
+    institutionId: string
+  ): Promise<{ id: string } | null> {
     const { data, error } = await this.supabase
       .from('staff')
       .select('id')
       .eq('profile_id', profileId)
+      .eq('institution_id', institutionId)
       .maybeSingle();
 
     if (error) {
-      logger.warn('academic/attendance', 'Staff record not found for profile', { profileId });
+      logger.error('academic/attendance', 'Failed to look up staff record for profile', { profileId, institutionId, error });
+      return null;
+    }
+    if (!data) {
+      logger.warn('academic/attendance', 'No staff record found for profile', { profileId, institutionId });
       return null;
     }
     return data;
