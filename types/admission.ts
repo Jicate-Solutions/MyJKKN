@@ -89,7 +89,11 @@ export type TemplateType = 'sms' | 'email' | 'whatsapp';
 export interface AdmissionLead {
   id: string;
   institution_id: string;
-  full_name: string;
+  first_name: string;
+  last_name: string | null;
+  // Generated column (computed in DB as first_name + ' ' + last_name)
+  // Still present on SELECT results — do not write this field on INSERT/UPDATE
+  readonly full_name: string;
   email: string | null;
   phone: string;
   // Personal details
@@ -183,7 +187,8 @@ export interface AdmissionLead {
 
 export interface CreateLeadInput {
   institution_id: string;
-  full_name: string;
+  first_name: string;
+  last_name?: string | null;
   phone: string;
   email?: string | null;
   alternate_phone?: string | null;
