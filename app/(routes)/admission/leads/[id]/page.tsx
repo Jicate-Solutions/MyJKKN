@@ -64,7 +64,8 @@ import {
   Trash2,
   Loader2,
   ExternalLink,
-  Info
+  Info,
+  UserPlus
 } from 'lucide-react';
 import Link from 'next/link';
 import {
@@ -583,6 +584,36 @@ function LeadDetailPageContent() {
   const { createActivity } = useActivityMutations(leadId);
   const { createApplication } = useApplicationMutations();
 
+  // Convert to learner state
+  const [isConverting, setIsConverting] = useState(false);
+
+  const handleConvertToLearner = async () => {
+    if (!lead?.id || !lead.institution_id) return;
+    setIsConverting(true);
+    try {
+      const res = await fetch('/api/admission/bridge/convert', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ leadId: lead.id, institutionId: lead.institution_id }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        // If already converted (409), redirect to the existing profile
+        if (res.status === 409 && json.profileId) {
+          router.push(`/learners/enquiries/${json.profileId}/edit`);
+          return;
+        }
+        throw new Error(json.error || 'Conversion failed');
+      }
+      toast.success('Learner enquiry created — redirecting...');
+      router.push(`/learners/enquiries/${json.profileId}/edit`);
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Conversion failed');
+    } finally {
+      setIsConverting(false);
+    }
+  };
+
   // Edit lead dialog state
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [editForm, setEditForm] = useState({
@@ -1033,6 +1064,27 @@ function LeadDetailPageContent() {
                 <Star className="h-4 w-4 mr-1" />
                 {lead.is_priority ? 'Priority' : 'Mark Priority'}
               </Button>
+              {/* Convert to Learner Enquiry — shows "View Learner Profile" once converted */}
+              {lead.learner_profile_id ? (
+                <Button variant="outline" size="sm" asChild>
+                  <a href={`/learners/profiles/${lead.learner_profile_id}`}>
+                    <ExternalLink className="h-4 w-4 mr-2" />
+                    View Learner Profile
+                  </a>
+                </Button>
+              ) : (
+                <Button
+                  variant="default"
+                  size="sm"
+                  onClick={handleConvertToLearner}
+                  disabled={isConverting}
+                  className="bg-purple-600 hover:bg-purple-700"
+                >
+                  <UserPlus className={`h-4 w-4 mr-2 ${isConverting ? 'animate-pulse' : ''}`} />
+                  {isConverting ? 'Converting...' : 'Convert to Learner Enquiry'}
+                </Button>
+              )}
+
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="outline" size="icon">
