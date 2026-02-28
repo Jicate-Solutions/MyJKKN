@@ -11,7 +11,7 @@ import type {
   AttendanceRosterStudent,
   AttendancePeriodOption,
   // AttendanceStudent — moved to AttendanceRosterService
-  ConsolidatedStudentAttendance,
+  // ConsolidatedStudentAttendance — moved to AttendanceRosterService
   // ConsolidatedAttendanceData — moved to AttendanceRosterService
   // ConsolidatedAttendanceStudent — moved to AttendanceRosterService
   // CreateConsolidatedAttendanceDto,
@@ -700,7 +700,11 @@ export class AttendanceService {
     }
   }
 
-  // Get attendance roster data for a specific slot and date
+  /**
+   * @deprecated Use {@link AttendanceRosterService.getConsolidatedAttendanceRoster} instead.
+   * This legacy method queries the deprecated slot-based timetable structure.
+   * Kept here to avoid circular imports (calls getSlotDetails/getAttendanceRecords in this class).
+   */
   static async getAttendanceRoster(
     timetable_slot_id: string,
     attendance_date: string,
