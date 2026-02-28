@@ -76,7 +76,8 @@ const GENDERS = [
 ];
 
 interface FormData {
-  full_name: string;
+  first_name: string;
+  last_name: string;
   email: string;
   phone: string;
   alternate_phone: string;
@@ -252,7 +253,8 @@ function NewLeadPageContent() {
   }, [selectedProgramIds, programs]);
 
   const [formData, setFormData] = useState<FormData>({
-    full_name: '',
+    first_name: '',
+    last_name: '',
     email: '',
     phone: '',
     alternate_phone: '',
@@ -309,8 +311,8 @@ function NewLeadPageContent() {
   const validateForm = (): boolean => {
     const newErrors: Partial<Record<keyof FormData | 'institution', string>> = {};
 
-    if (!formData.full_name.trim()) {
-      newErrors.full_name = 'Full name is required';
+    if (!formData.first_name.trim()) {
+      newErrors.first_name = 'First name is required';
     }
 
     if (!formData.phone.trim()) {
@@ -351,7 +353,8 @@ function NewLeadPageContent() {
 
     const leadPayload = {
       institution_id: institutionId!,
-      full_name: formData.full_name.trim(),
+      first_name: formData.first_name.trim(),
+      last_name: formData.last_name.trim() || null,
       email: formData.email?.trim() || null,
       phone: formData.phone.trim(),
       source: formData.first_touch_source as any,
@@ -462,19 +465,29 @@ function NewLeadPageContent() {
                   <CardContent className="space-y-4">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div className="space-y-2">
-                        <Label htmlFor="full_name">
-                          Full Name <span className="text-destructive">*</span>
+                        <Label htmlFor="first_name">
+                          First Name <span className="text-destructive">*</span>
                         </Label>
                         <Input
-                          id="full_name"
-                          value={formData.full_name}
-                          onChange={(e) => handleChange('full_name', e.target.value)}
-                          placeholder="Enter full name"
-                          className={errors.full_name ? 'border-destructive' : ''}
+                          id="first_name"
+                          value={formData.first_name}
+                          onChange={(e) => handleChange('first_name', e.target.value)}
+                          placeholder="Enter first name"
+                          className={errors.first_name ? 'border-destructive' : ''}
                         />
-                        {errors.full_name && (
-                          <p className="text-xs text-destructive">{errors.full_name}</p>
+                        {errors.first_name && (
+                          <p className="text-xs text-destructive">{errors.first_name}</p>
                         )}
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="last_name">Last Name</Label>
+                        <Input
+                          id="last_name"
+                          value={formData.last_name}
+                          onChange={(e) => handleChange('last_name', e.target.value)}
+                          placeholder="Enter last name (optional)"
+                        />
                       </div>
 
                       <div className="space-y-2">
