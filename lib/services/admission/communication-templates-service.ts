@@ -22,6 +22,8 @@ export interface CommunicationTemplate {
   channel: TemplateChannel;
   subject: string | null;
   content: string;
+  attachment_type: 'image' | 'video' | 'document' | null;
+  attachment_url: string | null;
   description: string | null;
   category: string | null;
   variables: TemplateVariable[];
@@ -41,6 +43,8 @@ export interface CreateTemplateInput {
   description?: string;
   category?: string;
   variables?: TemplateVariable[];
+  attachment_type?: 'image' | 'video' | 'document' | null;
+  attachment_url?: string | null;
   is_active?: boolean;
 }
 
@@ -52,6 +56,8 @@ export interface UpdateTemplateInput {
   description?: string;
   category?: string;
   variables?: TemplateVariable[];
+  attachment_type?: 'image' | 'video' | 'document' | null;
+  attachment_url?: string | null;
   is_active?: boolean;
 }
 
@@ -179,6 +185,8 @@ export class CommunicationTemplatesService {
         description: input.description || null,
         category: input.category || null,
         variables: input.variables || [],
+        attachment_type: input.attachment_type ?? null,
+        attachment_url: input.attachment_url ?? null,
         is_active: input.is_active ?? true,
       })
       .select()
@@ -207,6 +215,8 @@ export class CommunicationTemplatesService {
     if (input.description !== undefined) updateData.description = input.description;
     if (input.category !== undefined) updateData.category = input.category;
     if (input.variables !== undefined) updateData.variables = input.variables;
+    if (input.attachment_type !== undefined) updateData.attachment_type = input.attachment_type;
+    if (input.attachment_url !== undefined) updateData.attachment_url = input.attachment_url;
     if (input.is_active !== undefined) updateData.is_active = input.is_active;
 
     const { data, error } = await this.supabase
@@ -264,6 +274,8 @@ export class CommunicationTemplatesService {
       description: original.description || undefined,
       category: original.category || undefined,
       variables: original.variables,
+      attachment_type: original.attachment_type ?? undefined,
+      attachment_url: original.attachment_url ?? undefined,
       is_active: false, // Start duplicates as inactive
     });
   }
