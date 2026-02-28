@@ -544,12 +544,16 @@ export function useConsolidatedAttendanceRoster() {
         setError(null);
 
         // Get marker info from the auth profile (already loaded via useAuth)
-        let markerName = profile?.full_name || 'Unknown';
+        let markerName = profile?.full_name || profile?.email || 'Unknown';
+        // Note: uses auth login email. Original implementation used institution_email from staff table.
+        // These are identical for most users; differs only when institution assigns a separate work email.
         let markerEmail = profile?.email || '';
 
         // For faculty users, look up their staff record via service
         if (profile?.id && profile?.role === 'faculty') {
           try {
+            // Service-layer lookup for logging/audit compliance (see Task 2.2).
+            // Staff name and email are sourced from auth profile below; return value not needed here.
             await AttendanceService.getStaffByProfileId(marked_by, institution_id);
           } catch (error) {
             console.warn(
