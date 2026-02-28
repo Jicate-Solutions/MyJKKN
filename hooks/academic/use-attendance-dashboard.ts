@@ -116,6 +116,28 @@ export function usePendingAttendance(
 }
 
 /**
+ * Hook for fetching active institutions (used by super admin institution selector)
+ */
+export function useActiveInstitutions(enabled: boolean = true) {
+  const {
+    data: institutions,
+    isLoading,
+    error
+  } = useQuery({
+    queryKey: ['active-institutions'],
+    queryFn: () => AttendanceDashboardService.getActiveInstitutions(),
+    enabled,
+    ...QUERY_CONFIG.DASHBOARD_DATA
+  });
+
+  return {
+    institutions: institutions || [],
+    isLoading,
+    error
+  };
+}
+
+/**
  * Hook for attendance trend analysis
  */
 export function useAttendanceTrend(institutionId?: string, days: number = 7) {

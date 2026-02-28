@@ -892,6 +892,23 @@ export class AttendanceDashboardService {
   }
 
   /**
+   * Get all active institutions for super admin institution selector
+   */
+  static async getActiveInstitutions(): Promise<{ id: string; name: string }[]> {
+    const { data, error } = await this.supabase
+      .from('institutions')
+      .select('id, name')
+      .eq('is_active', true)
+      .order('name');
+
+    if (error) {
+      logger.error('academic/attendance-dashboard', 'Failed to fetch active institutions', error);
+      return [];
+    }
+    return data ?? [];
+  }
+
+  /**
    * Get attendance summary for a date range
    * Useful for trend analysis
    */
