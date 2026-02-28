@@ -2,6 +2,8 @@ import { useState, useCallback, useEffect } from 'react';
 import { AttendanceService } from '@/lib/services/academic/attendance-service';
 import { AcademicYearService } from '@/lib/services/academic/academic-year-service';
 import { usePermissions } from '@/hooks/use-permissions';
+import { useAuth } from '@/hooks/use-auth';
+import { logger } from '@/lib/utils/enhanced-logger';
 import type {
   StudentAttendance,
   AttendanceFilters,
@@ -134,12 +136,7 @@ export function useAttendanceRoster() {
         isSuperAdmin?: boolean;
       } = {}
     ) => {
-      console.log(
-        'fetchAvailablePeriods called with context:',
-        context,
-        'options:',
-        options
-      );
+      logger.dev('academic/attendance', 'fetchAvailablePeriods called', { context, options });
 
       if (
         !context.institution_id ||
@@ -460,6 +457,7 @@ export function useConsolidatedAttendance() {
 }
 
 export function useConsolidatedAttendanceRoster() {
+  const { profile } = useAuth();
   const [rosterData, setRosterData] = useState<{
     students: any[];
     timetable: any;
@@ -545,43 +543,17 @@ export function useConsolidatedAttendanceRoster() {
         setLoading(true);
         setError(null);
 
-        // Get current user profile for marker info
-        const { createClientSupabaseClient } = await import(
-          '@/lib/supabase/client'
-        );
-        const supabase = createClientSupabaseClient();
-        const {
-          data: { user }
-        } = await supabase.auth.getUser();
+        // Get marker info from the auth profile (already loaded via useAuth)
+        let markerName = profile?.full_name || 'Unknown';
+        let markerEmail = profile?.email || '';
 
-        // Get better name from staff table if user is faculty
-        let markerName = user?.user_metadata?.full_name || 'Unknown';
-        let markerEmail = user?.email || '';
-
-        // Try to get staff details for better name/email if user is faculty
-        if (user?.id && user?.user_metadata?.role === 'faculty') {
+        // For faculty users, look up their staff record via service
+        if (profile?.id && profile?.role === 'faculty') {
           try {
-            const { data: staffData } = await supabase
-              .from('staff')
-              .select('first_name, last_name, email, institution_email')
-              .eq('profile_id', user.id)
-              .eq('is_active', true)
-              .single();
-
-            // Type cast to fix TypeScript inference after React 19 upgrade
-            const staffInfo = staffData as { first_name: string; last_name: string; email: string; institution_email: string } | null;
-
-            if (staffInfo) {
-              markerName =
-                `${staffInfo.first_name || ''} ${
-                  staffInfo.last_name || ''
-                }`.trim() || markerName;
-              markerEmail =
-                staffInfo.email || staffInfo.institution_email || markerEmail;
-            }
+            await AttendanceService.getStaffByProfileId(marked_by, institution_id);
           } catch (error) {
             console.warn(
-              'Could not fetch staff details for marker name:',
+              'Could not fetch staff record for marker:',
               error
             );
           }
@@ -628,7 +600,7 @@ export function useConsolidatedAttendanceRoster() {
             marked_by_details: {
               marker_id: marked_by, // This is the profile ID passed to the function
               marker_name: markerName,
-              marker_role: user?.user_metadata?.role || 'faculty',
+              marker_role: profile?.role || 'faculty',
               marker_email: markerEmail,
               marked_at: new Date().toISOString()
             },
@@ -679,7 +651,7 @@ export function useConsolidatedAttendanceRoster() {
         setLoading(false);
       }
     },
-    [rosterData, fetchConsolidatedRoster]
+    [rosterData, fetchConsolidatedRoster, profile]
   );
 
   return {
