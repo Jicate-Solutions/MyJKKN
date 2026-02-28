@@ -41,7 +41,7 @@ export interface CourseGrade {
   resource_link_title: string | null;
   score: number;
   score_maximum: number;
-  score_percentage: number;
+  score_percentage: number | null;
   activity_progress: string | null;
   grading_progress: string | null;
   graded_at: string | null;
@@ -50,7 +50,7 @@ export interface CourseGrade {
     id: string;
     name: string;
     tool_type: string;
-  };
+  } | null;
   learners_profiles: {
     id: string;
     first_name: string;
@@ -62,7 +62,7 @@ export interface CourseGrade {
     programs: { name: string } | null;
     semesters: { name: string } | null;
     sections: { name: string } | null;
-  };
+  } | null;
 }
 
 export interface CourseGradesFilterOptions {
