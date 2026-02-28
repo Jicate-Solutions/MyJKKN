@@ -111,6 +111,7 @@ export interface AdmissionLead {
   degree_id?: string | null;
   department_id?: string | null;
   program_id?: string | null;
+  program?: { id: string; program_name: string } | null;
   application_number?: string | null;
 
   // Source & Attribution

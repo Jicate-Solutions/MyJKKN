@@ -92,7 +92,7 @@ export class ApplicationService {
     let query = this.supabase
       .from('admission_leads')
       .select(
-        '*, counselor:profiles!admission_leads_assigned_counselor_id_fkey(id,full_name,email)',
+        '*, counselor:profiles!admission_leads_assigned_counselor_id_fkey(id,full_name,email), program:programs!admission_leads_program_id_fkey(id,program_name)',
         { count: 'exact' }
       );
 
@@ -163,7 +163,7 @@ export class ApplicationService {
     const { data, error } = await this.supabase
       .from('admission_leads')
       .select(
-        '*, counselor:profiles!admission_leads_assigned_counselor_id_fkey(id,full_name,email)'
+        '*, counselor:profiles!admission_leads_assigned_counselor_id_fkey(id,full_name,email), program:programs!admission_leads_program_id_fkey(id,program_name)'
       )
       .eq('id', id)
       .single();
@@ -217,7 +217,7 @@ export class ApplicationService {
         updated_at: new Date().toISOString(),
       })
       .eq('id', input.lead_id)
-      .select('*, counselor:profiles!admission_leads_assigned_counselor_id_fkey(id,full_name,email)')
+      .select('*, counselor:profiles!admission_leads_assigned_counselor_id_fkey(id,full_name,email), program:programs!admission_leads_program_id_fkey(id,program_name)')
       .single();
 
     if (error) {
@@ -262,7 +262,7 @@ export class ApplicationService {
         updated_at: new Date().toISOString(),
       })
       .eq('id', id)
-      .select('*, counselor:profiles!admission_leads_assigned_counselor_id_fkey(id,full_name,email)')
+      .select('*, counselor:profiles!admission_leads_assigned_counselor_id_fkey(id,full_name,email), program:programs!admission_leads_program_id_fkey(id,program_name)')
       .single();
 
     if (error) {
@@ -295,7 +295,7 @@ export class ApplicationService {
         updated_at: new Date().toISOString(),
       })
       .eq('id', id)
-      .select('*, counselor:profiles!admission_leads_assigned_counselor_id_fkey(id,full_name,email)')
+      .select('*, counselor:profiles!admission_leads_assigned_counselor_id_fkey(id,full_name,email), program:programs!admission_leads_program_id_fkey(id,program_name)')
       .single();
 
     if (error) {

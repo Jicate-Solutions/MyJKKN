@@ -126,15 +126,15 @@ export const columns: ColumnDef<AdmissionLead>[] = [
     }
   },
   {
-    accessorKey: 'program_id',
+    id: 'program',
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Program" />
     ),
     cell: ({ row }) => {
-      const programId = row.getValue('program_id') as string | null;
+      const program = row.original.program;
       return (
-        <span className="text-sm text-muted-foreground">
-          {programId ? programId.slice(0, 8) + '...' : '-'}
+        <span className="text-sm">
+          {program?.program_name || '-'}
         </span>
       );
     }
