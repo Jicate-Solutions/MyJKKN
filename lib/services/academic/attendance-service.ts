@@ -3843,4 +3843,26 @@ export class AttendanceService {
       return null;
     }
   }
+
+  // =====================
+  // PROFILE / STAFF LOOKUP METHODS
+  // =====================
+
+  /**
+   * Resolve the staff record for a given auth profile ID.
+   * Used by report pages to map the logged-in user's profile to their staff row.
+   */
+  static async getStaffByProfileId(profileId: string): Promise<{ id: string } | null> {
+    const { data, error } = await this.supabase
+      .from('staff')
+      .select('id')
+      .eq('profile_id', profileId)
+      .maybeSingle();
+
+    if (error) {
+      logger.warn('academic/attendance', 'Staff record not found for profile', { profileId });
+      return null;
+    }
+    return data;
+  }
 }

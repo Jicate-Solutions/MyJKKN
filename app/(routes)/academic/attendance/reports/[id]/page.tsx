@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { useRouter, useParams } from 'next/navigation';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -53,6 +52,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
 import { AttendanceReportService } from '@/lib/services/academic/attendance-report-service';
 import { AttendanceExportService } from '@/lib/services/academic/attendance-export-service';
+import { AttendanceService } from '@/lib/services/academic/attendance-service';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 import type { DetailedAttendanceReport } from '@/types/attendance-reports';
@@ -106,15 +106,8 @@ export default function AttendanceReportDetailPage() {
     const fetchStaffId = async () => {
       if (profile?.role === 'faculty' && profile?.id) {
         setRoleLoading(true);
-        const supabase = createClientSupabaseClient();
-        const { data, error } = await supabase
-          .from('staff')
-          .select('id')
-          .eq('profile_id', profile.id)
-          .single();
-
-        if (data && !error) {
-          const staffData = data as { id: string };
+        const staffData = await AttendanceService.getStaffByProfileId(profile.id);
+        if (staffData) {
           setFacultyStaffId(staffData.id);
         }
         setRoleLoading(false);

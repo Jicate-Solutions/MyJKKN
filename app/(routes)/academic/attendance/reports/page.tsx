@@ -20,10 +20,10 @@ import { ReportStatistics } from './_components/report-statistics';
 import { useAuth } from '@/hooks/use-auth';
 import { usePermissions } from '@/hooks/use-permissions';
 import { AttendanceReportService } from '@/lib/services/academic/attendance-report-service';
+import { AttendanceService } from '@/lib/services/academic/attendance-service';
 import { useState, useEffect, useMemo } from 'react';
 import { FileText } from 'lucide-react';
 import type { AttendanceStatistics } from '@/lib/services/academic/attendance-report-service';
-import { createClientSupabaseClient } from '@/lib/supabase/client';
 
 export default function AttendanceReportsPage() {
   const router = useRouter();
@@ -76,15 +76,8 @@ export default function AttendanceReportsPage() {
   useEffect(() => {
     const fetchStaffId = async () => {
       if (profile?.role === 'faculty' && profile?.id) {
-        const supabase = createClientSupabaseClient();
-        const { data, error } = await supabase
-          .from('staff')
-          .select('id')
-          .eq('profile_id', profile.id)
-          .single();
-
-        if (data && !error) {
-          const staffData = data as { id: string };
+        const staffData = await AttendanceService.getStaffByProfileId(profile.id);
+        if (staffData) {
           setFacultyStaffId(staffData.id);
         }
       }
