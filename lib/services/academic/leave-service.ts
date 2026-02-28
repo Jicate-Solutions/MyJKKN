@@ -260,6 +260,11 @@ export class LeaveService {
 
   /**
    * Get leaves with access control
+   *
+   * NOTE: Intentionally uses profiles.institution_id (not user_institution_access).
+   * The userInstitutionId parameter should be resolved by the caller from
+   * profiles.institution_id (matching the access control pattern declared at the top of this file).
+   * See AcademicPermissionHelper for the shared resolution utility.
    */
   static async getLeavesWithAccess(
     filters: LeaveFilters = {},

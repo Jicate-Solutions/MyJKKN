@@ -432,7 +432,10 @@ export class LeaveApprovalService {
       if (leaveError || !leave) return false;
       if (leave.status !== 'pending') return false;
 
-      // Get user profile
+      // NOTE: Intentionally uses profiles.institution_id (not user_institution_access).
+      // Leave approval workflows are scoped to the user's primary institution profile
+      // so that is_super_admin and institution membership can be checked in one query.
+      // See AcademicPermissionHelper for the shared resolution utility.
       const { data: profile, error: profileError } = await this.supabase
         .from('profiles')
         .select('institution_id, is_super_admin')
