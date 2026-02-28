@@ -17,7 +17,7 @@ import type {
   // CreateConsolidatedAttendanceDto,
   // UpdateConsolidatedAttendanceDto,
 } from '@/types/attendance';
-import type { DayOfWeek } from '@/types/academics';
+import type { DayOfWeek, TimetableData } from '@/types/academics';
 
 /**
  * IMPORTANT NOTE: This service is currently under refactoring due to timetable structure changes.
@@ -438,16 +438,16 @@ export class AttendanceService {
     if (scanError || !timetables) return null;
 
     for (const timetable of timetables) {
-      const data = (timetable as any).timetable_data;
+      const data = (timetable as { id?: string; timetable_data?: TimetableData }).timetable_data as TimetableData | null;
       if (!data || typeof data !== 'object') continue;
       for (const dayData of Object.values(data)) {
         if (!dayData || typeof dayData !== 'object') continue;
-        for (const [periodId, slotData] of Object.entries(dayData as Record<string, any>)) {
+        for (const [periodId, slotData] of Object.entries(dayData)) {
           if (
-            (slotData as any)?.slot_id === slotId ||
+            slotData?.slot_id === slotId ||
             periodId === slotId
           ) {
-            return (timetable as any).id;
+            return (timetable as { id?: string }).id ?? null;
           }
         }
       }
@@ -473,18 +473,16 @@ export class AttendanceService {
         .eq('id', timetableId)
         .single();
 
-      if (timetableError || !(timetableData as any)?.timetable_data) {
+      if (timetableError || !(timetableData as { timetable_data?: TimetableData })?.timetable_data) {
         logger.error('academic/attendance', 'Error fetching timetable data', timetableError);
         return null;
       }
 
       // Search through the JSON structure to find the slot
-      const timetableJson = (timetableData as any).timetable_data;
+      const timetableJson = (timetableData as { timetable_data: TimetableData }).timetable_data;
       for (const [dayKey, dayData] of Object.entries(timetableJson)) {
         if (typeof dayData === 'object' && dayData !== null) {
-          for (const [, slotData] of Object.entries(
-            dayData as Record<string, any>
-          )) {
+          for (const [, slotData] of Object.entries(dayData)) {
             if (
               slotData &&
               (slotData.slot_id === slotId || slotData.id === slotId)
@@ -633,12 +631,13 @@ export class AttendanceService {
       }
 
       let slots: any[] = [];
-      if ((timetableData as any)?.timetable_data) {
-        const daySlots = (timetableData as any).timetable_data[dayOfWeek];
+      const _ttd = (timetableData as { timetable_data?: TimetableData })?.timetable_data;
+      if (_ttd) {
+        const daySlots = _ttd[dayOfWeek];
         if (daySlots && typeof daySlots === 'object') {
           // Convert JSON structure to array format
           slots = Object.entries(daySlots).map(
-            ([periodId, slotData]: [string, any]) => ({
+            ([periodId, slotData]) => ({
               ...slotData,
               id: slotData.slot_id || periodId,
               period_id: periodId,
@@ -1010,9 +1009,9 @@ export class AttendanceService {
         // Extract slots directly from timetable_data (avoiding RLS issues with RPC functions)
         let slots: any[] = [];
         try {
-          const timetableData = (timetable as any).timetable_data;
+          const timetableData = (timetable as { timetable_data?: TimetableData; timetable_format?: string; selected_dates?: string[] }).timetable_data as TimetableData | undefined;
           if (timetableData && typeof timetableData === 'object') {
-            if ((timetable as any).timetable_format === 'batch') {
+            if ((timetable as { timetable_format?: string }).timetable_format === 'batch') {
               if (!date) {
                 logger.error('academic/attendance', 'Date is required for batch timetables');
                 continue;
@@ -2102,7 +2101,7 @@ export class AttendanceService {
         return null;
       }
 
-      const timetableDataObj = (timetableData as any).timetable_data || {};
+      const timetableDataObj = ((timetableData as { timetable_data?: TimetableData }).timetable_data ?? {}) as TimetableData;
 
       // Search through all days to find the period slot
       for (const day of Object.keys(timetableDataObj)) {

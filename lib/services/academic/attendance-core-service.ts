@@ -12,6 +12,7 @@ import type {
   ConsolidatedAttendanceStudent,
   UpsertConsolidatedAttendanceDto
 } from '@/types/attendance';
+import type { TimetableData } from '@/types/academics';
 
 /**
  * AttendanceCoreService — marking, locking, and validation.
@@ -158,7 +159,7 @@ export class AttendanceCoreService {
       }
 
       // STEP 7: Extract all assigned staff AND profile IDs from timetable
-      const timetableDataObj = (timetableData as any).timetable_data || {};
+      const timetableDataObj = ((timetableData as { timetable_data?: TimetableData }).timetable_data ?? {}) as TimetableData;
       const allAssignedIds = new Set<string>();
 
       // Search through all days and periods to collect assignments
@@ -858,19 +859,17 @@ export class AttendanceCoreService {
         .eq('id', timetableId)
         .single();
 
-      if (slotsError || !(timetableData as any)?.timetable_data) {
+      if (slotsError || !(timetableData as { timetable_data?: TimetableData })?.timetable_data) {
         logger.error('academic/attendance', 'Error fetching timetable data for staff assignment check', slotsError);
         return false;
       }
 
       // Extract all slots from JSON structure
       const slots: any[] = [];
-      const timetableJson = (timetableData as any).timetable_data;
+      const timetableJson = (timetableData as { timetable_data: TimetableData }).timetable_data;
       for (const [dayKey, dayData] of Object.entries(timetableJson)) {
         if (typeof dayData === 'object' && dayData !== null) {
-          for (const [periodKey, slotData] of Object.entries(
-            dayData as Record<string, any>
-          )) {
+          for (const [periodKey, slotData] of Object.entries(dayData)) {
             if (slotData) {
               slots.push({
                 ...slotData,
@@ -1069,15 +1068,13 @@ export class AttendanceCoreService {
 
         // Check if any timetable in the department contains this slot
         const hasSlot = allTimetables.some((timetable: any) => {
-          const timetableData = timetable.timetable_data as any;
+          const timetableData = timetable.timetable_data as TimetableData | null;
           if (!timetableData) return false;
 
           // Check if timetableSlotId exists in the timetable_data
           for (const dayData of Object.values(timetableData)) {
             if (dayData && typeof dayData === 'object') {
-              for (const [slotId] of Object.entries(
-                dayData as Record<string, any>
-              )) {
+              for (const [slotId] of Object.entries(dayData)) {
                 if (slotId === timetableSlotId) {
                   return true;
                 }
@@ -1207,16 +1204,16 @@ export class AttendanceCoreService {
     if (scanError || !timetables) return null;
 
     for (const timetable of timetables) {
-      const data = (timetable as any).timetable_data;
+      const data = (timetable as { timetable_data?: TimetableData; id?: string }).timetable_data as TimetableData | undefined;
       if (!data || typeof data !== 'object') continue;
       for (const dayData of Object.values(data)) {
         if (!dayData || typeof dayData !== 'object') continue;
-        for (const [periodId, slotData] of Object.entries(dayData as Record<string, any>)) {
+        for (const [periodId, slotData] of Object.entries(dayData)) {
           if (
-            (slotData as any)?.slot_id === slotId ||
+            slotData?.slot_id === slotId ||
             periodId === slotId
           ) {
-            return (timetable as any).id;
+            return (timetable as { id?: string }).id ?? null;
           }
         }
       }

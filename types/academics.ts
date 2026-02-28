@@ -681,3 +681,57 @@ export interface PracticalConflictCheck {
     course: string;
   };
 }
+
+// ─── Timetable Data JSONB Types ───────────────────────────────────────────────
+// Represents the structure of timetables.timetable_data column.
+// Regular timetables: keyed by DayOfWeek (e.g., "MONDAY")
+// Batch timetables: keyed by ISO date string (e.g., "2024-01-15")
+
+/** A single slot within a timetable period */
+export interface TimetableSlotData {
+  course_id?: string | null;
+  staff_ids?: string[];
+  section_id?: string | null;
+  section_ids?: string[];
+  department_id?: string | null;
+  /** Stable slot UUID written at creation time */
+  slot_id?: string | null;
+  /** Period UUID — same as the key in TimetableDayData */
+  period_id?: string | null;
+  /** Optional display name for the period/slot */
+  period_name?: string | null;
+  /** Primary (lead) staff member for this slot */
+  primary_staff_id?: string | null;
+  /** Direct profile assignments (when staff record is not available) */
+  profile_ids?: string[];
+  primary_profile_id?: string | null;
+  /** True if this slot represents a break (no teaching) */
+  is_break_slot?: boolean;
+  /** For batch timetables: the specific date this slot belongs to */
+  slot_date?: string | null;
+  /** Period mode: "standard" | "practical" */
+  period_mode?: string | null;
+  /** Practical session config when period_mode === "practical" */
+  practical_config?: Record<string, unknown> | null;
+  /** Sub-slots for subdivided or combined classes */
+  sub_slots?: TimetableSlotData[];
+  /** Enriched staff members array (populated after join) */
+  staff_members?: Array<{ id: string; [key: string]: unknown }>;
+  /** Timestamp tracking when the slot was last updated */
+  updated_at?: string | null;
+  /** Allow additional fields written by different code paths */
+  [key: string]: unknown;
+}
+
+/**
+ * One day's worth of timetable slots.
+ * Keys are period UUIDs (e.g., "550e8400-e29b-41d4-a716-446655440000")
+ */
+export type TimetableDayData = Record<string, TimetableSlotData>;
+
+/**
+ * The full timetable_data JSONB structure.
+ * Keys are either DayOfWeek values ("MONDAY", "TUESDAY", etc.)
+ * or ISO date strings for batch timetables ("2024-01-15").
+ */
+export type TimetableData = Record<string, TimetableDayData>;

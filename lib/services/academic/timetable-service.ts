@@ -12,7 +12,8 @@ import type {
   TemplateListResponse,
   CreateTemplateDto,
   UpdateTemplateDto,
-  DayOfWeek
+  DayOfWeek,
+  TimetableData
 } from '@/types/academics';
 import toast from 'react-hot-toast';
 
@@ -1038,7 +1039,7 @@ Please select a different date period that doesn't overlap.`
     timetable: any
   ): Promise<Timetable> {
     try {
-      const timetableData = timetable.timetable_data;
+      const timetableData = timetable.timetable_data as TimetableData | null;
       if (!timetableData || typeof timetableData !== 'object') {
         return timetable;
       }
@@ -1048,9 +1049,9 @@ Please select a different date period that doesn't overlap.`
       const courseIds = new Set<string>();
       const staffIds = new Set<string>();
 
-      Object.values(timetableData).forEach((daySlots: any) => {
+      Object.values(timetableData).forEach((daySlots) => {
         if (daySlots && typeof daySlots === 'object') {
-          Object.values(daySlots).forEach((slot: any) => {
+          Object.values(daySlots).forEach((slot) => {
             if (slot && typeof slot === 'object') {
               // Extract from main slot
               if (slot.course_id) {
