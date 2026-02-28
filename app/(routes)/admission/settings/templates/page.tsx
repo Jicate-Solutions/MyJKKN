@@ -238,11 +238,11 @@ function AdmissionTemplatesPageContent() {
   ) => {
     const textarea = ref.current;
     if (!textarea) return;
-    const start = textarea.selectionStart ?? (formData.content || '').length;
+    const start = textarea.selectionStart ?? textarea.value.length;
     const end = textarea.selectionEnd ?? start;
-    const current = formData.content || '';
+    const current = textarea.value;
     const updated = current.substring(0, start) + emoji.native + current.substring(end);
-    setFormData({ ...formData, content: updated });
+    setFormData((prev) => ({ ...prev, content: updated }));
     closeEmojiState();
     setTimeout(() => {
       textarea.selectionStart = start + emoji.native.length;
@@ -256,6 +256,29 @@ function AdmissionTemplatesPageContent() {
       toast.error('No institution selected');
       return;
     }
+
+    // Client-side validation: file size (max 10 MB)
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error('File is too large. Maximum size is 10 MB.');
+      return;
+    }
+
+    // Client-side validation: MIME type
+    const allowedMimeTypes: Record<string, string[]> = {
+      image: ['image/jpeg', 'image/png', 'image/gif', 'image/webp'],
+      video: ['video/mp4', 'video/quicktime'],
+      document: [
+        'application/pdf',
+        'application/msword',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      ],
+    };
+    const expectedTypes = allowedMimeTypes[formData.attachment_type as string] ?? [];
+    if (!expectedTypes.includes(file.type)) {
+      toast.error(`Invalid file type. Allowed: ${expectedTypes.join(', ')}`);
+      return;
+    }
+
     setIsUploadingMedia(true);
     try {
       const supabase = createClientSupabaseClient();
@@ -581,9 +604,14 @@ function AdmissionTemplatesPageContent() {
                                       : 'https://example.com/brochure.pdf'
                                   }
                                   value={formData.attachment_url || ''}
-                                  onChange={(e) =>
-                                    setFormData({ ...formData, attachment_url: e.target.value || null })
-                                  }
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    if (val && /^(javascript:|data:)/i.test(val)) {
+                                      toast.error('Invalid URL: javascript: and data: URLs are not allowed');
+                                      return;
+                                    }
+                                    setFormData({ ...formData, attachment_url: val || null });
+                                  }}
                                 />
                                 {formData.attachment_url && (
                                   <Button
@@ -1155,9 +1183,14 @@ function AdmissionTemplatesPageContent() {
                                 : 'https://example.com/brochure.pdf'
                             }
                             value={formData.attachment_url || ''}
-                            onChange={(e) =>
-                              setFormData({ ...formData, attachment_url: e.target.value || null })
-                            }
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              if (val && /^(javascript:|data:)/i.test(val)) {
+                                toast.error('Invalid URL: javascript: and data: URLs are not allowed');
+                                return;
+                              }
+                              setFormData({ ...formData, attachment_url: val || null });
+                            }}
                           />
                           {formData.attachment_url && (
                             <Button
