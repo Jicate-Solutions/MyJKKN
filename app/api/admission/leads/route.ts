@@ -19,7 +19,11 @@ const VALID_SOURCES: LeadSource[] = [
 
 interface WebhookLeadPayload {
   institution_id: string;
-  full_name: string;
+  // New format (preferred)
+  first_name?: string;
+  last_name?: string | null;
+  // Legacy format — still accepted so existing Google Ads / Facebook / CRM integrations keep working
+  full_name?: string;
   phone: string;
   email?: string;
   source?: string;
@@ -57,7 +61,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   const {
     institution_id,
-    full_name,
     phone,
     email,
     source,
@@ -67,10 +70,25 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     notes,
   } = body;
 
-  // 3. Required field validation
-  if (!institution_id || !full_name || !phone) {
+  // 3. Resolve first_name / last_name — support both new and legacy full_name format
+  let first_name: string;
+  let last_name: string | null = null;
+  if (body.first_name?.trim()) {
+    first_name = body.first_name.trim();
+    last_name = body.last_name?.trim() || null;
+  } else if (body.full_name?.trim()) {
+    // Legacy: split "John Doe" → first_name="John", last_name="Doe"
+    const parts = body.full_name.trim().split(/\s+/);
+    first_name = parts[0];
+    last_name = parts.length > 1 ? parts.slice(1).join(' ') : null;
+  } else {
+    first_name = '';
+  }
+
+  // 4. Required field validation
+  if (!institution_id || !first_name || !phone) {
     return NextResponse.json(
-      { error: 'Missing required fields: institution_id, full_name, phone' },
+      { error: 'Missing required fields: institution_id, first_name (or full_name), phone' },
       { status: 422 }
     );
   }
@@ -109,7 +127,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const lead = await LeadService.createLead(
       {
         institution_id,
-        full_name: full_name.trim(),
+        first_name,
+        last_name,
         phone: phone.trim(),
         email: email?.trim() || undefined,
         source: validatedSource,
