@@ -258,8 +258,8 @@ export class LeadService {
     if (!leadData.institution_id) {
       throw new Error('Institution ID is required');
     }
-    if (!leadData.full_name?.trim()) {
-      throw new Error('Full name is required');
+    if (!leadData.first_name?.trim()) {
+      throw new Error('First name is required');
     }
     if (!leadData.phone?.trim()) {
       throw new Error('Phone number is required');
@@ -296,7 +296,8 @@ export class LeadService {
     // Only include columns that exist in admission_leads table
     const insertData: any = {
       institution_id: leadData.institution_id,
-      full_name: leadData.full_name?.trim(),
+      first_name: leadData.first_name?.trim() ?? '',
+      last_name: leadData.last_name?.trim() || null,
       email: leadData.email || null,
       phone: cleanPhone,
       source: leadData.source,
