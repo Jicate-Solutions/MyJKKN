@@ -7,6 +7,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 // ─── Module Registry ────────────────────────────────────────────────────────
 
 export const VALID_MODULES = [
+  'academic',
   'admission', 'attendance', 'billing', 'grievance', 'okr',
   'learners', 'staff', 'organizations', 'campus-living', 'solutions',
   'learners-council', 'competency', 'learning-paths', 'alumni',
