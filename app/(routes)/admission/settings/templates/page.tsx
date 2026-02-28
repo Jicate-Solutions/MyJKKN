@@ -57,7 +57,13 @@ import {
   PowerOff,
   FileText,
   Variable,
-  Smile
+  Smile,
+  Upload,
+  Link2,
+  Image as ImageIcon,
+  Film,
+  FileText as DocIcon,
+  X as XIcon
 } from 'lucide-react';
 
 // Dynamic import prevents SSR crash — emoji-mart accesses window during init
@@ -65,6 +71,7 @@ const EmojiPicker = dynamic(() => import('@emoji-mart/react'), { ssr: false });
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const emojiData = require('@emoji-mart/data');
 import { toast } from 'sonner';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -143,6 +150,8 @@ function AdmissionTemplatesPageContent() {
   const [previewTemplateId, setPreviewTemplateId] = useState<string | null>(null);
   const [isEmojiOpen, setIsEmojiOpen] = useState(false);
   const [isEditEmojiOpen, setIsEditEmojiOpen] = useState(false);
+  const [mediaInputMode, setMediaInputMode] = useState<'url' | 'upload'>('url');
+  const [isUploadingMedia, setIsUploadingMedia] = useState(false);
   const contentRef = useRef<HTMLTextAreaElement>(null);
   const editContentRef = useRef<HTMLTextAreaElement>(null);
 
@@ -215,8 +224,11 @@ function AdmissionTemplatesPageContent() {
       channel: 'email',
       subject: '',
       content: '',
-      is_active: true
+      is_active: true,
+      attachment_type: null,
+      attachment_url: null,
     });
+    setMediaInputMode('url');
   };
 
   const insertEmoji = (
@@ -239,6 +251,33 @@ function AdmissionTemplatesPageContent() {
     }, 0);
   };
 
+  const handleMediaUpload = async (file: File) => {
+    if (!selectedInstitutionId) {
+      toast.error('No institution selected');
+      return;
+    }
+    setIsUploadingMedia(true);
+    try {
+      const supabase = createClientSupabaseClient();
+      const ext = file.name.split('.').pop();
+      const path = `${selectedInstitutionId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+      const { error: uploadError } = await supabase.storage
+        .from('admission-template-media')
+        .upload(path, file, { upsert: false });
+      if (uploadError) throw uploadError;
+      const { data: urlData } = supabase.storage
+        .from('admission-template-media')
+        .getPublicUrl(path);
+      setFormData((prev) => ({ ...prev, attachment_url: urlData.publicUrl }));
+      toast.success('Media uploaded successfully');
+    } catch (err) {
+      console.error('[admission/templates] Media upload failed:', err);
+      toast.error('Failed to upload media');
+    } finally {
+      setIsUploadingMedia(false);
+    }
+  };
+
   const handleCreateTemplate = async () => {
     if (!selectedInstitutionId) {
       toast.error('No institution selected');
@@ -252,7 +291,9 @@ function AdmissionTemplatesPageContent() {
         channel: formData.channel || 'email',
         subject: formData.subject,
         content: formData.content || '',
-        is_active: formData.is_active ?? true
+        is_active: formData.is_active ?? true,
+        attachment_type: formData.attachment_type ?? null,
+        attachment_url: formData.attachment_url ?? null,
       });
       setIsCreateDialogOpen(false);
       resetForm();
@@ -298,6 +339,8 @@ function AdmissionTemplatesPageContent() {
           subject: formData.subject || null,
           content: formData.content,
           is_active: formData.is_active ?? true,
+          attachment_type: formData.attachment_type ?? null,
+          attachment_url: formData.attachment_url ?? null,
         }
       });
       setEditingTemplate(null);
@@ -707,7 +750,10 @@ function AdmissionTemplatesPageContent() {
                                 subject: template.subject || '',
                                 content: template.content,
                                 is_active: template.is_active,
+                                attachment_type: template.attachment_type ?? null,
+                                attachment_url: template.attachment_url ?? null,
                               });
+                              setMediaInputMode('url');
                             }}
                           >
                             <Edit className="h-4 w-4 mr-2" />
