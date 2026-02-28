@@ -1,7 +1,9 @@
 'use client';
 
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
+import dynamic from 'next/dynamic';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb,
@@ -54,8 +56,14 @@ import {
   Power,
   PowerOff,
   FileText,
-  Variable
+  Variable,
+  Smile
 } from 'lucide-react';
+
+// Dynamic import prevents SSR crash — emoji-mart accesses window during init
+const EmojiPicker = dynamic(() => import('@emoji-mart/react'), { ssr: false });
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const emojiData = require('@emoji-mart/data');
 import { toast } from 'sonner';
 import {
   DropdownMenu,
@@ -132,6 +140,11 @@ function AdmissionTemplatesPageContent() {
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [editingTemplate, setEditingTemplate] = useState<string | null>(null);
+  const [previewTemplateId, setPreviewTemplateId] = useState<string | null>(null);
+  const [isEmojiOpen, setIsEmojiOpen] = useState(false);
+  const [isEditEmojiOpen, setIsEditEmojiOpen] = useState(false);
+  const contentRef = useRef<HTMLTextAreaElement>(null);
+  const editContentRef = useRef<HTMLTextAreaElement>(null);
 
   // Form state
   const [formData, setFormData] = useState<Partial<CreateTemplateInput>>({
@@ -206,6 +219,26 @@ function AdmissionTemplatesPageContent() {
     });
   };
 
+  const insertEmoji = (
+    emoji: { native: string },
+    ref: React.RefObject<HTMLTextAreaElement | null>,
+    closeEmojiState: () => void
+  ) => {
+    const textarea = ref.current;
+    if (!textarea) return;
+    const start = textarea.selectionStart ?? (formData.content || '').length;
+    const end = textarea.selectionEnd ?? start;
+    const current = formData.content || '';
+    const updated = current.substring(0, start) + emoji.native + current.substring(end);
+    setFormData({ ...formData, content: updated });
+    closeEmojiState();
+    setTimeout(() => {
+      textarea.selectionStart = start + emoji.native.length;
+      textarea.selectionEnd = start + emoji.native.length;
+      textarea.focus();
+    }, 0);
+  };
+
   const handleCreateTemplate = async () => {
     if (!selectedInstitutionId) {
       toast.error('No institution selected');
@@ -249,6 +282,26 @@ function AdmissionTemplatesPageContent() {
   const handleToggleStatus = async (id: string, currentStatus: boolean) => {
     try {
       await toggleStatus.mutateAsync({ id, isActive: !currentStatus });
+    } catch {
+      // Error handled by mutation
+    }
+  };
+
+  const handleUpdateTemplate = async () => {
+    if (!editingTemplate) return;
+    try {
+      await updateTemplate.mutateAsync({
+        id: editingTemplate,
+        input: {
+          name: formData.name,
+          channel: formData.channel,
+          subject: formData.subject || null,
+          content: formData.content,
+          is_active: formData.is_active ?? true,
+        }
+      });
+      setEditingTemplate(null);
+      resetForm();
     } catch {
       // Error handled by mutation
     }
@@ -375,14 +428,36 @@ function AdmissionTemplatesPageContent() {
                     <div className="space-y-2">
                       <div className="flex items-center justify-between">
                         <Label htmlFor="content">Message Content *</Label>
-                        <span className="text-xs text-muted-foreground">
-                          {formData.channel === 'sms' && formData.content
-                            ? `${formData.content.length}/160 characters`
-                            : ''}
-                        </span>
+                        <div className="flex items-center gap-2">
+                          {formData.channel === 'sms' && formData.content && (
+                            <span className="text-xs text-muted-foreground">
+                              {formData.content.length}/160 characters
+                            </span>
+                          )}
+                          <Popover open={isEmojiOpen} onOpenChange={setIsEmojiOpen}>
+                            <PopoverTrigger asChild>
+                              <Button variant="ghost" size="sm" type="button" className="h-7 px-2">
+                                <Smile className="h-4 w-4 mr-1" />
+                                Emoji
+                              </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-auto p-0 border-0" align="end">
+                              <EmojiPicker
+                                data={emojiData}
+                                onEmojiSelect={(emoji: { native: string }) =>
+                                  insertEmoji(emoji, contentRef, () => setIsEmojiOpen(false))
+                                }
+                                theme="light"
+                                previewPosition="none"
+                                skinTonePosition="none"
+                              />
+                            </PopoverContent>
+                          </Popover>
+                        </div>
                       </div>
                       <Textarea
                         id="content"
+                        ref={contentRef}
                         placeholder="Enter your message content. Use {{variable_name}} for dynamic values."
                         rows={6}
                         value={formData.content}
@@ -618,13 +693,22 @@ function AdmissionTemplatesPageContent() {
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
                           <DropdownMenuItem
-                            onClick={() => toast.info('Template preview will open in a new tab')}
+                            onClick={() => setPreviewTemplateId(template.id)}
                           >
                             <Eye className="h-4 w-4 mr-2" />
                             Preview
                           </DropdownMenuItem>
                           <DropdownMenuItem
-                            onClick={() => toast.info('Use the template settings to customize content')}
+                            onClick={() => {
+                              setEditingTemplate(template.id);
+                              setFormData({
+                                name: template.name,
+                                channel: template.channel,
+                                subject: template.subject || '',
+                                content: template.content,
+                                is_active: template.is_active,
+                              });
+                            }}
                           >
                             <Edit className="h-4 w-4 mr-2" />
                             Edit
@@ -695,6 +779,222 @@ function AdmissionTemplatesPageContent() {
             </div>
           )}
         </div>
+
+        {/* Edit Template Dialog */}
+        <Dialog
+          open={editingTemplate !== null}
+          onOpenChange={(open) => { if (!open) { setEditingTemplate(null); resetForm(); } }}
+        >
+          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Edit Template</DialogTitle>
+              <DialogDescription>Update the template content and settings.</DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4 py-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="edit-name">Template Name *</Label>
+                  <Input
+                    id="edit-name"
+                    placeholder="e.g., Welcome Message"
+                    value={formData.name}
+                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-type">Channel Type *</Label>
+                  <Select
+                    value={formData.channel}
+                    onValueChange={(value) =>
+                      setFormData({ ...formData, channel: value as TemplateChannel })
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select channel" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {TEMPLATE_TYPES.map((type) => (
+                        <SelectItem key={type.value} value={type.value}>
+                          <div className="flex items-center gap-2">
+                            <type.icon className="h-4 w-4" />
+                            {type.label}
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              {formData.channel === 'email' && (
+                <div className="space-y-2">
+                  <Label htmlFor="edit-subject">Email Subject *</Label>
+                  <Input
+                    id="edit-subject"
+                    placeholder="e.g., Welcome to {{institution_name}}"
+                    value={formData.subject}
+                    onChange={(e) => setFormData({ ...formData, subject: e.target.value })}
+                  />
+                </div>
+              )}
+
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="edit-content">Message Content *</Label>
+                  <div className="flex items-center gap-2">
+                    {formData.channel === 'sms' && formData.content && (
+                      <span className="text-xs text-muted-foreground">
+                        {formData.content.length}/160 characters
+                      </span>
+                    )}
+                    <Popover open={isEditEmojiOpen} onOpenChange={setIsEditEmojiOpen}>
+                      <PopoverTrigger asChild>
+                        <Button variant="ghost" size="sm" type="button" className="h-7 px-2">
+                          <Smile className="h-4 w-4 mr-1" />
+                          Emoji
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0 border-0" align="end">
+                        <EmojiPicker
+                          data={emojiData}
+                          onEmojiSelect={(emoji: { native: string }) =>
+                            insertEmoji(emoji, editContentRef, () => setIsEditEmojiOpen(false))
+                          }
+                          theme="light"
+                          previewPosition="none"
+                          skinTonePosition="none"
+                        />
+                      </PopoverContent>
+                    </Popover>
+                  </div>
+                </div>
+                <Textarea
+                  id="edit-content"
+                  ref={editContentRef}
+                  placeholder="Enter your message content. Use {{variable_name}} for dynamic values."
+                  rows={6}
+                  value={formData.content}
+                  onChange={(e) => setFormData({ ...formData, content: e.target.value })}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label className="flex items-center gap-2">
+                  <Variable className="h-4 w-4" />
+                  Available Variables
+                </Label>
+                <div className="flex flex-wrap gap-2">
+                  {leadVariables.slice(0, 6).map((variable) => (
+                    <Badge
+                      key={variable.name}
+                      variant="outline"
+                      className="cursor-pointer hover:bg-muted"
+                      onClick={() =>
+                        setFormData({
+                          ...formData,
+                          content: (formData.content || '') + `{{${variable.name}}}`
+                        })
+                      }
+                    >
+                      {`{{${variable.name}}}`}
+                    </Badge>
+                  ))}
+                </div>
+                <p className="text-xs text-muted-foreground">Click to insert variable into content</p>
+              </div>
+
+              <div className="flex items-center space-x-2">
+                <Switch
+                  id="edit-is_active"
+                  checked={formData.is_active}
+                  onCheckedChange={(checked) =>
+                    setFormData({ ...formData, is_active: checked })
+                  }
+                />
+                <Label htmlFor="edit-is_active">Active (available for use)</Label>
+              </div>
+            </div>
+
+            <DialogFooter>
+              <Button variant="outline" onClick={() => { setEditingTemplate(null); resetForm(); }}>
+                Cancel
+              </Button>
+              <Button onClick={handleUpdateTemplate} disabled={isUpdating}>
+                {isUpdating && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                Save Changes
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Preview Template Dialog */}
+        {(() => {
+          const previewTemplate = templates.find((t) => t.id === previewTemplateId) || null;
+          return (
+            <Dialog
+              open={previewTemplateId !== null}
+              onOpenChange={(open) => { if (!open) setPreviewTemplateId(null); }}
+            >
+              <DialogContent className="max-w-lg">
+                <DialogHeader>
+                  <DialogTitle className="flex items-center gap-2">
+                    {previewTemplate && getTypeIcon(previewTemplate.channel)}
+                    {previewTemplate?.name || 'Preview'}
+                  </DialogTitle>
+                  <DialogDescription>
+                    Template preview — variables shown as placeholders.
+                  </DialogDescription>
+                </DialogHeader>
+
+                {previewTemplate && (
+                  <div className="space-y-4 py-2">
+                    <div className="flex gap-2">
+                      <Badge variant="outline">{previewTemplate.channel}</Badge>
+                      {previewTemplate.category && (
+                        <Badge variant="secondary">{previewTemplate.category}</Badge>
+                      )}
+                      {!previewTemplate.is_active && (
+                        <Badge variant="destructive">Inactive</Badge>
+                      )}
+                    </div>
+
+                    {previewTemplate.subject && (
+                      <div className="space-y-1">
+                        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Subject</p>
+                        <p className="text-sm border rounded-md px-3 py-2 bg-muted">{previewTemplate.subject}</p>
+                      </div>
+                    )}
+
+                    <div className="space-y-1">
+                      <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Content</p>
+                      <pre className="text-sm border rounded-md px-3 py-2 bg-muted whitespace-pre-wrap font-sans leading-relaxed">
+                        {previewTemplate.content || 'No content'}
+                      </pre>
+                    </div>
+
+                    {previewTemplate.variables && previewTemplate.variables.length > 0 && (
+                      <div className="space-y-1">
+                        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Variables used</p>
+                        <div className="flex flex-wrap gap-1">
+                          {previewTemplate.variables.map((v) => (
+                            <Badge key={v.name} variant="outline" className="text-xs font-mono">
+                              {`{{${v.name}}}`}
+                            </Badge>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setPreviewTemplateId(null)}>Close</Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          );
+        })()}
 
         {/* Delete Confirmation Dialog */}
         <AlertDialog
