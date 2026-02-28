@@ -1426,44 +1426,49 @@ export class AttendanceService {
   // Helper method to get timetable ID from slot ID
   // Note: With the new JSON structure, this method searches through timetable_data
   static async getTimetableIdFromSlot(slotId: string): Promise<string | null> {
-    try {
-      const { data, error } = await this.supabase
-        .from('timetables')
-        .select('id, timetable_data')
-        .not('timetable_data', 'is', null);
+    // PRIMARY PATH: Use student_attendance as an indexed bridge.
+    // period_slot_id stores the slot key string; timetable_id is always populated.
+    // This avoids loading all timetable JSONB into memory.
+    const { data: attendanceRef, error: primaryError } = await this.supabase
+      .from('student_attendance')
+      .select('timetable_id')
+      .eq('period_slot_id', slotId)
+      .limit(1)
+      .maybeSingle();
 
-      if (error) {
-        logger.error('academic/attendance', 'Error getting timetable ID from slot', error);
-        return null;
-      }
+    if (!primaryError && attendanceRef?.timetable_id) {
+      return attendanceRef.timetable_id;
+    }
 
-      // Search through all timetables to find the one containing this slot ID
-      for (const timetable of data) {
-        if (!(timetable as any).timetable_data) continue;
+    // FALLBACK: If no attendance records exist yet for this slot (new slot),
+    // scan timetables — but limit to active timetables only to reduce load.
+    logger.warn('academic/attendance', 'Falling back to timetable scan for slot lookup — slot may be new', { slotId });
 
-        // Search through all days and periods in the JSON structure
-        for (const [, dayData] of Object.entries((timetable as any).timetable_data)) {
-          if (typeof dayData === 'object' && dayData !== null) {
-            for (const [, slotData] of Object.entries(
-              dayData as Record<string, any>
-            )) {
-              if (
-                typeof slotData === 'object' &&
-                slotData !== null &&
-                (slotData as any).slot_id === slotId
-              ) {
-                return (timetable as any).id;
-              }
-            }
+    const { data: timetables, error: scanError } = await this.supabase
+      .from('timetables')
+      .select('id, timetable_data')
+      .not('timetable_data', 'is', null)
+      .eq('is_active', true); // Only scan active timetables
+
+    if (scanError || !timetables) return null;
+
+    for (const timetable of timetables) {
+      const data = (timetable as any).timetable_data;
+      if (!data || typeof data !== 'object') continue;
+      for (const dayData of Object.values(data)) {
+        if (!dayData || typeof dayData !== 'object') continue;
+        for (const [periodId, slotData] of Object.entries(dayData as Record<string, any>)) {
+          if (
+            (slotData as any)?.slot_id === slotId ||
+            periodId === slotId
+          ) {
+            return (timetable as any).id;
           }
         }
       }
-
-      return null;
-    } catch (error) {
-      logger.error('academic/attendance', 'Error getting timetable ID from slot', error);
-      return null;
     }
+
+    return null;
   }
 
   // Get slot details from JSON-based timetable structure
