@@ -7,6 +7,24 @@ ALTER TABLE admission_communication_templates
     CHECK (attachment_type IN ('image', 'video', 'document')),
   ADD COLUMN IF NOT EXISTS attachment_url TEXT;
 
+-- Enforce that attachment_type and attachment_url are either both set or both null
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conrelid = 'admission_communication_templates'::regclass
+    AND conname = 'chk_attachment_fields_paired'
+  ) THEN
+    ALTER TABLE admission_communication_templates
+      ADD CONSTRAINT chk_attachment_fields_paired
+      CHECK (
+        (attachment_type IS NULL AND attachment_url IS NULL)
+        OR
+        (attachment_type IS NOT NULL AND attachment_url IS NOT NULL)
+      );
+  END IF;
+END $$;
+
 COMMENT ON COLUMN admission_communication_templates.attachment_type IS
   'WhatsApp media type: image | video | document. NULL = text-only template.';
 COMMENT ON COLUMN admission_communication_templates.attachment_url IS
@@ -29,7 +47,8 @@ VALUES (
 )
 ON CONFLICT (id) DO NOTHING;
 
--- 3. RLS policies for storage.objects (idempotent via DO blocks)
+-- 3. RLS policies for storage.objects scoped to uploader's institution
+-- Upload: authenticated user can only upload to their own institution's folder
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -37,13 +56,23 @@ BEGIN
     WHERE schemaname = 'storage' AND tablename = 'objects'
     AND policyname = 'Authenticated users can upload template media'
   ) THEN
-    EXECUTE 'CREATE POLICY "Authenticated users can upload template media"
-    ON storage.objects FOR INSERT
-    TO authenticated
-    WITH CHECK (bucket_id = ''admission-template-media'')';
+    EXECUTE $policy$
+      CREATE POLICY "Authenticated users can upload template media"
+      ON storage.objects FOR INSERT
+      TO authenticated
+      WITH CHECK (
+        bucket_id = 'admission-template-media'
+        AND (storage.foldername(name))[1] = (
+          SELECT institution_id::text
+          FROM profiles
+          WHERE id = auth.uid()
+        )
+      )
+    $policy$;
   END IF;
 END $$;
 
+-- Public read (bucket is public, so this is explicit documentation of intent)
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -51,13 +80,16 @@ BEGIN
     WHERE schemaname = 'storage' AND tablename = 'objects'
     AND policyname = 'Public can read template media'
   ) THEN
-    EXECUTE 'CREATE POLICY "Public can read template media"
-    ON storage.objects FOR SELECT
-    TO public
-    USING (bucket_id = ''admission-template-media'')';
+    EXECUTE $policy$
+      CREATE POLICY "Public can read template media"
+      ON storage.objects FOR SELECT
+      TO public
+      USING (bucket_id = 'admission-template-media')
+    $policy$;
   END IF;
 END $$;
 
+-- Delete: authenticated user can only delete their own institution's objects
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -65,9 +97,18 @@ BEGIN
     WHERE schemaname = 'storage' AND tablename = 'objects'
     AND policyname = 'Authenticated users can delete template media'
   ) THEN
-    EXECUTE 'CREATE POLICY "Authenticated users can delete template media"
-    ON storage.objects FOR DELETE
-    TO authenticated
-    USING (bucket_id = ''admission-template-media'')';
+    EXECUTE $policy$
+      CREATE POLICY "Authenticated users can delete template media"
+      ON storage.objects FOR DELETE
+      TO authenticated
+      USING (
+        bucket_id = 'admission-template-media'
+        AND (storage.foldername(name))[1] = (
+          SELECT institution_id::text
+          FROM profiles
+          WHERE id = auth.uid()
+        )
+      )
+    $policy$;
   END IF;
 END $$;
