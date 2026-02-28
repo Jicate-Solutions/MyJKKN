@@ -2564,7 +2564,7 @@ Please select a different date period that doesn't overlap.`
 
     if (error) {
       logger.error('academic/timetables', 'Failed to fetch staff conflicts', error);
-      return [];
+      throw error;  // Let the caller (page's try/catch) handle the error state
     }
     return data ?? [];
   }
