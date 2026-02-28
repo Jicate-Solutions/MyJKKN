@@ -1423,8 +1423,18 @@ export class AttendanceService {
     }
   }
 
-  // Helper method to get timetable ID from slot ID
-  // Note: With the new JSON structure, this method searches through timetable_data
+  /**
+   * Returns the timetable ID that owns the given slot key.
+   *
+   * Primary path: uses student_attendance.period_slot_id as an indexed bridge (O(1)).
+   * Fallback: scans active timetables JSON (O(n×m)) — only triggers for new slots
+   * with no attendance records yet.
+   *
+   * Known limitation: the primary path returns the timetable_id from the earliest
+   * attendance record for the slot. If a slot is reassigned to a new timetable,
+   * the old timetable_id is returned until a new attendance record is written.
+   * This is acceptable for the current schema where slots are not re-homed between timetables.
+   */
   static async getTimetableIdFromSlot(slotId: string): Promise<string | null> {
     // PRIMARY PATH: Use student_attendance as an indexed bridge.
     // period_slot_id stores the slot key string; timetable_id is always populated.
@@ -1442,7 +1452,13 @@ export class AttendanceService {
 
     // FALLBACK: If no attendance records exist yet for this slot (new slot),
     // scan timetables — but limit to active timetables only to reduce load.
-    logger.warn('academic/attendance', 'Falling back to timetable scan for slot lookup — slot may be new', { slotId });
+    // Log DB error separately so it's not masked as "slot may be new"
+    if (primaryError) {
+      logger.warn('academic/attendance', 'Primary slot lookup failed, falling back to timetable scan', { slotId, error: primaryError });
+    } else {
+      // No rows means slot has never been used; falling back to scan
+      logger.warn('academic/attendance', 'Falling back to timetable scan for slot lookup — slot may be new', { slotId });
+    }
 
     const { data: timetables, error: scanError } = await this.supabase
       .from('timetables')
