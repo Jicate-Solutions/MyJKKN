@@ -294,58 +294,26 @@ export class LeaveAttendanceIntegration {
     timetableSlotId: string
   ): Promise<AttendanceLeaveResult> {
     try {
-      // Define type for timetable slot data
-      interface TimetableSlotData {
-        id: string;
-        timetable?: {
-          id: string;
-          section_id?: string;
-          section?: {
-            id: string;
-            semester_id?: string;
-            semester?: {
-              id: string;
-              department_id?: string;
-            };
-          };
-        };
-      }
+      // Bridge: look up section/semester/department via student_attendance.
+      // student_attendance.period_slot_id stores the slot key that maps to
+      // timetable_data JSON, giving us all the hierarchy IDs we need.
+      const { data: attendanceRef, error: attError } = await this.supabase
+        .from('student_attendance')
+        .select('section_id, semester_id, department_id')
+        .eq('period_slot_id', timetableSlotId)
+        .limit(1)
+        .maybeSingle();
 
-      // First, get the timetable slot to determine scope
-      // Type cast to fix TypeScript deep inference issue
-      const { data: slot, error: slotError } = await (this.supabase as any)
-        .from('timetable_slots')
-        .select(
-          `
-          id,
-          timetable:timetables(
-            id,
-            section_id,
-            section:sections(
-              id,
-              semester_id,
-              semester:semesters(
-                id,
-                department_id
-              )
-            )
-          )
-        `
-        )
-        .eq('id', timetableSlotId)
-        .single();
-
-      if (slotError || !slot) {
+      if (attError || !attendanceRef) {
+        logger.warn('academic/leave-attendance', 'No attendance record found for slot, skipping leave integration', { timetableSlotId });
         // If we can't get the slot, allow attendance (fail-open)
         return { allowed: true };
       }
 
-      const typedSlot = slot as TimetableSlotData;
-
       // Extract scope IDs
-      const sectionId = typedSlot.timetable?.section_id;
-      const semesterId = typedSlot.timetable?.section?.semester_id;
-      const departmentId = typedSlot.timetable?.section?.semester?.department_id;
+      const sectionId = attendanceRef.section_id ?? undefined;
+      const semesterId = attendanceRef.semester_id ?? undefined;
+      const departmentId = attendanceRef.department_id ?? undefined;
 
       // Check if blocked
       return this.canMarkAttendance({
