@@ -2523,11 +2523,11 @@ ALTER TABLE education_consultants ENABLE ROW LEVEL SECURITY;
 -- consultants are global entities visible to all authenticated users (no institution junction required)
 CREATE POLICY "consultants_global_select"
   ON education_consultants FOR SELECT
-  USING (auth.role() = 'authenticated');
+  USING (auth.uid() IS NOT NULL);
 
 CREATE POLICY "edu_consultants_insert"
   ON education_consultants FOR INSERT
-  WITH CHECK (true);
+  WITH CHECK (auth_institution_id() IS NOT NULL OR is_super_admin());
 
 CREATE POLICY "edu_consultants_update"
   ON education_consultants FOR UPDATE
