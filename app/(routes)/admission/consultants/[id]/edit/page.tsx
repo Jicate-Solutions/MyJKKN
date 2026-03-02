@@ -25,9 +25,8 @@ import {
 import { Skeleton } from '@/components/ui/skeleton';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { useAuth } from '@/hooks/use-auth';
-import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
-import { Loader2, Save, ArrowLeft, Handshake, Building, Building2, User, Wallet, XCircle, Globe, Calendar, Camera } from 'lucide-react';
+import { Loader2, Save, ArrowLeft, Handshake, Building, User, Wallet, XCircle, Globe, Calendar, Camera } from 'lucide-react';
 import Link from 'next/link';
 import { toast } from 'sonner';
 import { ConsultantService } from '@/lib/services/admission/consultant-service';
@@ -96,7 +95,6 @@ function EditConsultantForm() {
   const queryClient = useQueryClient();
   const consultantId = params.id as string;
   const { profile } = useAuth();
-  const { institutions } = useUserInstitutionAccess();
   const [profilePhotoPreview, setProfilePhotoPreview] = useState<string | null>(null);
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
 
@@ -352,20 +350,6 @@ function EditConsultantForm() {
                     {isUploadingPhoto ? 'Uploading…' : 'Click to change profile photo (JPG, PNG, WebP · max 5 MB)'}
                   </p>
                 </div>
-
-                {/* Read-only institution display — institution cannot be changed after creation */}
-                {consultant && (
-                  <div className="flex items-center gap-2 p-3 bg-muted/30 rounded-lg border">
-                    <Building2 className="h-4 w-4 text-muted-foreground shrink-0" />
-                    <span className="text-xs text-muted-foreground font-medium">Institution:</span>
-                    <span className="text-sm font-medium">
-                      {institutions.find(i => i.institution_id === (consultant as any)?.institution_id)?.institution_name
-                        ?? (consultant as any)?.institution_id
-                        ?? '—'}
-                    </span>
-                    <span className="text-xs text-muted-foreground ml-auto">(cannot be changed after creation)</span>
-                  </div>
-                )}
 
                 <div className="grid gap-4 md:grid-cols-2">
                   <FormField
