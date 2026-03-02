@@ -189,6 +189,31 @@ export function ConsultantImportDialog({
     }
   };
 
+  const startProgressAnimation = () => {
+    setProgress(0);
+    let p = 0;
+    progressIntervalRef.current = setInterval(() => {
+      p = Math.min(p + 1, 99);
+      setProgress(p);
+      if (p >= 99) clearInterval(progressIntervalRef.current!);
+    }, 60); // 60ms per tick ≈ 6 seconds to reach 99%
+  };
+
+  const stopProgressAnimation = () => {
+    if (progressIntervalRef.current) {
+      clearInterval(progressIntervalRef.current);
+      progressIntervalRef.current = null;
+    }
+    setProgress(100);
+  };
+
+  const getProgressLabel = (p: number): string => {
+    if (p < 25) return 'Uploading file...';
+    if (p < 50) return 'Parsing Excel...';
+    if (p < 75) return 'Checking duplicates...';
+    return 'Creating records...';
+  };
+
   // ============================================================
   // HANDLERS
   // ============================================================
@@ -252,34 +277,25 @@ export function ConsultantImportDialog({
   const handleUpload = async () => {
     if (!file) return;
 
+    startProgressAnimation();
     setUploading(true);
-    setProgress(10);
 
     try {
       const formData = new FormData();
       formData.append('file', file);
-
-      setProgress(30);
 
       const response = await fetch('/api/admission/consultants/import', {
         method: 'POST',
         body: formData
       });
 
-      setProgress(70);
-
       const data: ImportResult = await response.json();
-
-      setProgress(100);
       setResult(data);
 
-      // Show toast notification
       if (data.success) {
         toast.success(
           `Successfully imported ${data.successCount} consultant${data.successCount !== 1 ? 's' : ''}!`
         );
-
-        // Trigger refresh after short delay
         if (onImportComplete) {
           setTimeout(() => {
             onImportComplete();
@@ -289,8 +305,6 @@ export function ConsultantImportDialog({
         toast.warning(
           `Imported ${data.successCount} consultant${data.successCount !== 1 ? 's' : ''} with ${data.errorCount} error${data.errorCount !== 1 ? 's' : ''}`
         );
-
-        // Trigger refresh for partial success
         if (onImportComplete) {
           setTimeout(() => {
             onImportComplete();
@@ -304,9 +318,7 @@ export function ConsultantImportDialog({
     } catch (error) {
       console.error('[ConsultantImportDialog] Upload error:', error);
       const errorMessage = error instanceof Error ? error.message : 'Upload failed';
-
       toast.error('Upload failed');
-
       setResult({
         success: false,
         successCount: 0,
@@ -315,6 +327,7 @@ export function ConsultantImportDialog({
         errors: [{ row: 0, message: errorMessage }]
       });
     } finally {
+      stopProgressAnimation();
       setUploading(false);
     }
   };
@@ -436,9 +449,7 @@ export function ConsultantImportDialog({
             <div className="space-y-2">
               <Progress value={progress} className="h-2" />
               <p className="text-sm text-center text-gray-600 dark:text-gray-400">
-                {progress < 30 && 'Uploading file...'}
-                {progress >= 30 && progress < 70 && 'Validating data and checking duplicates...'}
-                {progress >= 70 && 'Creating consultant records...'}
+                {getProgressLabel(progress)}
               </p>
             </div>
           )}
@@ -604,6 +615,8 @@ export function ConsultantImportDialog({
                       setFile(null);
                       setResult(null);
                       setProgress(0);
+                      setPreviewData(null);
+                      setIsParsing(false);
                     }}
                   >
                     Try Again
