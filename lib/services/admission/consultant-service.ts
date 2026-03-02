@@ -57,7 +57,7 @@ export class ConsultantService {
   ]);
 
   private static readonly TRANSACTION_SORTABLE_COLUMNS = new Set([
-    'created_at', 'net_amount', 'gross_amount', 'tds_amount', 'status', 'paid_at', 'updated_at',
+    'created_at', 'net_amount', 'gross_amount', 'tds_amount', 'status', 'payment_date', 'updated_at',
   ]);
 
   private static readonly REWARD_SORTABLE_COLUMNS = new Set([
@@ -1218,7 +1218,7 @@ export class ConsultantService {
       .from('consultant_commission_transactions')
       .update({
         status: 'paid',
-        paid_at: new Date().toISOString(),
+        payment_date: new Date().toISOString().split('T')[0],
         payment_reference: input.payment_reference,
         updated_at: new Date().toISOString(),
       } as any)
@@ -2201,7 +2201,7 @@ export class ConsultantService {
       .from('consultant_commission_transactions')
       .select('net_amount')
       .eq('status', 'paid')
-      .gte('paid_at', startOfMonth.toISOString());
+      .gte('payment_date', startOfMonth.toISOString().split('T')[0]);
     if (institutionId) thisMonthQuery = thisMonthQuery.eq('institution_id', institutionId);
     const { data: thisMonthTransactions } = await thisMonthQuery;
 
