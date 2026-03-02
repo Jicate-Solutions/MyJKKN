@@ -30,7 +30,6 @@ import {
   Phone,
   Mail,
   MapPin,
-  Building,
   Calendar,
   DollarSign,
   Users,
@@ -40,7 +39,6 @@ import {
   CheckCircle2,
   XCircle,
   MoreHorizontal,
-  FileText,
   CreditCard,
   Star,
   Globe,
@@ -243,14 +241,6 @@ function ConsultantDetailContent() {
               )}
             </div>
             <div className="flex items-center gap-4 mt-3 text-sm text-muted-foreground">
-              {consultant.institutions && consultant.institutions.length > 0 && (
-                <span className="flex items-center gap-1 font-medium text-foreground">
-                  <Building className="h-4 w-4" />
-                  {consultant.institutions.length === 1
-                    ? consultant.institutions[0].institution?.name || 'Unknown Institution'
-                    : `${consultant.institutions.length} Institutions`}
-                </span>
-              )}
               {consultant.email && (
                 <span className="flex items-center gap-1">
                   <Mail className="h-4 w-4" />
@@ -264,17 +254,6 @@ function ConsultantDetailContent() {
                 </span>
               )}
             </div>
-            {consultant.institutions && consultant.institutions.length > 1 && (
-              <div className="flex items-center gap-2 mt-2 flex-wrap">
-                <span className="text-xs text-muted-foreground">Linked institutions:</span>
-                {consultant.institutions.map(ci => (
-                  <Badge key={ci.id} variant="outline" className="text-xs gap-1">
-                    <Building className="h-3 w-3" />
-                    {ci.institution?.name || 'Unknown'}
-                  </Badge>
-                ))}
-              </div>
-            )}
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -552,74 +531,6 @@ function ConsultantDetailContent() {
               </Card>
             )}
 
-            {/* Assigned Institutions */}
-            {consultant.institutions && consultant.institutions.length > 0 && (
-              <Card className="md:col-span-2">
-                <CardHeader>
-                  <CardTitle className="text-base">Assigned Institutions</CardTitle>
-                  <CardDescription>
-                    This consultant is linked to {consultant.institutions.length} institution{consultant.institutions.length !== 1 ? 's' : ''}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Institution</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead>Tier</TableHead>
-                        <TableHead>Contract Start</TableHead>
-                        <TableHead>Contract End</TableHead>
-                        <TableHead></TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {consultant.institutions.map((ci) => (
-                        <TableRow key={ci.id}>
-                          <TableCell className="font-medium">
-                            <span className="flex items-center gap-2">
-                              <Building className="h-4 w-4 text-muted-foreground" />
-                              {ci.institution?.name || 'Unknown Institution'}
-                            </span>
-                          </TableCell>
-                          <TableCell>
-                            <Badge className={getStatusColor(ci.status)}>
-                              {ci.status.replace(/_/g, ' ')}
-                            </Badge>
-                          </TableCell>
-                          <TableCell>
-                            <Badge className={getTierColor(ci.tier)}>
-                              <Star className="h-3 w-3 mr-1" />
-                              {ci.tier}
-                            </Badge>
-                          </TableCell>
-                          <TableCell>
-                            {ci.contract_start_date
-                              ? format(new Date(ci.contract_start_date), 'PP')
-                              : <span className="text-muted-foreground">—</span>}
-                          </TableCell>
-                          <TableCell>
-                            {ci.contract_end_date
-                              ? format(new Date(ci.contract_end_date), 'PP')
-                              : <span className="text-muted-foreground">—</span>}
-                          </TableCell>
-                          <TableCell>
-                            {ci.contract_document_url && (
-                              <a href={ci.contract_document_url} target="_blank" rel="noopener noreferrer">
-                                <Button variant="ghost" size="sm">
-                                  <FileText className="h-4 w-4 mr-1" />
-                                  Contract
-                                </Button>
-                              </a>
-                            )}
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </CardContent>
-              </Card>
-            )}
           </div>
 
           {/* Notes */}
