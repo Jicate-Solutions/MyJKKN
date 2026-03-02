@@ -10,10 +10,7 @@ import {
   parseArrayField,
   parseNumberField,
   normalizeConsultantType,
-  normalizeStatus,
-  normalizeTier,
   cleanPhoneNumber,
-  parseDateField,
 } from '@/lib/utils/mappings/consultant-excel-mappings';
 
 /**
@@ -66,10 +63,10 @@ export async function POST(request: NextRequest) {
 
     const { data: profile, error: profileError } = await authClient
       .from('profiles')
-      .select('institution_id, full_name, is_super_admin')
+      .select('institution_id, full_name')
       .eq('id', user.id)
       .single();
-    console.log('[consultant-import] profile:', profile ? `institution_id=${profile.institution_id}, is_super_admin=${profile.is_super_admin}` : `error=${profileError?.message}`);
+    console.log('[consultant-import] profile:', profile ? `full_name=${profile.full_name}` : `error=${profileError?.message}`);
 
     // Service role client: bypasses RLS for bulk DB operations.
     // Required because education_consultants SELECT policy checks for a
@@ -77,24 +74,10 @@ export async function POST(request: NextRequest) {
     // which blocks the RETURNING clause and makes successCount always 0.
     const supabase = createServiceRoleClient();
 
-    // Parse form data first so we can read institution_id sent by super admins
+    // Parse form data
     const formData = await request.formData();
     const file = formData.get('file') as File;
-    const formInstitutionId = formData.get('institution_id') as string | null;
     console.log('[consultant-import] file:', file ? `"${file.name}" ${file.size}B` : 'MISSING');
-
-    // Resolve which institution to import into:
-    // - Regular users: always use their own profile institution_id
-    // - Super admins: no profile institution_id, must pass it in the form
-    const institutionId: string | null = profile?.institution_id ?? formInstitutionId ?? null;
-
-    if (!institutionId) {
-      const msg = profile?.is_super_admin
-        ? 'Please select an institution to import consultants into'
-        : 'User must be associated with an institution';
-      console.error('[consultant-import]', msg);
-      return NextResponse.json({ error: msg }, { status: 400 });
-    }
 
     if (!file) {
       return NextResponse.json({ error: 'No file provided' }, { status: 400 });
@@ -159,14 +142,7 @@ export async function POST(request: NextRequest) {
 
     // --- Process rows ---
     const errors: ImportError[] = [];
-    // Each entry holds the consultant profile + per-institution fields separately.
-    const validRows: Array<{
-      profile: Record<string, any>;
-      tier: string;
-      status: string;
-      contract_start_date: string | null;
-      contract_end_date: string | null;
-    }> = [];
+    const validRows: Array<{ profile: Record<string, any> }> = [];
     const duplicatePhones: string[] = [];
     const seenPhones = new Set<string>();
 
@@ -296,13 +272,7 @@ export async function POST(request: NextRequest) {
           (consultantProfile.total_conversions / consultantProfile.total_leads_referred) * 100;
       }
 
-      validRows.push({
-        profile: consultantProfile,
-        tier: normalizeTier(mappedData.tier),
-        status: normalizeStatus(mappedData.status),
-        contract_start_date: parseDateField(mappedData.contract_start_date),
-        contract_end_date: parseDateField(mappedData.contract_end_date),
-      });
+      validRows.push({ profile: consultantProfile });
     }
 
     console.log(`[consultant-import] Row processing done: ${validRows.length} valid, ${errors.length} errors`);
@@ -310,11 +280,10 @@ export async function POST(request: NextRequest) {
       console.log('[consultant-import] First 3 validation errors:', errors.slice(0, 3));
     }
 
-    // --- Insert valid consultants (two-step: profile then institution link) ---
+    // --- Insert valid consultants into the global education_consultants table ---
     let successCount = 0;
 
     if (validRows.length > 0) {
-      // Step 1: Insert global consultant profiles
       const { data: insertedConsultants, error: insertError } = await supabase
         .from('education_consultants')
         .insert(validRows.map(r => r.profile))
@@ -335,41 +304,6 @@ export async function POST(request: NextRequest) {
       }
 
       successCount = insertedConsultants?.length || 0;
-
-      // Step 2: Link each consultant to this institution via consultant_institutions
-      if (insertedConsultants && insertedConsultants.length > 0) {
-        const institutionLinks = insertedConsultants.map((c, i) => ({
-          consultant_id: c.id,
-          institution_id: institutionId,
-          tier: validRows[i].tier,
-          status: validRows[i].status,
-          contract_start_date: validRows[i].contract_start_date,
-          contract_end_date: validRows[i].contract_end_date,
-        }));
-
-        const { error: linkError } = await supabase
-          .from('consultant_institutions')
-          .insert(institutionLinks);
-
-        if (linkError) {
-          console.error('[consultant-import] Institution link error:', linkError);
-          return NextResponse.json(
-            {
-              success: false,
-              successCount: 0,
-              errorCount: parseResult.totalRows,
-              totalRows: parseResult.totalRows,
-              errors: [
-                {
-                  row: 0,
-                  message: `Consultants were created but could not be linked to your institution: ${linkError.message}`,
-                },
-              ],
-            },
-            { status: 500 }
-          );
-        }
-      }
     }
 
     const result: ImportResult = {
