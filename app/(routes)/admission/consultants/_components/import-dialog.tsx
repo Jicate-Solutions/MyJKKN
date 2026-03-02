@@ -162,6 +162,10 @@ export function ConsultantImportDialog({
         workbook.SheetNames[0];
 
       const worksheet = workbook.Sheets[sheetName];
+      if (!worksheet) {
+        setPreviewData([]);
+        return;
+      }
       const jsonData = XLSX.utils.sheet_to_json(worksheet) as Record<string, any>[];
 
       const rows: PreviewRow[] = jsonData.map((row, index) => {
@@ -179,7 +183,7 @@ export function ConsultantImportDialog({
       setPreviewData(rows);
     } catch {
       // Silently fail preview — server will catch real errors on upload
-      setPreviewData([]);
+      setPreviewData(null);
     } finally {
       setIsParsing(false);
     }
