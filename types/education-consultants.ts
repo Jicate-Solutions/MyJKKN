@@ -142,8 +142,8 @@ export interface EducationConsultant {
 // ═══════════════════════════════════════════════════════════════════════════
 
 export interface CreateConsultantInput {
-  /** One or more institution IDs to link this consultant to on creation. */
-  institution_ids: string[];
+  /** Institution IDs to link this consultant to. Optional — consultant is a global entity; institution assignment is done separately. */
+  institution_ids?: string[]; // optional — ignored at creation (global entity)
   name: string;
   email?: string | null;
   phone?: string | null;
@@ -170,10 +170,13 @@ export interface CreateConsultantInput {
   tags?: string[];
   profile_photo_url?: string | null;
 
-  // Per-institution defaults applied to all institution links on creation
+  /** @deprecated Lives on consultant_institutions junction — not used at creation */
   status?: ConsultantStatus;
+  /** @deprecated Lives on consultant_institutions junction — not used at creation */
   tier?: ConsultantTier;
+  /** @deprecated Lives on consultant_institutions junction — not used at creation */
   contract_start_date?: string | null;
+  /** @deprecated Lives on consultant_institutions junction — not used at creation */
   contract_end_date?: string | null;
 
   // Form aliases (remapped to DB columns in submit handler)
