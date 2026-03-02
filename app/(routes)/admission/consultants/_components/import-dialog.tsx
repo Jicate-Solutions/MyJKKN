@@ -421,31 +421,33 @@ export function ConsultantImportDialog({
                   </label>
                 </>
               ) : (
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <FileSpreadsheet className="h-8 w-8 text-green-600" />
-                    <div className="text-left">
-                      <p className="font-medium">{file.name}</p>
-                      <p className="text-sm text-gray-500">
-                        {(file.size / 1024).toFixed(2)} KB
-                      </p>
+                <>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <FileSpreadsheet className="h-8 w-8 text-green-600" />
+                      <div className="text-left">
+                        <p className="font-medium">{file.name}</p>
+                        <p className="text-sm text-gray-500">
+                          {(file.size / 1024).toFixed(2)} KB
+                        </p>
+                      </div>
                     </div>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setFile(null)}
+                      disabled={uploading}
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setFile(null)}
-                    disabled={uploading}
-                  >
-                    <X className="h-4 w-4" />
-                  </Button>
-                </div>
-              )}
-              {isParsing && (
-                <p className="text-xs text-muted-foreground mt-2 flex items-center gap-1">
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                  Analyzing file...
-                </p>
+                  {isParsing && (
+                    <p className="text-xs text-muted-foreground mt-2 flex items-center gap-1">
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                      Analyzing file...
+                    </p>
+                  )}
+                </>
               )}
             </div>
           )}
