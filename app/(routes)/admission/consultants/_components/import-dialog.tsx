@@ -358,7 +358,7 @@ export function ConsultantImportDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Upload className="h-5 w-5" />
@@ -441,7 +441,137 @@ export function ConsultantImportDialog({
                   </Button>
                 </div>
               )}
+              {isParsing && (
+                <p className="text-xs text-muted-foreground mt-2 flex items-center gap-1">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  Analyzing file...
+                </p>
+              )}
             </div>
+          )}
+
+          {/* Preview Table — shown after client-side parse, before upload */}
+          {previewData !== null && previewData.length > 0 && !result && (
+            <div className="space-y-2">
+              {/* Summary bar */}
+              <div className="flex items-center gap-2 text-sm">
+                <span className="text-muted-foreground font-medium">
+                  {previewData.length} row{previewData.length !== 1 ? 's' : ''} detected
+                </span>
+                <Badge variant="outline" className="bg-green-100 text-green-800 border-green-200 dark:bg-green-900/20 dark:text-green-300">
+                  ✓ {previewData.filter((r) => r.isValid).length} valid
+                </Badge>
+                {previewData.some((r) => !r.isValid) && (
+                  <Badge variant="outline" className="bg-red-100 text-red-800 border-red-200 dark:bg-red-900/20 dark:text-red-300">
+                    ✗ {previewData.filter((r) => !r.isValid).length} errors
+                  </Badge>
+                )}
+              </div>
+
+              {/* Scrollable table */}
+              <div className="border rounded-lg overflow-hidden">
+                <div className="max-h-60 overflow-y-auto">
+                  <table className="w-full text-xs">
+                    <thead className="bg-muted sticky top-0 z-10">
+                      <tr>
+                        <th className="px-2 py-2 text-left font-medium text-muted-foreground w-10">#</th>
+                        <th className="px-2 py-2 text-left font-medium text-muted-foreground">Name</th>
+                        <th className="px-2 py-2 text-left font-medium text-muted-foreground">Phone</th>
+                        <th className="px-2 py-2 text-left font-medium text-muted-foreground">Type</th>
+                        <th className="px-2 py-2 text-left font-medium text-muted-foreground">Email</th>
+                        <th className="px-2 py-2 w-6"></th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      <TooltipProvider>
+                        {previewData.slice(0, 100).map((row) => (
+                          <Tooltip key={row.rowNumber}>
+                            <TooltipTrigger asChild>
+                              <tr
+                                className={
+                                  row.isValid
+                                    ? 'hover:bg-muted/30 cursor-default'
+                                    : 'bg-red-50 dark:bg-red-900/10 hover:bg-red-100/70 dark:hover:bg-red-900/20 cursor-default'
+                                }
+                              >
+                                <td className="px-2 py-1.5 text-muted-foreground">{row.rowNumber}</td>
+                                <td
+                                  className={`px-2 py-1.5 max-w-[140px] truncate ${
+                                    row.errors.some((e) => e.includes('Name'))
+                                      ? 'text-red-600 dark:text-red-400 font-medium'
+                                      : ''
+                                  }`}
+                                >
+                                  {row.name}
+                                </td>
+                                <td
+                                  className={`px-2 py-1.5 ${
+                                    row.errors.some((e) => e.includes('Phone'))
+                                      ? 'text-red-600 dark:text-red-400 font-medium'
+                                      : ''
+                                  }`}
+                                >
+                                  {row.phone}
+                                </td>
+                                <td
+                                  className={`px-2 py-1.5 ${
+                                    row.errors.some((e) => e.includes('type') || e.includes('Type'))
+                                      ? 'text-red-600 dark:text-red-400 font-medium'
+                                      : ''
+                                  }`}
+                                >
+                                  {row.type}
+                                </td>
+                                <td
+                                  className={`px-2 py-1.5 max-w-[140px] truncate ${
+                                    row.errors.some((e) => e.includes('email') || e.includes('Email'))
+                                      ? 'text-red-600 dark:text-red-400 font-medium'
+                                      : ''
+                                  }`}
+                                >
+                                  {row.email}
+                                </td>
+                                <td className="px-2 py-1.5">
+                                  {row.isValid ? (
+                                    <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
+                                  ) : (
+                                    <AlertCircle className="h-3.5 w-3.5 text-red-500" />
+                                  )}
+                                </td>
+                              </tr>
+                            </TooltipTrigger>
+                            {!row.isValid && (
+                              <TooltipContent side="left" className="max-w-xs">
+                                <ul className="text-xs space-y-0.5">
+                                  {row.errors.map((e, i) => (
+                                    <li key={i}>• {e}</li>
+                                  ))}
+                                </ul>
+                              </TooltipContent>
+                            )}
+                          </Tooltip>
+                        ))}
+                      </TooltipProvider>
+                    </tbody>
+                  </table>
+                </div>
+                {previewData.length > 100 && (
+                  <div className="px-3 py-2 text-xs text-muted-foreground border-t bg-muted/50">
+                    ... and {previewData.length - 100} more rows (all will be imported)
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Empty file warning */}
+          {previewData !== null && previewData.length === 0 && !result && (
+            <Alert variant="destructive">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>
+                No data rows found in the file. Make sure the Excel sheet is named &quot;Consultants&quot; and has data below the header row.
+              </AlertDescription>
+            </Alert>
           )}
 
           {/* Progress Bar */}
@@ -586,11 +716,22 @@ export function ConsultantImportDialog({
               <Button variant="outline" onClick={() => handleOpenChange(false)}>
                 Cancel
               </Button>
-              <Button onClick={handleUpload} disabled={!file || uploading}>
+              <Button onClick={handleUpload} disabled={!file || uploading || isParsing}>
                 {uploading ? (
                   <>
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                     Uploading...
+                  </>
+                ) : isParsing ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Analyzing...
+                  </>
+                ) : previewData && previewData.length > 0 ? (
+                  <>
+                    <Upload className="h-4 w-4 mr-2" />
+                    Import {previewData.filter((r) => r.isValid).length || previewData.length} row
+                    {(previewData.filter((r) => r.isValid).length || previewData.length) !== 1 ? 's' : ''}
                   </>
                 ) : (
                   <>
