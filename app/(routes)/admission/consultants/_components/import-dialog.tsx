@@ -380,7 +380,7 @@ export function ConsultantImportDialog({
             <FileSpreadsheet className="h-4 w-4" />
             <AlertDescription className="flex items-center justify-between">
               <span className="text-sm">
-                Don&apos;t have a template? Download it with dropdown validation for type, tier, and status.
+                Don&apos;t have a template? Download it with dropdown validation for consultant type.
               </span>
               <Button
                 variant="outline"
