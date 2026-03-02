@@ -3,7 +3,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
-import { parseExcelFile, mapColumns } from '@/lib/utils/excel-parser';
+import { parseExcelFile } from '@/lib/utils/excel-parser';
 import {
   CONSULTANT_COLUMN_MAPPING,
   CONSULTANT_REQUIRED_FIELDS,
@@ -15,6 +15,22 @@ import {
   cleanPhoneNumber,
   parseDateField,
 } from '@/lib/utils/mappings/consultant-excel-mappings';
+
+/**
+ * Map Excel row data to DB fields using CONSULTANT_COLUMN_MAPPING.
+ * The mapping is { excelHeader: dbField }, so we iterate over its entries
+ * and look up each Excel header key in the raw row data.
+ */
+function mapConsultantRow(rowData: Record<string, any>): Record<string, any> {
+  const mapped: Record<string, any> = {};
+  for (const [excelHeader, dbField] of Object.entries(CONSULTANT_COLUMN_MAPPING)) {
+    const value = rowData[excelHeader];
+    if (value !== undefined && value !== null && value !== '') {
+      mapped[dbField] = value;
+    }
+  }
+  return mapped;
+}
 
 interface ImportError {
   row: number;
@@ -106,7 +122,7 @@ export async function POST(request: NextRequest) {
 
     for (const row of parseResult.rows) {
       const rowNum = row.rowNumber;
-      const mappedData = mapColumns(row.data, CONSULTANT_COLUMN_MAPPING as any);
+      const mappedData = mapConsultantRow(row.data);
 
       // Validate required fields
       const missingFields = CONSULTANT_REQUIRED_FIELDS.filter(field => !mappedData[field]);
