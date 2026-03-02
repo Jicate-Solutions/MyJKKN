@@ -2510,3 +2510,63 @@ USING (
     OR (storage.foldername(name))[1] = (SELECT institution_id::text FROM profiles WHERE id = auth.uid())
   )
 );
+
+-- ================================================================================
+-- SECTION: EDUCATION CONSULTANTS — Global Entity RLS Policies
+-- Updated: 2026-03-02 — Consultants are global entities; SELECT is open to all
+--                        authenticated users (no institution junction required).
+--                        INSERT/UPDATE/DELETE remain institution-scoped or super_admin.
+-- ================================================================================
+
+ALTER TABLE education_consultants ENABLE ROW LEVEL SECURITY;
+
+-- consultants are global entities visible to all authenticated users (no institution junction required)
+CREATE POLICY "consultants_global_select"
+  ON education_consultants FOR SELECT
+  USING (auth.role() = 'authenticated');
+
+CREATE POLICY "edu_consultants_insert"
+  ON education_consultants FOR INSERT
+  WITH CHECK (true);
+
+CREATE POLICY "edu_consultants_update"
+  ON education_consultants FOR UPDATE
+  USING (
+    (EXISTS (
+      SELECT 1 FROM consultant_institutions ci
+      WHERE ci.consultant_id = education_consultants.id
+        AND ci.institution_id = (SELECT auth_institution_id() AS auth_institution_id)
+    ))
+    OR (EXISTS (
+      SELECT 1 FROM profiles p
+      WHERE p.id = (SELECT auth.uid() AS uid)
+        AND p.role = 'super_admin'::text
+    ))
+  )
+  WITH CHECK (
+    (EXISTS (
+      SELECT 1 FROM consultant_institutions ci
+      WHERE ci.consultant_id = education_consultants.id
+        AND ci.institution_id = (SELECT auth_institution_id() AS auth_institution_id)
+    ))
+    OR (EXISTS (
+      SELECT 1 FROM profiles p
+      WHERE p.id = (SELECT auth.uid() AS uid)
+        AND p.role = 'super_admin'::text
+    ))
+  );
+
+CREATE POLICY "edu_consultants_delete"
+  ON education_consultants FOR DELETE
+  USING (
+    (EXISTS (
+      SELECT 1 FROM consultant_institutions ci
+      WHERE ci.consultant_id = education_consultants.id
+        AND ci.institution_id = (SELECT auth_institution_id() AS auth_institution_id)
+    ))
+    OR (EXISTS (
+      SELECT 1 FROM profiles p
+      WHERE p.id = (SELECT auth.uid() AS uid)
+        AND p.role = 'super_admin'::text
+    ))
+  );
