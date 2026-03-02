@@ -225,12 +225,23 @@ export function useConsultantPerformance(consultantId: string) {
 // DROPDOWN HOOKS
 // ============================================
 
-export function useConsultantsForDropdown(institutionId: string) {
+/**
+ * Fetch active consultants for a dropdown.
+ *
+ * institutionId semantics (three states):
+ *   string (non-empty) → filter to consultants linked to that institution
+ *   ''  (empty string) → query disabled — institution not yet known (backward compat)
+ *   undefined          → fetch ALL active consultants across all institutions
+ *
+ * Consultants are global entities (education_consultants has no institution_id).
+ * The institution filter is optional — omit it to get the global list.
+ */
+export function useConsultantsForDropdown(institutionId?: string) {
   return useQuery({
-    queryKey: ['consultants-dropdown', institutionId],
+    queryKey: ['consultants-dropdown', institutionId ?? 'all'],
     queryFn: async () => {
       const result = await ConsultantService.getConsultants({
-        institution_id: institutionId,
+        ...(institutionId ? { institution_id: institutionId } : {}),
         status: 'active',
         limit: 1000
       });
@@ -241,7 +252,9 @@ export function useConsultantsForDropdown(institutionId: string) {
         label: c.name
       }));
     },
-    enabled: !!institutionId
+    // '' keeps the query disabled (backward compat for callers using `institutionId || ''`).
+    // undefined fires it without an institution filter (global list).
+    enabled: institutionId !== ''
   });
 }
 

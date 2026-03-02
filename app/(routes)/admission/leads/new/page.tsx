@@ -141,10 +141,10 @@ function NewLeadPageContent() {
     (!isSuperAdmin && profile?.institution_id ? profile.institution_id : undefined) ||
     (institutions.length === 1 ? institutions[0].id : undefined);
 
-  // Counselors are shared across ALL institutions — always fetch the full list regardless
-  // of which institution is selected or which role the user has.
+  // Counselors and consultants are shared across ALL institutions — always fetch the
+  // full list regardless of which institution is selected or which role the user has.
   const { data: counselorProfiles } = useCounselorProfiles(null);
-  const { data: consultants = [] } = useConsultantsForDropdown(effectiveInstitutionId);
+  const { data: consultants = [] } = useConsultantsForDropdown();
 
   // Programs loaded based on selected institution
   const [programs, setPrograms] = useState<ProgramOption[]>([]);
