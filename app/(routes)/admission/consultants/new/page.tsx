@@ -23,9 +23,8 @@ import {
   SelectValue
 } from '@/components/ui/select';
 import { PermissionGuard } from '@/components/auth/permission-guard';
-import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
-import { Loader2, Save, ArrowLeft, Handshake, Building, Building2, User, Wallet, Globe, Calendar, Camera } from 'lucide-react';
+import { Loader2, Save, ArrowLeft, Handshake, Building, User, Wallet, Globe, Calendar, Camera } from 'lucide-react';
 import Link from 'next/link';
 import { toast } from 'sonner';
 import { ConsultantService } from '@/lib/services/admission/consultant-service';
@@ -56,30 +55,13 @@ const CONSULTANT_TYPES: { value: ConsultantType; label: string }[] = [
 function NewConsultantForm() {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const { institutions, selectedInstitutionId } = useUserInstitutionAccess();
-  // Multi-institution support: track which institutions this consultant is being registered for
-  const [chosenInstitutionIds, setChosenInstitutionIds] = useState<string[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [profilePhotoPreview, setProfilePhotoPreview] = useState<string | null>(null);
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
 
-  const toggleInstitution = (id: string) => {
-    setChosenInstitutionIds(prev =>
-      prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
-    );
-  };
-
-  // Resolve target institution IDs: single-institution users get theirs automatically,
-  // multi-institution users pick from the checkbox list
-  const targetInstitutionIds: string[] =
-    institutions.length <= 1
-      ? (selectedInstitutionId ? [selectedInstitutionId] : [])
-      : chosenInstitutionIds;
-
   const form = useForm<CreateConsultantInput>({
     resolver: zodResolver(createConsultantSchema),
     defaultValues: {
-      institution_ids: selectedInstitutionId ? [selectedInstitutionId] : [],
       name: '',
       email: '',
       phone: '',
@@ -153,16 +135,10 @@ function NewConsultantForm() {
   };
 
   const onSubmit = async (data: CreateConsultantInput) => {
-    if (targetInstitutionIds.length === 0) {
-      toast.error('Please select at least one institution.');
-      return;
-    }
-
     // Build payload: transform form aliases to DB column names
     const { address, notes, geographic_coverage, specializations, programs_handled, ...rest } = data as any;
     const payload: Record<string, any> = {
       ...rest,
-      institution_ids: targetInstitutionIds,
       ...(address ? { address_line1: address } : {}),
       ...(notes ? { internal_notes: notes } : {}),
       ...(geographic_coverage?.length ? { covered_states: geographic_coverage } : {}),
@@ -175,11 +151,7 @@ function NewConsultantForm() {
     setIsSubmitting(true);
     try {
       const consultant = await ConsultantService.createConsultant(payload as CreateConsultantInput);
-      toast.success(
-        targetInstitutionIds.length > 1
-          ? `Consultant created and linked to ${targetInstitutionIds.length} institutions`
-          : 'Consultant created successfully'
-      );
+      toast.success('Consultant created successfully');
       queryClient.invalidateQueries({ queryKey: ['consultants'] });
       queryClient.invalidateQueries({ queryKey: ['consultants-summary'] });
       router.push(`/admission/consultants/${consultant.id}`);
@@ -254,35 +226,6 @@ function NewConsultantForm() {
                     {isUploadingPhoto ? 'Uploading…' : 'Click to upload profile photo (JPG, PNG, WebP · max 5 MB)'}
                   </p>
                 </div>
-
-                {/* Institution selector — only shown when user has access to multiple institutions */}
-                {institutions.length > 1 && (
-                  <div className="p-3 bg-muted/30 rounded-lg border space-y-2">
-                    <div className="flex items-center gap-2">
-                      <Building2 className="h-4 w-4 text-muted-foreground" />
-                      <span className="text-sm font-medium">Register for Institution(s) *</span>
-                    </div>
-                    <div className="grid gap-2 sm:grid-cols-2">
-                      {institutions.map(inst => (
-                        <label
-                          key={inst.institution_id}
-                          className="flex items-center gap-2 cursor-pointer p-2 rounded hover:bg-muted/50"
-                        >
-                          <input
-                            type="checkbox"
-                            checked={chosenInstitutionIds.includes(inst.institution_id)}
-                            onChange={() => toggleInstitution(inst.institution_id)}
-                            className="accent-primary"
-                          />
-                          <span className="text-sm truncate">{inst.institution_name}</span>
-                        </label>
-                      ))}
-                    </div>
-                    {chosenInstitutionIds.length === 0 && (
-                      <p className="text-xs text-destructive">Select at least one institution.</p>
-                    )}
-                  </div>
-                )}
 
                 <div className="grid gap-4 md:grid-cols-2">
                   <FormField
@@ -694,9 +637,7 @@ function NewConsultantForm() {
             ) : (
               <Save className="h-4 w-4 mr-2" />
             )}
-            {chosenInstitutionIds.length > 1
-              ? `Create Consultant (${chosenInstitutionIds.length} institutions)`
-              : 'Create Consultant'}
+            Create Consultant
           </Button>
         </div>
       </form>
