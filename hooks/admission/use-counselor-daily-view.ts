@@ -197,12 +197,17 @@ export function useCounselorActions(institutionId?: string) {
 /**
  * Fetch counselors sourced from profiles (role='counselor') for a given institution.
  * Use this for all counselor picker dropdowns — no admission_counselors management UI needed.
+ *
+ * institutionId semantics:
+ *   string    → fetch counselors for that specific institution
+ *   null      → fetch counselors from ALL institutions (super admin with no institution selected)
+ *   undefined → query disabled (institution not yet known, e.g. still loading)
  */
-export function useCounselorProfiles(institutionId: string | undefined) {
+export function useCounselorProfiles(institutionId: string | null | undefined) {
   return useQuery({
-    queryKey: [...counselorDailyViewKeys.counselors(institutionId || ''), 'profiles'],
-    queryFn: () => CounselorDailyViewService.getCounselorProfiles(institutionId!),
-    enabled: !!institutionId,
+    queryKey: [...counselorDailyViewKeys.counselors(institutionId ?? 'all'), 'profiles'],
+    queryFn: () => CounselorDailyViewService.getCounselorProfiles(institutionId ?? null),
+    enabled: institutionId !== undefined, // null fires the query; undefined keeps it disabled
     staleTime: 5 * 60 * 1000, // 5-minute cache — counselor list changes infrequently
   });
 }

@@ -2032,6 +2032,54 @@ COMMENT ON FUNCTION sync_learner_status_to_profile IS
 -- SECTION 8: ADMISSION MODULE FUNCTIONS
 -- ================================================================================
 
+-- Get counselor profiles for an institution (bypasses user_roles RLS)
+-- Created: 2026-03-02 — Fixes empty counselor dropdown in lead creation form.
+-- SECURITY DEFINER is required: user_roles RLS only allows users to read their
+-- own role assignments, so a client-side query silently returns an empty list for
+-- multi-role counselors. This function runs as the owner to see all assignments.
+-- p_institution_id DEFAULT NULL:
+--   UUID  → counselors for that institution only
+--   NULL  → counselors from all institutions (super admin use case)
+CREATE OR REPLACE FUNCTION public.get_counselor_profiles_for_institution(
+  p_institution_id uuid DEFAULT NULL
+)
+RETURNS TABLE (
+  profile_id   uuid,
+  full_name    text,
+  email        text,
+  phone_number text,
+  designation  text
+)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT DISTINCT
+    p.id          AS profile_id,
+    p.full_name,
+    p.email,
+    p.phone_number,
+    p.designation
+  FROM profiles p
+  WHERE
+    (p_institution_id IS NULL OR p.institution_id = p_institution_id)
+    AND p.is_active = true
+    AND (
+      p.role = 'counselor'
+      OR p.id IN (
+        SELECT ur.user_id
+        FROM user_roles ur
+        JOIN custom_roles cr ON ur.role_id = cr.id
+        WHERE cr.role_key = 'counselor'
+      )
+    )
+  ORDER BY p.full_name;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.get_counselor_profiles_for_institution(uuid)
+  TO authenticated;
+
 -- Generate institution application ID
 CREATE OR REPLACE FUNCTION public.generate_institution_application_id(institution_id_param uuid)
 RETURNS text

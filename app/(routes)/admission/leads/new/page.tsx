@@ -133,8 +133,18 @@ function NewLeadPageContent() {
   }, [profile?.institution_id, isSuperAdmin, institutions]);
 
   const institutionId = selectedInstitutionId;
-  const { data: counselorProfiles } = useCounselorProfiles(institutionId || undefined);
-  const { data: consultants = [] } = useConsultantsForDropdown(institutionId || undefined);
+  // Mirror the exact same institution-resolution logic as the auto-set useEffect so
+  // consultants load immediately on first render — before setState fires.
+  // Priority: explicit form selection → profile institution (non-super-admin) → only accessible institution
+  const effectiveInstitutionId =
+    institutionId ||
+    (!isSuperAdmin && profile?.institution_id ? profile.institution_id : undefined) ||
+    (institutions.length === 1 ? institutions[0].id : undefined);
+
+  // Counselors are shared across ALL institutions — always fetch the full list regardless
+  // of which institution is selected or which role the user has.
+  const { data: counselorProfiles } = useCounselorProfiles(null);
+  const { data: consultants = [] } = useConsultantsForDropdown(effectiveInstitutionId);
 
   // Programs loaded based on selected institution
   const [programs, setPrograms] = useState<ProgramOption[]>([]);
@@ -966,10 +976,9 @@ function NewLeadPageContent() {
                       <Select
                         value={selectedConsultantId}
                         onValueChange={setSelectedConsultantId}
-                        disabled={!institutionId}
                       >
                         <SelectTrigger>
-                          <SelectValue placeholder={institutionId ? 'Select consultant' : 'Select institution first'} />
+                          <SelectValue placeholder="Select consultant" />
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="_none">No consultant</SelectItem>
@@ -992,10 +1001,9 @@ function NewLeadPageContent() {
                       <Select
                         value={selectedCounselorProfileId}
                         onValueChange={setSelectedCounselorProfileId}
-                        disabled={!institutionId}
                       >
                         <SelectTrigger>
-                          <SelectValue placeholder={institutionId ? 'Select counselor' : 'Select institution first'} />
+                          <SelectValue placeholder="Select counselor" />
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="_none">No counselor</SelectItem>
