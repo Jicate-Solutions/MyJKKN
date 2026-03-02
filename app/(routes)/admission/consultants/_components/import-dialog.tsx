@@ -71,6 +71,62 @@ interface ImportDialogProps {
 }
 
 // ============================================================
+// VALIDATION HELPERS
+// ============================================================
+
+// Valid consultant types for client-side preview validation
+const VALID_CONSULTANT_TYPES = new Set([
+  'external', 'internal', 'institutional', 'alumni', 'student',
+]);
+const CONSULTANT_TYPE_ALIASES: Record<string, string> = {
+  agent: 'external',
+  partner: 'external',
+};
+
+function validatePreviewRow(
+  mapped: Record<string, any>,
+  rowNumber: number
+): PreviewRow {
+  const errors: string[] = [];
+
+  const name = String(mapped.name || '').trim();
+  const rawPhone = String(mapped.phone || '');
+  const phone = rawPhone.replace(/\D/g, '');
+  const typeRaw = String(mapped.consultant_type || '').toLowerCase().trim();
+  const email = String(mapped.email || '').toLowerCase().trim();
+
+  if (!name) errors.push('Missing: Name');
+
+  if (!rawPhone) {
+    errors.push('Missing: Phone');
+  } else if (phone.length < 10) {
+    errors.push(`Phone too short (${phone.length} digits, need ≥10)`);
+  }
+
+  if (!mapped.consultant_type) {
+    errors.push('Missing: Type');
+  } else if (!VALID_CONSULTANT_TYPES.has(typeRaw) && !CONSULTANT_TYPE_ALIASES[typeRaw]) {
+    errors.push(
+      `Invalid type: "${mapped.consultant_type}" — use: external, internal, institutional, alumni, student`
+    );
+  }
+
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    errors.push(`Invalid email: ${email}`);
+  }
+
+  return {
+    rowNumber,
+    name: name || '—',
+    phone: phone || rawPhone || '—',
+    type: String(mapped.consultant_type || '') || '—',
+    email: email || '—',
+    errors,
+    isValid: errors.length === 0,
+  };
+}
+
+// ============================================================
 // COMPONENT
 // ============================================================
 
@@ -88,6 +144,47 @@ export function ConsultantImportDialog({
   const [isParsing, setIsParsing] = useState(false);
   const progressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  const parseFileForPreview = async (file: File) => {
+    setIsParsing(true);
+    setPreviewData(null);
+    try {
+      const buffer = await file.arrayBuffer();
+      const workbook = XLSX.read(buffer);
+
+      // Find the "Consultants" sheet, or the first non-instructions sheet
+      const sheetName =
+        workbook.SheetNames.find((n) => n.toLowerCase().includes('consultant')) ??
+        workbook.SheetNames.find(
+          (n) =>
+            !n.toLowerCase().includes('instruction') &&
+            !n.toLowerCase().includes('reference')
+        ) ??
+        workbook.SheetNames[0];
+
+      const worksheet = workbook.Sheets[sheetName];
+      const jsonData = XLSX.utils.sheet_to_json(worksheet) as Record<string, any>[];
+
+      const rows: PreviewRow[] = jsonData.map((row, index) => {
+        // CONSULTANT_COLUMN_MAPPING is { excelHeader: dbField }
+        // Iterate entries to build mapped object
+        const mapped: Record<string, any> = {};
+        for (const [header, field] of Object.entries(CONSULTANT_COLUMN_MAPPING)) {
+          if (row[header] !== undefined && row[header] !== null && row[header] !== '') {
+            mapped[field] = row[header];
+          }
+        }
+        return validatePreviewRow(mapped, index + 2); // +2: 1-indexed + header row
+      });
+
+      setPreviewData(rows);
+    } catch {
+      // Silently fail preview — server will catch real errors on upload
+      setPreviewData([]);
+    } finally {
+      setIsParsing(false);
+    }
+  };
+
   // ============================================================
   // HANDLERS
   // ============================================================
@@ -98,6 +195,12 @@ export function ConsultantImportDialog({
       setFile(null);
       setResult(null);
       setProgress(0);
+      setPreviewData(null);
+      setIsParsing(false);
+      if (progressIntervalRef.current) {
+        clearInterval(progressIntervalRef.current);
+        progressIntervalRef.current = null;
+      }
     }
     onOpenChange(newOpen);
   };
@@ -116,6 +219,8 @@ export function ConsultantImportDialog({
 
       setFile(selectedFile);
       setResult(null);
+      setPreviewData(null);
+      parseFileForPreview(selectedFile);
     }
   };
 
