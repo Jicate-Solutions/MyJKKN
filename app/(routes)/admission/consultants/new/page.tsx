@@ -505,35 +505,9 @@ function NewConsultantForm() {
                 <CardDescription>Agreement and validity period</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="grid gap-4 md:grid-cols-2">
-                  <FormField
-                    control={form.control}
-                    name="contract_start_date"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Contract Start Date</FormLabel>
-                        <FormControl>
-                          <Input type="date" {...field} value={field.value || ''} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <FormField
-                    control={form.control}
-                    name="contract_end_date"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Contract End Date</FormLabel>
-                        <FormControl>
-                          <Input type="date" {...field} value={field.value || ''} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
+                <p className="text-sm text-muted-foreground">
+                  Contract dates and terms are configured per institution after the consultant is created.
+                </p>
 
                 <div className="rounded-lg border p-4 bg-muted/50">
                   <h4 className="font-medium mb-2 flex items-center gap-2">

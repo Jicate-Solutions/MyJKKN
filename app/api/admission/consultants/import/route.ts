@@ -51,12 +51,10 @@ interface ImportResult {
 }
 
 export async function POST(request: NextRequest) {
-  console.log('[consultant-import] ===== POST received =====');
   try {
     // Auth client: verify user identity and fetch profile (respects RLS/JWT)
     const authClient = await createServerSupabaseClient();
     const { data: { user }, error: authError } = await authClient.auth.getUser();
-    console.log('[consultant-import] auth:', user ? `user=${user.id.slice(0, 8)}` : `error=${authError?.message}`);
     if (authError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
@@ -66,7 +64,6 @@ export async function POST(request: NextRequest) {
       .select('institution_id, full_name')
       .eq('id', user.id)
       .single();
-    console.log('[consultant-import] profile:', profile ? `full_name=${profile.full_name}` : `error=${profileError?.message}`);
 
     // Service role client: bypasses RLS for bulk DB operations.
     // Required because education_consultants SELECT policy checks for a
@@ -77,7 +74,6 @@ export async function POST(request: NextRequest) {
     // Parse form data
     const formData = await request.formData();
     const file = formData.get('file') as File;
-    console.log('[consultant-import] file:', file ? `"${file.name}" ${file.size}B` : 'MISSING');
 
     if (!file) {
       return NextResponse.json({ error: 'No file provided' }, { status: 400 });
@@ -95,9 +91,7 @@ export async function POST(request: NextRequest) {
     // Parse Excel file — no sheet name argument so parser uses the first available
     // sheet. The downloaded template has a "Consultants" sheet, but user-created
     // files typically use the default "Sheet1".
-    console.log(`[consultant-import] Parsing file: "${file.name}" (${file.size} bytes)`);
     const parseResult = await parseExcelFile(file);
-    console.log(`[consultant-import] Parse result: ${parseResult.rows.length} rows, ${parseResult.errors.length} errors`);
     if (parseResult.errors.length > 0) {
       console.error('[consultant-import] Parse errors:', parseResult.errors);
       return NextResponse.json(
@@ -124,8 +118,6 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
-    console.log(`[consultant-import] First row keys: ${Object.keys(parseResult.rows[0]?.data || {}).join(', ')}`);
-
     // --- Duplicate detection ---
     // education_consultants is a global table (no institution_id column).
     // We check phone/email globally to prevent duplicate consultant profiles.
@@ -273,11 +265,6 @@ export async function POST(request: NextRequest) {
       }
 
       validRows.push({ profile: consultantProfile });
-    }
-
-    console.log(`[consultant-import] Row processing done: ${validRows.length} valid, ${errors.length} errors`);
-    if (errors.length > 0) {
-      console.log('[consultant-import] First 3 validation errors:', errors.slice(0, 3));
     }
 
     // --- Insert valid consultants into the global education_consultants table ---

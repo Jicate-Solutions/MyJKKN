@@ -2529,44 +2529,13 @@ CREATE POLICY "edu_consultants_insert"
   ON education_consultants FOR INSERT
   WITH CHECK (auth_institution_id() IS NOT NULL OR is_super_admin());
 
+DROP POLICY IF EXISTS "edu_consultants_update" ON education_consultants;
 CREATE POLICY "edu_consultants_update"
   ON education_consultants FOR UPDATE
-  USING (
-    (EXISTS (
-      SELECT 1 FROM consultant_institutions ci
-      WHERE ci.consultant_id = education_consultants.id
-        AND ci.institution_id = (SELECT auth_institution_id() AS auth_institution_id)
-    ))
-    OR (EXISTS (
-      SELECT 1 FROM profiles p
-      WHERE p.id = (SELECT auth.uid() AS uid)
-        AND p.role = 'super_admin'::text
-    ))
-  )
-  WITH CHECK (
-    (EXISTS (
-      SELECT 1 FROM consultant_institutions ci
-      WHERE ci.consultant_id = education_consultants.id
-        AND ci.institution_id = (SELECT auth_institution_id() AS auth_institution_id)
-    ))
-    OR (EXISTS (
-      SELECT 1 FROM profiles p
-      WHERE p.id = (SELECT auth.uid() AS uid)
-        AND p.role = 'super_admin'::text
-    ))
-  );
+  USING (auth_institution_id() IS NOT NULL OR is_super_admin())
+  WITH CHECK (auth_institution_id() IS NOT NULL OR is_super_admin());
 
+DROP POLICY IF EXISTS "edu_consultants_delete" ON education_consultants;
 CREATE POLICY "edu_consultants_delete"
   ON education_consultants FOR DELETE
-  USING (
-    (EXISTS (
-      SELECT 1 FROM consultant_institutions ci
-      WHERE ci.consultant_id = education_consultants.id
-        AND ci.institution_id = (SELECT auth_institution_id() AS auth_institution_id)
-    ))
-    OR (EXISTS (
-      SELECT 1 FROM profiles p
-      WHERE p.id = (SELECT auth.uid() AS uid)
-        AND p.role = 'super_admin'::text
-    ))
-  );
+  USING (auth_institution_id() IS NOT NULL OR is_super_admin());

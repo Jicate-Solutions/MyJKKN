@@ -31,7 +31,7 @@ import Link from 'next/link';
 import { toast } from 'sonner';
 import { ConsultantService } from '@/lib/services/admission/consultant-service';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import type { UpdateConsultantInput, ConsultantType, ConsultantStatus, ConsultantTier } from '@/types/education-consultants';
+import type { UpdateConsultantInput, ConsultantType } from '@/types/education-consultants';
 import { updateConsultantSchema } from '@/lib/validations/education-consultants';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -54,21 +54,6 @@ const CONSULTANT_TYPES: { value: ConsultantType; label: string }[] = [
   { value: 'student', label: 'Student Referrer' }
 ];
 
-const CONSULTANT_STATUS: { value: ConsultantStatus; label: string }[] = [
-  { value: 'active', label: 'Active' },
-  { value: 'inactive', label: 'Inactive' },
-  { value: 'suspended', label: 'Suspended' },
-  { value: 'pending_verification', label: 'Pending Verification' },
-  { value: 'contract_expired', label: 'Contract Expired' }
-];
-
-const CONSULTANT_TIERS: { value: ConsultantTier; label: string }[] = [
-  { value: 'bronze', label: 'Bronze' },
-  { value: 'silver', label: 'Silver' },
-  { value: 'gold', label: 'Gold' },
-  { value: 'platinum', label: 'Platinum' },
-  { value: 'diamond', label: 'Diamond' }
-];
 
 function EditConsultantSkeleton() {
   return (
@@ -409,33 +394,6 @@ function EditConsultantForm() {
 
                   <FormField
                     control={form.control}
-                    name="status"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Status *</FormLabel>
-                        <Select onValueChange={field.onChange} value={field.value}>
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select status" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            {CONSULTANT_STATUS.map((status) => (
-                              <SelectItem key={status.value} value={status.value}>
-                                {status.label}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
-
-                <div className="grid gap-4 md:grid-cols-2">
-                  <FormField
-                    control={form.control}
                     name="phone"
                     render={({ field }) => (
                       <FormItem>
@@ -622,60 +580,34 @@ function EditConsultantForm() {
                   />
                 </div>
 
-                <div className="grid gap-4 md:grid-cols-2">
-                  <FormField
-                    control={form.control}
-                    name="tier"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Consultant Tier</FormLabel>
-                        <Select onValueChange={field.onChange} value={field.value}>
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select tier" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            {CONSULTANT_TIERS.map((tier) => (
-                              <SelectItem key={tier.value} value={tier.value}>
-                                {tier.label}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <FormDescription>
-                          Performance-based tier (affects commission rates)
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+                <p className="text-sm text-muted-foreground">
+                  Status and tier are managed per institution in the institution link settings.
+                </p>
 
-                  <FormField
-                    control={form.control}
-                    name="relationship_score"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Relationship Score (0-100)</FormLabel>
-                        <FormControl>
-                          <Input
-                            type="number"
-                            min="0"
-                            max="100"
-                            placeholder="50"
-                            {...field}
-                            value={field.value || 50}
-                            onChange={e => field.onChange(parseInt(e.target.value) || 50)}
-                          />
-                        </FormControl>
-                        <FormDescription>
-                          Internal relationship strength metric
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
+                <FormField
+                  control={form.control}
+                  name="relationship_score"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Relationship Score (0-100)</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="number"
+                          min="0"
+                          max="100"
+                          placeholder="50"
+                          {...field}
+                          value={field.value || 50}
+                          onChange={e => field.onChange(parseInt(e.target.value) || 50)}
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        Internal relationship strength metric
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
 
                 <FormField
                   control={form.control}
