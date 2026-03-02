@@ -66,10 +66,10 @@ export async function POST(request: NextRequest) {
 
     const { data: profile, error: profileError } = await authClient
       .from('profiles')
-      .select('institution_id, full_name')
+      .select('institution_id, full_name, is_super_admin')
       .eq('id', user.id)
       .single();
-    console.log('[consultant-import] profile:', profile ? `institution_id=${profile.institution_id}` : `error=${profileError?.message}`);
+    console.log('[consultant-import] profile:', profile ? `institution_id=${profile.institution_id}, is_super_admin=${profile.is_super_admin}` : `error=${profileError?.message}`);
 
     // Service role client: bypasses RLS for bulk DB operations.
     // Required because education_consultants SELECT policy checks for a
@@ -77,18 +77,24 @@ export async function POST(request: NextRequest) {
     // which blocks the RETURNING clause and makes successCount always 0.
     const supabase = createServiceRoleClient();
 
-    if (!profile?.institution_id) {
-      console.error('[consultant-import] No institution_id on profile — returning 400');
-      return NextResponse.json(
-        { error: 'User must be associated with an institution' },
-        { status: 400 }
-      );
-    }
-
-    // Parse form data
+    // Parse form data first so we can read institution_id sent by super admins
     const formData = await request.formData();
     const file = formData.get('file') as File;
+    const formInstitutionId = formData.get('institution_id') as string | null;
     console.log('[consultant-import] file:', file ? `"${file.name}" ${file.size}B` : 'MISSING');
+
+    // Resolve which institution to import into:
+    // - Regular users: always use their own profile institution_id
+    // - Super admins: no profile institution_id, must pass it in the form
+    const institutionId: string | null = profile?.institution_id ?? formInstitutionId ?? null;
+
+    if (!institutionId) {
+      const msg = profile?.is_super_admin
+        ? 'Please select an institution to import consultants into'
+        : 'User must be associated with an institution';
+      console.error('[consultant-import]', msg);
+      return NextResponse.json({ error: msg }, { status: 400 });
+    }
 
     if (!file) {
       return NextResponse.json({ error: 'No file provided' }, { status: 400 });
@@ -334,7 +340,7 @@ export async function POST(request: NextRequest) {
       if (insertedConsultants && insertedConsultants.length > 0) {
         const institutionLinks = insertedConsultants.map((c, i) => ({
           consultant_id: c.id,
-          institution_id: profile.institution_id,
+          institution_id: institutionId,
           tier: validRows[i].tier,
           status: validRows[i].status,
           contract_start_date: validRows[i].contract_start_date,

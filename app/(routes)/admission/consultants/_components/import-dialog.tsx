@@ -14,6 +14,14 @@ import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
+import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { toast } from 'sonner';
 import * as XLSX from 'xlsx';
 import {
@@ -23,6 +31,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { CONSULTANT_COLUMN_MAPPING } from '@/lib/utils/mappings/consultant-excel-mappings';
+import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
 
 /**
  * Import Dialog Component for Education Consultants
@@ -142,6 +151,12 @@ export function ConsultantImportDialog({
   const [isParsing, setIsParsing] = useState(false);
   const progressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // Institution access — super admins see all institutions and must pick one;
+  // regular users have exactly one institution (auto-resolved server-side).
+  const { institutions, selectedInstitutionId } = useUserInstitutionAccess();
+  const showInstitutionPicker = institutions.length > 1;
+  const [targetInstitutionId, setTargetInstitutionId] = useState<string>('');
+
   const parseFileForPreview = async (file: File) => {
     setIsParsing(true);
     setPreviewData(null);
@@ -228,6 +243,7 @@ export function ConsultantImportDialog({
       setProgress(0);
       setPreviewData(null);
       setIsParsing(false);
+      setTargetInstitutionId('');
       if (progressIntervalRef.current) {
         clearInterval(progressIntervalRef.current);
         progressIntervalRef.current = null;
@@ -285,6 +301,9 @@ export function ConsultantImportDialog({
     try {
       const formData = new FormData();
       formData.append('file', file);
+      // Pass institution_id for super admin (who has no profile institution_id)
+      const institutionId = targetInstitutionId || selectedInstitutionId;
+      if (institutionId) formData.append('institution_id', institutionId);
 
       const response = await fetch('/api/admission/consultants/import', {
         method: 'POST',
@@ -392,6 +411,25 @@ export function ConsultantImportDialog({
               </Button>
             </AlertDescription>
           </Alert>
+
+          {/* Institution Picker — shown only for super admin / multi-institution users */}
+          {showInstitutionPicker && !result && (
+            <div className="space-y-1.5">
+              <Label htmlFor="import-institution">Import into Institution <span className="text-red-500">*</span></Label>
+              <Select value={targetInstitutionId} onValueChange={setTargetInstitutionId}>
+                <SelectTrigger id="import-institution">
+                  <SelectValue placeholder="Select institution..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {institutions.map((inst) => (
+                    <SelectItem key={inst.institution_id} value={inst.institution_id}>
+                      {inst.institution_name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
 
           {/* File Upload Section */}
           {!result && (
@@ -729,7 +767,7 @@ export function ConsultantImportDialog({
               <Button variant="outline" onClick={() => handleOpenChange(false)}>
                 Cancel
               </Button>
-              <Button onClick={handleUpload} disabled={!file || uploading || isParsing}>
+              <Button onClick={handleUpload} disabled={!file || uploading || isParsing || (showInstitutionPicker && !targetInstitutionId)}>
                 {uploading ? (
                   <>
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
