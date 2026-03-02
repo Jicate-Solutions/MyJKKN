@@ -356,6 +356,8 @@ export function ConsultantImportDialog({
   // RENDER
   // ============================================================
 
+  const validRowCount = previewData?.filter((r) => r.isValid).length ?? 0;
+
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
@@ -490,6 +492,7 @@ export function ConsultantImportDialog({
                           <Tooltip key={row.rowNumber}>
                             <TooltipTrigger asChild>
                               <tr
+                                tabIndex={0}
                                 className={
                                   row.isValid
                                     ? 'hover:bg-muted/30 cursor-default'
@@ -498,6 +501,7 @@ export function ConsultantImportDialog({
                               >
                                 <td className="px-2 py-1.5 text-muted-foreground">{row.rowNumber}</td>
                                 <td
+                                  title={row.name !== '—' ? row.name : undefined}
                                   className={`px-2 py-1.5 max-w-[140px] truncate ${
                                     row.errors.some((e) => e.includes('Name'))
                                       ? 'text-red-600 dark:text-red-400 font-medium'
@@ -525,6 +529,7 @@ export function ConsultantImportDialog({
                                   {row.type}
                                 </td>
                                 <td
+                                  title={row.email !== '—' ? row.email : undefined}
                                   className={`px-2 py-1.5 max-w-[140px] truncate ${
                                     row.errors.some((e) => e.includes('email') || e.includes('Email'))
                                       ? 'text-red-600 dark:text-red-400 font-medium'
@@ -732,8 +737,7 @@ export function ConsultantImportDialog({
                 ) : previewData && previewData.length > 0 ? (
                   <>
                     <Upload className="h-4 w-4 mr-2" />
-                    Import {previewData.filter((r) => r.isValid).length || previewData.length} row
-                    {(previewData.filter((r) => r.isValid).length || previewData.length) !== 1 ? 's' : ''}
+                    Import {validRowCount} row{validRowCount !== 1 ? 's' : ''}
                   </>
                 ) : (
                   <>
