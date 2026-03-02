@@ -571,19 +571,17 @@ export class ConsultantService {
   }
 
   /**
-   * Get consultants for dropdown (active only)
+   * Get consultants for dropdown (global — education_consultants has no institution_id column)
    */
-  static async getConsultantsForDropdown(
-    institutionId: string
-  ): Promise<{ id: string; name: string; code: string | null }[]> {
+  static async getConsultantsForDropdown(): Promise<
+    { id: string; name: string; code: string | null }[]
+  > {
     const supabase = createClientSupabaseClient();
 
     const { data, error } = await (supabase as any)
       .from('education_consultants')
       .select('id, name, code')
-      .eq('institution_id', institutionId)
-      .eq('status', 'active')
-      .order('name');
+      .order('name', { ascending: true });
 
     if (error) {
       throw new Error(error.message);
