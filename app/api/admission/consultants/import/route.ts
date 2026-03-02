@@ -100,8 +100,11 @@ export async function POST(request: NextRequest) {
     // Parse Excel file — no sheet name argument so parser uses the first available
     // sheet. The downloaded template has a "Consultants" sheet, but user-created
     // files typically use the default "Sheet1".
+    console.log(`[consultant-import] Parsing file: "${file.name}" (${file.size} bytes)`);
     const parseResult = await parseExcelFile(file);
+    console.log(`[consultant-import] Parse result: ${parseResult.rows.length} rows, ${parseResult.errors.length} errors`);
     if (parseResult.errors.length > 0) {
+      console.error('[consultant-import] Parse errors:', parseResult.errors);
       return NextResponse.json(
         {
           success: false,
@@ -126,6 +129,7 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+    console.log(`[consultant-import] First row keys: ${Object.keys(parseResult.rows[0]?.data || {}).join(', ')}`);
 
     // --- Duplicate detection ---
     // education_consultants is a global table (no institution_id column).
@@ -287,6 +291,11 @@ export async function POST(request: NextRequest) {
         contract_start_date: parseDateField(mappedData.contract_start_date),
         contract_end_date: parseDateField(mappedData.contract_end_date),
       });
+    }
+
+    console.log(`[consultant-import] Row processing done: ${validRows.length} valid, ${errors.length} errors`);
+    if (errors.length > 0) {
+      console.log('[consultant-import] First 3 validation errors:', errors.slice(0, 3));
     }
 
     // --- Insert valid consultants (two-step: profile then institution link) ---
