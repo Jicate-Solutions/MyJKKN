@@ -367,7 +367,7 @@ export async function POST(request: NextRequest) {
     const allErrors: ImsImportError[] = [];
     let totalRows = 0;
 
-    worksheet.eachRow((row, rowNumber) => {
+    worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
       if (rowNumber === 1) return; // skip header
 
       totalRows++;
@@ -588,6 +588,7 @@ export async function POST(request: NextRequest) {
           total_value:        item.opening_stock * item.cost_price,
           institution_id:     institutionId,
           updated_at:         now,
+          ...(storeId ? { store_id: storeId } : {}),
         }));
         const { error: summaryError } = await supabase
           .from('ims_stock_summary')

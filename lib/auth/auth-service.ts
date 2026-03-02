@@ -7,6 +7,20 @@ import { RoleService } from '../services/roles/role-service';
 const supabase = createClientSupabaseClient();
 
 export class AuthService {
+  static async signInWithEmail(email: string, password: string) {
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password
+      });
+      if (error) throw error;
+      return data;
+    } catch (error) {
+      console.error('Email Sign-In Error:', error);
+      throw error;
+    }
+  }
+
   static async signInWithGoogle() {
     try {
       const { data, error } = await supabase.auth.signInWithOAuth({

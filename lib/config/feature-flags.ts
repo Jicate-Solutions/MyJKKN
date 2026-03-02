@@ -79,6 +79,18 @@ export const FEATURE_FLAGS = {
    * Security: Validated at authentication layer with lifecycle status checks
    */
   ENABLE_STUDENT_PORTAL: process.env.NEXT_PUBLIC_ENABLE_STUDENT_PORTAL === 'true',
+
+  // ============================================
+  // DEV AUTH MODE (Added: 2026-02-28)
+  // ============================================
+  /**
+   * Quick Login (Test Accounts) panel on login page
+   * When true: Shows 9 one-click role buttons for dev/staging
+   * When false: Only Google OAuth is visible (production)
+   *
+   * NEVER set to true in production.
+   */
+  ENABLE_DEV_AUTH: process.env.NEXT_PUBLIC_ENABLE_DEV_AUTH === 'true',
 } as const;
 
 // ============================================

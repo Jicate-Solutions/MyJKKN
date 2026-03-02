@@ -127,6 +127,7 @@ export function BottomNavbar() {
     permissions,
     isSuperAdmin,
     isLoading,
+    isStudent,
     userProfile
   } = usePermissions();
 
@@ -162,9 +163,18 @@ export function BottomNavbar() {
   }, [userProfile, permissions, isSuperAdmin]);
 
   // Get filtered pages based on merged permissions
+  // Guard 1: useMemo runs during render — before the isLoading early-return below —
+  //          so isLoading must be checked here, not below.
+  // Guard 2: stale-cache — React Query can serve permissions:{} from cache instantly
+  //          (isLoading=false) then background-refetch real data. For non-student,
+  //          non-super-admin roles, empty permissions means "not ready yet".
   const filteredPages = useMemo(() => {
+    if (isLoading || !roleData) return [];
+    const isPermissionsReady = isSuperAdmin || isStudent ||
+      Object.keys(roleData.permissions).length > 0;
+    if (!isPermissionsReady) return [];
     return GetRoleBasedPages(pathname, roleData);
-  }, [pathname, roleData]);
+  }, [pathname, roleData, isLoading, isSuperAdmin, isStudent]);
 
   // Transform filtered pages into bottom nav groups
   const allNavGroups = useMemo((): BottomNavGroup[] => {

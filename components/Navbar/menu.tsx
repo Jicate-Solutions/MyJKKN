@@ -28,6 +28,7 @@ export function Menu({ isOpen }: MenuProps) {
     permissions,
     isSuperAdmin,
     isLoading: permissionsLoading,
+    isStudent,
     userProfile,
     primaryRole
   } = usePermissions();
@@ -58,7 +59,16 @@ export function Menu({ isOpen }: MenuProps) {
   }
 
   // Use the role-based menu with merged permissions
-  const pages = GetRoleBasedPages(pathname, roleData);
+  // Guard 1: don't call while isLoading (initial fetch) or before roleData resolves.
+  // Guard 2: stale-cache scenario — React Query can serve a cached permissions: {}
+  //          immediately (isLoading=false) then background-refetch the real data.
+  //          For non-student, non-super-admin roles, empty permissions always means
+  //          "not ready yet", so we defer rather than log the false-positive warning.
+  const isPermissionsReady = isSuperAdmin || isStudent ||
+    Object.keys(roleData?.permissions ?? {}).length > 0;
+  const pages = permissionsLoading || !roleData || !isPermissionsReady
+    ? []
+    : GetRoleBasedPages(pathname, roleData);
 
   const handleLogout = async () => {
     try {

@@ -465,7 +465,10 @@ export function BulkImportDialog({
                   Cost Price, MRP, Selling Price
                 </li>
                 <li>Valid rows are inserted; invalid rows are reported with row numbers</li>
-                <li>Opening stock is set separately via a GRN after import</li>
+                <li>
+                  Optional: fill column V (Opening Stock) to set initial quantity;
+                  add Batch Number (W) and Expiry Date (X) if tracking is enabled
+                </li>
               </ul>
             </div>
           )}

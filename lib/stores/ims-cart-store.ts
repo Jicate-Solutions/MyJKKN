@@ -58,7 +58,7 @@ export const useImsCartStore = create(
           return {
             items: [
               ...state.items,
-              { ...item, quantity: item.quantity || 1 },
+              { ...item, quantity: item.quantity || 1, discount_percent: item.discount_percent ?? 0 },
             ],
           };
         }),

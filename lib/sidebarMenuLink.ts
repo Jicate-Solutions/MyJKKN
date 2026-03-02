@@ -100,6 +100,8 @@ interface MenuItem {
     label: string;
     active: boolean;
   }>;
+  /** When true, GetRoleBasedPages silently hides this item for all non-super-admin users */
+  requiresSuperAdmin?: boolean;
 }
 
 interface MenuGroup {
@@ -243,7 +245,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/system/api-management': 'system.api.view',
   '/system/lti-tools': 'lti.tools.view',
   '/admin/bug-reports': 'system.bugs.view',
-  '/admin/ai-query-tools': 'super_admin', // Super admin only - AI Query Tools Registry
+  // '/admin/ai-query-tools' removed — uses requiresSuperAdmin instead
 
   // Lifecycle Analytics
   '/admin/lifecycle': 'admin.lifecycle.view',
@@ -325,6 +327,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   // Service Requests
   '/service-requests': 'service_requests.submit',
   '/service-requests/my-requests': 'service_requests.view_own',
+  '/service-requests/all-services': 'service_requests.view',
   '/service-requests/new': 'service_requests.submit',
   '/service-requests/approvals': 'service_requests.approve',
   '/service-requests/analytics': 'service_requests.analytics.view',
@@ -524,49 +527,56 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'Institutions',
           active: pathname === '/jkkn-api/institutions',
           icon: Building2,
-          submenus: []
+          submenus: [],
+          requiresSuperAdmin: true
         },
         {
           href: '/jkkn-api/departments',
           label: 'Departments',
           active: pathname === '/jkkn-api/departments',
           icon: Building,
-          submenus: []
+          submenus: [],
+          requiresSuperAdmin: true
         },
         {
           href: '/jkkn-api/degrees',
           label: 'Degrees',
           active: pathname === '/jkkn-api/degrees',
           icon: GraduationCap,
-          submenus: []
+          submenus: [],
+          requiresSuperAdmin: true
         },
         {
           href: '/jkkn-api/programs',
           label: 'Programs',
           active: pathname === '/jkkn-api/programs',
           icon: BookOpen,
-          submenus: []
+          submenus: [],
+          requiresSuperAdmin: true
         },
         {
           href: '/jkkn-api/courses',
           label: 'Courses',
           active: pathname === '/jkkn-api/courses',
           icon: Bookmark,
-          submenus: []
+          submenus: [],
+          requiresSuperAdmin: true
         },
         {
           href: '/jkkn-api/semesters',
           label: 'Semesters',
           active: pathname === '/jkkn-api/semesters',
           icon: CalendarDays,
-          submenus: []
+          submenus: [],
+          requiresSuperAdmin: true
         },
         {
           href: '/jkkn-api/sections',
           label: 'Sections',
           active: pathname === '/jkkn-api/sections',
           icon: FolderTree,
-          submenus: []
+          submenus: [],
+          requiresSuperAdmin: true
         }
       ]
     },
@@ -1684,6 +1694,7 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'AI Query Tools',
           active: pathname.startsWith('/admin/ai-query-tools'),
           icon: Bot,
+          requiresSuperAdmin: true,
           submenus: []
         }
       ]
@@ -1698,8 +1709,8 @@ export function GetRoleBasedPages(
 ): MenuGroup[] {
   const allMenus = GetPages(pathname);
 
-  // Super admin gets all menus EXCEPT student-only pages
-  if (userRole?.role_key === 'super_admin') {
+  // Super admin and administrator get all menus EXCEPT student-only pages
+  if (userRole?.role_key === 'super_admin' || userRole?.role_key === 'administrator') {
     return allMenus.map((group) => ({
       ...group,
       menus: group.menus.filter((menu) => {

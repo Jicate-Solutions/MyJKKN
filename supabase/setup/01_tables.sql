@@ -50,7 +50,7 @@ CREATE TABLE IF NOT EXISTS public.profiles (
     full_name TEXT,
     phone_number TEXT,
     role TEXT NOT NULL DEFAULT 'student'::text
-        CHECK (role IN ('student', 'staff', 'admin', 'super_admin', 'administrator', 'faculty', 'hod', 'guest', 'driver', 'store_admin')),
+        CHECK (role IN ('student', 'staff', 'admin', 'super_admin', 'administrator', 'faculty', 'hod', 'guest', 'driver', 'store_admin', 'principal', 'parent')),
     bio TEXT,
     gender TEXT,
     designation TEXT,

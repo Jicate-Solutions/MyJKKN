@@ -223,6 +223,33 @@ async function RoleBasedDashboard() {
       );
     }
 
+    case 'principal': {
+      // Principals get admin dashboard access (institution-level management)
+      return (
+        <AdminDashboard
+          userId={user.id}
+          role={profile.role}
+          visibilityMap={visibilityMap}
+        />
+      );
+    }
+
+    case 'staff': {
+      return (
+        <div className='text-center py-8 text-muted-foreground'>
+          Staff dashboard coming soon...
+        </div>
+      );
+    }
+
+    case 'parent': {
+      return (
+        <div className='text-center py-8 text-muted-foreground'>
+          Parent dashboard coming soon...
+        </div>
+      );
+    }
+
     case 'leadership': {
       // TODO: Implement LeadershipDashboard in next task
       return (
@@ -234,6 +261,7 @@ async function RoleBasedDashboard() {
 
     case 'store_admin':
     case 'admin':
+    case 'administrator':
     case 'super_admin': {
       return (
         <AdminDashboard

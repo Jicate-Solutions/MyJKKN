@@ -112,39 +112,55 @@ export async function GET(request: NextRequest) {
     // ── SHEET 1: Items ───────────────────────────────────────────────────────
     const ws = workbook.addWorksheet('Items');
 
+    // Define columns WITHOUT headers — headers are written separately via
+    // addRow() below. Mixing ws.columns headers with custom cell-level styling
+    // causes ExcelJS 4.x to serialize font colour through the column's implicit
+    // style reference, which can silently strip the white font colour during
+    // xlsx style deduplication, leaving the text invisible on the blue fill.
     ws.columns = [
-      { header: 'Item Code *',                key: 'code',                    width: 16 },
-      { header: 'Item Name *',                key: 'name',                    width: 32 },
-      { header: 'Description',                key: 'description',             width: 36 },
-      { header: 'Category Name *',            key: 'category_name',           width: 24 },
-      { header: 'Item Type *',                key: 'item_type',               width: 18 },
-      { header: 'Base Unit *',                key: 'base_unit',               width: 18 },
-      { header: 'Purchase Unit',              key: 'purchase_unit',           width: 18 },
-      { header: 'Sale Unit',                  key: 'sale_unit',               width: 18 },
-      { header: 'Indent Unit',                key: 'indent_unit',             width: 18 },
-      { header: 'HSN Code',                   key: 'hsn_code',                width: 14 },
-      { header: 'GST Rate (%) *',             key: 'gst_rate',                width: 14 },
-      { header: 'Cost Price *',               key: 'cost_price',              width: 14 },
-      { header: 'MRP *',                      key: 'mrp',                     width: 14 },
-      { header: 'Selling Price *',            key: 'selling_price',           width: 14 },
-      { header: 'Reorder Level',              key: 'reorder_level',           width: 14 },
-      { header: 'Max Stock Level',            key: 'max_stock_level',         width: 16 },
-      { header: 'Track Batch',                key: 'track_batch',             width: 14 },
-      { header: 'Track Expiry',               key: 'track_expiry',            width: 14 },
-      { header: 'Sellable to Students',       key: 'sellable',                width: 20 },
-      { header: 'Is Active',                  key: 'is_active',               width: 12 },
-      { header: 'Company Name',               key: 'company_name',            width: 24 },
-      { header: 'Opening Stock',              key: 'opening_stock',           width: 14 },
-      { header: 'Batch Number',               key: 'batch_number',            width: 18 },
-      { header: 'Expiry Date',                key: 'expiry_date',             width: 16 },
+      { key: 'code',            width: 16 },
+      { key: 'name',            width: 32 },
+      { key: 'description',     width: 36 },
+      { key: 'category_name',   width: 24 },
+      { key: 'item_type',       width: 18 },
+      { key: 'base_unit',       width: 18 },
+      { key: 'purchase_unit',   width: 18 },
+      { key: 'sale_unit',       width: 18 },
+      { key: 'indent_unit',     width: 18 },
+      { key: 'hsn_code',        width: 14 },
+      { key: 'gst_rate',        width: 14 },
+      { key: 'cost_price',      width: 14 },
+      { key: 'mrp',             width: 14 },
+      { key: 'selling_price',   width: 14 },
+      { key: 'reorder_level',   width: 14 },
+      { key: 'max_stock_level', width: 16 },
+      { key: 'track_batch',     width: 14 },
+      { key: 'track_expiry',    width: 14 },
+      { key: 'sellable',        width: 20 },
+      { key: 'is_active',       width: 12 },
+      { key: 'company_name',    width: 24 },
+      { key: 'opening_stock',   width: 14 },
+      { key: 'batch_number',    width: 18 },
+      { key: 'expiry_date',     width: 16 },
     ];
 
-    // Header row formatting
-    const headerRow = ws.getRow(1);
-    headerRow.font = { bold: true, size: 10, name: 'Arial', color: { argb: 'FFFFFFFF' } };
-    headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2563EB' } };
-    headerRow.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
-    headerRow.height = 26;
+    // Header row — added as a plain row so every cell is cleanly materialised
+    // with no column-style inheritance. eachCell is then reliable over all 24.
+    // Height 40 accommodates wrapped long headers (e.g. "Sellable to Students").
+    const headerRow = ws.addRow([
+      'Item Code *', 'Item Name *', 'Description', 'Category Name *',
+      'Item Type *', 'Base Unit *', 'Purchase Unit', 'Sale Unit', 'Indent Unit',
+      'HSN Code', 'GST Rate (%) *', 'Cost Price *', 'MRP *', 'Selling Price *',
+      'Reorder Level', 'Max Stock Level', 'Track Batch', 'Track Expiry',
+      'Sellable to Students', 'Is Active', 'Company Name', 'Opening Stock',
+      'Batch Number', 'Expiry Date',
+    ]);
+    headerRow.height = 40;
+    headerRow.eachCell({ includeEmpty: true }, (cell) => {
+      cell.font = { bold: true, size: 10, name: 'Arial', color: { argb: 'FFFFFFFF' } };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2563EB' } };
+      cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+    });
 
     ws.views = [{ state: 'frozen', ySplit: 1 }];
 

@@ -219,8 +219,13 @@ export function usePermissions(
     // Don't clear ref if userProfile is null (might be mid-reload)
   }, [isSuperAdminFromProfile, isSuperAdmin, userProfile]);
 
-  // Overall loading state
-  const isLoading = authLoading || (!!userProfile && queryLoading);
+  // Overall loading state.
+  // Also treat as loading when userProfile exists but permissionData hasn't resolved yet
+  // (covers the 1-tick gap between query becoming enabled and the first fetch starting,
+  // which otherwise causes the sidebar to briefly flash "All permissions are false").
+  const isLoading =
+    authLoading ||
+    (!!userProfile && (queryLoading || (permissionData === undefined && !queryError)));
   const error = authError ? new Error(authError) : (queryError as Error | null);
 
   // Student-specific properties
