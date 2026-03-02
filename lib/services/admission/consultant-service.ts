@@ -72,9 +72,14 @@ export class ConsultantService {
   /**
    * Get paginated list of consultants with filters.
    *
-   * When institution_id is provided, queries through consultant_institutions
-   * (junction table) so status/tier/contract filters apply per-institution.
-   * The junction row is merged into each consultant object for UI compatibility.
+   * When NO institution_id is provided (global/super-admin view), queries
+   * education_consultants directly without joining consultant_institutions.
+   * This avoids cross-product results and correctly surfaces all global
+   * consultants regardless of whether they have any institution links.
+   *
+   * When institution_id IS provided, LEFT JOINs consultant_institutions so
+   * status/tier/contract filters apply per-institution and the junction row
+   * is merged into each consultant object for UI compatibility.
    */
   static async getConsultants(
     filters: ConsultantFilters
@@ -98,23 +103,84 @@ export class ConsultantService {
       sort_order = 'desc',
     } = filters;
 
-    // Primary table: education_consultants (global fields + native sorting).
-    // Embed consultant_institutions with !inner when institution_id is provided
-    // so PostgREST treats it as an INNER JOIN (hides consultants not in that institution).
-    // Without institution_id use a LEFT join so super admins see all consultants.
+    const safeSortBy = ConsultantService.CONSULTANT_SORTABLE_COLUMNS.has(sort_by) ? sort_by : 'created_at';
+    const from = (page - 1) * limit;
+    const to = from + limit - 1;
+
+    if (!institution_id) {
+      // ── Global query: no junction join ──────────────────────────────────────
+      // Consultants are global entities; when no institution scope is requested
+      // we query education_consultants directly for a clean, complete result set.
+      let query = (supabase as any)
+        .from('education_consultants')
+        .select('*', { count: 'exact' });
+
+      if (search) {
+        const safe = sanitizeSearch(search);
+        query = query.or(
+          `name.ilike.%${safe}%,email.ilike.%${safe}%,phone.ilike.%${safe}%,code.ilike.%${safe}%`
+        );
+      }
+
+      if (consultant_type) {
+        if (Array.isArray(consultant_type)) {
+          query = query.in('consultant_type', consultant_type);
+        } else {
+          query = query.eq('consultant_type', consultant_type);
+        }
+      }
+
+      if (city) {
+        query = query.ilike('city', `%${sanitizeSearch(city)}%`);
+      }
+
+      if (state) {
+        query = query.ilike('state', `%${sanitizeSearch(state)}%`);
+      }
+
+      if (min_conversion_rate !== undefined) {
+        query = query.gte('conversion_rate', min_conversion_rate);
+      }
+
+      if (max_conversion_rate !== undefined) {
+        query = query.lte('conversion_rate', max_conversion_rate);
+      }
+
+      if (min_total_leads !== undefined) {
+        query = query.gte('total_leads_referred', min_total_leads);
+      }
+
+      query = query.order(safeSortBy, { ascending: sort_order === 'asc' });
+      query = query.range(from, to);
+
+      const { data, error, count } = await query;
+
+      if (error) {
+        console.error('[admission/consultants] Failed to fetch consultants:', error);
+        throw new Error(error.message);
+      }
+
+      return {
+        data: (data || []) as EducationConsultant[],
+        metadata: {
+          total: count || 0,
+          page,
+          limit,
+          totalPages: Math.ceil((count || 0) / limit),
+        },
+      };
+    }
+
+    // ── Institution-scoped query: LEFT JOIN consultant_institutions ───────────
+    // Used when an institution_id filter is supplied (e.g. super-admin scoping).
+    // The junction row is merged into the consultant object for UI compatibility.
     const ciSelect = `id, institution_id, status, tier, contract_start_date, contract_end_date, contract_document_url`;
-    const selectClause = institution_id
-      ? `*, consultant_institutions!inner(${ciSelect})`
-      : `*, consultant_institutions(${ciSelect})`;
 
     let query = (supabase as any)
       .from('education_consultants')
-      .select(selectClause, { count: 'exact' });
+      .select(`*, consultant_institutions!inner(${ciSelect})`, { count: 'exact' });
 
-    // Institution filter — PostgREST filters on embedded resources use <tablename>.<column>
-    if (institution_id) {
-      query = query.eq('consultant_institutions.institution_id', institution_id);
-    }
+    query = query.eq('consultant_institutions.institution_id', institution_id);
 
     // Per-institution status filter (via junction)
     if (status) {
@@ -181,13 +247,7 @@ export class ConsultantService {
       query = query.gte('total_leads_referred', min_total_leads);
     }
 
-    // Sorting on primary table columns (works natively)
-    const safeSortBy = ConsultantService.CONSULTANT_SORTABLE_COLUMNS.has(sort_by) ? sort_by : 'created_at';
     query = query.order(safeSortBy, { ascending: sort_order === 'asc' });
-
-    // Pagination
-    const from = (page - 1) * limit;
-    const to = from + limit - 1;
     query = query.range(from, to);
 
     const { data, error, count } = await query;
@@ -202,9 +262,7 @@ export class ConsultantService {
     const consultants: EducationConsultant[] = (data || []).map((row: any) => {
       const { consultant_institutions: ciRows, ...consultant } = row;
       const ciRow = Array.isArray(ciRows)
-        ? (institution_id
-            ? ciRows.find((r: any) => r.institution_id === institution_id)
-            : ciRows[0])
+        ? ciRows.find((r: any) => r.institution_id === institution_id)
         : ciRows;
       return {
         ...consultant,
@@ -323,13 +381,16 @@ export class ConsultantService {
   }
 
   /**
-   * Create a new global consultant record and link it to one or more institutions.
+   * Create a new global consultant record.
+   *
+   * Consultants are now global entities — no institution link is created at
+   * creation time. Institution associations are managed separately via the
+   * institution link management methods below.
    *
    * Flow:
    *  1. Insert one row into education_consultants (global personal/business data)
-   *  2. Insert one row per institution_id into consultant_institutions (junction)
    *
-   * Returns the consultant with its institutions populated.
+   * Returns the created consultant.
    */
   static async createConsultant(
     input: CreateConsultantInput
@@ -337,9 +398,10 @@ export class ConsultantService {
     const supabase = createClientSupabaseClient();
 
     const {
+      // institution_ids is accepted but ignored — associations managed separately
       institution_ids,
-      status = 'active',
-      tier = 'bronze',
+      status,
+      tier,
       contract_start_date,
       contract_end_date,
       // strip form aliases before inserting into DB
@@ -350,10 +412,6 @@ export class ConsultantService {
       programs_handled,
       ...globalFields
     } = input as any;
-
-    if (!institution_ids || institution_ids.length === 0) {
-      throw new Error('At least one institution must be selected');
-    }
 
     // Step 1: Insert global consultant record
     const { data: consultant, error: consultantError } = await (supabase as any)
@@ -370,29 +428,7 @@ export class ConsultantService {
       throw new Error(consultantError.message);
     }
 
-    // Step 2: Link to each institution via junction table
-    const junctionRows = institution_ids.map((instId: string) => ({
-      consultant_id: consultant.id,
-      institution_id: instId,
-      status,
-      tier,
-      ...(contract_start_date ? { contract_start_date } : {}),
-      ...(contract_end_date ? { contract_end_date } : {}),
-    }));
-
-    const { error: junctionError } = await (supabase as any)
-      .from('consultant_institutions')
-      .insert(junctionRows);
-
-    if (junctionError) {
-      console.error('[admission/consultants] Failed to link consultant to institutions:', junctionError);
-      // Roll back: delete the consultant we just created
-      await (supabase as any).from('education_consultants').delete().eq('id', consultant.id);
-      throw new Error(junctionError.message);
-    }
-
-    // Return with institutions populated
-    return this.getConsultantById(consultant.id) as Promise<EducationConsultant>;
+    return consultant as EducationConsultant;
   }
 
   // ─────────────────────────────────────────────────────────────────────────
