@@ -54,19 +54,22 @@ interface ImportResult {
 }
 
 export async function POST(request: NextRequest) {
+  console.log('[consultant-import] ===== POST received =====');
   try {
     // Auth client: verify user identity and fetch profile (respects RLS/JWT)
     const authClient = await createServerSupabaseClient();
     const { data: { user }, error: authError } = await authClient.auth.getUser();
+    console.log('[consultant-import] auth:', user ? `user=${user.id.slice(0, 8)}` : `error=${authError?.message}`);
     if (authError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { data: profile } = await authClient
+    const { data: profile, error: profileError } = await authClient
       .from('profiles')
       .select('institution_id, full_name')
       .eq('id', user.id)
       .single();
+    console.log('[consultant-import] profile:', profile ? `institution_id=${profile.institution_id}` : `error=${profileError?.message}`);
 
     // Service role client: bypasses RLS for bulk DB operations.
     // Required because education_consultants SELECT policy checks for a
@@ -75,6 +78,7 @@ export async function POST(request: NextRequest) {
     const supabase = createServiceRoleClient();
 
     if (!profile?.institution_id) {
+      console.error('[consultant-import] No institution_id on profile — returning 400');
       return NextResponse.json(
         { error: 'User must be associated with an institution' },
         { status: 400 }
@@ -84,6 +88,7 @@ export async function POST(request: NextRequest) {
     // Parse form data
     const formData = await request.formData();
     const file = formData.get('file') as File;
+    console.log('[consultant-import] file:', file ? `"${file.name}" ${file.size}B` : 'MISSING');
 
     if (!file) {
       return NextResponse.json({ error: 'No file provided' }, { status: 400 });
@@ -91,6 +96,7 @@ export async function POST(request: NextRequest) {
 
     // Validate file type
     if (!file.name.endsWith('.xlsx') && !file.name.endsWith('.xls')) {
+      console.error('[consultant-import] Invalid file type:', file.name);
       return NextResponse.json(
         { error: 'Invalid file type. Please upload an Excel file (.xlsx or .xls)' },
         { status: 400 }
