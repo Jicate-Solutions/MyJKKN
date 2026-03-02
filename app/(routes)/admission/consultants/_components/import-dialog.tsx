@@ -105,11 +105,9 @@ function validatePreviewRow(
 
   if (!mapped.consultant_type) {
     errors.push('Missing: Type');
-  } else if (!VALID_CONSULTANT_TYPES.has(typeRaw) && !CONSULTANT_TYPE_ALIASES[typeRaw]) {
-    errors.push(
-      `Invalid type: "${mapped.consultant_type}" — use: external, internal, institutional, alumni, student`
-    );
   }
+  // Note: unknown types are silently normalized to 'external' by the server,
+  // so we don't flag them as errors here to avoid false negatives in the preview.
 
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     errors.push(`Invalid email: ${email}`);
@@ -169,15 +167,19 @@ export function ConsultantImportDialog({
       const jsonData = XLSX.utils.sheet_to_json(worksheet) as Record<string, any>[];
 
       const rows: PreviewRow[] = jsonData.map((row, index) => {
+        // Normalize row keys: strip trailing asterisks (template marks required fields with *)
+        const normalizedRow: Record<string, any> = {};
+        for (const [key, value] of Object.entries(row)) {
+          normalizedRow[key.replace(/\*+$/, '').trim()] = value;
+        }
         // CONSULTANT_COLUMN_MAPPING is { excelHeader: dbField }
-        // Iterate entries to build mapped object
         const mapped: Record<string, any> = {};
         for (const [header, field] of Object.entries(CONSULTANT_COLUMN_MAPPING)) {
-          if (row[header] !== undefined && row[header] !== null && row[header] !== '') {
-            mapped[field] = row[header];
+          if (normalizedRow[header] !== undefined && normalizedRow[header] !== null && normalizedRow[header] !== '') {
+            mapped[field] = normalizedRow[header];
           }
         }
-        return validatePreviewRow(mapped, index + 2); // +2: 1-indexed + header row
+        return validatePreviewRow(mapped, index + 2);
       });
 
       setPreviewData(rows);
@@ -437,7 +439,11 @@ export function ConsultantImportDialog({
                     <Button
                       variant="ghost"
                       size="sm"
-                      onClick={() => setFile(null)}
+                      onClick={() => {
+                        setFile(null);
+                        setPreviewData(null);
+                        setIsParsing(false);
+                      }}
                       disabled={uploading}
                     >
                       <X className="h-4 w-4" />

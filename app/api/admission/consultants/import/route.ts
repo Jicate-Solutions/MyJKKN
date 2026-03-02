@@ -22,9 +22,15 @@ import {
  * and look up each Excel header key in the raw row data.
  */
 function mapConsultantRow(rowData: Record<string, any>): Record<string, any> {
+  // Normalize row keys: strip trailing asterisks (template marks required fields with *)
+  const normalizedRow: Record<string, any> = {};
+  for (const [key, value] of Object.entries(rowData)) {
+    normalizedRow[key.replace(/\*+$/, '').trim()] = value;
+  }
+
   const mapped: Record<string, any> = {};
   for (const [excelHeader, dbField] of Object.entries(CONSULTANT_COLUMN_MAPPING)) {
-    const value = rowData[excelHeader];
+    const value = normalizedRow[excelHeader];
     if (value !== undefined && value !== null && value !== '') {
       mapped[dbField] = value;
     }
