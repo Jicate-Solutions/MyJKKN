@@ -2,7 +2,7 @@
 // Import API for bulk consultant upload
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase/server';
 import { parseExcelFile } from '@/lib/utils/excel-parser';
 import {
   CONSULTANT_COLUMN_MAPPING,
@@ -55,20 +55,24 @@ interface ImportResult {
 
 export async function POST(request: NextRequest) {
   try {
-    const supabase = await createServerSupabaseClient();
-
-    // Get current user
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    // Auth client: verify user identity and fetch profile (respects RLS/JWT)
+    const authClient = await createServerSupabaseClient();
+    const { data: { user }, error: authError } = await authClient.auth.getUser();
     if (authError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Get user profile for institution_id
-    const { data: profile } = await supabase
+    const { data: profile } = await authClient
       .from('profiles')
       .select('institution_id, full_name')
       .eq('id', user.id)
       .single();
+
+    // Service role client: bypasses RLS for bulk DB operations.
+    // Required because education_consultants SELECT policy checks for a
+    // consultant_institutions row that doesn't exist yet at insert time,
+    // which blocks the RETURNING clause and makes successCount always 0.
+    const supabase = createServiceRoleClient();
 
     if (!profile?.institution_id) {
       return NextResponse.json(
