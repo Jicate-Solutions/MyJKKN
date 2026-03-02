@@ -93,36 +93,60 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Parse Excel file
-    const parseResult = await parseExcelFile(file, 'Consultants');
+    // Parse Excel file — no sheet name argument so parser uses the first available
+    // sheet. The downloaded template has a "Consultants" sheet, but user-created
+    // files typically use the default "Sheet1".
+    const parseResult = await parseExcelFile(file);
     if (parseResult.errors.length > 0) {
       return NextResponse.json(
-        { success: false, errors: parseResult.errors.map((msg, i) => ({ row: 0, message: msg })) },
+        {
+          success: false,
+          successCount: 0,
+          errorCount: 0,
+          totalRows: 0,
+          errors: parseResult.errors.map((msg) => ({ row: 0, message: msg })),
+        },
         { status: 400 }
       );
     }
 
     if (parseResult.rows.length === 0) {
       return NextResponse.json(
-        { success: false, errors: [{ row: 0, message: 'No data found in the file' }] },
+        {
+          success: false,
+          successCount: 0,
+          errorCount: 0,
+          totalRows: 0,
+          errors: [{ row: 0, message: 'No data found in the file' }],
+        },
         { status: 400 }
       );
     }
 
-    // Get existing consultants for duplicate detection
+    // --- Duplicate detection ---
+    // education_consultants is a global table (no institution_id column).
+    // We check phone/email globally to prevent duplicate consultant profiles.
     const { data: existingConsultants } = await supabase
       .from('education_consultants')
-      .select('phone, email')
-      .eq('institution_id', profile.institution_id);
+      .select('phone, email');
 
-    const existingPhones = new Set(existingConsultants?.map(c => cleanPhoneNumber(c.phone)) || []);
+    const existingPhones = new Set(
+      existingConsultants?.map(c => cleanPhoneNumber(c.phone)).filter(Boolean) || []
+    );
     const existingEmails = new Set(
       existingConsultants?.map(c => c.email?.toLowerCase()).filter(Boolean) || []
     );
 
-    // Process rows
+    // --- Process rows ---
     const errors: ImportError[] = [];
-    const validConsultants: any[] = [];
+    // Each entry holds the consultant profile + per-institution fields separately.
+    const validRows: Array<{
+      profile: Record<string, any>;
+      tier: string;
+      status: string;
+      contract_start_date: string | null;
+      contract_end_date: string | null;
+    }> = [];
     const duplicatePhones: string[] = [];
     const seenPhones = new Set<string>();
 
@@ -152,7 +176,7 @@ export async function POST(request: NextRequest) {
         continue;
       }
 
-      // Check for duplicate phone in file
+      // Check for duplicate phone within the file
       if (seenPhones.has(phone)) {
         duplicatePhones.push(phone);
         errors.push({
@@ -175,7 +199,7 @@ export async function POST(request: NextRequest) {
         continue;
       }
 
-      // Validate and normalize consultant type
+      // Normalize consultant type
       const consultantType = normalizeConsultantType(mappedData.consultant_type);
       if (!consultantType) {
         errors.push({
@@ -207,11 +231,17 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // Build consultant record
-      const consultant = {
-        institution_id: profile.institution_id,
+      // --- Build consultant profile (global, no institution-specific fields) ---
+      // NOTE: education_consultants was refactored 2026-02-26 to a global entity.
+      // institution_id / status / tier / contract dates now live on consultant_institutions.
+      // Array column names also differ from the CONSULTANT_COLUMN_MAPPING legacy names:
+      //   geographic_coverage → covered_states
+      //   specializations     → specialized_degrees
+      //   programs_handled    → specialized_programs
+      //   notes               → internal_notes
+      const consultantProfile: Record<string, any> = {
         name: String(mappedData.name).trim(),
-        phone: phone,
+        phone,
         consultant_type: consultantType,
         email: email || null,
         contact_person: mappedData.contact_person?.trim() || null,
@@ -228,42 +258,45 @@ export async function POST(request: NextRequest) {
         bank_account_holder: mappedData.bank_account_holder?.trim() || null,
         pan_number: mappedData.pan_number?.toUpperCase().trim() || null,
         gst_number: mappedData.gst_number?.toUpperCase().trim() || null,
-        geographic_coverage: parseArrayField(mappedData.geographic_coverage),
-        specializations: parseArrayField(mappedData.specializations),
-        programs_handled: parseArrayField(mappedData.programs_handled),
-        tier: normalizeTier(mappedData.tier),
+        covered_states: parseArrayField(mappedData.geographic_coverage),
+        specialized_degrees: parseArrayField(mappedData.specializations),
+        specialized_programs: parseArrayField(mappedData.programs_handled),
         total_leads_referred: parseNumberField(mappedData.total_leads_referred, 0),
         total_conversions: parseNumberField(mappedData.successful_conversions, 0),
         total_commission_earned: parseNumberField(mappedData.total_commission_earned, 0),
         pending_commission: 0,
-        relationship_score: 50, // Default score
+        relationship_score: 50,
         conversion_rate: 0,
-        contract_start_date: parseDateField(mappedData.contract_start_date),
-        contract_end_date: parseDateField(mappedData.contract_end_date),
-        status: normalizeStatus(mappedData.status),
-        notes: mappedData.notes?.trim() || null,
-        tags: parseArrayField(mappedData.tags),
-        created_by: user.id,
+        internal_notes: mappedData.notes?.trim() || null,
       };
 
-      // Calculate conversion rate if historical data provided
-      if (consultant.total_leads_referred > 0) {
-        consultant.conversion_rate = (consultant.total_conversions / consultant.total_leads_referred) * 100;
+      // Derive conversion rate from historical data if provided
+      if (consultantProfile.total_leads_referred > 0) {
+        consultantProfile.conversion_rate =
+          (consultantProfile.total_conversions / consultantProfile.total_leads_referred) * 100;
       }
 
-      validConsultants.push(consultant);
+      validRows.push({
+        profile: consultantProfile,
+        tier: normalizeTier(mappedData.tier),
+        status: normalizeStatus(mappedData.status),
+        contract_start_date: parseDateField(mappedData.contract_start_date),
+        contract_end_date: parseDateField(mappedData.contract_end_date),
+      });
     }
 
-    // Insert valid consultants
+    // --- Insert valid consultants (two-step: profile then institution link) ---
     let successCount = 0;
-    if (validConsultants.length > 0) {
-      const { data: insertedData, error: insertError } = await supabase
+
+    if (validRows.length > 0) {
+      // Step 1: Insert global consultant profiles
+      const { data: insertedConsultants, error: insertError } = await supabase
         .from('education_consultants')
-        .insert(validConsultants)
+        .insert(validRows.map(r => r.profile))
         .select('id');
 
       if (insertError) {
-        console.error('[consultant-import] Insert error:', insertError);
+        console.error('[consultant-import] Profile insert error:', insertError);
         return NextResponse.json(
           {
             success: false,
@@ -276,7 +309,42 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      successCount = insertedData?.length || 0;
+      successCount = insertedConsultants?.length || 0;
+
+      // Step 2: Link each consultant to this institution via consultant_institutions
+      if (insertedConsultants && insertedConsultants.length > 0) {
+        const institutionLinks = insertedConsultants.map((c, i) => ({
+          consultant_id: c.id,
+          institution_id: profile.institution_id,
+          tier: validRows[i].tier,
+          status: validRows[i].status,
+          contract_start_date: validRows[i].contract_start_date,
+          contract_end_date: validRows[i].contract_end_date,
+        }));
+
+        const { error: linkError } = await supabase
+          .from('consultant_institutions')
+          .insert(institutionLinks);
+
+        if (linkError) {
+          console.error('[consultant-import] Institution link error:', linkError);
+          return NextResponse.json(
+            {
+              success: false,
+              successCount: 0,
+              errorCount: parseResult.totalRows,
+              totalRows: parseResult.totalRows,
+              errors: [
+                {
+                  row: 0,
+                  message: `Consultants were created but could not be linked to your institution: ${linkError.message}`,
+                },
+              ],
+            },
+            { status: 500 }
+          );
+        }
+      }
     }
 
     const result: ImportResult = {
