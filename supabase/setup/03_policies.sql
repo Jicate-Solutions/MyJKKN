@@ -2467,3 +2467,46 @@ CREATE POLICY "workflow_configs_delete" ON admission_workflow_configs FOR DELETE
   institution_id = auth_institution_id()
   OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
 );
+
+-- ============================================================================
+-- STORAGE: admission-template-media (WhatsApp template attachments)
+-- Updated: 2026-03-02 — added super_admin bypass so admins selecting any
+-- institution folder can upload/manage media regardless of their own institution_id
+-- ============================================================================
+CREATE POLICY "Public can read template media"
+ON storage.objects FOR SELECT
+TO public
+USING (bucket_id = 'admission-template-media');
+
+CREATE POLICY "Authenticated users can upload template media"
+ON storage.objects FOR INSERT
+TO authenticated
+WITH CHECK (
+  bucket_id = 'admission-template-media'
+  AND (
+    EXISTS (SELECT 1 FROM profiles WHERE profiles.id = auth.uid() AND profiles.role = 'super_admin')
+    OR (storage.foldername(name))[1] = (SELECT institution_id::text FROM profiles WHERE id = auth.uid())
+  )
+);
+
+CREATE POLICY "Authenticated users can delete template media"
+ON storage.objects FOR DELETE
+TO authenticated
+USING (
+  bucket_id = 'admission-template-media'
+  AND (
+    EXISTS (SELECT 1 FROM profiles WHERE profiles.id = auth.uid() AND profiles.role = 'super_admin')
+    OR (storage.foldername(name))[1] = (SELECT institution_id::text FROM profiles WHERE id = auth.uid())
+  )
+);
+
+CREATE POLICY "Authenticated users can update template media"
+ON storage.objects FOR UPDATE
+TO authenticated
+USING (
+  bucket_id = 'admission-template-media'
+  AND (
+    EXISTS (SELECT 1 FROM profiles WHERE profiles.id = auth.uid() AND profiles.role = 'super_admin')
+    OR (storage.foldername(name))[1] = (SELECT institution_id::text FROM profiles WHERE id = auth.uid())
+  )
+);

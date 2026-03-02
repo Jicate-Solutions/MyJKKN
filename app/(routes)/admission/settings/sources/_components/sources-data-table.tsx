@@ -3,14 +3,18 @@ import { useCallback } from 'react';
 import { DataTable, type DataFetchParams } from '@/components/data-table/data-table';
 import { columns } from './columns';
 import { useAuth } from '@/hooks/use-auth';
+import { usePermissions } from '@/hooks/use-permissions';
 import { SourceTrackingService } from '@/lib/services/admission/source-tracking-service';
 import type { SourceSummary } from '@/lib/services/admission/source-tracking-service';
 
 export function SourcesDataTable() {
   const { profile } = useAuth();
-  const institutionId = profile?.institution_id || '';
+  const { isSuperAdmin } = usePermissions();
+  // Super admins have no institution_id — pass undefined so the service returns all records
+  const institutionId = isSuperAdmin ? undefined : (profile?.institution_id || undefined);
 
   const fetchData = useCallback(async (params: DataFetchParams) => {
+    if (!isSuperAdmin && !institutionId) return { success: true, data: [], pagination: { page: 1, limit: 1000, total_pages: 1, total_items: 0 } };
     const data = await SourceTrackingService.getSourceBreakdown(institutionId);
     const filtered = params.search
       ? data.filter((item) =>
@@ -37,7 +41,7 @@ export function SourcesDataTable() {
         total_items: sorted.length,
       },
     };
-  }, [institutionId]);
+  }, [institutionId, isSuperAdmin]);
 
   return (
     <DataTable

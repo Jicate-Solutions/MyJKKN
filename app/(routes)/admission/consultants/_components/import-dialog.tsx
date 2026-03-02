@@ -155,7 +155,10 @@ export function ConsultantImportDialog({
   // regular users have exactly one institution (auto-resolved server-side).
   const { institutions, selectedInstitutionId } = useUserInstitutionAccess();
   const showInstitutionPicker = institutions.length > 1;
+  // Explicit institution chosen by user in the picker (empty = use default)
   const [targetInstitutionId, setTargetInstitutionId] = useState<string>('');
+  // Effective institution: explicit pick → hook default (first institution) → nothing
+  const effectiveInstitutionId = targetInstitutionId || selectedInstitutionId || '';
 
   const parseFileForPreview = async (file: File) => {
     setIsParsing(true);
@@ -302,8 +305,7 @@ export function ConsultantImportDialog({
       const formData = new FormData();
       formData.append('file', file);
       // Pass institution_id for super admin (who has no profile institution_id)
-      const institutionId = targetInstitutionId || selectedInstitutionId;
-      if (institutionId) formData.append('institution_id', institutionId);
+      if (effectiveInstitutionId) formData.append('institution_id', effectiveInstitutionId);
 
       const response = await fetch('/api/admission/consultants/import', {
         method: 'POST',
@@ -416,7 +418,7 @@ export function ConsultantImportDialog({
           {showInstitutionPicker && !result && (
             <div className="space-y-1.5">
               <Label htmlFor="import-institution">Import into Institution <span className="text-red-500">*</span></Label>
-              <Select value={targetInstitutionId} onValueChange={setTargetInstitutionId}>
+              <Select value={effectiveInstitutionId} onValueChange={setTargetInstitutionId}>
                 <SelectTrigger id="import-institution">
                   <SelectValue placeholder="Select institution..." />
                 </SelectTrigger>
@@ -767,7 +769,7 @@ export function ConsultantImportDialog({
               <Button variant="outline" onClick={() => handleOpenChange(false)}>
                 Cancel
               </Button>
-              <Button onClick={handleUpload} disabled={!file || uploading || isParsing || (showInstitutionPicker && !targetInstitutionId)}>
+              <Button onClick={handleUpload} disabled={!file || uploading || isParsing || (showInstitutionPicker && !effectiveInstitutionId)}>
                 {uploading ? (
                   <>
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />

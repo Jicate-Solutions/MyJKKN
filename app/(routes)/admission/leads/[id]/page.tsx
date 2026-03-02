@@ -681,16 +681,12 @@ function LeadDetailPageContent() {
     }
   }, [lead?.institution_id]);
 
-  // Counselors from profiles (role='counselor') — institution-scoped
-  const { data: counselorProfiles, isLoading: counselorsLoading } = useCounselorProfiles(
-    lead?.institution_id ?? undefined
-  );
+  // Counselors from profiles (role='counselor') — global across all institutions
+  const { data: counselorProfiles, isLoading: counselorsLoading } = useCounselorProfiles(null);
   const counselors = counselorProfiles || [];
 
-  // Consultants for dropdown (referral leads)
-  const { data: consultantsDropdown = [] } = useConsultantsForDropdown(
-    lead?.institution_id ?? ''
-  );
+  // Consultants for dropdown (referral leads) — global across all institutions
+  const { data: consultantsDropdown = [] } = useConsultantsForDropdown();
 
   // Consultant attributions for this lead (used in Details tab assignment section)
   const { attributions: leadAttributions } = useLeadAttributions(leadId);
@@ -741,8 +737,9 @@ function LeadDetailPageContent() {
     });
     // Pre-populate counselor (from assigned_counselor_id which references profiles.id)
     setEditCounselorProfileId(l.assigned_counselor_id || '');
-    // Consultant is not stored on the lead row — clear it; the ConsultantAttributionCard manages that separately
-    setEditConsultantId('');
+    // Pre-populate consultant from primary lead attribution (stored in consultant_lead_attributions, not on the lead row)
+    const primaryAttribution = leadAttributions.find((a) => a.attribution_type === 'primary');
+    setEditConsultantId(primaryAttribution?.consultant_id || '');
     setShowEditDialog(true);
   };
 
@@ -811,15 +808,26 @@ function LeadDetailPageContent() {
           }
           if (editForm.source === 'referral' && editConsultantId && editConsultantId !== '_none' && lead.institution_id) {
             try {
-              await ConsultantService.createLeadAttribution({
-                institution_id: lead.institution_id,
-                lead_id: lead.id,
-                consultant_id: editConsultantId,
-                attribution_type: 'primary',
-                attribution_percentage: 100,
-              });
+              const existingAttribution = leadAttributions.find((a) => a.attribution_type === 'primary');
+              if (existingAttribution) {
+                // Update existing primary attribution to point to the (possibly new) consultant
+                const supabase = createClientSupabaseClient();
+                await (supabase as any)
+                  .from('consultant_lead_attributions')
+                  .update({ consultant_id: editConsultantId, updated_at: new Date().toISOString() })
+                  .eq('id', existingAttribution.id);
+              } else {
+                await ConsultantService.createLeadAttribution({
+                  institution_id: lead.institution_id,
+                  lead_id: lead.id,
+                  consultant_id: editConsultantId,
+                  attribution_type: 'primary',
+                  attribution_percentage: 100,
+                });
+              }
+              queryClient.invalidateQueries({ queryKey: ['lead-attributions'] });
             } catch (e) {
-              console.warn('[admission/leads] Could not create consultant attribution during edit:', e);
+              console.warn('[admission/leads] Could not update consultant attribution during edit:', e);
             }
           }
           setShowEditDialog(false);
