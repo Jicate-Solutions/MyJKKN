@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { Upload, X, CheckCircle2, AlertCircle, FileSpreadsheet, Loader2 } from 'lucide-react';
 import {
   Dialog,
@@ -15,6 +15,14 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { toast } from 'sonner';
+import * as XLSX from 'xlsx';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
+import { CONSULTANT_COLUMN_MAPPING } from '@/lib/utils/mappings/consultant-excel-mappings';
 
 /**
  * Import Dialog Component for Education Consultants
@@ -46,6 +54,16 @@ interface ImportResult {
   duplicatePhones?: string[];
 }
 
+interface PreviewRow {
+  rowNumber: number;
+  name: string;
+  phone: string;
+  type: string;
+  email: string;
+  errors: string[];
+  isValid: boolean;
+}
+
 interface ImportDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -66,6 +84,9 @@ export function ConsultantImportDialog({
   const [result, setResult] = useState<ImportResult | null>(null);
   const [progress, setProgress] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
+  const [previewData, setPreviewData] = useState<PreviewRow[] | null>(null);
+  const [isParsing, setIsParsing] = useState(false);
+  const progressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // ============================================================
   // HANDLERS
