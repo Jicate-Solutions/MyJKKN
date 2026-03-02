@@ -30,7 +30,7 @@ export async function parseExcelFile(
 ): Promise<ExcelParseResult> {
   try {
     const data = await file.arrayBuffer();
-    const workbook = XLSX.read(data);
+    const workbook = XLSX.read(new Uint8Array(data), { type: 'array' });
 
     // Find the sheet to use
     let worksheet: XLSX.WorkSheet;
