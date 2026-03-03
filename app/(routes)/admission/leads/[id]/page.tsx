@@ -32,9 +32,12 @@ import {
   useLeadMutations,
   useActivityMutations,
   useApplicationMutations,
-  useCounselorProfiles
+  useCounselorProfiles,
+  useActiveTemplates,
+  useTemplateVariables
 } from '@/hooks/admission';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
+import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
 import { useDegrees } from '@/hooks/organization/use-degrees';
 import { useDepartments } from '@/hooks/organization/use-departments';
 import { usePrograms } from '@/hooks/organization/use-programs';
@@ -65,7 +68,12 @@ import {
   Loader2,
   ExternalLink,
   Info,
-  UserPlus
+  UserPlus,
+  Image as ImageIcon,
+  Film,
+  FileText as FileTextIcon,
+  Paperclip,
+  X
 } from 'lucide-react';
 import Link from 'next/link';
 import {
@@ -361,6 +369,7 @@ function LeadDetailPageContent() {
   const { timeline, isLoading: timelineLoading } = useEnhancedTimeline(leadId);
   const { history: communicationHistory, isLoading: commLoading } = useLeadCommunicationHistory(leadId);
   const queryClient = useQueryClient();
+  const { selectedInstitutionId: userInstitutionId } = useUserInstitutionAccess();
 
   // Compute lead scores on-the-fly from available data
   const computedScores = useMemo(() => {
@@ -481,6 +490,16 @@ function LeadDetailPageContent() {
   const [sendChannel, setSendChannel] = useState<'sms' | 'whatsapp'>('sms');
   const [sendMessage, setSendMessage] = useState('');
   const [isSending, setIsSending] = useState(false);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
+  const [templateAttachment, setTemplateAttachment] = useState<{
+    type: 'image' | 'video' | 'document';
+    url: string;
+  } | null>(null);
+
+  // Fetch active templates filtered by the currently selected channel.
+  // Use the logged-in user's institution (not the lead's) since templates belong to the counselor's institution.
+  const { templates: channelTemplates } = useActiveTemplates(userInstitutionId, sendChannel as 'sms' | 'email' | 'whatsapp');
+  const { replaceVariables } = useTemplateVariables();
 
   const handleSendMessage = async () => {
     if (!lead || !sendMessage.trim()) return;
@@ -510,7 +529,12 @@ function LeadDetailPageContent() {
             message_content: sendMessage.trim(),
             delivery_status: 'sent',
             sent_at: new Date().toISOString(),
-            metadata: { source: 'manual', sent_via: 'whatsapp_web' },
+            metadata: {
+                source: 'manual',
+                sent_via: 'whatsapp_web',
+                ...(selectedTemplateId && { template_id: selectedTemplateId }),
+                ...(templateAttachment && { attachment: templateAttachment }),
+              },
           });
 
         // Also log as activity for the timeline
@@ -1343,15 +1367,15 @@ function LeadDetailPageContent() {
                           <CardTitle className="text-base">Communication History</CardTitle>
                           <CardDescription>SMS &amp; WhatsApp messages sent to this lead</CardDescription>
                         </div>
-                        <Dialog open={showSendMsg} onOpenChange={setShowSendMsg}>
+                        <Dialog open={showSendMsg} onOpenChange={(open) => { setShowSendMsg(open); setSelectedTemplateId(''); setSendMessage(''); setTemplateAttachment(null); }}>
                           <DialogTrigger asChild>
                             <Button size="sm" variant="outline">
                               <Send className="h-3.5 w-3.5 mr-1.5" />
                               Send Message
                             </Button>
                           </DialogTrigger>
-                          <DialogContent className="sm:max-w-md">
-                            <DialogHeader>
+                          <DialogContent className="w-[calc(100vw-2rem)] max-w-md flex flex-col max-h-[90vh]">
+                            <DialogHeader className="shrink-0">
                               <DialogTitle>Send Message</DialogTitle>
                               <DialogDescription>
                                 {sendChannel === 'whatsapp'
@@ -1359,10 +1383,18 @@ function LeadDetailPageContent() {
                                   : `Send a direct SMS to ${lead?.full_name}`}
                               </DialogDescription>
                             </DialogHeader>
-                            <div className="space-y-4 py-2">
+                            <div className="flex-1 overflow-y-auto space-y-4 py-2 pr-1">
                               <div className="space-y-2">
                                 <Label>Channel</Label>
-                                <Select value={sendChannel} onValueChange={(v) => setSendChannel(v as 'sms' | 'whatsapp')}>
+                                <Select
+                                  value={sendChannel}
+                                  onValueChange={(v) => {
+                                    setSendChannel(v as 'sms' | 'whatsapp');
+                                    setSelectedTemplateId('');
+                                    setSendMessage('');
+                                    setTemplateAttachment(null);
+                                  }}
+                                >
                                   <SelectTrigger>
                                     <SelectValue />
                                   </SelectTrigger>
@@ -1372,6 +1404,81 @@ function LeadDetailPageContent() {
                                   </SelectContent>
                                 </Select>
                               </div>
+                              {channelTemplates.length > 0 && (
+                                <div className="space-y-2">
+                                  <Label>
+                                    Use Template{' '}
+                                    <span className="text-xs text-muted-foreground font-normal">(optional)</span>
+                                  </Label>
+                                  <Select
+                                    value={selectedTemplateId}
+                                    onValueChange={(id) => {
+                                      setSelectedTemplateId(id);
+                                      const tmpl = channelTemplates.find((t) => t.id === id);
+                                      if (tmpl) {
+                                        setSendMessage(
+                                          replaceVariables(tmpl.content, {
+                                            first_name: lead?.full_name?.split(' ')[0] || '',
+                                            last_name: lead?.full_name?.split(' ').slice(1).join(' ') || '',
+                                            full_name: lead?.full_name || '',
+                                            phone: lead?.phone || '',
+                                            email: lead?.email || '',
+                                            program: lead?.program?.program_name || '',
+                                          })
+                                        );
+                                        setTemplateAttachment(
+                                          tmpl.attachment_type && tmpl.attachment_url
+                                            ? { type: tmpl.attachment_type, url: tmpl.attachment_url }
+                                            : null
+                                        );
+                                      }
+                                    }}
+                                  >
+                                    <SelectTrigger>
+                                      <SelectValue placeholder="Select a template…" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {channelTemplates.map((t) => (
+                                        <SelectItem key={t.id} value={t.id}>
+                                          {t.name}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                              )}
+                              {templateAttachment && (
+                                <div className="space-y-2">
+                                  <Label className="flex items-center gap-1.5">
+                                    <Paperclip className="h-3.5 w-3.5" />
+                                    Attachment
+                                  </Label>
+                                  <div className="rounded-md border bg-muted/40 p-3">
+                                    {templateAttachment.type === 'image' ? (
+                                      <img
+                                        src={templateAttachment.url}
+                                        alt="Template image"
+                                        className="w-full max-h-40 rounded object-contain"
+                                      />
+                                    ) : (
+                                      <div className="flex items-center gap-2">
+                                        {templateAttachment.type === 'video' && (
+                                          <Film className="h-5 w-5 text-purple-500" />
+                                        )}
+                                        {templateAttachment.type === 'document' && (
+                                          <FileTextIcon className="h-5 w-5 text-orange-500" />
+                                        )}
+                                        <span className="text-xs font-medium capitalize">{templateAttachment.type} attached</span>
+                                      </div>
+                                    )}
+                                  </div>
+                                  {sendChannel === 'whatsapp' && (
+                                    <p className="text-xs text-muted-foreground">
+                                      Send this attachment manually in WhatsApp after opening the chat.
+                                    </p>
+                                  )}
+                                </div>
+                              )}
                               <div className="space-y-2">
                                 <Label>To</Label>
                                 <Input value={lead?.phone || ''} disabled className="bg-muted" />
@@ -1386,7 +1493,7 @@ function LeadDetailPageContent() {
                                 />
                               </div>
                             </div>
-                            <DialogFooter>
+                            <DialogFooter className="shrink-0">
                               <Button variant="outline" onClick={() => setShowSendMsg(false)}>
                                 Cancel
                               </Button>

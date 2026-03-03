@@ -51,8 +51,8 @@ export function useCommunicationTemplates(filters: TemplateFilters) {
 export function useActiveTemplates(institutionId?: string, type?: TemplateChannel) {
   const query = useQuery({
     queryKey: communicationTemplatesKeys.active(institutionId || '', type),
-    queryFn: () => CommunicationTemplatesService.getActiveTemplates(institutionId!, type),
-    enabled: !!institutionId,
+    queryFn: () => CommunicationTemplatesService.getActiveTemplates(institutionId, type),
+    enabled: true, // Always fetch; service omits institution filter for super admins (RLS enforces access)
   });
 
   return {
