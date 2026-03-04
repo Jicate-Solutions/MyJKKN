@@ -593,7 +593,8 @@ export async function POST(request: NextRequest) {
     const result = await BulkLearnerEditService.processBulkEdit(
       bulkEditRows,
       profile.institution_id || undefined,
-      !!profile.is_super_admin
+      !!profile.is_super_admin,
+      user.id
     );
 
     // 7. Return result

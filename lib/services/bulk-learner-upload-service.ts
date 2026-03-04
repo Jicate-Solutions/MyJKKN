@@ -102,7 +102,8 @@ export class BulkLearnerUploadService {
    * Creates new learners with lifecycle_status='active' and auto-creates user accounts
    */
   static async processBulkUpload(
-    rows: BulkUploadRow[]
+    rows: BulkUploadRow[],
+    userId?: string
   ): Promise<BulkUploadResult> {
     const result: BulkUploadResult = {
       success: true,
@@ -164,6 +165,26 @@ export class BulkLearnerUploadService {
     } else {
       // Process all valid rows
       await this.processValidRows(validRows, result);
+    }
+
+    // Log bulk upload activity (summary)
+    try {
+      if (userId) {
+        await supabaseAdmin.from('user_activity_logs').insert({
+          user_id: userId,
+          action_type: 'import',
+          resource_type: 'student',
+          description: `Bulk uploaded ${result.upload_summary.learners_created} learner enquiries (${result.upload_summary.learners_failed} failed)`,
+          metadata: {
+            sub_type: 'bulk_upload',
+            success_count: result.upload_summary.learners_created,
+            failed_count: result.upload_summary.learners_failed,
+            total_rows: result.upload_summary.total_rows,
+          },
+        });
+      }
+    } catch (logError) {
+      console.error('[bulk-upload] Failed to log activity:', logError);
     }
 
     return result;

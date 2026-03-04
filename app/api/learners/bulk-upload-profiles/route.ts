@@ -518,7 +518,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 6. Process bulk upload
-    const result = await BulkLearnerUploadService.processBulkUpload(bulkUploadRows);
+    const result = await BulkLearnerUploadService.processBulkUpload(bulkUploadRows, user.id);
 
     // 7. Return result
     return NextResponse.json(result);

@@ -260,7 +260,8 @@ export class BulkLearnerEditService {
   static async processBulkEdit(
     rows: BulkEditRow[],
     userInstitutionId?: string,
-    isSuperAdmin: boolean = false
+    isSuperAdmin: boolean = false,
+    userId?: string
   ): Promise<BulkEditResult> {
     const result: BulkEditResult = {
       success: true,
@@ -387,6 +388,31 @@ export class BulkLearnerEditService {
     }
 
     result.success = result.failed === 0;
+
+    // Log bulk edit activity (summary)
+    try {
+      if (userId) {
+        const fieldsUpdated = [...new Set(result.updated_learners?.flatMap((l: any) => l.fields_updated || []) || [])];
+        await supabaseAdmin.from('user_activity_logs').insert({
+          user_id: userId,
+          action_type: 'update',
+          resource_type: 'student',
+          description: `Bulk edited ${result.updated || 0} learner profiles (${fieldsUpdated.join(', ')})`,
+          institution_id: userInstitutionId || undefined,
+          metadata: {
+            sub_type: 'bulk_edit',
+            updated_count: result.updated,
+            failed_count: result.failed,
+            skipped_count: result.skipped,
+            fields_updated: fieldsUpdated,
+            total_rows: rows.length,
+          },
+        });
+      }
+    } catch (logError) {
+      console.error('[bulk-edit] Failed to log activity:', logError);
+    }
+
     return result;
   }
 
