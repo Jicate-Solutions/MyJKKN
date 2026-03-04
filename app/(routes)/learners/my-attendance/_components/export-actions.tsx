@@ -11,6 +11,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { FileDown, FileText, Sheet, Loader2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { logActivityClient, LearnerActivityTemplates } from '@/lib/utils/activity-logger-client';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 
 interface ExportActionsProps {
   learnerId: string;
@@ -49,6 +51,26 @@ export function ExportActions({ learnerId, semesterId }: ExportActionsProps) {
       toast({
         title: 'Export Successful',
         description: 'Attendance report downloaded as PDF',
+      });
+
+      // Activity logging (fire-and-forget)
+      createClientSupabaseClient().auth.getUser().then(({ data: userData }) => {
+        if (userData?.user?.id) {
+          const template = LearnerActivityTemplates.learnerDataExported('User', 'PDF');
+          logActivityClient({
+            userId: userData.user.id,
+            actionType: template.actionType,
+            resourceType: template.resourceType,
+            description: template.description,
+            metadata: {
+              sub_type: template.sub_type,
+              format: 'PDF',
+              export_type: 'attendance',
+              learner_id: learnerId,
+              semester_id: semesterId,
+            },
+          });
+        }
       });
     } catch (error) {
       console.error('[learners/attendance] PDF export failed:', error);
@@ -89,6 +111,26 @@ export function ExportActions({ learnerId, semesterId }: ExportActionsProps) {
       toast({
         title: 'Export Successful',
         description: 'Attendance report downloaded as Excel',
+      });
+
+      // Activity logging (fire-and-forget)
+      createClientSupabaseClient().auth.getUser().then(({ data: userData }) => {
+        if (userData?.user?.id) {
+          const template = LearnerActivityTemplates.learnerDataExported('User', 'Excel');
+          logActivityClient({
+            userId: userData.user.id,
+            actionType: template.actionType,
+            resourceType: template.resourceType,
+            description: template.description,
+            metadata: {
+              sub_type: template.sub_type,
+              format: 'Excel',
+              export_type: 'attendance',
+              learner_id: learnerId,
+              semester_id: semesterId,
+            },
+          });
+        }
       });
     } catch (error) {
       console.error('[learners/attendance] Excel export failed:', error);

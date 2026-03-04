@@ -28,6 +28,9 @@ import { Grid } from 'react-window';
 // Supabase
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 
+// Activity logging
+import { logActivityClient, LearnerActivityTemplates } from '@/lib/utils/activity-logger-client';
+
 // Services
 import { StorageService } from '@/lib/storage/storage-service';
 
@@ -675,6 +678,32 @@ export function BulkUploadLearnerImages({
       } else {
         toast(`Uploaded ${uploadResult.success.length} photos, ${uploadResult.failed.length} failed`, {
           icon: '⚠️',
+        });
+      }
+
+      // Activity logging (fire-and-forget)
+      if (uploadResult.success.length > 0) {
+        createClientSupabaseClient().auth.getUser().then(({ data: userData }) => {
+          if (userData?.user?.id) {
+            const template = LearnerActivityTemplates.learnerImageUploaded(
+              userData.user.email || 'User',
+              uploadResult.success.length
+            );
+            logActivityClient({
+              userId: userData.user.id,
+              actionType: template.actionType,
+              resourceType: template.resourceType,
+              description: template.description,
+              metadata: {
+                sub_type: template.sub_type,
+                success_count: uploadResult.success.length,
+                failed_count: uploadResult.failed.length,
+                total_files: selectedFiles.length,
+                institution_id: institutionId,
+              },
+              institutionId: institutionId,
+            });
+          }
         });
       }
 

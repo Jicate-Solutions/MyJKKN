@@ -33,6 +33,8 @@ import { useBulkUpdateStatus } from '@/hooks/use-learner-profiles';
 import type { LifecycleStatus } from '@/types/learner-profile';
 import toast from 'react-hot-toast';
 import { Loader2, CheckCircle2, XCircle, Users, AlertTriangle } from 'lucide-react';
+import { logActivityClient, LearnerActivityTemplates } from '@/lib/utils/activity-logger-client';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 
 interface StatusPromotionFormProps {
   selectedLearnerIds: string[];
@@ -116,6 +118,32 @@ export function StatusPromotionForm({
         }, 2000);
       } else {
         toast.error(`Status update completed with ${result.failed.length} failure(s)`);
+      }
+
+      // Activity logging (fire-and-forget)
+      if (result.success.length > 0) {
+        createClientSupabaseClient().auth.getUser().then(({ data: userData }) => {
+          if (userData?.user?.id) {
+            const template = LearnerActivityTemplates.learnerStatusChanged(
+              userData.user.email || 'User',
+              result.success.length,
+              newStatus
+            );
+            logActivityClient({
+              userId: userData.user.id,
+              actionType: template.actionType,
+              resourceType: template.resourceType,
+              description: template.description,
+              metadata: {
+                sub_type: template.sub_type,
+                new_status: newStatus,
+                learner_count: result.success.length,
+                failed_count: result.failed.length,
+                disables_accounts: newStatus === 'exited',
+              },
+            });
+          }
+        });
       }
     } catch (error) {
       toast.error('Status update failed');

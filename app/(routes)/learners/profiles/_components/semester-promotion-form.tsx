@@ -43,6 +43,8 @@ import { useSemesters } from '@/hooks/use-semesters';
 import { useSections } from '@/hooks/use-sections';
 import toast from 'react-hot-toast';
 import { Loader2, CheckCircle2, XCircle, Users, AlertTriangle, X } from 'lucide-react';
+import { logActivityClient, LearnerActivityTemplates } from '@/lib/utils/activity-logger-client';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 
 interface SemesterPromotionFormProps {
   selectedLearnerIds: string[];
@@ -191,6 +193,34 @@ export function SemesterPromotionForm({
         }, 2000);
       } else {
         toast.error(`Promotion completed with ${result.failed.length} failure(s)`);
+      }
+
+      // Activity logging (fire-and-forget)
+      if (result.success.length > 0) {
+        createClientSupabaseClient().auth.getUser().then(({ data: userData }) => {
+          if (userData?.user?.id) {
+            const targetSemester = semesters?.data?.find((s) => s.id === semesterId)?.semester_name || semesterId;
+            const template = LearnerActivityTemplates.learnerPromoted(
+              userData.user.email || 'User',
+              result.success.length,
+              targetSemester
+            );
+            logActivityClient({
+              userId: userData.user.id,
+              actionType: template.actionType,
+              resourceType: template.resourceType,
+              description: template.description,
+              metadata: {
+                sub_type: template.sub_type,
+                semester_id: semesterId,
+                section_id: sectionId,
+                academic_year_id: academicYearId || undefined,
+                learner_count: result.success.length,
+                failed_count: result.failed.length,
+              },
+            });
+          }
+        });
       }
     } catch (error) {
       toast.error('Promotion failed');

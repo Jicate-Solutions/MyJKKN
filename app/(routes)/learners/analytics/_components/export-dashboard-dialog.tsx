@@ -24,6 +24,8 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Download, FileSpreadsheet, FileText, Image, Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import type { LearnerDashboardStats, LearnerDashboardFilters } from '@/types/learner-dashboard';
+import { logActivityClient, LearnerActivityTemplates } from '@/lib/utils/activity-logger-client';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 
 interface ExportDashboardDialogProps {
   open: boolean;
@@ -86,6 +88,29 @@ export function ExportDashboardDialog({
       }
 
       toast.success(`Dashboard exported successfully as ${exportFormat.toUpperCase()}`);
+
+      // Activity logging (fire-and-forget)
+      createClientSupabaseClient().auth.getUser().then(({ data: userData }) => {
+        if (userData?.user?.id) {
+          const template = LearnerActivityTemplates.learnerDataExported(
+            userData.user.email || 'User',
+            exportFormat.toUpperCase()
+          );
+          logActivityClient({
+            userId: userData.user.id,
+            actionType: template.actionType,
+            resourceType: template.resourceType,
+            description: template.description,
+            metadata: {
+              sub_type: template.sub_type,
+              format: exportFormat,
+              export_type: 'dashboard',
+              selected_tabs: selectedTabs,
+            },
+          });
+        }
+      });
+
       onOpenChange(false);
     } catch (error) {
       console.error('Export failed:', error);
