@@ -1963,6 +1963,10 @@ CREATE POLICY "activity_logs_select_admin" ON user_activity_logs
         AND user_has_permission('system.logs.view')
     );
 
+-- Allow authenticated users to insert their own activity logs
+CREATE POLICY "activity_logs_insert_own" ON user_activity_logs
+    FOR INSERT WITH CHECK (user_id = auth.uid());
+
 -- ================================================================================
 -- SECTION 16: CUSTOM ROLES TABLE
 -- ================================================================================
