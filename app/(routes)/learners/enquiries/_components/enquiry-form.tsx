@@ -37,7 +37,9 @@ import { AcademicInformationSection } from './form-sections/academic-information
 import { CourseSelectionSection } from './form-sections/course-selection';
 import { ContactDetailsSection } from './form-sections/contact-details';
 import { AccommodationPreferencesSection } from './form-sections/accommodation-preferences';
+import { FinanceDetailsSection } from './form-sections/finance-details';
 import { uploadProfileImage } from './profile-image-upload';
+import { usePermissions } from '@/hooks/use-permissions';
 
 // Import location data for converting names to IDs
 import {
@@ -149,6 +151,17 @@ export const enquiryFormSchema = z.object({
   reference_type: z.string().nullable().optional(),
   reference_name: z.string().nullable().optional(),
   reference_contact: z.string().nullable().optional(),
+
+  // Finance Details
+  application_fee: z.coerce.number().min(0, 'Must be non-negative').nullable().optional(),
+  university_reg_fee: z.coerce.number().min(0, 'Must be non-negative').nullable().optional(),
+  fee_structure_type: z.enum(['tuition_hostel', 'dayscholar']).nullable().optional(),
+  tuition_fee: z.coerce.number().min(0, 'Must be non-negative').nullable().optional(),
+  hostel_fee: z.coerce.number().min(0, 'Must be non-negative').nullable().optional(),
+  dayscholar_fee: z.coerce.number().min(0, 'Must be non-negative').nullable().optional(),
+  uniform_fee: z.coerce.number().min(0, 'Must be non-negative').nullable().optional(),
+  hospital_training_fee: z.coerce.number().min(0, 'Must be non-negative').nullable().optional(),
+  placement_fee: z.coerce.number().min(0, 'Must be non-negative').nullable().optional(),
 });
 
 // Required fields schema for final submission
@@ -177,6 +190,7 @@ interface EnquiryFormProps {
     { id: 'course-selection', label: 'Course Selection' },
     { id: 'contact-details', label: 'Contact Details' },
     { id: 'accommodation-preferences', label: 'Accommodation' },
+    { id: 'finance-details', label: 'Finance Details' },
   ];
 
 /**
@@ -394,6 +408,17 @@ const fieldToTabMap: Record<string, string> = {
   reference_type: 'accommodation-preferences',
   reference_name: 'accommodation-preferences',
   reference_contact: 'accommodation-preferences',
+
+  // Finance Details
+  application_fee: 'finance-details',
+  university_reg_fee: 'finance-details',
+  fee_structure_type: 'finance-details',
+  tuition_fee: 'finance-details',
+  hostel_fee: 'finance-details',
+  dayscholar_fee: 'finance-details',
+  uniform_fee: 'finance-details',
+  hospital_training_fee: 'finance-details',
+  placement_fee: 'finance-details',
 };
 
 /**
@@ -423,9 +448,19 @@ export function EnquiryForm({
   const [showCancelDialog, setShowCancelDialog] = useState(false);
   const [pendingImageFile, setPendingImageFile] = useState<File | null>(null);
 
-  const formTabs = visibleTabs 
+  const formTabs = visibleTabs
     ? ALL_TABS.filter(tab => visibleTabs.includes(tab.id))
     : ALL_TABS;
+
+  // Finance tab permission check
+  const { canAccess, isSuperAdmin: isSuperAdminUser } = usePermissions();
+  const canViewFinance = isSuperAdminUser || canAccess('learners', 'finance.view');
+  const canEditFinance = isSuperAdminUser || canAccess('learners', 'finance.edit');
+
+  // Filter out finance tab if user lacks permission
+  const filteredFormTabs = canViewFinance
+    ? formTabs
+    : formTabs.filter(tab => tab.id !== 'finance-details');
 
   // Initialize form with all fields
   const form = useForm<EnquiryFormValues>({
@@ -578,6 +613,17 @@ export function EnquiryForm({
           reference_type: normalizeReferenceType(learner.reference_type),
           reference_name: learner.reference_name || '',
           reference_contact: learner.reference_contact || '',
+
+          // Finance Details
+          application_fee: learner?.application_fee ?? null,
+          university_reg_fee: learner?.university_reg_fee ?? null,
+          fee_structure_type: learner?.fee_structure_type ?? null,
+          tuition_fee: learner?.tuition_fee ?? null,
+          hostel_fee: learner?.hostel_fee ?? null,
+          dayscholar_fee: learner?.dayscholar_fee ?? null,
+          uniform_fee: learner?.uniform_fee ?? null,
+          hospital_training_fee: learner?.hospital_training_fee ?? null,
+          placement_fee: learner?.placement_fee ?? null,
         };
         })()
       : {
@@ -674,6 +720,17 @@ export function EnquiryForm({
           reference_type: '',
           reference_name: '',
           reference_contact: '',
+
+          // Finance Details
+          application_fee: null,
+          university_reg_fee: null,
+          fee_structure_type: null,
+          tuition_fee: null,
+          hostel_fee: null,
+          dayscholar_fee: null,
+          uniform_fee: null,
+          hospital_training_fee: null,
+          placement_fee: null,
         },
   });
 
@@ -687,19 +744,19 @@ export function EnquiryForm({
   // ============================================
   // NAVIGATION FUNCTIONS
   // ============================================
-  const currentTabIndex = formTabs.findIndex((tab) => tab.id === activeTab);
+  const currentTabIndex = filteredFormTabs.findIndex((tab) => tab.id === activeTab);
   const isFirstTab = currentTabIndex === 0;
-  const isLastTab = currentTabIndex === formTabs.length - 1;
+  const isLastTab = currentTabIndex === filteredFormTabs.length - 1;
 
   const goToNextTab = () => {
     if (!isLastTab) {
-      setActiveTab(formTabs[currentTabIndex + 1].id);
+      setActiveTab(filteredFormTabs[currentTabIndex + 1].id);
     }
   };
 
   const goToPreviousTab = () => {
     if (!isFirstTab) {
-      setActiveTab(formTabs[currentTabIndex - 1].id);
+      setActiveTab(filteredFormTabs[currentTabIndex - 1].id);
     }
   };
 
@@ -841,6 +898,17 @@ export function EnquiryForm({
       reference_type: values.reference_type || undefined,
       reference_name: toUpperCaseField(values.reference_name),
       reference_contact: values.reference_contact || undefined,
+
+      // Finance Details
+      application_fee: values.application_fee ?? null,
+      university_reg_fee: values.university_reg_fee ?? null,
+      fee_structure_type: values.fee_structure_type ?? null,
+      tuition_fee: values.fee_structure_type === 'tuition_hostel' ? (values.tuition_fee ?? null) : null,
+      hostel_fee: values.fee_structure_type === 'tuition_hostel' ? (values.hostel_fee ?? null) : null,
+      dayscholar_fee: values.fee_structure_type === 'dayscholar' ? (values.dayscholar_fee ?? null) : null,
+      uniform_fee: values.uniform_fee ?? null,
+      hospital_training_fee: values.hospital_training_fee ?? null,
+      placement_fee: values.placement_fee ?? null,
 
       // System fields - Preserve existing values when editing, default to 'enquiry' when creating
       lifecycle_status: learner?.lifecycle_status || ('enquiry' as const),
@@ -1201,7 +1269,7 @@ export function EnquiryForm({
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <TabsList className="w-full flex justify-start h-auto p-1 overflow-x-auto scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100">
-          {formTabs.map((tab) => (
+          {filteredFormTabs.map((tab) => (
             <TabsTrigger
               key={tab.id}
               value={tab.id}
@@ -1245,6 +1313,14 @@ export function EnquiryForm({
               <AccommodationPreferencesSection form={form} isStudentView={isStudentView} />
             </Card>
           </TabsContent>
+
+          {canViewFinance && (
+            <TabsContent value="finance-details" className="space-y-4 mt-4">
+              <Card className="p-3 sm:p-4 md:p-6">
+                <FinanceDetailsSection form={form} readOnly={!canEditFinance} />
+              </Card>
+            </TabsContent>
+          )}
         </Tabs>
 
         {/* Form Actions - Navigation Buttons */}

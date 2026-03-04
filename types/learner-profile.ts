@@ -124,6 +124,17 @@ export interface LearnerProfile {
   reference_name?: string;
   reference_contact?: string;
 
+  // Finance/Fee Details (Added: 2026-03-04)
+  application_fee?: number | null;
+  university_reg_fee?: number | null;
+  fee_structure_type?: 'tuition_hostel' | 'dayscholar' | null;
+  tuition_fee?: number | null;
+  hostel_fee?: number | null;
+  dayscholar_fee?: number | null;
+  uniform_fee?: number | null;
+  hospital_training_fee?: number | null;
+  placement_fee?: number | null;
+
   // Academic Assignment (unlocked after approval/enrollment)
   institution_id?: string;
   degree_id?: string;
@@ -399,6 +410,17 @@ export interface UpdateLearnerProfileDto {
   reference_type?: string | null;
   reference_name?: string | null;
   reference_contact?: string | null;
+
+  // Finance/Fee Details
+  application_fee?: number | null;
+  university_reg_fee?: number | null;
+  fee_structure_type?: 'tuition_hostel' | 'dayscholar' | null;
+  tuition_fee?: number | null;
+  hostel_fee?: number | null;
+  dayscholar_fee?: number | null;
+  uniform_fee?: number | null;
+  hospital_training_fee?: number | null;
+  placement_fee?: number | null;
 
   // Academic Assignment
   institution_id?: string | null;

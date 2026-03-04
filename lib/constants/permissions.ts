@@ -295,7 +295,11 @@ export const PERMISSION_CATEGORIES = [
       // Learner Profile Change Requests
       { key: 'learners.change-requests.view', label: 'View Profile Change Requests' },
       { key: 'learners.change-requests.approve', label: 'Approve Profile Change Requests' },
-      { key: 'learners.change-requests.reject', label: 'Reject Profile Change Requests' }
+      { key: 'learners.change-requests.reject', label: 'Reject Profile Change Requests' },
+
+      // Learner Finance Section
+      { key: 'learners.finance.view', label: 'View Finance Details (Fee Structure)' },
+      { key: 'learners.finance.edit', label: 'Edit Finance Details (Fee Structure)' }
     ]
   },
   {

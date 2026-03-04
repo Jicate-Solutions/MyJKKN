@@ -18,6 +18,7 @@ import {
   Home,
   BookText,
   FileText,
+  IndianRupee,
 } from 'lucide-react';
 import {
   Card,
@@ -54,6 +55,7 @@ export function LearnerDetail({ learner }: LearnerDetailProps) {
   // Only access permissions after they've loaded
   const hasEditPermission =
     !permissionsLoading && (isSuperAdmin || canAccess('learners', 'edit'));
+  const canViewFinance = isSuperAdmin || canAccess('learners', 'finance.view');
 
   const sections = [
     {
@@ -81,6 +83,11 @@ export function LearnerDetail({ learner }: LearnerDetailProps) {
       label: 'Accommodation',
       icon: Home,
     },
+    ...(canViewFinance ? [{
+      id: 'finance',
+      label: 'Finance Details',
+      icon: IndianRupee
+    }] : []),
     {
       id: 'admission',
       label: 'Admission Details',
@@ -718,6 +725,121 @@ export function LearnerDetail({ learner }: LearnerDetailProps) {
                     <p className="text-sm capitalize">
                       {learner.accommodation_type || 'Not specified'}
                     </p>
+                  </div>
+                </div>
+              </CardContent>
+            </>
+          )}
+
+          {/* Finance Details Section */}
+          {activeSection === 'finance' && canViewFinance && (
+            <>
+              <CardHeader>
+                <CardTitle>Finance Details</CardTitle>
+                <CardDescription>Fee structure and payment details</CardDescription>
+              </CardHeader>
+              <CardContent className='space-y-6'>
+                <div className='space-y-4'>
+                  <h3 className='text-sm font-semibold'>Common Fees</h3>
+                  <div className='grid grid-cols-2 gap-4'>
+                    <div className='space-y-1'>
+                      <h4 className='text-sm font-medium text-muted-foreground'>
+                        Application Fee
+                      </h4>
+                      <p className='text-sm'>
+                        {learner.application_fee != null ? `₹${Number(learner.application_fee).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : 'Not specified'}
+                      </p>
+                    </div>
+                    <div className='space-y-1'>
+                      <h4 className='text-sm font-medium text-muted-foreground'>
+                        University Registration Fee
+                      </h4>
+                      <p className='text-sm'>
+                        {learner.university_reg_fee != null ? `₹${Number(learner.university_reg_fee).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : 'Not specified'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <Separator />
+
+                <div className='space-y-4'>
+                  <h3 className='text-sm font-semibold'>Fee Structure</h3>
+                  <div className='grid grid-cols-2 gap-4'>
+                    <div className='space-y-1'>
+                      <h4 className='text-sm font-medium text-muted-foreground'>
+                        Fee Structure Type
+                      </h4>
+                      <p className='text-sm'>
+                        {learner.fee_structure_type === 'tuition_hostel'
+                          ? 'Tuition + Hostel Fee'
+                          : learner.fee_structure_type === 'dayscholar'
+                            ? 'Day Scholar Fee'
+                            : 'Not specified'}
+                      </p>
+                    </div>
+                    {learner.fee_structure_type === 'tuition_hostel' && (
+                      <>
+                        <div className='space-y-1'>
+                          <h4 className='text-sm font-medium text-muted-foreground'>
+                            Tuition Fee
+                          </h4>
+                          <p className='text-sm'>
+                            {learner.tuition_fee != null ? `₹${Number(learner.tuition_fee).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : 'Not specified'}
+                          </p>
+                        </div>
+                        <div className='space-y-1'>
+                          <h4 className='text-sm font-medium text-muted-foreground'>
+                            Hostel Fee
+                          </h4>
+                          <p className='text-sm'>
+                            {learner.hostel_fee != null ? `₹${Number(learner.hostel_fee).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : 'Not specified'}
+                          </p>
+                        </div>
+                      </>
+                    )}
+                    {learner.fee_structure_type === 'dayscholar' && (
+                      <div className='space-y-1'>
+                        <h4 className='text-sm font-medium text-muted-foreground'>
+                          Day Scholar Fee
+                        </h4>
+                        <p className='text-sm'>
+                          {learner.dayscholar_fee != null ? `₹${Number(learner.dayscholar_fee).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : 'Not specified'}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <Separator />
+
+                <div className='space-y-4'>
+                  <h3 className='text-sm font-semibold'>Optional Fees</h3>
+                  <div className='grid grid-cols-2 gap-4'>
+                    <div className='space-y-1'>
+                      <h4 className='text-sm font-medium text-muted-foreground'>
+                        Uniform Fee
+                      </h4>
+                      <p className='text-sm'>
+                        {learner.uniform_fee != null ? `₹${Number(learner.uniform_fee).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : 'Not applicable'}
+                      </p>
+                    </div>
+                    <div className='space-y-1'>
+                      <h4 className='text-sm font-medium text-muted-foreground'>
+                        Hospital Training Fee
+                      </h4>
+                      <p className='text-sm'>
+                        {learner.hospital_training_fee != null ? `₹${Number(learner.hospital_training_fee).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : 'Not applicable'}
+                      </p>
+                    </div>
+                    <div className='space-y-1'>
+                      <h4 className='text-sm font-medium text-muted-foreground'>
+                        Placement Fee
+                      </h4>
+                      <p className='text-sm'>
+                        {learner.placement_fee != null ? `₹${Number(learner.placement_fee).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : 'Not applicable'}
+                      </p>
+                    </div>
                   </div>
                 </div>
               </CardContent>
