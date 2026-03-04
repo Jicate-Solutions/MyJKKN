@@ -4,13 +4,14 @@ import { DataTable } from '@/components/data-table/data-table';
 import { columns } from './columns';
 import type { AttendanceReportsSearchParams } from './data-table-schema';
 import { Button } from '@/components/ui/button';
-import { Plus } from 'lucide-react';
+import { FileDown, FileSpreadsheet } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { AttendanceReportService } from '@/lib/services/academic/attendance-report-service';
 import type { AttendanceReport } from '@/lib/services/academic/attendance-report-service';
+import { AttendanceExportService } from '@/lib/services/academic/attendance-export-service';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useAuth } from '@/hooks/use-auth';
-import { useState, useCallback, useMemo, useEffect } from 'react';
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 
 interface AttendanceReportsDataTableProps {
@@ -29,6 +30,9 @@ export function AttendanceReportsDataTable({
     isLoading: permissionsLoading
   } = usePermissions();
   const [facultyStaffId, setFacultyStaffId] = useState<string | null>(null);
+  const [isExportingExcel, setIsExportingExcel] = useState(false);
+  const [isExportingPdf, setIsExportingPdf] = useState(false);
+  const currentPageDataRef = useRef<AttendanceReport[]>([]);
 
   // Determine user role - use useMemo to memoize this
   const userRole = useMemo(() => {
@@ -135,6 +139,8 @@ export function AttendanceReportsDataTable({
         sortBy: params.sort_by,
         sortOrder: params.sort_order
       });
+      // Track current page data for toolbar export buttons
+      currentPageDataRef.current = result.data;
       return {
         success: true,
         data: result.data as any,
@@ -147,6 +153,55 @@ export function AttendanceReportsDataTable({
       };
     },
     [fetchData]
+  );
+
+  const handleExportExcel = async () => {
+    const data = currentPageDataRef.current;
+    if (!data.length) return;
+    setIsExportingExcel(true);
+    try {
+      await AttendanceExportService.exportToExcel(data, 'attendance-reports');
+    } finally {
+      setIsExportingExcel(false);
+    }
+  };
+
+  const handleExportPdf = async () => {
+    const data = currentPageDataRef.current;
+    if (!data.length) return;
+    setIsExportingPdf(true);
+    try {
+      await AttendanceExportService.exportToPDF(data, 'attendance-reports');
+    } finally {
+      setIsExportingPdf(false);
+    }
+  };
+
+  const renderToolbarContent = useCallback(
+    () => (
+      <div className="flex items-center gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleExportExcel}
+          disabled={isExportingExcel}
+        >
+          <FileSpreadsheet className="mr-2 h-4 w-4" />
+          {isExportingExcel ? 'Exporting...' : 'Export Excel'}
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleExportPdf}
+          disabled={isExportingPdf}
+        >
+          <FileDown className="mr-2 h-4 w-4" />
+          {isExportingPdf ? 'Exporting...' : 'Export PDF'}
+        </Button>
+      </div>
+    ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [isExportingExcel, isExportingPdf]
   );
 
   const getColumns = useCallback(() => columns as any, []);
@@ -165,6 +220,66 @@ export function AttendanceReportsDataTable({
   }
 
   return (
-    <DataTable getColumns={getColumns} fetchDataFn={fetchDataFn} idField='id' />
+    <DataTable
+      getColumns={getColumns}
+      fetchDataFn={fetchDataFn}
+      idField='id'
+      config={{
+        enableUrlState: true,
+        enableDateFilter: false,
+        enableExport: false,
+        enableRowSelection: false,
+      }}
+      exportConfig={{
+        entityName: 'attendance-reports',
+        // Keys must be actual AttendanceReport property names (not virtual column IDs)
+        headers: [
+          'attendance_date',
+          'institution_name',
+          'degree_name',
+          'department_name',
+          'semester_name',
+          'section_name',
+          'average_attendance',
+          'periods_count',
+        ],
+        columnMapping: {
+          attendance_date: 'Date',
+          institution_name: 'Institution',
+          degree_name: 'Degree',
+          department_name: 'Department',
+          semester_name: 'Semester',
+          section_name: 'Section',
+          average_attendance: 'Attendance (%)',
+          periods_count: 'Periods',
+        },
+        columnWidths: [
+          { wch: 14 }, // Date
+          { wch: 28 }, // Institution
+          { wch: 22 }, // Degree
+          { wch: 24 }, // Department
+          { wch: 16 }, // Semester
+          { wch: 12 }, // Section
+          { wch: 16 }, // Attendance %
+          { wch: 10 }, // Periods
+        ],
+        transformFunction: (report: any) => ({
+          attendance_date: report.attendance_date
+            ? new Date(report.attendance_date).toLocaleDateString('en-GB')
+            : '',
+          institution_name: report.institution_name || '',
+          degree_name: report.degree_name || '',
+          department_name: report.department_name || '',
+          semester_name: report.semester_name || '',
+          section_name: report.section_name || '',
+          average_attendance:
+            report.average_attendance != null
+              ? Number(Number(report.average_attendance).toFixed(2))
+              : '',
+          periods_count: report.periods_count ?? '',
+        }),
+      }}
+      renderToolbarContent={renderToolbarContent}
+    />
   );
 }
