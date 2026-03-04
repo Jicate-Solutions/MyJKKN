@@ -8,6 +8,8 @@ import type {
   ImsBatchFilters,
   ImsGRNFilters,
   CreateImsGRNDto,
+  CreateBatchDto,
+  UpdateBatchDto,
 } from '@/types/ims';
 
 // ─── Stock Summary ───────────────────────────────────────
@@ -115,6 +117,52 @@ export function useCancelImsGRN() {
     mutationFn: (id: string) => ImsGRNService.cancelGRN(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['ims-grns'] });
+    },
+  });
+}
+
+// ─── Batch Management ─────────────────────────────────────
+
+export function useImsBatchesForItem(itemId: string, storeId: string) {
+  return useQuery({
+    queryKey: ['ims-batches-for-item', itemId, storeId],
+    queryFn: () => ImsStockService.getBatchesForItem(itemId, storeId),
+    enabled: !!itemId && !!storeId,
+    staleTime: 2 * 60 * 1000,
+  });
+}
+
+export function useAddImsBatch() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: CreateBatchDto) => ImsStockService.addBatch(data),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['ims-batches-for-item', variables.item_id] });
+      queryClient.invalidateQueries({ queryKey: ['ims-stock-summary'] });
+      queryClient.invalidateQueries({ queryKey: ['ims-stock-batches'] });
+    },
+  });
+}
+
+export function useUpdateImsBatch() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: UpdateBatchDto }) =>
+      ImsStockService.updateBatch(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['ims-batches-for-item'] });
+    },
+  });
+}
+
+export function useDeleteImsBatch() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => ImsStockService.deleteBatch(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['ims-batches-for-item'] });
+      queryClient.invalidateQueries({ queryKey: ['ims-stock-summary'] });
+      queryClient.invalidateQueries({ queryKey: ['ims-stock-batches'] });
     },
   });
 }

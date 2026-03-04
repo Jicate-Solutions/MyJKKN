@@ -7,6 +7,8 @@ import type {
   ImsStockFilters,
   ImsBatchFilters,
   ImsLowStockItem,
+  CreateBatchDto,
+  UpdateBatchDto,
 } from '@/types/ims';
 
 export class ImsStockService {
@@ -296,6 +298,237 @@ export class ImsStockService {
       return lowStock as ImsLowStockItem[];
     } catch (error) {
       console.error('[ImsStockService] Error in getLowStockItems:', error);
+      throw error;
+    }
+  }
+
+  // ─── Batch Management ──────────────────────────────────────────────────────
+
+  /**
+   * Get all batches for a specific item in a store, ordered FEFO.
+   */
+  static async getBatchesForItem(
+    itemId: string,
+    storeId: string
+  ): Promise<ImsStockBatch[]> {
+    try {
+      const { data, error } = await this.supabase
+        .from('ims_stock_batches')
+        .select('*, item:ims_items(id,name,code), supplier:ims_suppliers(id,name)')
+        .eq('item_id', itemId)
+        .eq('store_id', storeId)
+        .order('expiry_date', { ascending: true, nullsFirst: false })
+        .order('created_at', { ascending: true });
+
+      if (error) throw error;
+      return (data || []) as ImsStockBatch[];
+    } catch (error) {
+      console.error('[ImsStockService] Error in getBatchesForItem:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Add a batch directly (bypasses GRN). Uses direct PostgREST table operations
+   * instead of the ims_add_batch RPC to avoid Supabase JS client's empty-{} error
+   * serialization gap with SECURITY DEFINER functions.
+   * Auto-generates BTH-YYMMDD-XXXXX batch number if none provided.
+   */
+  static async addBatch(data: CreateBatchDto): Promise<string> {
+    try {
+      let batchNumber = data.batch_number?.trim() || '';
+
+      // Auto-generate batch number via atomic counter RPC (this simpler RPC works fine)
+      if (!batchNumber && data.store_id) {
+        const today = new Date().toISOString().split('T')[0];
+        const { data: nextNum, error: counterError } = await this.supabase.rpc(
+          'ims_next_batch_number',
+          { p_store_id: data.store_id, p_date: today }
+        );
+        if (counterError || nextNum == null) {
+          // Fallback: timestamp-based number
+          const yymmdd = new Date().toISOString().slice(2, 10).replace(/-/g, '');
+          batchNumber = `BTH-${yymmdd}-${String(Date.now()).slice(-5)}`;
+        } else {
+          const yymmdd = today.replace(/-/g, '').slice(2);
+          batchNumber = `BTH-${yymmdd}-${String(nextNum).padStart(5, '0')}`;
+        }
+      } else if (!batchNumber) {
+        const yymmdd = new Date().toISOString().slice(2, 10).replace(/-/g, '');
+        batchNumber = `BTH-${yymmdd}-${String(Date.now()).slice(-5)}`;
+      }
+
+      // Calculate derived values
+      const gstRate    = data.gst_rate ?? 0;
+      const totalValue = data.quantity * data.cost_price * (1 + gstRate / 100);
+
+      // Step A: INSERT batch row directly via PostgREST (structured errors, no RPC gap)
+      const { data: batchRow, error: batchError } = await this.supabase
+        .from('ims_stock_batches')
+        .insert({
+          item_id:            data.item_id,
+          batch_number:       batchNumber,
+          quantity:           data.quantity,
+          quantity_available: data.quantity,
+          cost_price:         data.cost_price,
+          gst_rate:           gstRate,
+          total_value:        totalValue,
+          entry_date:         data.entry_date,
+          expiry_date:        data.expiry_date ?? null,
+          supplier_id:        data.supplier_id ?? null,
+          notes:              data.notes ?? null,
+          location_type:      'central_store',
+          store_id:           data.store_id ?? null,
+          institution_id:     data.institution_id || null,  // coerce '' → null (UUID column)
+        })
+        .select('id')
+        .single();
+
+      if (batchError) {
+        console.error('[ImsStockService] batchError raw:', JSON.stringify(batchError), batchError);
+        throw new Error(
+          batchError.message || batchError.details || JSON.stringify(batchError) || 'Batch insert failed'
+        );
+      }
+
+      // Step B: Read-modify-write on ims_stock_summary
+      const { data: existing } = await this.supabase
+        .from('ims_stock_summary')
+        .select('id, current_quantity, available_quantity, total_value')
+        .eq('item_id', data.item_id)
+        .eq('store_id', data.store_id ?? null)
+        .maybeSingle();
+
+      if (existing) {
+        const { error: updateError } = await this.supabase
+          .from('ims_stock_summary')
+          .update({
+            current_quantity:   (existing.current_quantity   ?? 0) + data.quantity,
+            available_quantity: (existing.available_quantity ?? 0) + data.quantity,
+            total_value:        (existing.total_value        ?? 0) + totalValue,
+            updated_at:         new Date().toISOString(),
+          })
+          .eq('id', existing.id);
+        if (updateError) {
+          console.warn('[ImsStockService] stock_summary update failed:', updateError);
+        }
+      } else {
+        const { error: insertError } = await this.supabase
+          .from('ims_stock_summary')
+          .insert({
+            item_id:            data.item_id,
+            store_id:           data.store_id ?? null,
+            institution_id:     data.institution_id,
+            current_quantity:   data.quantity,
+            available_quantity: data.quantity,
+            reserved_quantity:  0,
+            total_value:        totalValue,
+          });
+        if (insertError) {
+          console.warn('[ImsStockService] stock_summary insert failed:', insertError);
+        }
+      }
+
+      return batchRow.id as string;
+    } catch (error) {
+      const e = error as any;
+      console.error('[ImsStockService] Error in addBatch:', {
+        message: e?.message, code: e?.code, details: e?.details, hint: e?.hint,
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Update mutable batch fields (cost, GST, expiry, notes).
+   * Quantity is intentionally not editable — create an adjustment if needed.
+   */
+  static async updateBatch(id: string, data: UpdateBatchDto): Promise<void> {
+    try {
+      const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
+      if (data.cost_price !== undefined) {
+        updates.cost_price = data.cost_price;
+        // Recalculate total_value if cost_price changes — use existing gst_rate from DB
+      }
+      if (data.gst_rate !== undefined) updates.gst_rate = data.gst_rate;
+      if (data.expiry_date !== undefined) updates.expiry_date = data.expiry_date || null;
+      if (data.notes !== undefined) updates.notes = data.notes || null;
+
+      const { error } = await this.supabase
+        .from('ims_stock_batches')
+        .update(updates)
+        .eq('id', id);
+
+      if (error) throw error;
+    } catch (error) {
+      console.error('[ImsStockService] Error in updateBatch:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Delete a batch. Service-layer guard: fails if batch appears in any sale.
+   * Also reverses the quantity_available from ims_stock_summary.
+   */
+  static async deleteBatch(id: string): Promise<void> {
+    try {
+      // Fetch batch details first
+      const { data: batch, error: fetchError } = await this.supabase
+        .from('ims_stock_batches')
+        .select('id, batch_number, quantity_available, item_id, store_id, institution_id')
+        .eq('id', id)
+        .single();
+
+      if (fetchError || !batch) throw fetchError || new Error('Batch not found');
+
+      // Guard: check if this batch_number appears in any financial transaction (sale)
+      if (batch.batch_number) {
+        const { count } = await this.supabase
+          .from('ims_financial_transactions')
+          .select('id', { count: 'exact', head: true })
+          .eq('batch_number', batch.batch_number);
+
+        if (count && count > 0) {
+          throw new Error(
+            'This batch has been used in sales and cannot be deleted. Use a stock adjustment to correct the quantity.'
+          );
+        }
+      }
+
+      // Delete the batch row
+      const { error: deleteError } = await this.supabase
+        .from('ims_stock_batches')
+        .delete()
+        .eq('id', id);
+
+      if (deleteError) throw deleteError;
+
+      // Reverse quantity from stock_summary
+      if (batch.quantity_available > 0) {
+        const scopeFilter = batch.store_id
+          ? { store_id: batch.store_id }
+          : { institution_id: batch.institution_id };
+
+        const { data: summary } = await this.supabase
+          .from('ims_stock_summary')
+          .select('id, current_quantity, available_quantity')
+          .eq('item_id', batch.item_id)
+          .match(scopeFilter)
+          .maybeSingle();
+
+        if (summary) {
+          await this.supabase
+            .from('ims_stock_summary')
+            .update({
+              current_quantity:   Math.max(0, summary.current_quantity - batch.quantity_available),
+              available_quantity: Math.max(0, summary.available_quantity - batch.quantity_available),
+              updated_at:         new Date().toISOString(),
+            })
+            .eq('id', summary.id);
+        }
+      }
+    } catch (error) {
+      console.error('[ImsStockService] Error in deleteBatch:', error);
       throw error;
     }
   }

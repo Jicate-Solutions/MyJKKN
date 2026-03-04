@@ -79,6 +79,8 @@ import type {
   UpdateImsItemDto,
 } from '@/types/ims';
 import { BulkImportDialog } from './_components/bulk-import-dialog';
+import { AddBatchModal } from '@/components/ims/add-batch-modal';
+import { BatchesDialog } from '@/components/ims/batches-dialog';
 
 const ITEM_TYPES: { label: string; value: ImsItemType }[] = [
   { label: 'Consumable', value: 'consumable' },
@@ -175,6 +177,10 @@ export default function InventoryItemsPage() {
   const [editingItem, setEditingItem] = useState<ImsItemWithRelations | null>(null);
   const [formData, setFormData] = useState<ItemFormData>(emptyFormData);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
+
+  // Batch modals state
+  const [batchItem, setBatchItem] = useState<ImsItemWithRelations | null>(null);
+  const [viewBatchItem, setViewBatchItem] = useState<ImsItemWithRelations | null>(null);
 
   // Adjust stock dialog state
   const [adjustDialogOpen, setAdjustDialogOpen] = useState(false);
@@ -1170,6 +1176,14 @@ export default function InventoryItemsPage() {
                                   <Layers className="h-4 w-4 mr-2" />
                                   Adjust Stock
                                 </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => setBatchItem(item)}>
+                                  <Package className="h-4 w-4 mr-2" />
+                                  Add Batch Stock
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => setViewBatchItem(item)}>
+                                  <Layers className="h-4 w-4 mr-2" />
+                                  View Batches
+                                </DropdownMenuItem>
                                 <DropdownMenuItem
                                   onClick={() => handleToggleActive(item)}
                                 >
@@ -1197,6 +1211,23 @@ export default function InventoryItemsPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Batch Modals */}
+      <AddBatchModal
+        open={!!batchItem}
+        itemId={batchItem?.id ?? ''}
+        itemName={batchItem?.name ?? ''}
+        storeId={storeId ?? ''}
+        institutionId={institutionId ?? ''}
+        onClose={() => setBatchItem(null)}
+      />
+      <BatchesDialog
+        open={!!viewBatchItem}
+        itemId={viewBatchItem?.id ?? ''}
+        itemName={viewBatchItem?.name ?? ''}
+        storeId={storeId ?? ''}
+        onClose={() => setViewBatchItem(null)}
+      />
     </ContentLayout>
   );
 }

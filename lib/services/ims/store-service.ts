@@ -25,6 +25,18 @@ export class ImsStoreService {
     metadata: { total: number; page: number; limit: number; totalPages: number };
   }> {
     try {
+      // Ensure auth session is established before querying.
+      // useImsStores fires with enabled:true on mount — before the Supabase
+      // client restores JWT from cookies. Without a valid JWT the request
+      // goes as 'anon' and the TO authenticated RLS policy returns 0 rows.
+      const { data: { session } } = await this.supabase.auth.getSession();
+      if (!session) {
+        const { data: { user }, error: userError } = await this.supabase.auth.getUser();
+        if (userError || !user) {
+          throw new Error('[ImsStoreService] No authenticated session for store query');
+        }
+      }
+
       let query = this.supabase
         .from('ims_stores')
         .select(
@@ -209,21 +221,33 @@ export class ImsStoreService {
 
   /**
    * Lightweight store list for the switcher dropdown.
-   * - Super admin: returns all active stores
-   * - Regular user: returns stores matching their institution_id
+   * Super admins see all active stores; regular users see only their institution's stores.
    */
   static async getStoresForSelect(
     institutionId?: string | null,
     isSuperAdmin?: boolean
   ): Promise<{ id: string; name: string; code: string; institution_id: string | null }[]> {
     try {
+      // Ensure auth session is established before querying.
+      // On page refresh, React may resolve cached userProfile before
+      // the Supabase HTTP client has restored session from cookies.
+      // Without a valid JWT, the request goes as 'anon' and RLS
+      // policies targeting 'authenticated' return 0 rows.
+      const { data: { session } } = await this.supabase.auth.getSession();
+      if (!session) {
+        // Fallback: getUser() validates via HTTP cookies (more reliable with SSR)
+        const { data: { user }, error: userError } = await this.supabase.auth.getUser();
+        if (userError || !user) {
+          throw new Error('[ImsStoreService] No authenticated session for store query');
+        }
+      }
+
       let query = this.supabase
         .from('ims_stores')
         .select('id, name, code, institution_id')
         .eq('is_active', true)
         .order('name');
 
-      // Non-super-admins only see their own institution's store(s)
       if (!isSuperAdmin && institutionId) {
         query = query.eq('institution_id', institutionId);
       }

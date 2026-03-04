@@ -1,6 +1,7 @@
 'use client';
 
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useRef } from 'react';
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { ImsStoreService } from '@/lib/services/ims/store-service';
 import type {
   ImsStoreFilters,
@@ -16,6 +17,9 @@ export function useImsStores(filters: ImsStoreFilters) {
     queryFn: () => ImsStoreService.getStores(filters),
     enabled: true,
     staleTime: 10 * 60 * 1000,
+    // Retry if session isn't ready on first attempt (matches useImsStoresForSelect pattern)
+    retry: 3,
+    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 8000),
   });
 }
 
@@ -30,13 +34,38 @@ export function useImsStore(id: string) {
 
 export function useImsStoresForSelect(
   institutionId?: string | null,
-  isSuperAdmin?: boolean
+  isSuperAdmin?: boolean,
+  isPermissionsLoading?: boolean
 ) {
+  // Latch isSuperAdmin=true once determined so the query key never flips back
+  // to institution-scoped during AuthProvider re-auth cycles.
+  // Without this latch: the key switches 'all' → 'no-inst' while profile is
+  // briefly null, the new key has no cached data, and stores=[] makes the
+  // dropdown disappear until the profile reloads.
+  const latchedSuperAdmin = useRef(false);
+  if (isSuperAdmin) latchedSuperAdmin.current = true;
+  const effectiveSuperAdmin = latchedSuperAdmin.current;
+
+  if (process.env.NODE_ENV === 'development') {
+    console.log('[useImsStoresForSelect]', {
+      institutionId,
+      isSuperAdmin,
+      effectiveSuperAdmin,
+      isPermissionsLoading,
+      enabled: !isPermissionsLoading && (!!institutionId || effectiveSuperAdmin),
+      queryKey: ['ims-stores-select', effectiveSuperAdmin ? 'all' : (institutionId ?? 'no-inst')],
+    });
+  }
+
   return useQuery({
-    queryKey: ['ims-stores-select', institutionId, isSuperAdmin],
-    queryFn: () => ImsStoreService.getStoresForSelect(institutionId, isSuperAdmin),
-    enabled: !!institutionId || isSuperAdmin === true,
+    queryKey: ['ims-stores-select', effectiveSuperAdmin ? 'all' : (institutionId ?? 'no-inst')],
+    queryFn: () => ImsStoreService.getStoresForSelect(institutionId, effectiveSuperAdmin),
+    enabled: !isPermissionsLoading && (!!institutionId || effectiveSuperAdmin === true),
     staleTime: 10 * 60 * 1000,
+    placeholderData: keepPreviousData,
+    // Retry up to 3 times with exponential backoff if session isn't ready
+    retry: 3,
+    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 8000),
   });
 }
 

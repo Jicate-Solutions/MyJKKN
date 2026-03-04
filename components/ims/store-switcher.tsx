@@ -43,7 +43,7 @@ export function StoreSwitcher() {
     name: string;
   } | null>(null);
   const queryClient = useQueryClient();
-  const { isSuperAdmin, userProfile } = usePermissions();
+  const { isSuperAdmin, userProfile, isLoading: isPermissionsLoading } = usePermissions();
 
   const storeId = useStore(useImsActiveStore, (s) => s.storeId);
   const storeName = useStore(useImsActiveStore, (s) => s.storeName);
@@ -56,10 +56,33 @@ export function StoreSwitcher() {
 
   const userInstitutionId = userProfile?.institution_id ?? null;
 
-  const { data: stores = [], isLoading } = useImsStoresForSelect(
+  const { data: stores = [], isLoading, isPending, isError, error: storeError } = useImsStoresForSelect(
     userInstitutionId,
-    isSuperAdmin
+    isSuperAdmin,
+    isPermissionsLoading
   );
+
+  if (process.env.NODE_ENV === 'development') {
+    console.log('[StoreSwitcher] render', {
+      isSuperAdmin,
+      isPermissionsLoading,
+      institutionId: userInstitutionId,
+      storesCount: stores.length,
+      storeNames: stores.map((s) => s.name),
+      isLoading,
+      isPending,
+    });
+  }
+
+  // Auth not loaded yet — don't evaluate store state
+  if (!userProfile) {
+    return (
+      <div className="flex items-center gap-2 px-3 py-2">
+        <Store className="h-4 w-4 text-muted-foreground animate-pulse" />
+        <span className="text-sm text-muted-foreground">Loading...</span>
+      </div>
+    );
+  }
 
   const performSwitch = (selectedId: string, institutionId: string, name: string) => {
     clearCart();
@@ -99,13 +122,31 @@ export function StoreSwitcher() {
     performSwitch(store.id, store.institution_id ?? '', store.name);
   };
 
-  // No stores at all — static badge
-  if (stores.length === 0) {
+  // Store query is still loading — show spinner to prevent the combobox from
+  // briefly flashing (stores=[] + isPending=true falls through to the combobox
+  // render, making it look like a dropdown that immediately disappears).
+  if (stores.length === 0 && (isLoading || isPending)) {
+    return (
+      <div className="flex items-center gap-2 px-3 py-2">
+        <Store className="h-4 w-4 text-muted-foreground animate-pulse" />
+        <span className="text-sm text-muted-foreground">Loading...</span>
+      </div>
+    );
+  }
+
+  // No stores at all — static badge (show error details if query failed)
+  // Also check !isPending: in React Query v5, disabled queries have isLoading=false
+  // but isPending=true — we must wait for the query to actually run before showing "No Store"
+  if (stores.length === 0 && !isLoading && !isPending) {
     return (
       <div className="flex items-center gap-2 px-3 py-2">
         <Store className="h-4 w-4 text-muted-foreground" />
-        <span className="text-sm font-medium truncate">No Store</span>
-        <Badge variant="secondary" className="text-xs">Store</Badge>
+        <span className="text-sm font-medium truncate">
+          {isError ? 'Store Error' : 'No Store'}
+        </span>
+        <Badge variant={isError ? 'destructive' : 'secondary'} className="text-xs">
+          {isError ? 'Retry' : 'Store'}
+        </Badge>
       </div>
     );
   }

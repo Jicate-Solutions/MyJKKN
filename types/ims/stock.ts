@@ -31,10 +31,15 @@ export interface ImsStockBatch {
   item_id: string;
   batch_number: string | null;
   expiry_date: string | null;
+  entry_date: string;
   quantity: number;
+  quantity_available: number;
   cost_price: number;
+  gst_rate: number;
   total_value: number;
   grn_id: string | null;
+  supplier_id: string | null;
+  notes: string | null;
   location_type: ImsLocationType;
   department_id: string | null;
   institution_id: string;
@@ -43,6 +48,28 @@ export interface ImsStockBatch {
   updated_at: string;
   // Joined fields
   item?: { id: string; name: string; code: string };
+  supplier?: { id: string; name: string } | null;
+}
+
+export interface CreateBatchDto {
+  item_id: string;
+  batch_number?: string; // auto-generated as BTH-YYMMDD-XXXXX if omitted
+  quantity: number;
+  cost_price: number;
+  gst_rate: number;
+  entry_date: string;
+  expiry_date?: string;
+  supplier_id?: string;
+  notes?: string;
+  store_id?: string;
+  institution_id: string;
+}
+
+export interface UpdateBatchDto {
+  cost_price?: number;
+  gst_rate?: number;
+  expiry_date?: string;
+  notes?: string;
 }
 
 export interface ImsStockIssue {

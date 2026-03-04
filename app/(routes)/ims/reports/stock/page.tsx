@@ -215,21 +215,21 @@ export default function StockReportPage() {
                       </TableHeader>
                       <TableBody>
                         {stockLevels.map((stock: any) => {
-                          const reorderLevel = stock.item?.reorder_level ?? 0;
-                          const maxLevel = stock.item?.max_stock_level ?? 0;
+                          const reorderLevel = stock.reorder_level ?? 0;
+                          const maxLevel = stock.max_stock_level ?? 0;
                           return (
-                            <TableRow key={stock.id}>
+                            <TableRow key={stock.item_id}>
                               <TableCell className='font-medium'>
                                 <div>
-                                  <p>{stock.item?.name ?? 'Unknown'}</p>
-                                  <p className='text-xs text-muted-foreground'>{stock.item?.code ?? ''}</p>
+                                  <p>{stock.item_name || 'Unknown'}</p>
+                                  <p className='text-xs text-muted-foreground'>{stock.item_code || ''}</p>
                                 </div>
                               </TableCell>
-                              <TableCell>{stock.item?.category?.name ?? '-'}</TableCell>
+                              <TableCell>{stock.category_name || '-'}</TableCell>
                               <TableCell className='text-right font-mono'>
                                 {stock.current_quantity}
                               </TableCell>
-                              <TableCell>{stock.item?.base_unit?.abbreviation ?? '-'}</TableCell>
+                              <TableCell>{stock.unit_abbreviation || '-'}</TableCell>
                               <TableCell className='text-right'>{formatCurrency(stock.total_value ?? 0)}</TableCell>
                               <TableCell className='text-right font-mono'>{reorderLevel}</TableCell>
                               <TableCell>

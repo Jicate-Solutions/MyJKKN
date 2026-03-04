@@ -14,6 +14,7 @@ export function useDepartments(filters: DepartmentFilters) {
       );
       return { data, metadata };
     },
+    enabled: !!filters.institution_id,
     placeholderData: (previousData) => previousData,
     ...QUERY_CONFIG.STABLE_DATA // Departments rarely change - use stable caching
   });

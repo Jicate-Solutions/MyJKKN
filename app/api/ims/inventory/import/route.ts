@@ -29,6 +29,7 @@ import {
   resolveUnitId,
   validationError,
   IMS_GST_RATES,
+  resolveImsWorksheet,
 } from '@/lib/utils/ims-item-excel-mappings';
 
 // ============================================================================
@@ -138,17 +139,17 @@ function parseRow(
     }
 
     const costPrice = parseNumericCell(costPriceRaw);
-    if (costPrice === null) {
+    if (costPrice === null && costPriceRaw.trim()) {
       errors.push(validationError(rowNumber, 'Cost Price', 'Must be a number ≥ 0'));
     }
 
     const mrp = parseNumericCell(mrpRaw);
-    if (mrp === null) {
+    if (mrp === null && mrpRaw.trim()) {
       errors.push(validationError(rowNumber, 'MRP', 'Must be a number ≥ 0'));
     }
 
     const sellingPrice = parseNumericCell(sellingRaw);
-    if (sellingPrice === null) {
+    if (sellingPrice === null && sellingRaw.trim()) {
       errors.push(validationError(rowNumber, 'Selling Price', 'Must be a number ≥ 0'));
     }
 
@@ -244,13 +245,27 @@ export async function POST(request: NextRequest) {
     const storeId     = (formData.get('storeId') as string | null) || null;
     const institutionId = (formData.get('institutionId') as string | null) || null;
 
+    if (!storeId && !institutionId) {
+      return NextResponse.json(
+        { error: 'Either storeId or institutionId is required' },
+        { status: 400 }
+      );
+    }
+
     if (!file) {
       return NextResponse.json({ error: 'No file provided' }, { status: 400 });
     }
 
-    if (!file.name.endsWith('.xlsx') && !file.name.endsWith('.xls')) {
+    if (file.name.endsWith('.xls') && !file.name.endsWith('.xlsx')) {
       return NextResponse.json(
-        { error: 'Invalid file type. Please upload an Excel file (.xlsx or .xls)' },
+        { error: 'The .xls format is not supported. Please save your file as .xlsx (Excel 2007+) and try again.' },
+        { status: 400 }
+      );
+    }
+
+    if (!file.name.endsWith('.xlsx')) {
+      return NextResponse.json(
+        { error: 'Invalid file type. Please upload an Excel file (.xlsx)' },
         { status: 400 }
       );
     }
@@ -267,11 +282,23 @@ export async function POST(request: NextRequest) {
     const workbook    = new ExcelJS.Workbook();
     await workbook.xlsx.load(arrayBuffer);
 
-    const worksheet = workbook.getWorksheet('Items');
-    if (!worksheet) {
+    const resolved = resolveImsWorksheet(workbook);
+    if (!resolved) {
       return NextResponse.json(
-        { error: 'Invalid template — missing "Items" sheet. Download the template and try again.' },
+        {
+          error:
+            'Could not find a valid Items sheet. ' +
+            'Make sure your file has the correct column headers ' +
+            '(Item Code, Item Name, Category Name, Item Type, Base Unit, GST Rate, Cost Price, MRP, Selling Price) ' +
+            'in the first row. Download the template for the correct format.',
+        },
         { status: 400 }
+      );
+    }
+    const worksheet = resolved.worksheet;
+    if (resolved.method !== 'exact-name') {
+      console.warn(
+        `[ims/inventory/import] Worksheet resolved via "${resolved.method}" (sheet name: "${worksheet.name}")`
       );
     }
 
@@ -308,6 +335,39 @@ export async function POST(request: NextRequest) {
       (categories || []).map((c: any) => [c.name.toLowerCase(), c.id as string])
     );
 
+    // ── Auto-create missing categories from the file ────────────────────────
+    const fileCategoryNames = new Set<string>();
+    worksheet.eachRow({ includeEmpty: false }, (row: ExcelJS.Row, rowNumber: number) => {
+      if (rowNumber === 1) return;
+      const cat = getCellStringValue(row.getCell(4).value).trim();
+      if (cat) fileCategoryNames.add(cat);
+    });
+
+    const missingCategories = Array.from(fileCategoryNames)
+      .filter(name => !categoryByName.has(name.toLowerCase()));
+
+    if (missingCategories.length > 0 && (storeId || institutionId)) {
+      const newCats = missingCategories.map(name => ({
+        name,
+        code: name.toUpperCase().replace(/[^A-Z0-9]+/g, '_').slice(0, 20),
+        is_active: true,
+        ...(storeId ? { store_id: storeId } : {}),
+        ...(institutionId ? { institution_id: institutionId } : {}),
+      }));
+      const { data: created, error: createErr } = await supabase
+        .from('ims_item_categories')
+        .insert(newCats)
+        .select('id, name');
+      if (!createErr && created) {
+        for (const c of created as any[]) {
+          categoryByName.set(c.name.toLowerCase(), c.id);
+        }
+      }
+      if (createErr) {
+        console.warn('[ims/inventory/import] auto-create categories failed:', createErr.message);
+      }
+    }
+
     // Units
     const { data: units, error: unitError } = await supabase
       .from('ims_units')
@@ -334,6 +394,7 @@ export async function POST(request: NextRequest) {
 
     // ── Parse & validate rows ─────────────────────────────────────────────────
     interface ResolvedItem {
+      _rowNumber: number; // original Excel row (for error messages)
       code: string;
       name: string;
       description: string | null;
@@ -431,6 +492,7 @@ export async function POST(request: NextRequest) {
         : null;
 
       validItems.push({
+        _rowNumber:             rowNumber,
         code:                   d.code.toUpperCase(),
         name:                   d.name,
         description:            d.description,
@@ -476,22 +538,22 @@ export async function POST(request: NextRequest) {
     }
 
     // ── Duplicate detection within file ───────────────────────────────────────
-    const seenCodes = new Map<string, number>(); // code → first index
+    const seenCodes = new Map<string, number>(); // code → first row number
     const duplicateCodes: string[] = [];
 
-    const deduped = validItems.filter((item, idx) => {
+    const deduped = validItems.filter((item) => {
       const key = item.code.toLowerCase();
       if (seenCodes.has(key)) {
-        const firstRow = seenCodes.get(key)! + 2;
+        const firstRow = seenCodes.get(key)!;
         allErrors.push({
-          row: idx + 2,
+          row: item._rowNumber,
           field: 'code',
-          message: `Row ${idx + 2}: Code "${item.code}" duplicated in this file (first seen row ${firstRow})`,
+          message: `Row ${item._rowNumber}: Code "${item.code}" duplicated in this file (first seen row ${firstRow})`,
         });
         duplicateCodes.push(item.code);
         return false;
       }
-      seenCodes.set(key, idx);
+      seenCodes.set(key, item._rowNumber);
       return true;
     });
 
@@ -517,12 +579,12 @@ export async function POST(request: NextRequest) {
       (existingItems || []).map((i: any) => (i.code as string).toUpperCase())
     );
 
-    const itemsToInsert = deduped.filter((item, idx) => {
+    const itemsToInsert = deduped.filter((item) => {
       if (existingCodes.has(item.code.toUpperCase())) {
         allErrors.push({
-          row: idx + 2,
+          row: item._rowNumber,
           field: 'code',
-          message: `Row ${idx + 2}: Code "${item.code}" already exists in the store`,
+          message: `Row ${item._rowNumber}: Code "${item.code}" already exists in the store`,
         });
         duplicateCodes.push(item.code);
         return false;
@@ -545,10 +607,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Strip stock-only fields before inserting into ims_items
+    // Strip non-DB fields before inserting into ims_items
     const itemDbRecords = itemsToInsert.map(
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      ({ opening_stock, batch_number, expiry_date, ...item }) => item
+      ({ _rowNumber, opening_stock, batch_number, expiry_date, ...item }) => item
     );
 
     const { data: inserted, error: insertError } = await supabase

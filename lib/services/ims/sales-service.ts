@@ -367,6 +367,24 @@ export class ImsSalesService {
           if (stockError) {
             throw new Error(`Stock deduction failed for item ${item.item_id}: ${stockError.message}`);
           }
+
+          // FEFO batch deduction — only if this item has active batches
+          if (storeId) {
+            const { count: batchCount } = await this.supabase
+              .from('ims_stock_batches')
+              .select('id', { count: 'exact', head: true })
+              .eq('item_id', item.item_id)
+              .eq('store_id', storeId)
+              .gt('quantity_available', 0);
+
+            if (batchCount && batchCount > 0) {
+              await this.supabase.rpc('ims_deduct_batch_fefo', {
+                p_item_id:  item.item_id,
+                p_quantity: item.quantity,
+                p_store_id: storeId,
+              });
+            }
+          }
         } else {
           console.warn('[ImsSalesService] No stock row found for item:', item.item_id, '— skipping deduction');
         }

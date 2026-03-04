@@ -54,6 +54,7 @@ export default function NewIndentPage() {
   const [isEmergency, setIsEmergency] = useState(false);
   const [emergencyReason, setEmergencyReason] = useState('');
   const [items, setItems] = useState<IndentItemRow[]>([]);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
   const { data: departmentsData } = useDepartments({
     institution_id: institutionId,
@@ -88,29 +89,39 @@ export default function NewIndentPage() {
   };
 
   const handleSubmit = async () => {
-    if (!departmentId) {
-      toast.error('Please select a department');
+    // Pre-flight: context must be ready before any field validation
+    if (!institutionId) {
+      toast.error('Store context not ready. Please refresh and try again.');
       return;
     }
-    if (!purpose.trim()) {
-      toast.error('Please enter the purpose');
+    if (!profile?.id) {
+      toast.error('User session not ready. Please refresh and try again.');
       return;
     }
+
+    // Collect ALL field errors at once so every problem is visible simultaneously
+    const errors: Record<string, string> = {};
+
+    if (!departmentId) errors.department = 'Please select a department';
+    if (!purpose.trim()) errors.purpose = 'Please enter the purpose';
     if (items.length === 0) {
-      toast.error('Please add at least one item');
+      errors.items = 'Please add at least one item';
+    } else {
+      const hasInvalidItems = items.some(
+        (item) => !item.item_id || !item.unit_id || item.quantity <= 0
+      );
+      if (hasInvalidItems) errors.items = 'Please fill in all item fields correctly';
+    }
+    if (isEmergency && !emergencyReason.trim())
+      errors.emergencyReason = 'Please provide an emergency reason';
+
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
+      toast.error('Please fix the highlighted fields before submitting');
       return;
     }
-    const invalidItems = items.filter(
-      (item) => !item.item_id || !item.unit_id || item.quantity <= 0
-    );
-    if (invalidItems.length > 0) {
-      toast.error('Please fill in all item fields correctly');
-      return;
-    }
-    if (isEmergency && !emergencyReason.trim()) {
-      toast.error('Please provide an emergency reason');
-      return;
-    }
+
+    setFieldErrors({});
 
     try {
       await createIndent.mutateAsync({
@@ -122,7 +133,7 @@ export default function NewIndentPage() {
           is_emergency: isEmergency,
           emergency_reason: isEmergency ? emergencyReason : undefined,
           store_id: storeId ?? undefined,
-          institution_id: institutionId || '',
+          institution_id: institutionId,
           items: items.map((item) => ({
             item_id: item.item_id,
             quantity: item.quantity,
@@ -130,7 +141,7 @@ export default function NewIndentPage() {
             notes: item.notes || undefined,
           })),
         },
-        userId: profile?.id || '',
+        userId: profile.id,
       });
       toast.success('Indent request created successfully');
       router.push('/ims/indents');
@@ -169,8 +180,8 @@ export default function NewIndentPage() {
               {/* Department */}
               <div className="space-y-2">
                 <Label htmlFor="department">Department *</Label>
-                <Select value={departmentId} onValueChange={setDepartmentId}>
-                  <SelectTrigger id="department">
+                <Select value={departmentId} onValueChange={(val) => { setDepartmentId(val); setFieldErrors((e) => ({ ...e, department: '' })); }}>
+                  <SelectTrigger id="department" className={fieldErrors.department ? 'border-destructive' : ''}>
                     <SelectValue placeholder="Select department" />
                   </SelectTrigger>
                   <SelectContent>
@@ -181,6 +192,9 @@ export default function NewIndentPage() {
                     ))}
                   </SelectContent>
                 </Select>
+                {fieldErrors.department && (
+                  <p className="text-sm text-destructive">{fieldErrors.department}</p>
+                )}
               </div>
 
               {/* Required Date */}
@@ -234,9 +248,13 @@ export default function NewIndentPage() {
                 id="purpose"
                 placeholder="Describe the purpose of this indent request..."
                 value={purpose}
-                onChange={(e) => setPurpose(e.target.value)}
+                onChange={(e) => { setPurpose(e.target.value); setFieldErrors((err) => ({ ...err, purpose: '' })); }}
                 rows={3}
+                className={fieldErrors.purpose ? 'border-destructive' : ''}
               />
+              {fieldErrors.purpose && (
+                <p className="text-sm text-destructive">{fieldErrors.purpose}</p>
+              )}
             </div>
 
             {/* Emergency Reason */}
@@ -247,9 +265,13 @@ export default function NewIndentPage() {
                   id="emergency-reason"
                   placeholder="Explain why this is an emergency..."
                   value={emergencyReason}
-                  onChange={(e) => setEmergencyReason(e.target.value)}
+                  onChange={(e) => { setEmergencyReason(e.target.value); setFieldErrors((err) => ({ ...err, emergencyReason: '' })); }}
                   rows={2}
+                  className={fieldErrors.emergencyReason ? 'border-destructive' : ''}
                 />
+                {fieldErrors.emergencyReason && (
+                  <p className="text-sm text-destructive">{fieldErrors.emergencyReason}</p>
+                )}
               </div>
             )}
           </CardContent>
@@ -259,7 +281,12 @@ export default function NewIndentPage() {
         <Card>
           <CardHeader>
             <div className="flex items-center justify-between">
-              <CardTitle>Items</CardTitle>
+              <div>
+                <CardTitle>Items</CardTitle>
+                {fieldErrors.items && (
+                  <p className="text-sm text-destructive mt-1">{fieldErrors.items}</p>
+                )}
+              </div>
               <Button variant="outline" size="sm" onClick={handleAddItem}>
                 <Plus className="mr-2 h-4 w-4" />
                 Add Item

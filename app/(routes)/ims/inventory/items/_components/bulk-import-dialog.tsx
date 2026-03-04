@@ -78,8 +78,8 @@ export function BulkImportDialog({
   const [result, setResult] = useState<ImportResult | null>(null);
   const [dragActive, setDragActive] = useState(false);
 
-  // ── Guard: no store context ───────────────────────────────────────────────
-  const hasContext = !!(storeId || institutionId);
+  // ── Guard: store context required (IMS multi-store model) ────────────────
+  const hasContext = !!storeId;
 
   // ── File handling ─────────────────────────────────────────────────────────
   const handleFileSelect = (selected: File | null) => {
@@ -88,8 +88,13 @@ export function BulkImportDialog({
       return;
     }
 
-    if (!selected.name.endsWith('.xlsx') && !selected.name.endsWith('.xls')) {
-      toast.error('Invalid file type. Please upload an Excel file (.xlsx or .xls)');
+    if (selected.name.endsWith('.xls') && !selected.name.endsWith('.xlsx')) {
+      toast.error('The .xls format is not supported. Please save as .xlsx (Excel 2007+) and try again.');
+      return;
+    }
+
+    if (!selected.name.endsWith('.xlsx')) {
+      toast.error('Invalid file type. Please upload an Excel file (.xlsx)');
       return;
     }
 
@@ -118,7 +123,7 @@ export function BulkImportDialog({
   // ── Download template ─────────────────────────────────────────────────────
   const handleDownloadTemplate = async () => {
     if (!hasContext) {
-      toast.error('No store context available for template generation');
+      toast.error('Select a store before downloading the template');
       return;
     }
 
@@ -281,7 +286,7 @@ export function BulkImportDialog({
                   <input
                     id="ims-file-upload"
                     type="file"
-                    accept=".xlsx,.xls"
+                    accept=".xlsx"
                     className="hidden"
                     onChange={(e) => handleFileSelect(e.target.files?.[0] ?? null)}
                   />
