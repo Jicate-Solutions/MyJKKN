@@ -385,13 +385,14 @@ function CounselorLeaderboard({
 
 function CounselorPerformancePageContent() {
   const { profile } = useAuth();
-  const { isSuperAdmin } = usePermissions();
+  const { isSuperAdmin, isAdmissionGlobalUser } = usePermissions();
+  const isGlobalUser = isSuperAdmin || isAdmissionGlobalUser;
   const { institutions } = useInstitutionsWithAccess();
   const [chosenInstitutionId, setChosenInstitutionId] = useState<string>('');
-  // Super admins see all institutions by default; can optionally filter.
+  // Global users (super admins + admission role) see all institutions by default; can optionally filter.
   // Single-institution users auto-resolve to their own institution.
-  const defaultInstitutionId = isSuperAdmin ? undefined : profile?.institution_id;
-  // For super admin: no selection or "__all" → undefined (all institutions)
+  const defaultInstitutionId = isGlobalUser ? undefined : profile?.institution_id;
+  // For global users: no selection or "__all" → undefined (all institutions)
   const resolvedChoice = chosenInstitutionId === '__all' ? undefined : chosenInstitutionId;
   const institutionId = resolvedChoice || (institutions.length === 1 ? institutions[0]?.id : defaultInstitutionId) || undefined;
   const [dateRange, setDateRange] = useState('30');
@@ -407,7 +408,7 @@ function CounselorPerformancePageContent() {
     [dateRange]
   );
 
-  const { counselors, isLoading, error, refetch } = useCounselorPerformance(institutionId, dateRangeQuery);
+  const { counselors, isLoading, error, refetch } = useCounselorPerformance(institutionId, dateRangeQuery, isGlobalUser);
 
   const handleRefresh = async () => {
     setIsRefetching(true);
@@ -455,14 +456,14 @@ function CounselorPerformancePageContent() {
               </p>
             </div>
             <div className="flex items-center gap-2">
-              {/* Institution selector for super admins / multi-institution users */}
-              {(isSuperAdmin || institutions.length > 1) && (
+              {/* Institution selector for global users (super admins / admission role) / multi-institution users */}
+              {(isGlobalUser || institutions.length > 1) && (
                 <Select value={chosenInstitutionId} onValueChange={setChosenInstitutionId}>
                   <SelectTrigger className="w-56">
-                    <SelectValue placeholder={isSuperAdmin ? 'All Institutions' : 'Select institution'} />
+                    <SelectValue placeholder={isGlobalUser ? 'All Institutions' : 'Select institution'} />
                   </SelectTrigger>
                   <SelectContent>
-                    {isSuperAdmin && (
+                    {isGlobalUser && (
                       <SelectItem value="__all">All Institutions</SelectItem>
                     )}
                     {institutions.map((inst) => (
@@ -503,7 +504,7 @@ function CounselorPerformancePageContent() {
             </Card>
           )}
 
-          {!institutionId && !isSuperAdmin && institutions.length > 1 ? (
+          {!institutionId && !isGlobalUser && institutions.length > 1 ? (
             <Card>
               <CardContent className="pt-6">
                 <div className="text-center py-8 text-muted-foreground">

@@ -110,7 +110,7 @@ interface ProgramOption {
 function NewLeadPageContent() {
   const router = useRouter();
   const { profile } = useAuth();
-  const { isSuperAdmin } = usePermissions();
+  const { isSuperAdmin, isAdmissionGlobalUser } = usePermissions();
   const { institutions, loading: institutionsLoading } = useInstitutionsWithAccess();
   const { createLeadWithProfile } = useLeadMutations();
 
@@ -125,12 +125,12 @@ function NewLeadPageContent() {
 
   // Auto-set institution if user has only one
   useEffect(() => {
-    if (!isSuperAdmin && profile?.institution_id) {
+    if (!isSuperAdmin && !isAdmissionGlobalUser && profile?.institution_id) {
       setSelectedInstitutionId(profile.institution_id);
     } else if (institutions.length === 1) {
       setSelectedInstitutionId(institutions[0].id);
     }
-  }, [profile?.institution_id, isSuperAdmin, institutions]);
+  }, [profile?.institution_id, isSuperAdmin, isAdmissionGlobalUser, institutions]);
 
   const institutionId = selectedInstitutionId;
   // Mirror the exact same institution-resolution logic as the auto-set useEffect so
@@ -138,7 +138,7 @@ function NewLeadPageContent() {
   // Priority: explicit form selection → profile institution (non-super-admin) → only accessible institution
   const effectiveInstitutionId =
     institutionId ||
-    (!isSuperAdmin && profile?.institution_id ? profile.institution_id : undefined) ||
+    (!isSuperAdmin && !isAdmissionGlobalUser && profile?.institution_id ? profile.institution_id : undefined) ||
     (institutions.length === 1 ? institutions[0].id : undefined);
 
   // Counselors and consultants are shared across ALL institutions — always fetch the
@@ -434,7 +434,7 @@ function NewLeadPageContent() {
   };
 
   // Determine if user can change institution (super admin or has access to multiple)
-  const canSelectInstitution = isSuperAdmin || institutions.length > 1;
+  const canSelectInstitution = isSuperAdmin || isAdmissionGlobalUser || institutions.length > 1;
   const selectedInstitutionName = institutions.find((i) => i.id === institutionId)?.name;
 
   return (

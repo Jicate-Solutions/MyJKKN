@@ -741,12 +741,13 @@ export function useCommunicationMutations() {
 // ANALYTICS HOOKS
 // ============================================
 
-export function useCounselorPerformance(institutionId?: string, dateRange?: any) {
-  const { isSuperAdmin } = usePermissions();
+export function useCounselorPerformance(institutionId?: string, dateRange?: any, allowGlobal = false) {
+  const { isSuperAdmin, isAdmissionGlobalUser } = usePermissions();
+  const isGlobalUser = isSuperAdmin || isAdmissionGlobalUser || allowGlobal;
   const query = useQuery({
-    queryKey: ['counselor-performance', institutionId, isSuperAdmin, dateRange],
+    queryKey: ['counselor-performance', institutionId, isGlobalUser, dateRange],
     queryFn: async () => {
-      if (!isSuperAdmin && !institutionId) return [];
+      if (!isGlobalUser && !institutionId) return [];
       const supabase = createClientSupabaseClient();
 
       // 1. Fetch ALL active counselors (not just those with assigned leads)
@@ -839,7 +840,7 @@ export function useCounselorPerformance(institutionId?: string, dateRange?: any)
         avgResponseTime: 0,
       }));
     },
-    enabled: isSuperAdmin || !!institutionId
+    enabled: isGlobalUser || !!institutionId
   });
 
   // Destructure to avoid spread overwriting custom error
@@ -897,12 +898,13 @@ export function useAdmissionDashboard(filtersOrId?: string | any) {
     ? filtersOrId
     : filtersOrId?.institution_id;
 
-  const { isSuperAdmin } = usePermissions();
+  const { isSuperAdmin, isAdmissionGlobalUser } = usePermissions();
+  const isGlobalUser = isSuperAdmin || isAdmissionGlobalUser;
 
   const query = useQuery({
     queryKey: ['admission-dashboard', institutionId],
     queryFn: async () => {
-      if (!isSuperAdmin && !institutionId) {
+      if (!isGlobalUser && !institutionId) {
         return {
           summary: {
             totalLeads: 0,
@@ -923,7 +925,7 @@ export function useAdmissionDashboard(filtersOrId?: string | any) {
 
       return { summary, funnel: funnel.stages };
     },
-    enabled: isSuperAdmin || !!institutionId
+    enabled: isGlobalUser || !!institutionId
   });
 
   return {
@@ -988,12 +990,13 @@ export function useFunnelAnalyticsDashboard(filtersOrId?: string | any) {
     ? filtersOrId
     : filtersOrId?.institution_id || filtersOrId?.institutionId;
 
-  const { isSuperAdmin } = usePermissions();
+  const { isSuperAdmin, isAdmissionGlobalUser } = usePermissions();
+  const isGlobalUser = isSuperAdmin || isAdmissionGlobalUser;
 
   const query = useQuery({
     queryKey: ['funnel-analytics-dashboard', institutionId],
     queryFn: async () => {
-      if (!isSuperAdmin && !institutionId) return { enhanced: [], dropOff: [], stuckLeads: [], bottlenecks: [] };
+      if (!isGlobalUser && !institutionId) return { enhanced: [], dropOff: [], stuckLeads: [], bottlenecks: [] };
       const supabase = createClientSupabaseClient();
 
       const STAGES = [
@@ -1113,7 +1116,7 @@ export function useFunnelAnalyticsDashboard(filtersOrId?: string | any) {
 
       return { enhanced, dropOff, stuckLeads, bottlenecks };
     },
-    enabled: isSuperAdmin || !!institutionId
+    enabled: isGlobalUser || !!institutionId
   });
 
   return {

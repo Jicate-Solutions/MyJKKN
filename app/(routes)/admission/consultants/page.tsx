@@ -159,10 +159,10 @@ function ConsultantsPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
-  const { institutions, selectedInstitutionId, loading: accessLoading } = useUserInstitutionAccess();
+  const { institutions, selectedInstitutionId, loading: accessLoading, canAccessAllInstitutions } = useUserInstitutionAccess();
   // Single-institution users filter to their institution.
-  // Multi-institution / super_admin users get undefined → no filter → see all consultants.
-  const institutionId = institutions.length === 1 ? selectedInstitutionId : undefined;
+  // Global users (super_admin / admission role) get undefined → no filter → see all consultants.
+  const institutionId = canAccessAllInstitutions ? undefined : (institutions.length === 1 ? selectedInstitutionId : undefined);
 
   const [searchTerm, setSearchTerm] = useState(searchParams.get('search') || '');
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -245,7 +245,8 @@ function ConsultantsPageContent() {
   }
 
   // Show error only after everything has loaded but user has no institution access at all
-  if (institutions.length === 0) {
+  // Global users (super_admin / admission role) bypass this check — they see all consultants
+  if (institutions.length === 0 && !canAccessAllInstitutions) {
     return (
       <div className="text-center py-12">
         <Handshake className="h-12 w-12 mx-auto text-muted-foreground/50 mb-4" />

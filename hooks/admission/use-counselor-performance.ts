@@ -52,28 +52,30 @@ const CONVERSION_STAGES = ['enrolled', 'offer_accepted', 'token_paid'];
 // =============================================================================
 
 async function fetchAdmissionPerformance(
-  institutionId: string,
+  institutionId: string | undefined,
   from?: string,
   to?: string
 ): Promise<{ counselors: CounselorPerformanceMetrics[]; distribution: ResponseTimeDistribution[] }> {
   const supabase = createClientSupabaseClient();
 
-  // 1. Get all active counselors for this institution
-  const { data: counselors, error: counselorError } = await (supabase as any)
+  // 1. Get active counselors — filter by institution only when specified
+  let counselorQuery = (supabase as any)
     .from('admission_counselors')
     .select('id, name, email')
-    .eq('institution_id', institutionId)
     .eq('is_active', true);
+  if (institutionId) counselorQuery = counselorQuery.eq('institution_id', institutionId);
+
+  const { data: counselors, error: counselorError } = await counselorQuery;
 
   if (counselorError) throw new Error(`Failed to fetch counselors: ${counselorError.message}`);
   if (!counselors?.length) return { counselors: [], distribution: [] };
 
-  // 2. Get leads assigned to any counselor in this institution
+  // 2. Get leads assigned to counselors — filter by institution only when specified
   let leadsQuery = (supabase as any)
     .from('admission_leads')
     .select('id, counselor_id, funnel_stage, created_at, assigned_at, last_contact_at')
-    .eq('institution_id', institutionId)
     .not('counselor_id', 'is', null);
+  if (institutionId) leadsQuery = leadsQuery.eq('institution_id', institutionId);
 
   if (from) leadsQuery = leadsQuery.gte('created_at', from);
   if (to) leadsQuery = leadsQuery.lte('created_at', to);
@@ -153,17 +155,19 @@ async function fetchAdmissionPerformance(
 
 export function useCounselorPerformance(
   institutionId: string | undefined,
-  dateRange?: { from?: string; to?: string }
+  dateRange?: { from?: string; to?: string },
+  /** When true, fetches all counselors across institutions (for global/admission users) */
+  allowGlobal = false,
 ) {
   const query = useQuery({
     queryKey: counselorPerfKeys.list(
-      institutionId || '',
+      institutionId || '__all',
       dateRange?.from,
       dateRange?.to
     ),
     queryFn: () =>
-      fetchAdmissionPerformance(institutionId!, dateRange?.from, dateRange?.to),
-    enabled: !!institutionId,
+      fetchAdmissionPerformance(institutionId, dateRange?.from, dateRange?.to),
+    enabled: !!institutionId || allowGlobal,
   });
 
   return {

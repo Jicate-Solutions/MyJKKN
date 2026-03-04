@@ -34,7 +34,7 @@ import toast from 'react-hot-toast';
 export function LeadsDataTable() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { canAccess, isSuperAdmin } = usePermissions();
+  const { canAccess, isSuperAdmin, isAdmissionGlobalUser } = usePermissions();
   const { profile } = useAuth();
   const { deleteLead } = useLeadMutations();
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
@@ -59,9 +59,9 @@ export function LeadsDataTable() {
 
   const canCreate = isSuperAdmin || canAccess('admission', 'create');
 
-  // Super admins can see leads across all institutions (RLS bypass in DB).
+  // Super admins and admission global users can see leads across all institutions.
   // Regular users are scoped to their own institution_id.
-  const institutionId = isSuperAdmin ? undefined : profile?.institution_id;
+  const institutionId = (isSuperAdmin || isAdmissionGlobalUser) ? undefined : profile?.institution_id;
 
   // Use refs for filter values so fetchData callback identity stays stable
   const stageFilterRef = useRef(stageFilter);

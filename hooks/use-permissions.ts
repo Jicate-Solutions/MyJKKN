@@ -194,6 +194,15 @@ export function usePermissions(
   const isSuperAdmin = permissionData?.isSuperAdmin ?? false;
   const userRoles = permissionData?.userRoles ?? EMPTY_ROLES;
   const primaryRole = permissionData?.primaryRole ?? null;
+
+  // Users with the 'admission' custom role get global (all-institution) access
+  // in the admission CRM module, matching super_admin behavior for institution scoping.
+  const isAdmissionGlobalUser = useMemo(() => {
+    return (
+      userProfile?.role === 'admission' ||
+      userRoles.some((r) => r.role_key === 'admission')
+    );
+  }, [userProfile?.role, userRoles]);
   
   // Overall loading state
   const isLoading = authLoading || (!!userProfile && queryLoading);
@@ -374,6 +383,7 @@ export function usePermissions(
     hasAllPermissions,
     hasAnyPermission,
     isSuperAdmin,
+    isAdmissionGlobalUser,
     userProfile,
 
     // Multi-role properties

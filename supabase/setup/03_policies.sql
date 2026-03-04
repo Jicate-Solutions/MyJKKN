@@ -2331,6 +2331,7 @@ CREATE POLICY "Users can upload attachments to own requests"
 -- SECTION: ADMISSION MODULE — Missing RLS Policies
 -- Updated: 2026-02-27 — Add missing RLS policies for 6 tables that had RLS
 --                        enabled but zero policies (all queries returned 0 rows)
+-- Updated: 2026-03-04 — Added admission custom role bypass (role_key='admission')
 -- Pattern: auth_institution_id() helper + super_admin bypass (matches 004_rls_policies.sql)
 -- ================================================================================
 
@@ -2347,18 +2348,42 @@ $$;
 CREATE POLICY "lead_scores_select" ON admission_lead_scores FOR SELECT USING (
   institution_id = auth_institution_id()
   OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+  OR EXISTS (
+    SELECT 1 FROM user_roles ur
+    JOIN custom_roles cr ON ur.role_id = cr.id
+    WHERE ur.user_id = auth.uid()
+    AND cr.role_key = 'admission'
+  )
 );
 CREATE POLICY "lead_scores_insert" ON admission_lead_scores FOR INSERT WITH CHECK (
   institution_id = auth_institution_id()
   OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+  OR EXISTS (
+    SELECT 1 FROM user_roles ur
+    JOIN custom_roles cr ON ur.role_id = cr.id
+    WHERE ur.user_id = auth.uid()
+    AND cr.role_key = 'admission'
+  )
 );
 CREATE POLICY "lead_scores_update" ON admission_lead_scores FOR UPDATE USING (
   institution_id = auth_institution_id()
   OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+  OR EXISTS (
+    SELECT 1 FROM user_roles ur
+    JOIN custom_roles cr ON ur.role_id = cr.id
+    WHERE ur.user_id = auth.uid()
+    AND cr.role_key = 'admission'
+  )
 );
 CREATE POLICY "lead_scores_delete" ON admission_lead_scores FOR DELETE USING (
   institution_id = auth_institution_id()
   OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+  OR EXISTS (
+    SELECT 1 FROM user_roles ur
+    JOIN custom_roles cr ON ur.role_id = cr.id
+    WHERE ur.user_id = auth.uid()
+    AND cr.role_key = 'admission'
+  )
 );
 
 -- ============================================================================
@@ -2368,18 +2393,42 @@ CREATE POLICY "lead_scores_delete" ON admission_lead_scores FOR DELETE USING (
 CREATE POLICY "admission_tasks_select" ON admission_tasks FOR SELECT USING (
   institution_id = auth_institution_id()
   OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+  OR EXISTS (
+    SELECT 1 FROM user_roles ur
+    JOIN custom_roles cr ON ur.role_id = cr.id
+    WHERE ur.user_id = auth.uid()
+    AND cr.role_key = 'admission'
+  )
 );
 CREATE POLICY "admission_tasks_insert" ON admission_tasks FOR INSERT WITH CHECK (
   institution_id = auth_institution_id()
   OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+  OR EXISTS (
+    SELECT 1 FROM user_roles ur
+    JOIN custom_roles cr ON ur.role_id = cr.id
+    WHERE ur.user_id = auth.uid()
+    AND cr.role_key = 'admission'
+  )
 );
 CREATE POLICY "admission_tasks_update" ON admission_tasks FOR UPDATE USING (
   institution_id = auth_institution_id()
   OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+  OR EXISTS (
+    SELECT 1 FROM user_roles ur
+    JOIN custom_roles cr ON ur.role_id = cr.id
+    WHERE ur.user_id = auth.uid()
+    AND cr.role_key = 'admission'
+  )
 );
 CREATE POLICY "admission_tasks_delete" ON admission_tasks FOR DELETE USING (
   institution_id = auth_institution_id()
   OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+  OR EXISTS (
+    SELECT 1 FROM user_roles ur
+    JOIN custom_roles cr ON ur.role_id = cr.id
+    WHERE ur.user_id = auth.uid()
+    AND cr.role_key = 'admission'
+  )
 );
 
 -- ============================================================================
@@ -2389,18 +2438,42 @@ CREATE POLICY "admission_tasks_delete" ON admission_tasks FOR DELETE USING (
 CREATE POLICY "call_logs_select" ON admission_call_logs FOR SELECT USING (
   institution_id = auth_institution_id()
   OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+  OR EXISTS (
+    SELECT 1 FROM user_roles ur
+    JOIN custom_roles cr ON ur.role_id = cr.id
+    WHERE ur.user_id = auth.uid()
+    AND cr.role_key = 'admission'
+  )
 );
 CREATE POLICY "call_logs_insert" ON admission_call_logs FOR INSERT WITH CHECK (
   institution_id = auth_institution_id()
   OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+  OR EXISTS (
+    SELECT 1 FROM user_roles ur
+    JOIN custom_roles cr ON ur.role_id = cr.id
+    WHERE ur.user_id = auth.uid()
+    AND cr.role_key = 'admission'
+  )
 );
 CREATE POLICY "call_logs_update" ON admission_call_logs FOR UPDATE USING (
   institution_id = auth_institution_id()
   OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+  OR EXISTS (
+    SELECT 1 FROM user_roles ur
+    JOIN custom_roles cr ON ur.role_id = cr.id
+    WHERE ur.user_id = auth.uid()
+    AND cr.role_key = 'admission'
+  )
 );
 CREATE POLICY "call_logs_delete" ON admission_call_logs FOR DELETE USING (
   institution_id = auth_institution_id()
   OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+  OR EXISTS (
+    SELECT 1 FROM user_roles ur
+    JOIN custom_roles cr ON ur.role_id = cr.id
+    WHERE ur.user_id = auth.uid()
+    AND cr.role_key = 'admission'
+  )
 );
 
 -- ============================================================================
@@ -2410,18 +2483,42 @@ CREATE POLICY "call_logs_delete" ON admission_call_logs FOR DELETE USING (
 CREATE POLICY "ai_insights_select" ON admission_ai_insights FOR SELECT USING (
   institution_id = auth_institution_id()
   OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+  OR EXISTS (
+    SELECT 1 FROM user_roles ur
+    JOIN custom_roles cr ON ur.role_id = cr.id
+    WHERE ur.user_id = auth.uid()
+    AND cr.role_key = 'admission'
+  )
 );
 CREATE POLICY "ai_insights_insert" ON admission_ai_insights FOR INSERT WITH CHECK (
   institution_id = auth_institution_id()
   OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+  OR EXISTS (
+    SELECT 1 FROM user_roles ur
+    JOIN custom_roles cr ON ur.role_id = cr.id
+    WHERE ur.user_id = auth.uid()
+    AND cr.role_key = 'admission'
+  )
 );
 CREATE POLICY "ai_insights_update" ON admission_ai_insights FOR UPDATE USING (
   institution_id = auth_institution_id()
   OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+  OR EXISTS (
+    SELECT 1 FROM user_roles ur
+    JOIN custom_roles cr ON ur.role_id = cr.id
+    WHERE ur.user_id = auth.uid()
+    AND cr.role_key = 'admission'
+  )
 );
 CREATE POLICY "ai_insights_delete" ON admission_ai_insights FOR DELETE USING (
   institution_id = auth_institution_id()
   OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+  OR EXISTS (
+    SELECT 1 FROM user_roles ur
+    JOIN custom_roles cr ON ur.role_id = cr.id
+    WHERE ur.user_id = auth.uid()
+    AND cr.role_key = 'admission'
+  )
 );
 
 -- ============================================================================
@@ -2433,11 +2530,24 @@ CREATE POLICY "briefings_select" ON admission_daily_briefings FOR SELECT USING (
   user_id = auth.uid()
   OR institution_id = auth_institution_id()
   OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+  OR EXISTS (
+    SELECT 1 FROM user_roles ur
+    JOIN custom_roles cr ON ur.role_id = cr.id
+    WHERE ur.user_id = auth.uid()
+    AND cr.role_key = 'admission'
+  )
 );
 CREATE POLICY "briefings_insert" ON admission_daily_briefings FOR INSERT
   WITH CHECK (
     institution_id = auth_institution_id()
-    AND (user_id = auth.uid() OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin'))
+    AND (user_id = auth.uid()
+      OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+      OR EXISTS (
+        SELECT 1 FROM user_roles ur
+        JOIN custom_roles cr ON ur.role_id = cr.id
+        WHERE ur.user_id = auth.uid()
+        AND cr.role_key = 'admission'
+      ))
   );
 CREATE POLICY "briefings_update" ON admission_daily_briefings FOR UPDATE USING (
   user_id = auth.uid()
@@ -2445,6 +2555,12 @@ CREATE POLICY "briefings_update" ON admission_daily_briefings FOR UPDATE USING (
 CREATE POLICY "briefings_delete" ON admission_daily_briefings FOR DELETE USING (
   user_id = auth.uid()
   OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+  OR EXISTS (
+    SELECT 1 FROM user_roles ur
+    JOIN custom_roles cr ON ur.role_id = cr.id
+    WHERE ur.user_id = auth.uid()
+    AND cr.role_key = 'admission'
+  )
 );
 
 -- ============================================================================
@@ -2454,18 +2570,42 @@ CREATE POLICY "briefings_delete" ON admission_daily_briefings FOR DELETE USING (
 CREATE POLICY "workflow_configs_select" ON admission_workflow_configs FOR SELECT USING (
   institution_id = auth_institution_id()
   OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+  OR EXISTS (
+    SELECT 1 FROM user_roles ur
+    JOIN custom_roles cr ON ur.role_id = cr.id
+    WHERE ur.user_id = auth.uid()
+    AND cr.role_key = 'admission'
+  )
 );
 CREATE POLICY "workflow_configs_insert" ON admission_workflow_configs FOR INSERT WITH CHECK (
   institution_id = auth_institution_id()
   OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+  OR EXISTS (
+    SELECT 1 FROM user_roles ur
+    JOIN custom_roles cr ON ur.role_id = cr.id
+    WHERE ur.user_id = auth.uid()
+    AND cr.role_key = 'admission'
+  )
 );
 CREATE POLICY "workflow_configs_update" ON admission_workflow_configs FOR UPDATE USING (
   institution_id = auth_institution_id()
   OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+  OR EXISTS (
+    SELECT 1 FROM user_roles ur
+    JOIN custom_roles cr ON ur.role_id = cr.id
+    WHERE ur.user_id = auth.uid()
+    AND cr.role_key = 'admission'
+  )
 );
 CREATE POLICY "workflow_configs_delete" ON admission_workflow_configs FOR DELETE USING (
   institution_id = auth_institution_id()
   OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+  OR EXISTS (
+    SELECT 1 FROM user_roles ur
+    JOIN custom_roles cr ON ur.role_id = cr.id
+    WHERE ur.user_id = auth.uid()
+    AND cr.role_key = 'admission'
+  )
 );
 
 -- ============================================================================
