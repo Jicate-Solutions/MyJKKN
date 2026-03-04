@@ -10,9 +10,9 @@ export interface ImsItem {
   name: string;
   description: string | null;
   company_name: string | null;
-  category_id: string;
+  category_id: string | null;
   item_type: ImsItemType;
-  base_unit_id: string;
+  base_unit_id: string | null;
   purchase_unit_id: string | null;
   sale_unit_id: string | null;
   indent_unit_id: string | null;

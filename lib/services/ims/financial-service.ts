@@ -10,6 +10,30 @@ import type {
   ImsTodayMetrics,
 } from '@/types/ims';
 
+// ─── Raw row types for Supabase join results ────────────────────────────
+
+/** getDepartmentCostSummary: financial_transactions joined with department */
+type RawDeptCostRow = {
+  department_id: string | null;
+  amount: number;
+  item_id: string | null;
+  department: { id: string; department_name: string } | null;
+};
+
+/** getItemProfitSummary: sale_items joined with item + sale */
+type RawSaleItemWithItemRow = {
+  item_id: string;
+  quantity: number;
+  total: number;
+  profit: number;
+  cost_price: number;
+  unit_price: number;
+  item: { id: string; name: string; code: string } | null;
+  sale: { institution_id: string; store_id: string | null; status: string } | null;
+};
+
+// ─── Service ─────────────────────────────────────────────────────────────
+
 export class ImsFinancialService {
   private static get supabase() {
     // IMS tables are not yet in the Supabase-generated Database type.
@@ -185,10 +209,11 @@ export class ImsFinancialService {
         { name: string; totalIssued: number; totalConsumed: number; itemIds: Set<string> }
       >();
 
-      for (const t of data || []) {
+      const deptRows = (data || []) as RawDeptCostRow[];
+      for (const t of deptRows) {
         if (!t.department_id) continue;
         const existing = deptMap.get(t.department_id) || {
-          name: (t.department as any)?.department_name || 'Unknown',
+          name: t.department?.department_name || 'Unknown',
           totalIssued: 0,
           totalConsumed: 0,
           itemIds: new Set<string>(),
@@ -248,10 +273,11 @@ export class ImsFinancialService {
         { name: string; code: string; totalSold: number; totalRevenue: number; totalCost: number }
       >();
 
-      for (const si of data || []) {
+      const saleItemRows = (data || []) as RawSaleItemWithItemRow[];
+      for (const si of saleItemRows) {
         const existing = itemMap.get(si.item_id) || {
-          name: (si.item as any)?.name || '',
-          code: (si.item as any)?.code || '',
+          name: si.item?.name || '',
+          code: si.item?.code || '',
           totalSold: 0,
           totalRevenue: 0,
           totalCost: 0,

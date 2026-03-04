@@ -11,32 +11,15 @@
 //   - Sample row at row 2 (yellow background)
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerClient } from '@supabase/ssr';
-import { cookies } from 'next/headers';
+import { createServerSupabaseClient } from '@/lib/supabase/server';
 import ExcelJS from 'exceljs';
 import { buildUnitDisplay } from '@/lib/utils/ims-item-excel-mappings';
+import { ImsInventoryService } from '@/lib/services/ims/inventory-service';
 
 export async function GET(request: NextRequest) {
   try {
     // ── Auth ────────────────────────────────────────────────────────────────
-    const cookieStore = await cookies();
-    const supabase = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        cookies: {
-          get(name: string) {
-            return cookieStore.get(name)?.value;
-          },
-          set(name: string, value: string, options: any) {
-            cookieStore.set(name, value, options);
-          },
-          remove(name: string, options: any) {
-            cookieStore.set(name, '', { ...options, maxAge: 0 });
-          },
-        },
-      }
-    ) as any;
+    const supabase = await createServerSupabaseClient();
 
     const {
       data: { user },
@@ -52,28 +35,11 @@ export async function GET(request: NextRequest) {
     const storeId = searchParams.get('storeId') ?? null;
     const institutionId = searchParams.get('institutionId') ?? null;
 
-    // ── Fetch categories (store-scoped) ──────────────────────────────────────
-    let categoryQuery = supabase
-      .from('ims_item_categories')
-      .select('id, name, code')
-      .eq('is_active', true)
-      .order('name');
-
-    if (storeId) {
-      categoryQuery = categoryQuery.eq('store_id', storeId);
-    } else if (institutionId) {
-      categoryQuery = categoryQuery.eq('institution_id', institutionId);
-    }
-
-    const { data: categories, error: catError } = await categoryQuery;
-
-    if (catError) {
-      console.error('[ims/inventory/template] Error fetching categories:', catError);
-      return NextResponse.json(
-        { error: 'Failed to fetch categories', message: catError.message },
-        { status: 500 }
-      );
-    }
+    // ── Fetch reference data via service ─────────────────────────────────────
+    const { categories, units } = await ImsInventoryService.getImportTemplateData(
+      institutionId,
+      storeId
+    );
 
     if (!categories || categories.length === 0) {
       return NextResponse.json(
@@ -85,22 +51,8 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // ── Fetch units (global) ─────────────────────────────────────────────────
-    const { data: units, error: unitError } = await supabase
-      .from('ims_units')
-      .select('id, name, abbreviation')
-      .order('name');
-
-    if (unitError) {
-      console.error('[ims/inventory/template] Error fetching units:', unitError);
-      return NextResponse.json(
-        { error: 'Failed to fetch units', message: unitError.message },
-        { status: 500 }
-      );
-    }
-
-    const categoryNames: string[] = categories.map((c: any) => c.name);
-    const unitDisplayStrings: string[] = (units || []).map((u: any) =>
+    const categoryNames: string[] = categories.map((c) => c.name);
+    const unitDisplayStrings: string[] = units.map((u) =>
       buildUnitDisplay(u.name, u.abbreviation)
     );
 
@@ -148,9 +100,9 @@ export async function GET(request: NextRequest) {
     // with no column-style inheritance. eachCell is then reliable over all 24.
     // Height 40 accommodates wrapped long headers (e.g. "Sellable to Students").
     const headerRow = ws.addRow([
-      'Item Code *', 'Item Name *', 'Description', 'Category Name *',
-      'Item Type *', 'Base Unit *', 'Purchase Unit', 'Sale Unit', 'Indent Unit',
-      'HSN Code', 'GST Rate (%) *', 'Cost Price *', 'MRP *', 'Selling Price *',
+      'Item Code *', 'Item Name *', 'Description', 'Category Name',
+      'Item Type', 'Base Unit', 'Purchase Unit', 'Sale Unit', 'Indent Unit',
+      'HSN Code', 'GST Rate (%)', 'Cost Price', 'MRP', 'Selling Price',
       'Reorder Level', 'Max Stock Level', 'Track Batch', 'Track Expiry',
       'Sellable to Students', 'Is Active', 'Company Name', 'Opening Stock',
       'Batch Number', 'Expiry Date',
@@ -338,32 +290,35 @@ export async function GET(request: NextRequest) {
       '1. REQUIRED FIELDS (marked with * in the header):',
       '   A  Item Code         — Unique code per store (letters, numbers, _ or -)',
       '   B  Item Name         — Full item name',
-      '   D  Category Name     — Must match an existing category (use dropdown)',
-      '   E  Item Type         — consumable / equipment / medicine / stationery / other',
-      '   F  Base Unit         — Primary unit of measure (use dropdown)',
-      '   K  GST Rate (%)      — 0, 5, 12, 18, or 28',
-      '   L  Cost Price        — Purchase cost (≥ 0)',
-      '   M  MRP               — Maximum retail price (≥ 0)',
-      '   N  Selling Price     — Price charged to students (≥ 0)',
       '',
-      '2. OPTIONAL FIELDS (leave blank for defaults):',
+      '2. RECOMMENDED FIELDS (leave blank for defaults):',
+      '   D  Category Name     — Must match an existing category if provided (use dropdown). Default: none',
+      '   E  Item Type         — consumable / equipment / medicine / stationery / other. Default: consumable',
+      '   F  Base Unit         — Primary unit of measure (use dropdown). Default: none',
+      '   K  GST Rate (%)      — 0, 5, 12, 18, or 28. Default: 0',
+      '   L  Cost Price        — Purchase cost (>= 0). Default: 0',
+      '   M  MRP               — Maximum retail price (>= 0). Default: 0',
+      '   N  Selling Price     — Price charged to students (>= 0). Default: 0',
+      '',
+      '3. OPTIONAL FIELDS (leave blank for defaults):',
       '   C  Description       — Free text',
-      '   G  Purchase Unit     — Defaults to Base Unit if blank',
-      '   H  Sale Unit         — Defaults to Base Unit if blank',
-      '   I  Indent Unit       — Defaults to Base Unit if blank',
-      '   J  HSN Code          — 4–8 digit harmonised code',
+      '   G  Purchase Unit     — Defaults to blank if not set',
+      '   H  Sale Unit         — Defaults to blank if not set',
+      '   I  Indent Unit       — Defaults to blank if not set',
+      '   J  HSN Code          — 4-8 digit harmonised code',
       '   O  Reorder Level     — Default: 10',
       '   P  Max Stock Level   — Default: 100',
       '   Q  Track Batch       — Yes/No (default: No)',
       '   R  Track Expiry      — Yes/No (default: No)',
       '   S  Sellable to Students — Yes/No (default: No)',
       '   T  Is Active         — Yes/No (default: Yes)',
-      '   U  Company Name      — Manufacturer or brand (free text, optional)',
+      '   U  Company Name      — Manufacturer or brand (free text)',
       '   V  Opening Stock     — Initial stock quantity on import (default: 0)',
-      '   W  Batch Number      — Required if Track Batch = Yes AND Opening Stock > 0',
-      '   X  Expiry Date       — Format: YYYY-MM-DD. Used if Track Expiry = Yes AND Opening Stock > 0',
+      '   W  Batch Number      — Used if Opening Stock > 0',
+      '   X  Expiry Date       — Format: YYYY-MM-DD. Used if Opening Stock > 0',
       '',
-      '3. IMPORTANT NOTES:',
+      '4. IMPORTANT NOTES:',
+      '   - Only Code and Name are required — all other fields have defaults',
       '   - Item Codes must be unique within the store (case-insensitive)',
       '   - Categories in the dropdown are scoped to this store',
       '   - Units are global across all stores',
@@ -371,7 +326,7 @@ export async function GET(request: NextRequest) {
       '   - Row 2 is a sample — delete or replace it before uploading',
       '   - Up to 5,000 rows per upload',
       '',
-      '4. UPLOAD PROCESS:',
+      '5. UPLOAD PROCESS:',
       '   a. Fill in your data starting from row 3 (row 2 is sample)',
       '   b. Save the file',
       '   c. Click "Import Items" on the Inventory Items page',

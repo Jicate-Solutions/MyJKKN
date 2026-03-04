@@ -15,6 +15,125 @@ import type {
 } from '@/types/ims';
 import { getStockStatus } from '@/types/ims';
 
+// ─── Raw row types for Supabase join results ────────────────────────────
+
+/** getDashboardStats / getAlertSummary: stock_summary joined with item reorder_level */
+type RawStockWithReorderRow = {
+  current_quantity: number;
+  total_value: number;
+  item: { reorder_level: number; max_stock_level: number } | null;
+};
+
+/** getStockLevels: stock_summary joined with full item + nested unit & category */
+type RawStockLevelRow = {
+  item_id: string;
+  current_quantity: number;
+  item: {
+    id: string;
+    name: string;
+    code: string;
+    reorder_level: number;
+    max_stock_level: number;
+    base_unit: { abbreviation: string } | null;
+    category: { name: string } | null;
+  } | null;
+};
+
+/** getExpiringItems: stock_batches joined with item basics */
+type RawExpiringBatchRow = {
+  item_id: string;
+  batch_number: string | null;
+  quantity: number;
+  expiry_date: string;
+  item: { id: string; name: string; code: string } | null;
+};
+
+/** getStockValuation: stock_summary joined with item + nested category */
+type RawStockValuationRow = {
+  item_id: string;
+  current_quantity: number;
+  total_value: number;
+  item: {
+    category_id: string | null;
+    category: { id: string; name: string } | null;
+  } | null;
+};
+
+/** getIndentsByDepartment: indent_requests joined with department */
+type RawIndentWithDepartmentRow = {
+  department_id: string | null;
+  status: string;
+  department: { id: string; department_name: string } | null;
+};
+
+/** getDepartmentConsumption: financial_transactions joined with department */
+type RawTransactionWithDepartmentRow = {
+  department_id: string | null;
+  item_id: string | null;
+  quantity: number;
+  amount: number;
+  department: { id: string; department_name: string } | null;
+};
+
+/** getItemConsumption: financial_transactions joined with item + department */
+type RawTransactionWithItemAndDeptRow = {
+  item_id: string | null;
+  quantity: number;
+  amount: number;
+  department_id: string | null;
+  item: { id: string; name: string; code: string } | null;
+  department: { id: string; department_name: string } | null;
+};
+
+/** getRecentActivity: sales joined with cashier profile */
+type RawSaleWithCashierRow = {
+  id: string;
+  sale_number: string;
+  total_amount: number;
+  status: string;
+  created_at: string;
+  cashier: { full_name: string | null } | null;
+};
+
+/** getRecentActivity: indent_requests joined with requested_by profile */
+type RawIndentWithRequesterRow = {
+  id: string;
+  indent_number: string;
+  status: string;
+  purpose: string;
+  created_at: string;
+  requested_by_profile: { full_name: string | null } | null;
+};
+
+/** getRecentActivity: goods_received_notes joined with received_by profile */
+type RawGrnWithReceiverRow = {
+  id: string;
+  grn_number: string;
+  status: string;
+  created_at: string;
+  received_by_profile: { full_name: string | null } | null;
+};
+
+/** getUpiAuditReport: sales joined with cashier profile */
+type RawUpiSaleRow = {
+  id: string;
+  sale_number: string;
+  upi_qr_amount: number;
+  upi_qr_transaction_ref: string | null;
+  customer_name: string | null;
+  status: string;
+  created_at: string;
+  cashier: { full_name: string | null } | null;
+};
+
+/** getAlertSummary: stock_summary joined with item reorder_level only */
+type RawStockWithReorderOnlyRow = {
+  current_quantity: number;
+  item: { reorder_level: number } | null;
+};
+
+// ─── Service ─────────────────────────────────────────────────────────────
+
 export class ImsReportsService {
   private static get supabase() {
     // IMS tables are not yet in the Supabase-generated Database type.
@@ -95,14 +214,14 @@ export class ImsReportsService {
           .gt('quantity', 0),
       ]);
 
-      const stockData = stockResult.data || [];
+      const stockData = (stockResult.data || []) as RawStockWithReorderRow[];
       const totalStockValue = stockData.reduce((sum, s) => sum + (s.total_value || 0), 0);
 
       let lowStockCount = 0;
       let outOfStockCount = 0;
 
       for (const s of stockData) {
-        const reorderLevel = (s.item as any)?.reorder_level || 0;
+        const reorderLevel = s.item?.reorder_level || 0;
         if (s.current_quantity <= 0) {
           outOfStockCount++;
         } else if (s.current_quantity <= reorderLevel) {
@@ -168,7 +287,8 @@ export class ImsReportsService {
 
       if (error) throw error;
 
-      return (data || []).map((s: any) => ({
+      const rows = (data || []) as RawStockLevelRow[];
+      return rows.map((s) => ({
         item_id: s.item_id,
         item_name: s.item?.name || '',
         item_code: s.item?.code || '',
@@ -224,7 +344,8 @@ export class ImsReportsService {
 
       if (error) throw error;
 
-      return (data || []).map((b: any) => {
+      const rows = (data || []) as RawExpiringBatchRow[];
+      return rows.map((b): ImsExpiringItem => {
         const expiryDate = new Date(b.expiry_date);
         const daysUntil = Math.ceil(
           (expiryDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)
@@ -239,7 +360,7 @@ export class ImsReportsService {
           expiry_date: b.expiry_date,
           days_until_expiry: daysUntil,
         };
-      }) as ImsExpiringItem[];
+      });
     } catch (error) {
       console.error('[ImsReportsService] Error in getExpiringItems:', error);
       throw error;
@@ -277,9 +398,10 @@ export class ImsReportsService {
 
       let grandTotal = 0;
 
-      for (const s of data || []) {
-        const categoryId = (s.item as any)?.category_id || 'uncategorized';
-        const categoryName = (s.item as any)?.category?.name || 'Uncategorized';
+      const rows = (data || []) as RawStockValuationRow[];
+      for (const s of rows) {
+        const categoryId = s.item?.category_id || 'uncategorized';
+        const categoryName = s.item?.category?.name || 'Uncategorized';
 
         const existing = categoryMap.get(categoryId) || {
           name: categoryName,
@@ -378,11 +500,12 @@ export class ImsReportsService {
         { name: string; total: number; pending: number; approved: number; completed: number }
       >();
 
-      for (const indent of data || []) {
+      const indentRows = (data || []) as RawIndentWithDepartmentRow[];
+      for (const indent of indentRows) {
         if (!indent.department_id) continue;
 
         const existing = deptMap.get(indent.department_id) || {
-          name: (indent.department as any)?.department_name || 'Unknown',
+          name: indent.department?.department_name || 'Unknown',
           total: 0,
           pending: 0,
           approved: 0,
@@ -464,11 +587,12 @@ export class ImsReportsService {
 
       let grandTotal = 0;
 
-      for (const t of data || []) {
+      const txnRows = (data || []) as RawTransactionWithDepartmentRow[];
+      for (const t of txnRows) {
         if (!t.department_id) continue;
 
         const existing = deptMap.get(t.department_id) || {
-          name: (t.department as any)?.department_name || 'Unknown',
+          name: t.department?.department_name || 'Unknown',
           itemIds: new Set<string>(),
           totalQuantity: 0,
           totalValue: 0,
@@ -533,12 +657,13 @@ export class ImsReportsService {
         }
       >();
 
-      for (const t of data || []) {
+      const consumptionRows = (data || []) as RawTransactionWithItemAndDeptRow[];
+      for (const t of consumptionRows) {
         if (!t.item_id) continue;
 
         const existing = itemMap.get(t.item_id) || {
-          name: (t.item as any)?.name || '',
-          code: (t.item as any)?.code || '',
+          name: t.item?.name || '',
+          code: t.item?.code || '',
           totalQuantity: 0,
           totalValue: 0,
           departments: new Map(),
@@ -548,7 +673,7 @@ export class ImsReportsService {
         existing.totalValue += t.amount || 0;
 
         if (t.department_id) {
-          const deptName = (t.department as any)?.department_name || 'Unknown';
+          const deptName = t.department?.department_name || 'Unknown';
           const deptExisting = existing.departments.get(t.department_id) || {
             name: deptName,
             quantity: 0,
@@ -619,38 +744,41 @@ export class ImsReportsService {
       ]);
 
       // Map sales
-      for (const sale of salesResult.data || []) {
+      const saleRows = (salesResult.data || []) as RawSaleWithCashierRow[];
+      for (const sale of saleRows) {
         activities.push({
           id: sale.id,
           type: 'sale',
           title: `Sale ${sale.sale_number}`,
           description: `${sale.status === 'completed' ? 'Completed' : 'Cancelled'} sale of RM ${(sale.total_amount || 0).toFixed(2)}`,
           timestamp: sale.created_at,
-          user_name: (sale.cashier as any)?.full_name || undefined,
+          user_name: sale.cashier?.full_name || undefined,
         });
       }
 
       // Map indents
-      for (const indent of indentsResult.data || []) {
+      const indentRows = (indentsResult.data || []) as RawIndentWithRequesterRow[];
+      for (const indent of indentRows) {
         activities.push({
           id: indent.id,
           type: 'indent',
           title: `Indent ${indent.indent_number}`,
           description: `${indent.status.replace(/_/g, ' ')} - ${indent.purpose}`,
           timestamp: indent.created_at,
-          user_name: (indent.requested_by_profile as any)?.full_name || undefined,
+          user_name: indent.requested_by_profile?.full_name || undefined,
         });
       }
 
       // Map GRNs
-      for (const grn of grnsResult.data || []) {
+      const grnRows = (grnsResult.data || []) as RawGrnWithReceiverRow[];
+      for (const grn of grnRows) {
         activities.push({
           id: grn.id,
           type: 'grn',
           title: `GRN ${grn.grn_number}`,
           description: `Goods received - ${grn.status.replace(/_/g, ' ')}`,
           timestamp: grn.created_at,
-          user_name: (grn.received_by_profile as any)?.full_name || undefined,
+          user_name: grn.received_by_profile?.full_name || undefined,
         });
       }
 
@@ -715,7 +843,8 @@ export class ImsReportsService {
 
       if (error) throw error;
 
-      const transactions = (data || []).map((row: any) => ({
+      const upiRows = (data || []) as RawUpiSaleRow[];
+      const transactions = upiRows.map((row) => ({
         id: row.id,
         sale_number: row.sale_number,
         upi_qr_amount: row.upi_qr_amount,
@@ -790,8 +919,9 @@ export class ImsReportsService {
       let outOfStock = 0;
       let lowStock = 0;
 
-      for (const s of stockResult.data || []) {
-        const reorderLevel = (s.item as any)?.reorder_level || 0;
+      const alertRows = (stockResult.data || []) as RawStockWithReorderOnlyRow[];
+      for (const s of alertRows) {
+        const reorderLevel = s.item?.reorder_level || 0;
         if (s.current_quantity <= 0) {
           outOfStock++;
         } else if (s.current_quantity <= reorderLevel) {

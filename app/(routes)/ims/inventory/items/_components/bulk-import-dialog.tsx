@@ -466,8 +466,8 @@ export function BulkImportDialog({
                   Fill data from row 3 (row 2 is a sample — delete or replace it)
                 </li>
                 <li>
-                  Required: Code, Name, Category, Item Type, Base Unit, GST Rate,
-                  Cost Price, MRP, Selling Price
+                  Required: Code and Name only. All other fields have sensible
+                  defaults (Item Type: consumable, Prices: 0, GST: 0%)
                 </li>
                 <li>Valid rows are inserted; invalid rows are reported with row numbers</li>
                 <li>

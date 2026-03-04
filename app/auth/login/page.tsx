@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { AuthService } from '@/lib/auth/auth-service';
 import { GoogleOneTap } from '@/components/auth/google-one-tap';
-import { GraduationCap, BookOpen, Brain, XCircle, Shield, UserCog, School, Briefcase, BookOpenCheck, User, Building2, Sun, Heart } from 'lucide-react';
+import { GraduationCap, BookOpen, Brain, XCircle, Shield, UserCog, School, Briefcase, BookOpenCheck, User, Building2, Sun, Heart, Store } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { FEATURE_FLAGS } from '@/lib/config/feature-flags';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -21,6 +21,7 @@ const testAccounts = [
   { label: 'Hostel Student', email: 'test.student@jkkn.local',      password: 'Test@123',       icon: Building2,     color: 'bg-green-600 hover:bg-green-700 text-white' },
   { label: 'Day Scholar',    email: 'test.dayscholars@jkkn.local',  password: 'Test@123',       icon: Sun,           color: 'bg-emerald-600 hover:bg-emerald-700 text-white' },
   { label: 'Parent',         email: 'test.parent@jkkn.local',       password: 'Test@123',       icon: Heart,         color: 'bg-pink-600 hover:bg-pink-700 text-white' },
+  { label: 'Store Admin',    email: 'test.storeadmin@jkkn.local',   password: 'Test@123',       icon: Store,         color: 'bg-amber-600 hover:bg-amber-700 text-white' },
 ];
 
 const CURRENT_YEAR = new Date().getFullYear();
@@ -184,8 +185,10 @@ export default function LoginPage() {
           router.push('/guest');
         } else if (profileData?.role === 'driver') {
           router.push('/driver');
+        } else if (profileData?.role === 'store_admin') {
+          router.push('/ims/dashboard');
         } else {
-          router.push('/');
+          router.push('/dashboard');
         }
       }
     } catch (error: any) {

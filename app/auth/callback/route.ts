@@ -583,6 +583,9 @@ export async function GET(request: NextRequest) {
       } else if (actualProfile.role === 'driver') {
         destination = '/driver';
         console.log('[Auth Callback] Driver role detected, redirecting to:', destination);
+      } else if (actualProfile.role === 'store_admin') {
+        destination = '/ims/dashboard';
+        console.log('[Auth Callback] Store admin role detected, redirecting to:', destination);
       } else {
         destination = '/dashboard';
         console.log('[Auth Callback] Other role detected:', actualProfile.role, 'redirecting to:', destination);

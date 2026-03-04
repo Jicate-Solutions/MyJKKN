@@ -157,6 +157,18 @@ export interface ImsDepartmentStockMovement {
   created_by?: { full_name: string } | null;
 }
 
+export interface CreateImsStockAdjustmentDto {
+  item_id: string;
+  adjustment_type: string;
+  quantity: number;
+  reason: string;
+  department_id?: string;
+  institution_id: string;
+  store_id?: string;
+  batch_number?: string;
+  expiry_date?: string;
+}
+
 export type ImsStockStatus = 'out_of_stock' | 'low_stock' | 'in_stock' | 'overstocked';
 
 export function getStockStatus(

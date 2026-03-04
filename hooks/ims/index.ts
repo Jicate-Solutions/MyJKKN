@@ -3,6 +3,7 @@
  */
 export * from './use-ims-inventory';
 export * from './use-ims-stock';
+export * from './use-ims-stock-adjustment';
 export * from './use-ims-indents';
 export * from './use-ims-sales';
 export * from './use-ims-financial';

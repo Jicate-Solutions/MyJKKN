@@ -11,7 +11,6 @@ import {
 } from 'lucide-react';
 import { BeatLoader } from 'react-spinners';
 import { toast } from 'sonner';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -46,7 +45,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { useAuth } from '@/hooks/use-auth';
 import { useImsStoreContext } from '@/hooks/ims/use-ims-store-context';
 import { useImsItemsForSelect } from '@/hooks/ims/use-ims-inventory';
-import { ImsStockAdjustmentService } from '@/lib/services/ims/stock-adjustment-service';
+import { useImsAdjustments, useCreateImsAdjustment } from '@/hooks/ims';
 import type { ImsFinancialTransaction, ImsAdjustmentType } from '@/types/ims';
 
 // Adjustment types categorised as increase or decrease
@@ -111,7 +110,6 @@ export default function StockAdjustmentsPage() {
   const { profile } = useAuth();
   const { storeId, institutionId } = useImsStoreContext();
   const userId = profile?.id ?? '';
-  const queryClient = useQueryClient();
 
   // -- State
   const [search, setSearch] = useState('');
@@ -125,41 +123,16 @@ export default function StockAdjustmentsPage() {
   const [formReason, setFormReason] = useState('');
 
   // -- Queries
-  const { data: adjustmentResult, isLoading } = useQuery({
-    queryKey: ['ims-stock-adjustments', storeId, institutionId],
-    queryFn: () =>
-      ImsStockAdjustmentService.getAdjustments({
-        store_id: storeId || '',
-        institution_id: institutionId,
-        page: 1,
-        limit: 50,
-      }),
-    enabled: !!(storeId || institutionId),
-  });
+  const { data: adjustmentResult, isLoading } = useImsAdjustments(
+    storeId,
+    institutionId,
+    { page: 1, limit: 50 }
+  );
 
   const { data: itemsForSelect } = useImsItemsForSelect(storeId || '', institutionId);
 
   // -- Mutation
-  const createMutation = useMutation({
-    mutationFn: (data: {
-      item_id: string;
-      adjustment_type: string;
-      quantity: number;
-      reason: string;
-      institution_id: string;
-      store_id?: string;
-    }) => ImsStockAdjustmentService.createAdjustment(data, userId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['ims-stock-adjustments'] });
-      queryClient.invalidateQueries({ queryKey: ['ims-stock-summary'] });
-      toast.success('Stock adjustment created successfully');
-      resetForm();
-      setDialogOpen(false);
-    },
-    onError: () => {
-      toast.error('Failed to create stock adjustment');
-    },
-  });
+  const createMutation = useCreateImsAdjustment();
 
   // -- Helpers
   const resetForm = () => {
@@ -188,14 +161,29 @@ export default function StockAdjustmentsPage() {
       return;
     }
 
-    createMutation.mutate({
-      item_id: formItemId,
-      adjustment_type: formAdjustmentType,
-      quantity: qty,
-      reason: formReason.trim(),
-      store_id: storeId || '',
-      institution_id: institutionId || null,
-    });
+    createMutation.mutate(
+      {
+        data: {
+          item_id: formItemId,
+          adjustment_type: formAdjustmentType,
+          quantity: qty,
+          reason: formReason.trim(),
+          store_id: storeId || '',
+          institution_id: institutionId || '',
+        },
+        userId,
+      },
+      {
+        onSuccess: () => {
+          toast.success('Stock adjustment created successfully');
+          resetForm();
+          setDialogOpen(false);
+        },
+        onError: () => {
+          toast.error('Failed to create stock adjustment');
+        },
+      }
+    );
   };
 
   // -- Data processing

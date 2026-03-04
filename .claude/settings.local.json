@@ -240,7 +240,8 @@
       "Bash(claude update:*)",
       "Bash(tasklist:*)",
       "Bash(sed:*)",
-      "Bash(Remove-Item:*)"
+      "Bash(Remove-Item:*)",
+      "Read(//c/Users/Admin/Documents/GitHub/MyJKKN/.git/**)"
     ],
     "deny": [],
     "ask": []

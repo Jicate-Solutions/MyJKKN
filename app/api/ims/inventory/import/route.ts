@@ -3,19 +3,15 @@
 // POST /api/ims/inventory/import  (multipart: file + storeId + institutionId)
 //
 // Pipeline:
-//   1. Auth via createServerClient (cookie session)
-//   2. Validate: file type, ≤10MB, ≤5000 data rows
-//   3. Parse ExcelJS workbook → worksheet 'Items'
-//   4. Fetch categories  → Map<nameLower, uuid>  (store-scoped)
-//   5. Fetch units       → Maps by display / abbreviation / name
-//   6. Row-by-row: parse → Zod validate → resolve FK → push to validItems or errors
-//   7. Duplicate detection: within-file + DB query
-//   8. Batch insert (supabase cast as any — IMS tables not in generated types)
-//   9. Return ImsImportResult JSON
+//   1. Auth via createServerSupabaseClient (cookie session)
+//   2. Validate: file type, <=10MB, <=5000 data rows
+//   3. Parse ExcelJS workbook -> worksheet 'Items'
+//   4. Row-by-row: parse -> Zod validate -> push to parsedRows or errors
+//   5. Delegate FK resolution, dedup, insert to ImsInventoryService.bulkImport()
+//   6. Return ImsImportResult JSON
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerClient } from '@supabase/ssr';
-import { cookies } from 'next/headers';
+import { createServerSupabaseClient } from '@/lib/supabase/server';
 import ExcelJS from 'exceljs';
 import { z } from 'zod';
 import {
@@ -25,31 +21,19 @@ import {
   parseIntCell,
   parseGstRate,
   parseItemType,
-  buildUnitDisplay,
-  resolveUnitId,
   validationError,
+<<<<<<< Updated upstream
   IMS_GST_RATES,
   resolveImsWorksheet,
+=======
+>>>>>>> Stashed changes
 } from '@/lib/utils/ims-item-excel-mappings';
-
-// ============================================================================
-// TYPES
-// ============================================================================
-
-export interface ImsImportError {
-  row: number;
-  field?: string;
-  message: string;
-}
-
-export interface ImsImportResult {
-  success: boolean;
-  successCount: number;
-  errorCount: number;
-  totalRows: number;
-  errors: ImsImportError[];
-  duplicateCodes?: string[];
-}
+import {
+  ImsInventoryService,
+  type ImsImportError,
+  type ImsImportResult,
+  type ParsedImportRow,
+} from '@/lib/services/ims/inventory-service';
 
 // ============================================================================
 // ZOD SCHEMA
@@ -63,22 +47,17 @@ const imsItemRowSchema = z.object({
     .regex(/^[A-Za-z0-9_-]+$/, 'Code: only letters, numbers, _ or -'),
   name: z.string().min(1, 'Name is required').max(255),
   description: z.string().max(1000).nullable(),
-  category_name: z.string().min(1, 'Category Name is required'),
-  item_type: z.enum(['consumable', 'equipment', 'medicine', 'stationery', 'other'], {
-    errorMap: () => ({ message: 'Item Type must be one of: consumable, equipment, medicine, stationery, other' }),
-  }),
-  base_unit_raw: z.string().min(1, 'Base Unit is required'),
+  category_name: z.string().nullable().default(null),
+  item_type: z.enum(['consumable', 'equipment', 'medicine', 'stationery', 'other']).default('consumable'),
+  base_unit_raw: z.string().nullable().default(null),
   purchase_unit_raw: z.string().nullable(),
   sale_unit_raw: z.string().nullable(),
   indent_unit_raw: z.string().nullable(),
   hsn_code: z.string().max(8).nullable(),
-  gst_rate: z.number().refine(
-    (v) => (IMS_GST_RATES as readonly number[]).includes(v),
-    { message: 'GST Rate must be 0, 5, 12, 18, or 28' }
-  ),
-  cost_price: z.number().min(0, 'Cost Price must be ≥ 0'),
-  mrp: z.number().min(0, 'MRP must be ≥ 0'),
-  selling_price: z.number().min(0, 'Selling Price must be ≥ 0'),
+  gst_rate: z.number().min(0).default(0),
+  cost_price: z.number().min(0).default(0),
+  mrp: z.number().min(0).default(0),
+  selling_price: z.number().min(0).default(0),
   reorder_level: z.number().int().min(0).default(10),
   max_stock_level: z.number().int().min(0).default(100),
   track_batch: z.boolean().default(false),
@@ -87,11 +66,9 @@ const imsItemRowSchema = z.object({
   is_active: z.boolean().default(true),
   company_name: z.string().max(255).nullable().optional(),
   opening_stock: z.number().int().min(0).default(0),
-  batch_number:  z.string().max(100).nullable().optional(),
-  expiry_date:   z.string().nullable().optional(),
+  batch_number: z.string().max(100).nullable().optional(),
+  expiry_date: z.string().nullable().optional(),
 });
-
-type ImsItemRow = z.infer<typeof imsItemRowSchema>;
 
 // ============================================================================
 // ROW PARSER
@@ -100,7 +77,7 @@ type ImsItemRow = z.infer<typeof imsItemRowSchema>;
 function parseRow(
   row: ExcelJS.Row,
   rowNumber: number,
-): { data: Partial<ImsItemRow> | null; errors: ImsImportError[] } {
+): { data: Partial<ParsedImportRow> | null; errors: ImsImportError[] } {
   const errors: ImsImportError[] = [];
 
   try {
@@ -132,12 +109,13 @@ function parseRow(
     // Skip fully empty rows
     if (!code && !name) return { data: null, errors: [] };
 
-    // Validate required numerics
+    // Validate numerics — blank defaults to 0; non-numeric text still errors
     const gst = parseGstRate(gstRateRaw);
     if (gst === null && gstRateRaw.trim()) {
       errors.push(validationError(rowNumber, 'GST Rate', 'Must be 0, 5, 12, 18, or 28'));
     }
 
+<<<<<<< Updated upstream
     const costPrice = parseNumericCell(costPriceRaw);
     if (costPrice === null && costPriceRaw.trim()) {
       errors.push(validationError(rowNumber, 'Cost Price', 'Must be a number ≥ 0'));
@@ -151,9 +129,24 @@ function parseRow(
     const sellingPrice = parseNumericCell(sellingRaw);
     if (sellingPrice === null && sellingRaw.trim()) {
       errors.push(validationError(rowNumber, 'Selling Price', 'Must be a number ≥ 0'));
+=======
+    const costPrice = costPriceRaw.trim() ? parseNumericCell(costPriceRaw) : 0;
+    if (costPrice === null) {
+      errors.push(validationError(rowNumber, 'Cost Price', 'Must be a number >= 0'));
     }
 
-    // Item type
+    const mrp = mrpRaw.trim() ? parseNumericCell(mrpRaw) : 0;
+    if (mrp === null) {
+      errors.push(validationError(rowNumber, 'MRP', 'Must be a number >= 0'));
+    }
+
+    const sellingPrice = sellingRaw.trim() ? parseNumericCell(sellingRaw) : 0;
+    if (sellingPrice === null) {
+      errors.push(validationError(rowNumber, 'Selling Price', 'Must be a number >= 0'));
+>>>>>>> Stashed changes
+    }
+
+    // Item type — blank defaults to 'consumable'; invalid text still errors
     const itemType = parseItemType(itemTypeRaw);
     if (!itemType && itemTypeRaw.trim()) {
       errors.push(validationError(rowNumber, 'Item Type',
@@ -167,9 +160,9 @@ function parseRow(
         code:                     code.trim(),
         name:                     name.trim(),
         description,
-        category_name:            categoryName,
+        category_name:            categoryName || null,
         item_type:                itemType ?? 'consumable',
-        base_unit_raw:            baseUnitRaw,
+        base_unit_raw:            baseUnitRaw || null,
         purchase_unit_raw:        purchaseUnit,
         sale_unit_raw:            saleUnit,
         indent_unit_raw:          indentUnit,
@@ -211,24 +204,7 @@ function parseRow(
 export async function POST(request: NextRequest) {
   try {
     // ── Auth ─────────────────────────────────────────────────────────────────
-    const cookieStore = await cookies();
-    const supabase = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        cookies: {
-          get(name: string) {
-            return cookieStore.get(name)?.value;
-          },
-          set(name: string, value: string, options: any) {
-            cookieStore.set(name, value, options);
-          },
-          remove(name: string, options: any) {
-            cookieStore.set(name, '', { ...options, maxAge: 0 });
-          },
-        },
-      }
-    ) as any;
+    const supabase = await createServerSupabaseClient();
 
     const {
       data: { user },
@@ -282,6 +258,7 @@ export async function POST(request: NextRequest) {
     const workbook    = new ExcelJS.Workbook();
     await workbook.xlsx.load(arrayBuffer);
 
+<<<<<<< Updated upstream
     const resolved = resolveImsWorksheet(workbook);
     if (!resolved) {
       return NextResponse.json(
@@ -292,6 +269,14 @@ export async function POST(request: NextRequest) {
             '(Item Code, Item Name, Category Name, Item Type, Base Unit, GST Rate, Cost Price, MRP, Selling Price) ' +
             'in the first row. Download the template for the correct format.',
         },
+=======
+    const worksheet = workbook.getWorksheet('Items')
+      ?? workbook.worksheets.find(ws => ws.state === 'visible')
+      ?? workbook.worksheets[0];
+    if (!worksheet || worksheet.rowCount < 2) {
+      return NextResponse.json(
+        { error: 'No readable worksheet found. The file must have at least a header row and data rows.' },
+>>>>>>> Stashed changes
         { status: 400 }
       );
     }
@@ -311,6 +296,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
+<<<<<<< Updated upstream
     // ── Fetch reference data ──────────────────────────────────────────────────
 
     // Categories
@@ -426,6 +412,11 @@ export async function POST(request: NextRequest) {
 
     const validItems: ResolvedItem[] = [];
     const allErrors: ImsImportError[] = [];
+=======
+    // ── Parse & validate rows ─────────────────────────────────────────────────
+    const parsedRows: ParsedImportRow[] = [];
+    const parseErrors: ImsImportError[] = [];
+>>>>>>> Stashed changes
     let totalRows = 0;
 
     worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
@@ -434,9 +425,9 @@ export async function POST(request: NextRequest) {
       totalRows++;
 
       // Parse
-      const { data: rowData, errors: parseErrors } = parseRow(row, rowNumber);
-      if (parseErrors.length > 0) {
-        allErrors.push(...parseErrors);
+      const { data: rowData, errors: rowErrors } = parseRow(row, rowNumber);
+      if (rowErrors.length > 0) {
+        parseErrors.push(...rowErrors);
         return;
       }
       if (!rowData) return; // blank row
@@ -445,7 +436,7 @@ export async function POST(request: NextRequest) {
       const parsed = imsItemRowSchema.safeParse(rowData);
       if (!parsed.success) {
         parsed.error.errors.forEach((e) => {
-          allErrors.push({
+          parseErrors.push({
             row: rowNumber,
             field: e.path.join('.'),
             message: `Row ${rowNumber}: ${e.path.join('.')} — ${e.message}`,
@@ -454,6 +445,7 @@ export async function POST(request: NextRequest) {
         return;
       }
 
+<<<<<<< Updated upstream
       const d = parsed.data;
 
       // Resolve category
@@ -521,22 +513,26 @@ export async function POST(request: NextRequest) {
         institution_id:         institutionId,
         created_by:             user.id,
       });
+=======
+      parsedRows.push(parsed.data as ParsedImportRow);
+>>>>>>> Stashed changes
     });
 
-    // ── Early exit if nothing valid ───────────────────────────────────────────
-    if (validItems.length === 0) {
+    // If all rows failed parsing, return early
+    if (parsedRows.length === 0) {
       return NextResponse.json<ImsImportResult>(
         {
           success: false,
           successCount: 0,
-          errorCount: allErrors.length,
+          errorCount: parseErrors.length,
           totalRows,
-          errors: allErrors,
+          errors: parseErrors,
         },
         { status: 400 }
       );
     }
 
+<<<<<<< Updated upstream
     // ── Duplicate detection within file ───────────────────────────────────────
     const seenCodes = new Map<string, number>(); // code → first row number
     const duplicateCodes: string[] = [];
@@ -719,17 +715,26 @@ export async function POST(request: NextRequest) {
 
     // ── Result ────────────────────────────────────────────────────────────────
     const successCount = inserted?.length ?? 0;
+=======
+    // ── Delegate to service ───────────────────────────────────────────────────
+    const result = await ImsInventoryService.bulkImport(
+      parsedRows,
+      storeId,
+      institutionId,
+      user.id
+    );
+
+    // Merge parse-level errors with service-level errors
+    const mergedResult: ImsImportResult = {
+      ...result,
+      errorCount: result.errorCount + parseErrors.length,
+      errors: [...parseErrors, ...result.errors],
+    };
+>>>>>>> Stashed changes
 
     return NextResponse.json<ImsImportResult>(
-      {
-        success: successCount > 0,
-        successCount,
-        errorCount: allErrors.length,
-        totalRows,
-        errors: allErrors,
-        duplicateCodes: duplicateCodes.length > 0 ? [...new Set(duplicateCodes)] : undefined,
-      },
-      { status: 200 }
+      mergedResult,
+      { status: mergedResult.success ? 200 : 400 }
     );
   } catch (error) {
     console.error('[ims/inventory/import] Unexpected error:', error);
