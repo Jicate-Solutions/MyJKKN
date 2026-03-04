@@ -24,11 +24,11 @@ import {
   validationError,
 } from '@/lib/utils/ims-item-excel-mappings';
 import {
-  ImsInventoryService,
   type ImsImportError,
   type ImsImportResult,
   type ParsedImportRow,
 } from '@/lib/services/ims/inventory-service';
+import { ImsInventoryServiceServer } from '@/lib/services/ims/inventory-service.server';
 
 // ============================================================================
 // ZOD SCHEMA
@@ -305,7 +305,7 @@ export async function POST(request: NextRequest) {
     }
 
     // ── Delegate to service ───────────────────────────────────────────────────
-    const result = await ImsInventoryService.bulkImport(
+    const result = await ImsInventoryServiceServer.bulkImport(
       parsedRows,
       storeId,
       institutionId,

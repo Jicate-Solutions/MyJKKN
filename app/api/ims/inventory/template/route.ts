@@ -14,7 +14,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import ExcelJS from 'exceljs';
 import { buildUnitDisplay } from '@/lib/utils/ims-item-excel-mappings';
-import { ImsInventoryService } from '@/lib/services/ims/inventory-service';
+import { ImsInventoryServiceServer } from '@/lib/services/ims/inventory-service.server';
 
 export async function GET(request: NextRequest) {
   try {
@@ -36,7 +36,7 @@ export async function GET(request: NextRequest) {
     const institutionId = searchParams.get('institutionId') ?? null;
 
     // ── Fetch reference data via service ─────────────────────────────────────
-    const { categories, units } = await ImsInventoryService.getImportTemplateData(
+    const { categories, units } = await ImsInventoryServiceServer.getImportTemplateData(
       institutionId,
       storeId
     );
