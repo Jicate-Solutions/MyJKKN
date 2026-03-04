@@ -64,7 +64,7 @@ export class LearnerProfileChangeService {
     // Validate learner exists and is active
     const { data: learner, error: learnerError } = await supabase
       .from('learners_profiles')
-      .select('id, lifecycle_status, first_name, last_name')
+      .select('id, lifecycle_status, first_name, last_name, institution_id')
       .eq('id', dto.learner_id)
       .single();
 
@@ -492,7 +492,6 @@ export class LearnerProfileChangeService {
         learner_id: request.learner_id,
         fields_rejected: request.fields_summary,
         review_comments: dto.review_comments,
-        rejection_reason: dto.rejection_reason,
       },
       institutionId: request.learner?.institution_id,
     });
