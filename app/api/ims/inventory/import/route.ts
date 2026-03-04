@@ -22,11 +22,6 @@ import {
   parseGstRate,
   parseItemType,
   validationError,
-<<<<<<< Updated upstream
-  IMS_GST_RATES,
-  resolveImsWorksheet,
-=======
->>>>>>> Stashed changes
 } from '@/lib/utils/ims-item-excel-mappings';
 import {
   ImsInventoryService,
@@ -115,21 +110,6 @@ function parseRow(
       errors.push(validationError(rowNumber, 'GST Rate', 'Must be 0, 5, 12, 18, or 28'));
     }
 
-<<<<<<< Updated upstream
-    const costPrice = parseNumericCell(costPriceRaw);
-    if (costPrice === null && costPriceRaw.trim()) {
-      errors.push(validationError(rowNumber, 'Cost Price', 'Must be a number ≥ 0'));
-    }
-
-    const mrp = parseNumericCell(mrpRaw);
-    if (mrp === null && mrpRaw.trim()) {
-      errors.push(validationError(rowNumber, 'MRP', 'Must be a number ≥ 0'));
-    }
-
-    const sellingPrice = parseNumericCell(sellingRaw);
-    if (sellingPrice === null && sellingRaw.trim()) {
-      errors.push(validationError(rowNumber, 'Selling Price', 'Must be a number ≥ 0'));
-=======
     const costPrice = costPriceRaw.trim() ? parseNumericCell(costPriceRaw) : 0;
     if (costPrice === null) {
       errors.push(validationError(rowNumber, 'Cost Price', 'Must be a number >= 0'));
@@ -143,7 +123,6 @@ function parseRow(
     const sellingPrice = sellingRaw.trim() ? parseNumericCell(sellingRaw) : 0;
     if (sellingPrice === null) {
       errors.push(validationError(rowNumber, 'Selling Price', 'Must be a number >= 0'));
->>>>>>> Stashed changes
     }
 
     // Item type — blank defaults to 'consumable'; invalid text still errors
@@ -258,32 +237,13 @@ export async function POST(request: NextRequest) {
     const workbook    = new ExcelJS.Workbook();
     await workbook.xlsx.load(arrayBuffer);
 
-<<<<<<< Updated upstream
-    const resolved = resolveImsWorksheet(workbook);
-    if (!resolved) {
-      return NextResponse.json(
-        {
-          error:
-            'Could not find a valid Items sheet. ' +
-            'Make sure your file has the correct column headers ' +
-            '(Item Code, Item Name, Category Name, Item Type, Base Unit, GST Rate, Cost Price, MRP, Selling Price) ' +
-            'in the first row. Download the template for the correct format.',
-        },
-=======
     const worksheet = workbook.getWorksheet('Items')
       ?? workbook.worksheets.find(ws => ws.state === 'visible')
       ?? workbook.worksheets[0];
     if (!worksheet || worksheet.rowCount < 2) {
       return NextResponse.json(
         { error: 'No readable worksheet found. The file must have at least a header row and data rows.' },
->>>>>>> Stashed changes
         { status: 400 }
-      );
-    }
-    const worksheet = resolved.worksheet;
-    if (resolved.method !== 'exact-name') {
-      console.warn(
-        `[ims/inventory/import] Worksheet resolved via "${resolved.method}" (sheet name: "${worksheet.name}")`
       );
     }
 
@@ -296,127 +256,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-<<<<<<< Updated upstream
-    // ── Fetch reference data ──────────────────────────────────────────────────
-
-    // Categories
-    let catQuery = supabase
-      .from('ims_item_categories')
-      .select('id, name')
-      .eq('is_active', true);
-
-    if (storeId) catQuery = catQuery.eq('store_id', storeId);
-    else if (institutionId) catQuery = catQuery.eq('institution_id', institutionId);
-
-    const { data: categories, error: catError } = await catQuery;
-    if (catError) {
-      console.error('[ims/inventory/import] category fetch:', catError);
-      return NextResponse.json(
-        { error: 'Failed to load categories', message: catError.message },
-        { status: 500 }
-      );
-    }
-
-    const categoryByName = new Map<string, string>(
-      (categories || []).map((c: any) => [c.name.toLowerCase(), c.id as string])
-    );
-
-    // ── Auto-create missing categories from the file ────────────────────────
-    const fileCategoryNames = new Set<string>();
-    worksheet.eachRow({ includeEmpty: false }, (row: ExcelJS.Row, rowNumber: number) => {
-      if (rowNumber === 1) return;
-      const cat = getCellStringValue(row.getCell(4).value).trim();
-      if (cat) fileCategoryNames.add(cat);
-    });
-
-    const missingCategories = Array.from(fileCategoryNames)
-      .filter(name => !categoryByName.has(name.toLowerCase()));
-
-    if (missingCategories.length > 0 && (storeId || institutionId)) {
-      const newCats = missingCategories.map(name => ({
-        name,
-        code: name.toUpperCase().replace(/[^A-Z0-9]+/g, '_').slice(0, 20),
-        is_active: true,
-        ...(storeId ? { store_id: storeId } : {}),
-        ...(institutionId ? { institution_id: institutionId } : {}),
-      }));
-      const { data: created, error: createErr } = await supabase
-        .from('ims_item_categories')
-        .insert(newCats)
-        .select('id, name');
-      if (!createErr && created) {
-        for (const c of created as any[]) {
-          categoryByName.set(c.name.toLowerCase(), c.id);
-        }
-      }
-      if (createErr) {
-        console.warn('[ims/inventory/import] auto-create categories failed:', createErr.message);
-      }
-    }
-
-    // Units
-    const { data: units, error: unitError } = await supabase
-      .from('ims_units')
-      .select('id, name, abbreviation');
-
-    if (unitError) {
-      console.error('[ims/inventory/import] unit fetch:', unitError);
-      return NextResponse.json(
-        { error: 'Failed to load units', message: unitError.message },
-        { status: 500 }
-      );
-    }
-
-    const byDisplay = new Map<string, string>();
-    const byAbbr    = new Map<string, string>();
-    const byName    = new Map<string, string>();
-
-    for (const u of (units || []) as any[]) {
-      const display = buildUnitDisplay(u.name, u.abbreviation).toLowerCase();
-      byDisplay.set(display, u.id);
-      byAbbr.set(u.abbreviation.toLowerCase(), u.id);
-      byName.set(u.name.toLowerCase(), u.id);
-    }
-
-    // ── Parse & validate rows ─────────────────────────────────────────────────
-    interface ResolvedItem {
-      _rowNumber: number; // original Excel row (for error messages)
-      code: string;
-      name: string;
-      description: string | null;
-      category_id: string;
-      item_type: string;
-      base_unit_id: string;
-      purchase_unit_id: string | null;
-      sale_unit_id: string | null;
-      indent_unit_id: string | null;
-      hsn_code: string | null;
-      gst_rate: number;
-      cost_price: number;
-      mrp: number;
-      selling_price: number;
-      reorder_level: number;
-      max_stock_level: number;
-      track_batch: boolean;
-      track_expiry: boolean;
-      is_sellable_to_students: boolean;
-      is_active: boolean;
-      company_name: string | null;
-      opening_stock: number;
-      batch_number: string | null;
-      expiry_date: string | null;
-      store_id: string | null;
-      institution_id: string | null;
-      created_by: string;
-    }
-
-    const validItems: ResolvedItem[] = [];
-    const allErrors: ImsImportError[] = [];
-=======
     // ── Parse & validate rows ─────────────────────────────────────────────────
     const parsedRows: ParsedImportRow[] = [];
     const parseErrors: ImsImportError[] = [];
->>>>>>> Stashed changes
     let totalRows = 0;
 
     worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
@@ -445,77 +287,7 @@ export async function POST(request: NextRequest) {
         return;
       }
 
-<<<<<<< Updated upstream
-      const d = parsed.data;
-
-      // Resolve category
-      const categoryId = categoryByName.get(d.category_name.toLowerCase());
-      if (!categoryId) {
-        allErrors.push(validationError(
-          rowNumber, 'Category Name',
-          `"${d.category_name}" not found — create it first or check spelling`
-        ));
-        return;
-      }
-
-      // Resolve base unit (required)
-      const baseUnitId = resolveUnitId(d.base_unit_raw, byDisplay, byAbbr, byName);
-      if (baseUnitId === undefined) {
-        allErrors.push(validationError(
-          rowNumber, 'Base Unit',
-          `"${d.base_unit_raw}" not found — use the dropdown from the template`
-        ));
-        return;
-      }
-      if (baseUnitId === null) {
-        allErrors.push(validationError(rowNumber, 'Base Unit', 'Base Unit is required'));
-        return;
-      }
-
-      // Resolve optional units (silent null on not-found)
-      const purchaseUnitId = d.purchase_unit_raw
-        ? resolveUnitId(d.purchase_unit_raw, byDisplay, byAbbr, byName) ?? null
-        : null;
-      const saleUnitId = d.sale_unit_raw
-        ? resolveUnitId(d.sale_unit_raw, byDisplay, byAbbr, byName) ?? null
-        : null;
-      const indentUnitId = d.indent_unit_raw
-        ? resolveUnitId(d.indent_unit_raw, byDisplay, byAbbr, byName) ?? null
-        : null;
-
-      validItems.push({
-        _rowNumber:             rowNumber,
-        code:                   d.code.toUpperCase(),
-        name:                   d.name,
-        description:            d.description,
-        category_id:            categoryId,
-        item_type:              d.item_type,
-        base_unit_id:           baseUnitId,
-        purchase_unit_id:       purchaseUnitId,
-        sale_unit_id:           saleUnitId,
-        indent_unit_id:         indentUnitId,
-        hsn_code:               d.hsn_code,
-        gst_rate:               d.gst_rate,
-        cost_price:             d.cost_price,
-        mrp:                    d.mrp,
-        selling_price:          d.selling_price,
-        reorder_level:          d.reorder_level,
-        max_stock_level:        d.max_stock_level,
-        track_batch:            d.track_batch,
-        track_expiry:           d.track_expiry,
-        is_sellable_to_students: d.is_sellable_to_students,
-        is_active:              d.is_active,
-        company_name:           d.company_name ?? null,
-        opening_stock:          d.opening_stock ?? 0,
-        batch_number:           d.batch_number ?? null,
-        expiry_date:            d.expiry_date ?? null,
-        store_id:               storeId,
-        institution_id:         institutionId,
-        created_by:             user.id,
-      });
-=======
       parsedRows.push(parsed.data as ParsedImportRow);
->>>>>>> Stashed changes
     });
 
     // If all rows failed parsing, return early
@@ -532,190 +304,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-<<<<<<< Updated upstream
-    // ── Duplicate detection within file ───────────────────────────────────────
-    const seenCodes = new Map<string, number>(); // code → first row number
-    const duplicateCodes: string[] = [];
-
-    const deduped = validItems.filter((item) => {
-      const key = item.code.toLowerCase();
-      if (seenCodes.has(key)) {
-        const firstRow = seenCodes.get(key)!;
-        allErrors.push({
-          row: item._rowNumber,
-          field: 'code',
-          message: `Row ${item._rowNumber}: Code "${item.code}" duplicated in this file (first seen row ${firstRow})`,
-        });
-        duplicateCodes.push(item.code);
-        return false;
-      }
-      seenCodes.set(key, item._rowNumber);
-      return true;
-    });
-
-    // ── Duplicate detection against DB ────────────────────────────────────────
-    const codesToCheck = deduped.map((i) => i.code.toUpperCase());
-
-    let dbDupQuery = supabase
-      .from('ims_items')
-      .select('code')
-      .in('code', codesToCheck);
-
-    if (storeId) dbDupQuery = dbDupQuery.eq('store_id', storeId);
-    else if (institutionId) dbDupQuery = dbDupQuery.eq('institution_id', institutionId);
-
-    const { data: existingItems, error: dupError } = await dbDupQuery;
-
-    if (dupError) {
-      console.error('[ims/inventory/import] duplicate check:', dupError);
-      // Non-fatal: proceed without DB dup check
-    }
-
-    const existingCodes = new Set<string>(
-      (existingItems || []).map((i: any) => (i.code as string).toUpperCase())
-    );
-
-    const itemsToInsert = deduped.filter((item) => {
-      if (existingCodes.has(item.code.toUpperCase())) {
-        allErrors.push({
-          row: item._rowNumber,
-          field: 'code',
-          message: `Row ${item._rowNumber}: Code "${item.code}" already exists in the store`,
-        });
-        duplicateCodes.push(item.code);
-        return false;
-      }
-      return true;
-    });
-
-    // ── Insert ────────────────────────────────────────────────────────────────
-    if (itemsToInsert.length === 0) {
-      return NextResponse.json<ImsImportResult>(
-        {
-          success: false,
-          successCount: 0,
-          errorCount: allErrors.length,
-          totalRows,
-          errors: allErrors,
-          duplicateCodes: [...new Set(duplicateCodes)],
-        },
-        { status: 400 }
-      );
-    }
-
-    // Strip non-DB fields before inserting into ims_items
-    const itemDbRecords = itemsToInsert.map(
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      ({ _rowNumber, opening_stock, batch_number, expiry_date, ...item }) => item
-    );
-
-    const { data: inserted, error: insertError } = await supabase
-      .from('ims_items')
-      .insert(itemDbRecords)
-      .select('id');
-
-    if (insertError) {
-      console.error('[ims/inventory/import] insert error:', insertError);
-      return NextResponse.json(
-        { error: 'Failed to insert items', message: insertError.message },
-        { status: 500 }
-      );
-    }
-
-    // ── Opening stock (non-fatal) ─────────────────────────────────────────────
-    // Build a code→inserted-id map (Supabase preserves insert order)
-    const insertedCodeMap = new Map<string, string>(
-      (inserted || []).map((ins: any, idx: number) => [
-        itemsToInsert[idx].code.toUpperCase(),
-        ins.id as string,
-      ])
-    );
-
-    const stockItems = itemsToInsert.filter((item) => item.opening_stock > 0);
-
-    if (stockItems.length > 0) {
-      const now = new Date().toISOString();
-
-      // 1. ims_stock_summary
-      try {
-        const summaries = stockItems.map((item) => ({
-          item_id:            insertedCodeMap.get(item.code.toUpperCase()),
-          current_quantity:   item.opening_stock,
-          reserved_quantity:  0,
-          available_quantity: item.opening_stock,
-          total_value:        item.opening_stock * item.cost_price,
-          institution_id:     institutionId,
-          updated_at:         now,
-          ...(storeId ? { store_id: storeId } : {}),
-        }));
-        const { error: summaryError } = await supabase
-          .from('ims_stock_summary')
-          .insert(summaries);
-        if (summaryError) {
-          console.warn('[ims/inventory/import] stock summary insert failed:', summaryError.message);
-        }
-      } catch (e) {
-        console.warn('[ims/inventory/import] stock summary insert threw:', e);
-      }
-
-      // 2. ims_financial_transactions (adjustment ledger)
-      try {
-        const transactions = stockItems.map((item) => ({
-          transaction_type: 'adjustment',
-          reference_id:     null,
-          reference_type:   'adjustment',
-          amount:           item.opening_stock * item.cost_price,
-          description:      `Opening stock import — ${item.name} (${item.code})`,
-          item_id:          insertedCodeMap.get(item.code.toUpperCase()),
-          quantity:         item.opening_stock,
-          batch_number:     item.batch_number || null,
-          expiry_date:      item.expiry_date || null,
-          created_by:       user.id,
-          institution_id:   institutionId,
-          ...(storeId ? { store_id: storeId } : {}),
-        }));
-        const { error: txError } = await supabase
-          .from('ims_financial_transactions')
-          .insert(transactions);
-        if (txError) {
-          console.warn('[ims/inventory/import] financial transactions insert failed:', txError.message);
-        }
-      } catch (e) {
-        console.warn('[ims/inventory/import] financial transactions insert threw:', e);
-      }
-
-      // 3. ims_stock_batches (only for items with a batch_number)
-      const batchItems = stockItems.filter((item) => item.batch_number);
-      if (batchItems.length > 0) {
-        try {
-          const batches = batchItems.map((item) => ({
-            item_id:        insertedCodeMap.get(item.code.toUpperCase()),
-            batch_number:   item.batch_number,
-            expiry_date:    item.expiry_date || null,
-            quantity:       item.opening_stock,
-            cost_price:     item.cost_price,
-            total_value:    item.opening_stock * item.cost_price,
-            grn_id:         null,
-            location_type:  'central_store',
-            department_id:  null,
-            institution_id: institutionId,
-            ...(storeId ? { store_id: storeId } : {}),
-          }));
-          const { error: batchError } = await supabase
-            .from('ims_stock_batches')
-            .insert(batches);
-          if (batchError) {
-            console.warn('[ims/inventory/import] stock batches insert failed:', batchError.message);
-          }
-        } catch (e) {
-          console.warn('[ims/inventory/import] stock batches insert threw:', e);
-        }
-      }
-    }
-
-    // ── Result ────────────────────────────────────────────────────────────────
-    const successCount = inserted?.length ?? 0;
-=======
     // ── Delegate to service ───────────────────────────────────────────────────
     const result = await ImsInventoryService.bulkImport(
       parsedRows,
@@ -730,7 +318,6 @@ export async function POST(request: NextRequest) {
       errorCount: result.errorCount + parseErrors.length,
       errors: [...parseErrors, ...result.errors],
     };
->>>>>>> Stashed changes
 
     return NextResponse.json<ImsImportResult>(
       mergedResult,
