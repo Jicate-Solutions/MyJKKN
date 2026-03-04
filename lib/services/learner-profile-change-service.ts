@@ -1,5 +1,7 @@
 // lib/services/learner-profile-change-service.ts
 import { createClient, createServiceRoleClient } from '@/lib/supabase/server';
+import { logActivity } from '@/lib/utils/activity-logger';
+import { ACTIVITY_TYPES, RESOURCE_TYPES } from '@/types/activity';
 import {
   ProfileChangeRequest,
   CreateChangeRequestDto,
@@ -114,6 +116,25 @@ export class LearnerProfileChangeService {
     }
 
     console.log('[learner-profile-change-service] Change request created:', request.id);
+
+    // Log activity
+    const learnerName = `${learner.first_name || ''} ${learner.last_name || ''}`.trim();
+    const fieldCount = dto.fields_summary?.length || Object.keys(dto.changed_fields || {}).length;
+    await logActivity({
+      userId: submittedBy,
+      actionType: ACTIVITY_TYPES.CREATE,
+      resourceType: RESOURCE_TYPES.STUDENT,
+      resourceId: request.id,
+      resourceName: learnerName,
+      description: `${learnerName} submitted profile change request (${fieldCount} fields)`,
+      metadata: {
+        sub_type: 'change_request',
+        learner_id: request.learner_id,
+        field_count: fieldCount,
+        fields_summary: dto.fields_summary,
+      },
+      institutionId: learner.institution_id,
+    });
 
     return request;
   }
@@ -364,6 +385,25 @@ export class LearnerProfileChangeService {
 
       console.log('[learner-profile-change-service] Request approved successfully');
 
+      // Log activity
+      const approvedLearnerName = `${request.learner?.first_name || ''} ${request.learner?.last_name || ''}`.trim();
+      await logActivity({
+        userId: reviewedBy,
+        actionType: ACTIVITY_TYPES.UPDATE,
+        resourceType: RESOURCE_TYPES.STUDENT,
+        resourceId: requestId,
+        resourceName: approvedLearnerName,
+        description: `Approved change request for ${approvedLearnerName}`,
+        metadata: {
+          sub_type: 'change_request',
+          decision: 'approved',
+          learner_id: request.learner_id,
+          fields_applied: Object.keys(request.changed_fields || {}),
+          review_comments: dto.review_comments,
+        },
+        institutionId: request.learner?.institution_id,
+      });
+
       return updatedRequest;
     } catch (error: any) {
       console.error('[learner-profile-change-service] Error approving request:', error);
@@ -436,6 +476,26 @@ export class LearnerProfileChangeService {
     });
 
     console.log('[learner-profile-change-service] Request rejected successfully');
+
+    // Log activity
+    const rejectedLearnerName = `${request.learner?.first_name || ''} ${request.learner?.last_name || ''}`.trim();
+    await logActivity({
+      userId: reviewedBy,
+      actionType: ACTIVITY_TYPES.UPDATE,
+      resourceType: RESOURCE_TYPES.STUDENT,
+      resourceId: requestId,
+      resourceName: rejectedLearnerName,
+      description: `Rejected change request for ${rejectedLearnerName}`,
+      metadata: {
+        sub_type: 'change_request',
+        decision: 'rejected',
+        learner_id: request.learner_id,
+        fields_rejected: request.fields_summary,
+        review_comments: dto.review_comments,
+        rejection_reason: dto.rejection_reason,
+      },
+      institutionId: request.learner?.institution_id,
+    });
 
     return updatedRequest;
   }

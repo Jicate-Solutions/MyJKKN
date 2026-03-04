@@ -1,5 +1,6 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { trackUsage } from '@/lib/utils/track-usage';
+import { logActivityClient, LearnerActivityTemplates } from '@/lib/utils/activity-logger-client';
 import type {
   LearnerProfile,
   CreateLearnerProfileDto,
@@ -560,6 +561,27 @@ export class LearnerProfileService {
     }
 
     trackUsage({ module: 'learners', feature: 'create_learner_profile', eventType: 'create' });
+
+    // Log activity
+    const learnerName = `${data.first_name || ''} ${data.last_name || ''}`.trim() || 'Unknown';
+    const template = LearnerActivityTemplates.enquiryCreated('User', learnerName);
+    logActivityClient({
+      userId: currentUserId || data.id,
+      actionType: template.actionType,
+      resourceType: template.resourceType,
+      resourceId: data.id,
+      resourceName: learnerName,
+      description: template.description,
+      metadata: {
+        sub_type: template.sub_type,
+        learner_id: data.id,
+        learner_email: data.college_email,
+        lifecycle_status: data.lifecycle_status,
+        is_profile_complete: data.is_profile_complete,
+      },
+      institutionId: dto.institution_id,
+    });
+
     return data;
   }
 
@@ -692,6 +714,28 @@ export class LearnerProfileService {
     // Sync profile is_active status based on lifecycle_status
     // This ensures user can only log in when learner status is 'active'
     await this.syncProfileStatus(id, result.profile);
+
+    // Log activity
+    const learnerName = `${result.profile.first_name || ''} ${result.profile.last_name || ''}`.trim() || 'Unknown';
+    const changedFields = Object.keys(dto).filter(k => k !== 'id');
+    const template = LearnerActivityTemplates.learnerProfileUpdated('User', learnerName, changedFields);
+    logActivityClient({
+      userId: currentUserId || id,
+      actionType: template.actionType,
+      resourceType: template.resourceType,
+      resourceId: id,
+      resourceName: learnerName,
+      description: template.description,
+      metadata: {
+        sub_type: template.sub_type,
+        learner_id: id,
+        changed_fields: changedFields,
+        new_status: result.profile.lifecycle_status,
+        is_profile_complete: result.profile.is_profile_complete,
+        auto_activated: !!result.userCreation,
+      },
+      institutionId: result.profile.institution_id,
+    });
 
     // Store user creation result in metadata (will be used by mutation hook)
     if (result.userCreation) {
