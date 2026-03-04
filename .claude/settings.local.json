@@ -238,7 +238,8 @@
       "Bash(cd /d/Projects/MyJKKN && rm -rf .tsbuildinfo tsconfig.tsbuildinfo && npx tsc --noEmit 2>&1)",
       "Bash(wait:*)",
       "Bash(claude config:*)",
-      "Bash(openssl rand:*)"
+      "Bash(openssl rand:*)",
+      "mcp__memory__read_graph"
     ],
     "deny": [],
     "ask": []
