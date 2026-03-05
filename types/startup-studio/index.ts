@@ -475,3 +475,299 @@ export interface CreateEventInput {
   institution_id?: string;
   created_by?: string;
 }
+
+// ============================================
+// v2.0 ENUMS
+// ============================================
+
+export type SolutionTrack = 'app' | 'product' | 'hybrid';
+export type VentureStage =
+  | 'forming' | 'discovering' | 'designing' | 'building'
+  | 'validating' | 'revenue' | 'scaling' | 'graduated'
+  | 'stalled' | 'disbanded';
+export type CohortStatus = 'planned' | 'active' | 'completed';
+export type PrototypeType = 'software' | 'hardware' | 'algorithm' | 'formulation' | 'device' | 'mixed';
+
+// ============================================
+// v2.0 CORE ENTITIES
+// ============================================
+
+export interface SSTeam {
+  id: string;
+  name: string;
+  cohort_id: string | null;
+  anchor_id: string;
+  event_id: string | null;
+  institution_id: string | null;
+  preliminary_track: SolutionTrack | null;
+  assigned_business_name: string | null;
+  assigned_business_contact: string | null;
+  assigned_business_phone: string | null;
+  assigned_business_type: string | null;
+  assigned_business_location: string | null;
+  business_assigned_at: string | null;
+  venture_stage: VentureStage;
+  venture_stage_updated_at: string | null;
+  sh_product_id: string | null;
+  mentor_id: string | null;
+  mentor_assigned_at: string | null;
+  is_lighthouse: boolean;
+  agreement_signed: boolean;
+  agreement_signed_at: string | null;
+  member_count: number;
+  discipline_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SSTeamWithDetails extends SSTeam {
+  cohort?: SSCohort;
+  anchor?: { id: string; full_name: string };
+  institution?: { id: string; name: string };
+  members?: SSTeamMember[];
+  cycles?: SSCycle[];
+  visits?: SSBusinessVisit[];
+  stage_history?: SSVentureStageHistory[];
+}
+
+export interface SSTeamMember {
+  id: string;
+  team_id: string;
+  user_id: string;
+  role: string;
+  is_anchor: boolean;
+  department: string | null;
+  has_laptop?: boolean;
+  joined_at: string;
+  user?: { id: string; full_name: string };
+}
+
+export interface SSCohort {
+  id: string;
+  name: string;
+  description: string | null;
+  target_teams: number | null;
+  actual_teams: number;
+  start_date: string | null;
+  end_date: string | null;
+  status: CohortStatus;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SSBusinessVisit {
+  id: string;
+  team_id: string;
+  visited_by: string | null;
+  visit_date: string | null;
+  contact_person: string | null;
+  key_findings: string | null;
+  pain_points_discovered: string[] | null;
+  would_pay: boolean | null;
+  willing_to_pay_amount: string | null;
+  photos: string[] | null;
+  notes: string | null;
+  created_at: string;
+  visitor?: { id: string; full_name: string };
+}
+
+export interface SSVentureStageHistory {
+  id: string;
+  team_id: string;
+  from_stage: VentureStage | null;
+  to_stage: VentureStage;
+  evidence_text: string | null;
+  evidence_url: string | null;
+  changed_by: string | null;
+  created_at: string;
+  changer?: { id: string; full_name: string };
+}
+
+export interface SSTeamDashboard {
+  id: string;
+  team_name: string;
+  venture_stage: VentureStage;
+  preliminary_track: SolutionTrack | null;
+  assigned_business_name: string | null;
+  assigned_business_type: string | null;
+  assigned_business_location: string | null;
+  is_lighthouse: boolean;
+  member_count: number;
+  discipline_count: number;
+  agreement_signed: boolean;
+  sh_product_id: string | null;
+  cohort_name: string | null;
+  anchor_name: string | null;
+  institution_name: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SSVentureFunnel {
+  venture_stage: VentureStage;
+  team_count: number;
+  lighthouse_count: number;
+  app_track_count: number;
+  product_track_count: number;
+  hybrid_track_count: number;
+  agreements_signed: number;
+  avg_team_size: number;
+  avg_disciplines: number;
+}
+
+// ============================================
+// v2.0 FILTER TYPES
+// ============================================
+
+export interface TeamFilters extends PaginationParams {
+  cohort_id?: string;
+  event_id?: string;
+  institution_id?: string;
+  venture_stage?: VentureStage;
+  preliminary_track?: SolutionTrack;
+  is_lighthouse?: boolean;
+  search?: string;
+}
+
+export interface CohortFilters extends PaginationParams {
+  status?: CohortStatus;
+}
+
+// ============================================
+// v2.0 INPUT TYPES
+// ============================================
+
+export interface CreateTeamInput {
+  name: string;
+  anchor_id: string;
+  event_id?: string;
+  cohort_id?: string;
+  institution_id?: string;
+  preliminary_track?: SolutionTrack;
+}
+
+export interface UpdateTeamInput {
+  name?: string;
+  cohort_id?: string;
+  preliminary_track?: SolutionTrack;
+  assigned_business_name?: string;
+  assigned_business_contact?: string;
+  assigned_business_phone?: string;
+  assigned_business_type?: string;
+  assigned_business_location?: string;
+  venture_stage?: VentureStage;
+  mentor_id?: string;
+  is_lighthouse?: boolean;
+  agreement_signed?: boolean;
+}
+
+export interface CreateCohortInput {
+  name: string;
+  description?: string;
+  target_teams?: number;
+  start_date?: string;
+  end_date?: string;
+}
+
+export interface UpdateCohortInput {
+  name?: string;
+  description?: string;
+  target_teams?: number;
+  actual_teams?: number;
+  start_date?: string;
+  end_date?: string;
+  status?: CohortStatus;
+}
+
+export interface CreateBusinessVisitInput {
+  team_id: string;
+  visited_by?: string;
+  visit_date?: string;
+  contact_person?: string;
+  key_findings?: string;
+  pain_points_discovered?: string[];
+  would_pay?: boolean;
+  willing_to_pay_amount?: string;
+  notes?: string;
+}
+
+export interface AdvanceVentureStageInput {
+  to_stage: VentureStage;
+  evidence_text?: string;
+  evidence_url?: string;
+  changed_by?: string;
+}
+
+// ============================================
+// v2.1 EVENT REGISTRATION TYPES
+// ============================================
+
+export type RegistrationStatus = 'draft' | 'registered' | 'confirmed' | 'checked_in';
+export type ChecklistPhase = 'pre_event' | 'on_day' | 'post_event';
+export type PresentationStatus = 'scheduled' | 'presenting' | 'completed' | 'skipped';
+
+export interface SSTeamMemberWithLaptop extends SSTeamMember {
+  has_laptop: boolean;
+}
+
+export interface SSEventChecklist {
+  id: string;
+  event_id: string;
+  phase: ChecklistPhase;
+  title: string;
+  description: string | null;
+  sort_order: number;
+  created_at: string;
+}
+
+export interface SSChecklistResponse {
+  id: string;
+  checklist_id: string;
+  user_id: string;
+  institution_id: string | null;
+  is_completed: boolean;
+  notes: string | null;
+  completed_at: string | null;
+  created_at: string;
+}
+
+export interface SSChecklistWithResponses extends SSEventChecklist {
+  responses?: SSChecklistResponse[];
+}
+
+export interface SSPresentationSlot {
+  id: string;
+  event_id: string;
+  team_id: string | null;
+  submission_id: string | null;
+  slot_time: string;
+  duration_mins: number;
+  room: string | null;
+  judge_panel: string | null;
+  status: PresentationStatus;
+  created_at: string;
+  team?: { id: string; name: string };
+  submission?: { id: string; app_name: string | null; team_name: string | null };
+}
+
+export interface RegisterTeamInput {
+  event_id: string;
+  name: string;
+  problem_idea: string;
+  institution_id?: string;
+  preliminary_track?: SolutionTrack;
+  members: {
+    user_id: string;
+    role?: string;
+    department?: string;
+    is_anchor?: boolean;
+    has_laptop?: boolean;
+  }[];
+}
+
+export interface EventRegistrationStats {
+  total_teams: number;
+  total_members: number;
+  laptops_confirmed: number;
+  by_institution: { institution_name: string; team_count: number; member_count: number; laptop_count: number }[];
+}
