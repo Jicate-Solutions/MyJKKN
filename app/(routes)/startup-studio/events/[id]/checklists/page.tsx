@@ -1,17 +1,18 @@
 'use client';
 
-import { use, useCallback } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { use } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import toast from 'react-hot-toast';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
+import { ClipboardCheck } from 'lucide-react';
 import { useEvent } from '@/hooks/startup-studio/use-events';
 import { useAuth } from '@/hooks/use-auth';
 import { EventChecklistService } from '@/lib/services/startup-studio/event-checklist-service';
-import type { ChecklistPhase, EventChecklist, EventChecklistItem } from '@/types/startup-studio';
-import { Loader2 } from 'lucide-react';
+import type { EventChecklist, ChecklistPhase } from '@/types/startup-studio';
 
 const PHASE_LABELS: Record<ChecklistPhase, string> = {
   pre_event: 'Pre-Event',
@@ -19,21 +20,11 @@ const PHASE_LABELS: Record<ChecklistPhase, string> = {
   post_event: 'Post-Event',
 };
 
-const PHASE_ORDER: ChecklistPhase[] = ['pre_event', 'on_day', 'post_event'];
-
-function groupByPhase(checklists: EventChecklist[]): Record<ChecklistPhase, EventChecklist[]> {
-  const grouped: Record<ChecklistPhase, EventChecklist[]> = {
-    pre_event: [],
-    on_day: [],
-    post_event: [],
-  };
-  for (const cl of checklists) {
-    if (grouped[cl.phase]) {
-      grouped[cl.phase].push(cl);
-    }
-  }
-  return grouped;
-}
+const ROLE_COLORS: Record<string, string> = {
+  admin: 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200',
+  mentor: 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200',
+  team: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200',
+};
 
 export default function ChecklistsPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -41,123 +32,127 @@ export default function ChecklistsPage({ params }: { params: Promise<{ id: strin
   const { profile } = useAuth();
   const queryClient = useQueryClient();
 
-  const { data: checklists, isLoading } = useQuery({
-    queryKey: ['startup-event-checklists', id],
+  const { data: checklists = [], isLoading } = useQuery({
+    queryKey: ['event-checklists', id],
     queryFn: () => EventChecklistService.getChecklists(id),
+    enabled: !!id,
     staleTime: 15 * 1000,
   });
 
-  const handleToggle = useCallback(
-    async (item: EventChecklistItem, checked: boolean) => {
-      if (!profile?.id) return;
-      try {
-        if (checked) {
-          await EventChecklistService.completeItem(item.id, profile.id);
-        } else if (item.completion && Array.isArray(item.completion) && item.completion.length > 0) {
-          await EventChecklistService.uncompleteItem(item.completion[0].id);
-        } else if (item.completion && !Array.isArray(item.completion) && item.completion.id) {
-          await EventChecklistService.uncompleteItem(item.completion.id);
-        }
-        queryClient.invalidateQueries({ queryKey: ['startup-event-checklists', id] });
-      } catch (error) {
-        console.error('[startup/checklists] handleToggle failed:', error);
-      }
+  const completeItem = useMutation({
+    mutationFn: (checklistItemId: string) => {
+      if (!profile?.id) throw new Error('Not authenticated');
+      return EventChecklistService.completeItem(checklistItemId, profile.id);
     },
-    [id, profile?.id, queryClient]
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['event-checklists'] });
+      toast.success('Item completed');
+    },
+    onError: () => toast.error('Failed to complete item'),
+  });
+
+  const uncompleteItem = useMutation({
+    mutationFn: (completionId: string) =>
+      EventChecklistService.uncompleteItem(completionId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['event-checklists'] });
+      toast.success('Item unchecked');
+    },
+    onError: () => toast.error('Failed to uncomplete item'),
+  });
+
+  const groupedByPhase = checklists.reduce<Record<ChecklistPhase, EventChecklist[]>>(
+    (acc, checklist) => {
+      const phase = checklist.phase;
+      if (!acc[phase]) acc[phase] = [];
+      acc[phase].push(checklist);
+      return acc;
+    },
+    {} as Record<ChecklistPhase, EventChecklist[]>
   );
 
-  const eventName = event?.name || 'Event';
-  const grouped = checklists ? groupByPhase(checklists) : null;
-
-  function isCompleted(item: EventChecklistItem): boolean {
-    if (!item.completion) return false;
-    if (Array.isArray(item.completion)) return item.completion.length > 0;
-    return !!item.completion.id;
-  }
+  const phases: ChecklistPhase[] = ['pre_event', 'on_day', 'post_event'];
 
   return (
-    <ContentLayout title="Checklists">
-      <PageBreadcrumb
-        items={[
-          { label: 'Home', href: '/' },
-          { label: 'Startup Studio', href: '/startup-studio/events' },
-          { label: eventName, href: `/startup-studio/events/${id}` },
-          { label: 'Checklists' },
-        ]}
-      />
+    <ContentLayout>
+      <PageBreadcrumb items={[
+        { label: 'Startup Studio', href: '/startup-studio/events' },
+        { label: event?.name || 'Event', href: `/startup-studio/events/${id}` },
+        { label: 'Checklists' },
+      ]} />
 
-      <div className="space-y-6 mt-4">
-        {isLoading && (
-          <div className="flex items-center justify-center py-20">
-            <Loader2 className="h-6 w-6 animate-spin" />
-          </div>
-        )}
+      <div className="space-y-6 max-w-3xl mx-auto">
+        <h2 className="text-2xl font-bold flex items-center gap-2">
+          <ClipboardCheck className="h-6 w-6" />
+          Event Checklists
+        </h2>
 
-        {!isLoading && (!checklists || checklists.length === 0) && (
-          <div className="text-center py-20 text-muted-foreground">
-            No checklists configured for this event.
-          </div>
-        )}
-
-        {grouped &&
-          PHASE_ORDER.map((phase) => {
-            const phaseChecklists = grouped[phase];
-            if (phaseChecklists.length === 0) return null;
+        {isLoading ? (
+          <div className="text-center py-12 text-muted-foreground">Loading checklists...</div>
+        ) : checklists.length === 0 ? (
+          <Card>
+            <CardContent className="pt-6 text-center text-muted-foreground">
+              No checklists configured for this event.
+            </CardContent>
+          </Card>
+        ) : (
+          phases.map((phase) => {
+            const phaseChecklists = groupedByPhase[phase];
+            if (!phaseChecklists?.length) return null;
 
             return (
-              <div key={phase} className="space-y-4">
-                <h2 className="text-lg font-semibold">{PHASE_LABELS[phase]}</h2>
+              <div key={phase} className="space-y-3">
+                <h3 className="text-lg font-semibold text-muted-foreground">
+                  {PHASE_LABELS[phase]}
+                </h3>
                 {phaseChecklists.map((checklist) => (
                   <Card key={checklist.id}>
                     <CardHeader className="pb-3">
-                      <div className="flex items-center gap-2">
-                        <CardTitle className="text-base">{checklist.title}</CardTitle>
-                        <Badge variant="outline" className="text-xs">
+                      <CardTitle className="text-base flex items-center justify-between">
+                        <span>{checklist.title}</span>
+                        <Badge className={ROLE_COLORS[checklist.target_role] || ''}>
                           {checklist.target_role}
                         </Badge>
-                      </div>
+                      </CardTitle>
                     </CardHeader>
-                    <CardContent className="space-y-3">
-                      {checklist.items && checklist.items.length > 0 ? (
-                        checklist.items.map((item) => {
-                          const completed = isCompleted(item);
+                    <CardContent>
+                      <div className="space-y-2">
+                        {(checklist.items || []).map((item) => {
+                          const isCompleted = !!item.completion;
                           return (
                             <div key={item.id} className="flex items-start gap-3">
                               <Checkbox
-                                checked={completed}
-                                onCheckedChange={(checked) =>
-                                  handleToggle(item, checked === true)
-                                }
+                                checked={isCompleted}
+                                onCheckedChange={(checked) => {
+                                  if (checked) {
+                                    completeItem.mutate(item.id);
+                                  } else if (item.completion) {
+                                    uncompleteItem.mutate(item.completion.id);
+                                  }
+                                }}
                               />
-                              <div className="space-y-0.5">
-                                <label
-                                  className={`text-sm font-medium leading-none ${
-                                    completed ? 'line-through text-muted-foreground' : ''
-                                  }`}
-                                >
+                              <div className="flex-1">
+                                <span className={isCompleted ? 'line-through text-muted-foreground' : ''}>
                                   {item.title}
-                                  {item.is_required && (
-                                    <span className="text-destructive ml-1">*</span>
-                                  )}
-                                </label>
+                                  {item.is_required && <span className="text-red-500 ml-1">*</span>}
+                                </span>
                                 {item.description && (
-                                  <p className="text-xs text-muted-foreground">
+                                  <p className="text-xs text-muted-foreground mt-0.5">
                                     {item.description}
                                   </p>
                                 )}
                               </div>
                             </div>
                           );
-                        })
-                      ) : (
-                        <p className="text-sm text-muted-foreground">No items in this checklist.</p>
-                      )}
+                        })}
+                      </div>
                     </CardContent>
                   </Card>
                 ))}
               </div>
             );
-          })}
+          })
+        )}
       </div>
     </ContentLayout>
   );
