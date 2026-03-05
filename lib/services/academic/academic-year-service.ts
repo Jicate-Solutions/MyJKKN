@@ -14,6 +14,7 @@ import type {
   AcademicYearListResponse
 } from '@/types/academics';
 import { logger } from '@/lib/utils/enhanced-logger';
+import { logActivityClient, AcademicActivityTemplates } from '@/lib/utils/activity-logger-client';
 
 export class AcademicYearService {
   private static supabase = createClientSupabaseClient();
@@ -38,6 +39,24 @@ export class AcademicYearService {
       }
 
       toast.success('Academic year created successfully');
+      (async () => {
+        try {
+          const supabase = createClientSupabaseClient();
+          const { data: { user } } = await supabase.auth.getUser();
+          if (!user?.id) return;
+          const template = AcademicActivityTemplates.yearCreated(academicYear.academic_year_name);
+          await logActivityClient({
+            userId: user.id,
+            actionType: template.actionType,
+            resourceType: template.resourceType,
+            resourceId: academicYear.id,
+            resourceName: academicYear.academic_year_name,
+            description: template.description,
+            metadata: { sub_type: template.sub_type },
+            institutionId: academicYear.institution_id,
+          });
+        } catch { /* never block */ }
+      })();
       return academicYear;
     } catch (error) {
       logger.error('academic/academic-years', 'Error creating academic year', error);
@@ -63,6 +82,24 @@ export class AcademicYearService {
       if (error) throw error;
 
       toast.success('Academic year updated successfully');
+      (async () => {
+        try {
+          const supabase = createClientSupabaseClient();
+          const { data: { user } } = await supabase.auth.getUser();
+          if (!user?.id) return;
+          const template = AcademicActivityTemplates.yearUpdated(academicYear.academic_year_name, Object.keys(data));
+          await logActivityClient({
+            userId: user.id,
+            actionType: template.actionType,
+            resourceType: template.resourceType,
+            resourceId: id,
+            resourceName: academicYear.academic_year_name,
+            description: template.description,
+            metadata: { sub_type: template.sub_type },
+            institutionId: academicYear.institution_id,
+          });
+        } catch { /* never block */ }
+      })();
       return academicYear;
     } catch (error) {
       logger.error('academic/academic-years', 'Error updating academic year', error);
@@ -71,6 +108,18 @@ export class AcademicYearService {
   }
 
   static async deleteAcademicYear(id: string): Promise<void> {
+    let nameForLog = id;
+    let institutionIdForLog: string | undefined;
+    try {
+      const { data: existing } = await AcademicYearService.supabase
+        .from('academic_years')
+        .select('academic_year_name, institution_id')
+        .eq('id', id)
+        .single();
+      nameForLog = existing?.academic_year_name || id;
+      institutionIdForLog = existing?.institution_id;
+    } catch { /* ignore */ }
+
     try {
       const { error } = await this.supabase
         .from('academic_years')
@@ -80,6 +129,24 @@ export class AcademicYearService {
       if (error) throw error;
 
       toast.success('Academic year deleted successfully');
+      (async () => {
+        try {
+          const supabase = createClientSupabaseClient();
+          const { data: { user } } = await supabase.auth.getUser();
+          if (!user?.id) return;
+          const template = AcademicActivityTemplates.yearDeleted(nameForLog);
+          await logActivityClient({
+            userId: user.id,
+            actionType: template.actionType,
+            resourceType: template.resourceType,
+            resourceId: id,
+            resourceName: nameForLog,
+            description: template.description,
+            metadata: { sub_type: template.sub_type },
+            institutionId: institutionIdForLog,
+          });
+        } catch { /* never block */ }
+      })();
     } catch (error) {
       logger.error('academic/academic-years', 'Error deleting academic year', error);
       throw error;
