@@ -14,6 +14,28 @@ export const POST = withAuth(async (request, auth, context) => {
   const { id } = await context!.params!
   if (!isValidUuid(id)) return errorResponse('Invalid event ID format', 400)
 
+  // --- Fix 5: Fetch event and enforce submission deadline + active check ---
+  const { data: event, error: eventError } = await auth.supabase
+    .from('ss_events')
+    .select('end_date, is_active')
+    .eq('id', id)
+    .single()
+
+  if (eventError || !event) {
+    return errorResponse('Event not found', 404)
+  }
+  if (!event.is_active) {
+    return errorResponse('Event is not active', 400)
+  }
+  // Allow submissions until 1 hour after event ends
+  if (event.end_date) {
+    const submissionDeadline = new Date(event.end_date)
+    submissionDeadline.setHours(submissionDeadline.getHours() + 1)
+    if (new Date() > submissionDeadline) {
+      return errorResponse('Submission deadline has passed', 400)
+    }
+  }
+
   const body = await request.json()
   if (!body.app_name) return errorResponse('App name is required', 400)
 

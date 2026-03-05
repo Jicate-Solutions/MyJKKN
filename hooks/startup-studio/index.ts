@@ -7,3 +7,4 @@ export * from './use-analytics';
 export * from './use-teams';
 export * from './use-event-registration';
 export * from './use-venues';
+export * from './use-my-event';

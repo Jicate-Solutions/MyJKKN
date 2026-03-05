@@ -1,11 +1,13 @@
 'use client';
 
+import { useState, useMemo } from 'react';
 import Link from 'next/link';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Separator } from '@/components/ui/separator';
 import {
   Table,
   TableBody,
@@ -25,8 +27,12 @@ import {
   Star,
   Lightbulb,
   ExternalLink,
+  Gavel,
+  Pencil,
 } from 'lucide-react';
 import { useSubmission, useSubmitForReview } from '@/hooks/startup-studio';
+import { useAuth } from '@/hooks/use-auth';
+import { ScoringForm } from './scoring-form';
 
 interface SubmissionDetailProps {
   id: string;
@@ -41,9 +47,14 @@ const STATUS_COLORS: Record<string, string> = {
   rejected: 'bg-red-100 text-red-800',
 };
 
+/** Admin/judge roles that can score submissions */
+const JUDGE_ELIGIBLE_ROLES = ['admin', 'super_admin', 'staff', 'administrator'];
+
 export function SubmissionDetail({ id }: SubmissionDetailProps) {
   const { data: submissionRaw, isLoading, error } = useSubmission(id);
   const submitForReview = useSubmitForReview();
+  const { profile } = useAuth();
+  const [showScoringForm, setShowScoringForm] = useState(false);
 
   const submission = submissionRaw as any;
 
@@ -103,6 +114,22 @@ export function SubmissionDetail({ id }: SubmissionDetailProps) {
   const scores = submission.scores ?? [];
   const canSubmitForReview =
     submission.status === 'draft' || !submission.status;
+
+  // Determine if current user can judge this submission
+  const isAdminRole = profile?.role
+    ? JUDGE_ELIGIBLE_ROLES.includes(profile.role)
+    : false;
+
+  // Check if user already scored this submission
+  const existingUserScore = useMemo(() => {
+    if (!profile?.id || !scores.length) return null;
+    return scores.find(
+      (s: any) => s.judge_id === profile.id || s.judge?.id === profile.id
+    ) ?? null;
+  }, [profile?.id, scores]);
+
+  // User can judge if they are admin/super_admin OR if they have an existing score (meaning they were assigned as a judge)
+  const canJudge = isAdminRole || !!existingUserScore;
 
   return (
     <div className="space-y-6">
@@ -377,6 +404,108 @@ export function SubmissionDetail({ id }: SubmissionDetailProps) {
                 </TableBody>
               </Table>
             </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Judge This Submission - only visible to admins and assigned judges */}
+      {canJudge && profile && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Gavel className="h-5 w-5 text-indigo-600" />
+              Judge This Submission
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {existingUserScore && !showScoringForm ? (
+              <div className="space-y-4">
+                <Alert>
+                  <Star className="h-4 w-4" />
+                  <AlertDescription>
+                    You have already scored this submission. Weighted total:{' '}
+                    <span className="font-bold">
+                      {existingUserScore.weighted_score ?? existingUserScore.total_score ?? '-'}
+                    </span>
+                  </AlertDescription>
+                </Alert>
+                <div className="grid grid-cols-5 gap-3 text-sm">
+                  <div className="text-center">
+                    <p className="text-muted-foreground text-xs">Real Problem</p>
+                    <p className="font-semibold text-lg">{existingUserScore.real_problem ?? '-'}</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-muted-foreground text-xs">Working App</p>
+                    <p className="font-semibold text-lg">{existingUserScore.working_app ?? '-'}</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-muted-foreground text-xs">User Tested</p>
+                    <p className="font-semibold text-lg">{existingUserScore.user_tested ?? '-'}</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-muted-foreground text-xs">Completeness</p>
+                    <p className="font-semibold text-lg">{existingUserScore.completeness ?? '-'}</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-muted-foreground text-xs">Presentation</p>
+                    <p className="font-semibold text-lg">{existingUserScore.presentation ?? '-'}</p>
+                  </div>
+                </div>
+                {(existingUserScore.strengths || existingUserScore.improvements || existingUserScore.notes) && (
+                  <>
+                    <Separator />
+                    <div className="space-y-2 text-sm">
+                      {existingUserScore.strengths && (
+                        <div>
+                          <p className="text-muted-foreground font-medium">Strengths</p>
+                          <p>{existingUserScore.strengths}</p>
+                        </div>
+                      )}
+                      {existingUserScore.improvements && (
+                        <div>
+                          <p className="text-muted-foreground font-medium">Areas for Improvement</p>
+                          <p>{existingUserScore.improvements}</p>
+                        </div>
+                      )}
+                      {existingUserScore.notes && (
+                        <div>
+                          <p className="text-muted-foreground font-medium">Notes</p>
+                          <p>{existingUserScore.notes}</p>
+                        </div>
+                      )}
+                    </div>
+                  </>
+                )}
+                <Button
+                  variant="outline"
+                  onClick={() => setShowScoringForm(true)}
+                >
+                  <Pencil className="mr-2 h-4 w-4" />
+                  Update Score
+                </Button>
+              </div>
+            ) : (
+              <ScoringForm
+                submissionId={id}
+                judgeId={profile.id}
+                existingScore={
+                  existingUserScore
+                    ? {
+                        id: existingUserScore.id,
+                        real_problem: existingUserScore.real_problem,
+                        working_app: existingUserScore.working_app,
+                        user_tested: existingUserScore.user_tested,
+                        completeness: existingUserScore.completeness,
+                        presentation: existingUserScore.presentation,
+                        notes: existingUserScore.notes,
+                        strengths: existingUserScore.strengths,
+                        improvements: existingUserScore.improvements,
+                      }
+                    : undefined
+                }
+                onSuccess={() => setShowScoringForm(false)}
+              />
+            )}
           </CardContent>
         </Card>
       )}

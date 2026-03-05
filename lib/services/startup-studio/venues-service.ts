@@ -233,14 +233,22 @@ export class VenuesService extends BaseService {
   }
 
   // Get available mentors/senior learners for assignment
+  // Includes all profiles (admin picks mentors by name search) since there is
+  // no senior_learner flag on profiles. Without a search term, returns
+  // admin/staff/super_admin users by default for a manageable initial list.
   static async getAvailableMentors(eventId: string, search?: string) {
     let query = this.supabase
       .from('profiles')
       .select('id, full_name, email, institution_id, role')
-      .or('role.eq.admin,role.eq.staff,role.eq.super_admin');
+      .eq('is_active', true);
 
-    if (search) {
-      query = query.or(`full_name.ilike.%${search}%,email.ilike.%${search}%`);
+    if (search && search.trim().length > 0) {
+      // When searching, look across ALL active profiles so senior learners are included
+      const escaped = search.replace(/[%_]/g, '');
+      query = query.or(`full_name.ilike.%${escaped}%,email.ilike.%${escaped}%`);
+    } else {
+      // Without search, show admin/staff/super_admin as a sensible default list
+      query = query.or('role.eq.admin,role.eq.staff,role.eq.super_admin');
     }
 
     const { data, error } = await query.order('full_name').limit(50);

@@ -24,6 +24,8 @@ import {
   Send,
   Clock,
   MapPin,
+  UserCheck,
+  Trophy,
 } from 'lucide-react';
 import { useSSEvent, useUpdateEvent } from '@/hooks/startup-studio';
 
@@ -314,6 +316,38 @@ export function EventDetail({ id }: EventDetailProps) {
         <RegistrationSection eventId={id} event={event} />
       )}
 
+      {/* Your Event - Participant Views */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Users className="h-5 w-5" />
+            Your Event
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Button variant="outline" className="justify-start h-auto py-3" asChild>
+              <Link href={`/startup-studio/events/${id}/my-team`}>
+                <Users className="mr-2 h-4 w-4 text-blue-500" />
+                <div className="text-left">
+                  <p className="font-medium">My Team</p>
+                  <p className="text-xs text-muted-foreground">View your team, venue, and schedule</p>
+                </div>
+              </Link>
+            </Button>
+            <Button variant="outline" className="justify-start h-auto py-3" asChild>
+              <Link href={`/startup-studio/events/${id}/my-assignment`}>
+                <UserCheck className="mr-2 h-4 w-4 text-green-500" />
+                <div className="text-left">
+                  <p className="font-medium">My Assignment</p>
+                  <p className="text-xs text-muted-foreground">Mentor or judge venue assignment</p>
+                </div>
+              </Link>
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Event Management (Admin) */}
       <Card>
         <CardHeader>
@@ -357,6 +391,15 @@ export function EventDetail({ id }: EventDetailProps) {
                 <div className="text-left">
                   <p className="font-medium">Venues & Mentors</p>
                   <p className="text-xs text-muted-foreground">Allocate teams to venues</p>
+                </div>
+              </Link>
+            </Button>
+            <Button variant="outline" className="justify-start h-auto py-3" asChild>
+              <Link href={`/startup-studio/events/${id}/leaderboard`}>
+                <Trophy className="mr-2 h-4 w-4 text-amber-500" />
+                <div className="text-left">
+                  <p className="font-medium">Leaderboard</p>
+                  <p className="text-xs text-muted-foreground">Rankings and results</p>
                 </div>
               </Link>
             </Button>

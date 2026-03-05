@@ -11,10 +11,26 @@ export async function OPTIONS() {
 export const POST = withAuth(async (request, auth, context) => {
   const { id } = await context!.params!
   const body = await request.json()
-  if (!body.judge_id) {
-    return errorResponse('judge_id is required', 400)
+
+  // --- Fix 6: Scoring access control ---
+  // Only admins or the judge themselves can submit scores
+  const isAdmin = auth.user.role === 'admin' || auth.user.role === 'super_admin'
+
+  // For non-admins: force judge_id to be the logged-in user (ignore body's judge_id)
+  const judgeId = isAdmin ? (body.judge_id || auth.user.id) : auth.user.id
+
+  // Duplicate prevention: check if this judge already scored this submission
+  const { data: existing } = await auth.supabase
+    .from('ss_judge_scores')
+    .select('id')
+    .eq('submission_id', id)
+    .eq('judge_id', judgeId)
+    .maybeSingle()
+
+  if (existing) {
+    return errorResponse('You have already scored this submission. Use PATCH to update.', 409)
   }
 
-  const result = await SubmissionsService.addJudgeScore(id, body.judge_id, body)
+  const result = await SubmissionsService.addJudgeScore(id, judgeId, body)
   return createdResponse(result)
 })
