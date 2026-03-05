@@ -6,6 +6,7 @@ import type {
   DetailedAttendanceReport
 } from '@/types/attendance-reports';
 import { logger } from '@/lib/utils/enhanced-logger';
+import { logActivityClient, AcademicActivityTemplates } from '@/lib/utils/activity-logger-client';
 
 export class AttendanceExportService {
   /**
@@ -13,7 +14,8 @@ export class AttendanceExportService {
    */
   static async exportToExcel(
     reports: AttendanceReport[],
-    filename: string = 'attendance-reports'
+    filename: string = 'attendance-reports',
+    userId?: string
   ) {
     try {
       // Prepare data for Excel
@@ -54,6 +56,23 @@ export class AttendanceExportService {
         `${filename}-${new Date().toISOString().split('T')[0]}.xlsx`
       );
 
+      if (userId) {
+        (async () => {
+          try {
+            const format = 'Excel';
+            const count = Array.isArray(reports) ? reports.length : 1;
+            const logTemplate = AcademicActivityTemplates.attendanceExported(format, count);
+            await logActivityClient({
+              userId,
+              actionType: logTemplate.actionType,
+              resourceType: logTemplate.resourceType,
+              description: logTemplate.description,
+              metadata: { sub_type: logTemplate.sub_type, format, record_count: count },
+            });
+          } catch { /* never block */ }
+        })();
+      }
+
       return { success: true, error: null };
     } catch (error) {
       logger.error('academic/attendance', 'Error exporting to Excel', error);
@@ -69,7 +88,8 @@ export class AttendanceExportService {
    */
   static async exportDetailedToExcel(
     report: DetailedAttendanceReport,
-    filename: string = 'attendance-detail'
+    filename: string = 'attendance-detail',
+    userId?: string
   ) {
     try {
       const wb = XLSX.utils.book_new();
@@ -216,6 +236,23 @@ export class AttendanceExportService {
       // Save file
       XLSX.writeFile(wb, `${filename}-${report.attendance_date}-detailed.xlsx`);
 
+      if (userId) {
+        (async () => {
+          try {
+            const format = 'Excel';
+            const count = 1;
+            const logTemplate = AcademicActivityTemplates.attendanceExported(format, count);
+            await logActivityClient({
+              userId,
+              actionType: logTemplate.actionType,
+              resourceType: logTemplate.resourceType,
+              description: logTemplate.description,
+              metadata: { sub_type: logTemplate.sub_type, format, record_count: count },
+            });
+          } catch { /* never block */ }
+        })();
+      }
+
       return { success: true, error: null };
     } catch (error) {
       logger.error('academic/attendance', 'Error exporting detailed report to Excel', error);
@@ -231,7 +268,8 @@ export class AttendanceExportService {
    */
   static async exportToPDF(
     reports: AttendanceReport[],
-    filename: string = 'attendance-reports'
+    filename: string = 'attendance-reports',
+    userId?: string
   ) {
     try {
       const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
@@ -345,6 +383,23 @@ export class AttendanceExportService {
       // Save PDF
       doc.save(`${filename}-${new Date().toISOString().split('T')[0]}.pdf`);
 
+      if (userId) {
+        (async () => {
+          try {
+            const format = 'PDF';
+            const count = Array.isArray(reports) ? reports.length : 1;
+            const logTemplate = AcademicActivityTemplates.attendanceExported(format, count);
+            await logActivityClient({
+              userId,
+              actionType: logTemplate.actionType,
+              resourceType: logTemplate.resourceType,
+              description: logTemplate.description,
+              metadata: { sub_type: logTemplate.sub_type, format, record_count: count },
+            });
+          } catch { /* never block */ }
+        })();
+      }
+
       return { success: true, error: null };
     } catch (error) {
       logger.error('academic/attendance', 'Error exporting to PDF', error);
@@ -360,7 +415,8 @@ export class AttendanceExportService {
    */
   static async exportDetailedToPDF(
     report: DetailedAttendanceReport,
-    filename: string = 'attendance-detail'
+    filename: string = 'attendance-detail',
+    userId?: string
   ) {
     try {
       const doc = new jsPDF('p', 'mm', 'a4');
@@ -726,6 +782,23 @@ export class AttendanceExportService {
       // Save PDF
       doc.save(`${filename}-${report.attendance_date}-detailed.pdf`);
 
+      if (userId) {
+        (async () => {
+          try {
+            const format = 'PDF';
+            const count = 1;
+            const logTemplate = AcademicActivityTemplates.attendanceExported(format, count);
+            await logActivityClient({
+              userId,
+              actionType: logTemplate.actionType,
+              resourceType: logTemplate.resourceType,
+              description: logTemplate.description,
+              metadata: { sub_type: logTemplate.sub_type, format, record_count: count },
+            });
+          } catch { /* never block */ }
+        })();
+      }
+
       return { success: true, error: null };
     } catch (error) {
       logger.error('academic/attendance', 'Error exporting detailed report to PDF', error);
@@ -741,7 +814,8 @@ export class AttendanceExportService {
    */
   static async exportToCSV(
     reports: AttendanceReport[],
-    filename: string = 'attendance-reports'
+    filename: string = 'attendance-reports',
+    userId?: string
   ) {
     try {
       // Prepare CSV content
@@ -794,6 +868,23 @@ export class AttendanceExportService {
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
+
+      if (userId) {
+        (async () => {
+          try {
+            const format = 'CSV';
+            const count = Array.isArray(reports) ? reports.length : 1;
+            const logTemplate = AcademicActivityTemplates.attendanceExported(format, count);
+            await logActivityClient({
+              userId,
+              actionType: logTemplate.actionType,
+              resourceType: logTemplate.resourceType,
+              description: logTemplate.description,
+              metadata: { sub_type: logTemplate.sub_type, format, record_count: count },
+            });
+          } catch { /* never block */ }
+        })();
+      }
 
       return { success: true, error: null };
     } catch (error) {
