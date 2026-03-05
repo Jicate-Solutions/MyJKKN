@@ -251,7 +251,8 @@
       "Bash(bun add:*)",
       "Bash(bun run:*)",
       "Bash(MSYS_NO_PATHCONV=1 /usr/bin/sleep 20:*)",
-      "Bash(tasklist:*)"
+      "Bash(tasklist:*)",
+      "Bash(MSYS_NO_PATHCONV=1 /usr/bin/sleep 5:*)"
     ],
     "deny": [],
     "ask": []
