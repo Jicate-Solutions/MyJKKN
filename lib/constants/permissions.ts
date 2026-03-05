@@ -761,6 +761,47 @@ export const PERMISSION_CATEGORIES = [
       { key: 'solutions_hub.client.profile.view', label: 'View Client Profile' },
       { key: 'solutions_hub.client.profile.edit', label: 'Edit Client Profile' }
     ]
+  },
+  // ============================================
+  // STARTUP STUDIO PERMISSIONS
+  // Added: 2026-03-05 for Startup Studio module
+  // ============================================
+  {
+    name: 'Startup Studio',
+    key: 'startup_studio',
+    permissions: [
+      // General access
+      { key: 'startup_studio.view', label: 'View Startup Studio Dashboard' },
+
+      // Flywheel Cycles
+      { key: 'startup_studio.cycles.view', label: 'View Flywheel Cycles' },
+      { key: 'startup_studio.cycles.create', label: 'Create Flywheel Cycles' },
+
+      // Events
+      { key: 'startup_studio.events.view', label: 'View Events' },
+      { key: 'startup_studio.events.create', label: 'Create Events' },
+      { key: 'startup_studio.events.edit', label: 'Edit Events' },
+      { key: 'startup_studio.events.register', label: 'Register for Events' },
+      { key: 'startup_studio.events.submit', label: 'Submit to Events' },
+
+      // Problem Bank
+      { key: 'startup_studio.problem_bank.view', label: 'View Problem Bank' },
+      { key: 'startup_studio.problem_bank.create', label: 'Create Problems' },
+      { key: 'startup_studio.problem_bank.edit', label: 'Edit Problems' },
+
+      // Submissions / Appathon
+      { key: 'startup_studio.submissions.view', label: 'View Submissions / Appathon' },
+      { key: 'startup_studio.submissions.create', label: 'Create Submissions' },
+      { key: 'startup_studio.submissions.score', label: 'Score Submissions (Judge)' },
+
+      // Admin-only features
+      { key: 'startup_studio.nif.view', label: 'View NIF Pipeline (Admin)' },
+      { key: 'startup_studio.nif.manage', label: 'Manage NIF Pipeline (Admin)' },
+      { key: 'startup_studio.analytics.view', label: 'View Analytics (Admin)' },
+      { key: 'startup_studio.registrations.view', label: 'View Registrations Dashboard (Admin)' },
+      { key: 'startup_studio.checklists.view', label: 'View Event Checklists (Admin)' },
+      { key: 'startup_studio.checklists.manage', label: 'Manage Event Checklists (Admin)' }
+    ]
   }
 ];
 
