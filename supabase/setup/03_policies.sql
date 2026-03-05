@@ -2705,3 +2705,196 @@ DROP POLICY IF EXISTS "edu_consultants_delete" ON education_consultants;
 CREATE POLICY "edu_consultants_delete"
   ON education_consultants FOR DELETE
   USING (auth_institution_id() IS NOT NULL OR is_super_admin());
+
+-- =====================================================
+-- STARTUP STUDIO MODULE - RLS POLICIES
+-- Created: 2026-03-05
+-- =====================================================
+
+-- startup_events: visible to all authenticated users
+CREATE POLICY "startup_events_select_all" ON startup_events
+    FOR SELECT TO authenticated USING (true);
+
+CREATE POLICY "startup_events_insert_admin" ON startup_events
+    FOR INSERT TO authenticated WITH CHECK (
+        EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND (is_super_admin = true OR role IN ('admin', 'administrator')))
+    );
+
+CREATE POLICY "startup_events_update_admin" ON startup_events
+    FOR UPDATE TO authenticated USING (
+        EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND (is_super_admin = true OR role IN ('admin', 'administrator')))
+    );
+
+-- event_registrations: owner can CRUD own, admin can read all
+CREATE POLICY "event_registrations_select" ON event_registrations
+    FOR SELECT TO authenticated USING (
+        owner_id = auth.uid()
+        OR EXISTS (SELECT 1 FROM event_team_members WHERE registration_id = event_registrations.id AND profile_id = auth.uid())
+        OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND (is_super_admin = true OR role IN ('admin', 'administrator', 'staff')))
+    );
+
+CREATE POLICY "event_registrations_insert" ON event_registrations
+    FOR INSERT TO authenticated WITH CHECK (owner_id = auth.uid());
+
+CREATE POLICY "event_registrations_update" ON event_registrations
+    FOR UPDATE TO authenticated USING (
+        owner_id = auth.uid()
+        OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND (is_super_admin = true OR role IN ('admin', 'administrator')))
+    );
+
+-- event_team_members: owner of registration can manage
+CREATE POLICY "event_team_members_select" ON event_team_members
+    FOR SELECT TO authenticated USING (
+        EXISTS (SELECT 1 FROM event_registrations WHERE id = event_team_members.registration_id AND (
+            owner_id = auth.uid()
+            OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND (is_super_admin = true OR role IN ('admin', 'administrator', 'staff')))
+        ))
+    );
+
+CREATE POLICY "event_team_members_insert" ON event_team_members
+    FOR INSERT TO authenticated WITH CHECK (
+        EXISTS (SELECT 1 FROM event_registrations WHERE id = event_team_members.registration_id AND owner_id = auth.uid())
+    );
+
+CREATE POLICY "event_team_members_delete" ON event_team_members
+    FOR DELETE TO authenticated USING (
+        EXISTS (SELECT 1 FROM event_registrations WHERE id = event_team_members.registration_id AND owner_id = auth.uid())
+    );
+
+-- event_venue_assignments: all read, admin manage
+CREATE POLICY "event_venue_assignments_select" ON event_venue_assignments
+    FOR SELECT TO authenticated USING (true);
+
+CREATE POLICY "event_venue_assignments_insert_admin" ON event_venue_assignments
+    FOR INSERT TO authenticated WITH CHECK (
+        EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND (is_super_admin = true OR role IN ('admin', 'administrator')))
+    );
+
+CREATE POLICY "event_venue_assignments_update_admin" ON event_venue_assignments
+    FOR UPDATE TO authenticated USING (
+        EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND (is_super_admin = true OR role IN ('admin', 'administrator')))
+    );
+
+CREATE POLICY "event_venue_assignments_delete_admin" ON event_venue_assignments
+    FOR DELETE TO authenticated USING (
+        EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND (is_super_admin = true OR role IN ('admin', 'administrator')))
+    );
+
+-- event_team_venue_allocations: all read, admin manage
+CREATE POLICY "event_team_venue_allocations_select" ON event_team_venue_allocations
+    FOR SELECT TO authenticated USING (true);
+
+CREATE POLICY "event_team_venue_allocations_insert_admin" ON event_team_venue_allocations
+    FOR INSERT TO authenticated WITH CHECK (
+        EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND (is_super_admin = true OR role IN ('admin', 'administrator')))
+    );
+
+CREATE POLICY "event_team_venue_allocations_update_admin" ON event_team_venue_allocations
+    FOR UPDATE TO authenticated USING (
+        EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND (is_super_admin = true OR role IN ('admin', 'administrator')))
+    );
+
+CREATE POLICY "event_team_venue_allocations_delete_admin" ON event_team_venue_allocations
+    FOR DELETE TO authenticated USING (
+        EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND (is_super_admin = true OR role IN ('admin', 'administrator')))
+    );
+
+-- event_staff_assignments: all read, admin manage
+CREATE POLICY "event_staff_assignments_select" ON event_staff_assignments
+    FOR SELECT TO authenticated USING (true);
+
+CREATE POLICY "event_staff_assignments_insert_admin" ON event_staff_assignments
+    FOR INSERT TO authenticated WITH CHECK (
+        EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND (is_super_admin = true OR role IN ('admin', 'administrator')))
+    );
+
+CREATE POLICY "event_staff_assignments_update_admin" ON event_staff_assignments
+    FOR UPDATE TO authenticated USING (
+        EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND (is_super_admin = true OR role IN ('admin', 'administrator')))
+    );
+
+CREATE POLICY "event_staff_assignments_delete_admin" ON event_staff_assignments
+    FOR DELETE TO authenticated USING (
+        EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND (is_super_admin = true OR role IN ('admin', 'administrator')))
+    );
+
+-- event_demo_slots: all read, admin manage
+CREATE POLICY "event_demo_slots_select" ON event_demo_slots
+    FOR SELECT TO authenticated USING (true);
+
+CREATE POLICY "event_demo_slots_insert_admin" ON event_demo_slots
+    FOR INSERT TO authenticated WITH CHECK (
+        EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND (is_super_admin = true OR role IN ('admin', 'administrator')))
+    );
+
+CREATE POLICY "event_demo_slots_update_admin" ON event_demo_slots
+    FOR UPDATE TO authenticated USING (
+        EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND (is_super_admin = true OR role IN ('admin', 'administrator')))
+    );
+
+CREATE POLICY "event_demo_slots_delete_admin" ON event_demo_slots
+    FOR DELETE TO authenticated USING (
+        EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND (is_super_admin = true OR role IN ('admin', 'administrator')))
+    );
+
+-- event_submissions: owner CRUD, admin + staff read
+CREATE POLICY "event_submissions_select" ON event_submissions
+    FOR SELECT TO authenticated USING (
+        EXISTS (SELECT 1 FROM event_registrations WHERE id = event_submissions.registration_id AND owner_id = auth.uid())
+        OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND (is_super_admin = true OR role IN ('admin', 'administrator', 'staff')))
+    );
+
+CREATE POLICY "event_submissions_insert" ON event_submissions
+    FOR INSERT TO authenticated WITH CHECK (
+        EXISTS (SELECT 1 FROM event_registrations WHERE id = event_submissions.registration_id AND owner_id = auth.uid())
+    );
+
+CREATE POLICY "event_submissions_update" ON event_submissions
+    FOR UPDATE TO authenticated USING (
+        EXISTS (SELECT 1 FROM event_registrations WHERE id = event_submissions.registration_id AND owner_id = auth.uid())
+        OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND (is_super_admin = true OR role IN ('admin', 'administrator')))
+    );
+
+-- event_checklists + items: all read, admin manage
+CREATE POLICY "event_checklists_select" ON event_checklists
+    FOR SELECT TO authenticated USING (true);
+
+CREATE POLICY "event_checklists_insert_admin" ON event_checklists
+    FOR INSERT TO authenticated WITH CHECK (
+        EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND (is_super_admin = true OR role IN ('admin', 'administrator')))
+    );
+
+CREATE POLICY "event_checklists_update_admin" ON event_checklists
+    FOR UPDATE TO authenticated USING (
+        EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND (is_super_admin = true OR role IN ('admin', 'administrator')))
+    );
+
+CREATE POLICY "event_checklists_delete_admin" ON event_checklists
+    FOR DELETE TO authenticated USING (
+        EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND (is_super_admin = true OR role IN ('admin', 'administrator')))
+    );
+
+CREATE POLICY "event_checklist_items_select" ON event_checklist_items
+    FOR SELECT TO authenticated USING (true);
+
+CREATE POLICY "event_checklist_items_insert_admin" ON event_checklist_items
+    FOR INSERT TO authenticated WITH CHECK (
+        EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND (is_super_admin = true OR role IN ('admin', 'administrator')))
+    );
+
+CREATE POLICY "event_checklist_items_update_admin" ON event_checklist_items
+    FOR UPDATE TO authenticated USING (
+        EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND (is_super_admin = true OR role IN ('admin', 'administrator')))
+    );
+
+CREATE POLICY "event_checklist_items_delete_admin" ON event_checklist_items
+    FOR DELETE TO authenticated USING (
+        EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND (is_super_admin = true OR role IN ('admin', 'administrator')))
+    );
+
+-- event_checklist_completions: own completions
+CREATE POLICY "event_checklist_completions_select" ON event_checklist_completions
+    FOR SELECT TO authenticated USING (true);
+
+CREATE POLICY "event_checklist_completions_insert" ON event_checklist_completions
+    FOR INSERT TO authenticated WITH CHECK (completed_by = auth.uid());

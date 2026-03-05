@@ -1859,5 +1859,209 @@ ALTER TABLE service_request_timeline ENABLE ROW LEVEL SECURITY;
 ALTER TABLE service_request_attachments ENABLE ROW LEVEL SECURITY;
 
 -- =====================================================
+-- SECTION: STARTUP STUDIO MODULE
+-- Created: 2026-03-05 - Startup Studio events platform
+-- Purpose: Generic event platform for hackathons, competitions, buildathons
+-- =====================================================
+
+-- Startup Events (generic, reusable across future events)
+CREATE TABLE IF NOT EXISTS public.startup_events (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name TEXT NOT NULL,
+    description TEXT,
+    host_institution_id UUID REFERENCES institutions(id),
+    status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','registration_open','registration_closed','build_day','demo_day','closed')),
+    start_date TIMESTAMPTZ,
+    end_date TIMESTAMPTZ,
+    demo_date TIMESTAMPTZ,
+    registration_deadline TIMESTAMPTZ,
+    submission_deadline TIMESTAMPTZ,
+    metrics_deadline TIMESTAMPTZ,
+    is_results_published BOOLEAN DEFAULT false,
+    config JSONB DEFAULT '{}'::jsonb,
+    created_by UUID REFERENCES profiles(id),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Event Registrations (team registrations)
+CREATE TABLE IF NOT EXISTS public.event_registrations (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    event_id UUID NOT NULL REFERENCES startup_events(id) ON DELETE CASCADE,
+    team_name TEXT NOT NULL,
+    problem_idea TEXT NOT NULL,
+    owner_id UUID NOT NULL REFERENCES profiles(id),
+    institution_id UUID NOT NULL REFERENCES institutions(id),
+    lovable_verified BOOLEAN DEFAULT false,
+    lovable_verified_at TIMESTAMPTZ,
+    lovable_verified_by UUID REFERENCES profiles(id),
+    checked_in BOOLEAN DEFAULT false,
+    checked_in_at TIMESTAMPTZ,
+    checked_in_by UUID REFERENCES profiles(id),
+    status TEXT NOT NULL DEFAULT 'registered' CHECK (status IN ('registered','checked_in','disqualified')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE(event_id, owner_id)
+);
+
+-- Event Team Members (instant add, no confirmation)
+CREATE TABLE IF NOT EXISTS public.event_team_members (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    registration_id UUID NOT NULL REFERENCES event_registrations(id) ON DELETE CASCADE,
+    profile_id UUID REFERENCES profiles(id),
+    email TEXT NOT NULL,
+    full_name TEXT,
+    student_id TEXT,
+    has_laptop BOOLEAN DEFAULT false,
+    added_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE(registration_id, email)
+);
+
+-- Event Venue Assignments (link events to rooms/labs)
+CREATE TABLE IF NOT EXISTS public.event_venue_assignments (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    event_id UUID NOT NULL REFERENCES startup_events(id) ON DELETE CASCADE,
+    resource_id UUID REFERENCES resources(id),
+    manual_name TEXT,
+    manual_building TEXT,
+    manual_room TEXT,
+    capacity_override INT,
+    day_type TEXT NOT NULL CHECK (day_type IN ('build_day','demo_day')),
+    institution_id UUID NOT NULL REFERENCES institutions(id),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Event Team Venue Allocations (team-to-venue mapping)
+CREATE TABLE IF NOT EXISTS public.event_team_venue_allocations (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    event_id UUID NOT NULL REFERENCES startup_events(id) ON DELETE CASCADE,
+    registration_id UUID NOT NULL REFERENCES event_registrations(id) ON DELETE CASCADE,
+    venue_assignment_id UUID NOT NULL REFERENCES event_venue_assignments(id) ON DELETE CASCADE,
+    day_type TEXT NOT NULL CHECK (day_type IN ('build_day','demo_day')),
+    allocated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    allocated_by UUID REFERENCES profiles(id),
+    UNIQUE(event_id, registration_id, day_type)
+);
+
+-- Event Staff Assignments (mentors/judges at venues)
+CREATE TABLE IF NOT EXISTS public.event_staff_assignments (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    event_id UUID NOT NULL REFERENCES startup_events(id) ON DELETE CASCADE,
+    venue_assignment_id UUID NOT NULL REFERENCES event_venue_assignments(id) ON DELETE CASCADE,
+    staff_id UUID NOT NULL REFERENCES staff(id),
+    role TEXT NOT NULL CHECK (role IN ('mentor','lead_mentor','judge','panel_chair','evaluator')),
+    day_type TEXT NOT NULL CHECK (day_type IN ('build_day','demo_day')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE(event_id, staff_id, venue_assignment_id, day_type)
+);
+
+-- Event Demo Slots (presentation schedule)
+CREATE TABLE IF NOT EXISTS public.event_demo_slots (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    event_id UUID NOT NULL REFERENCES startup_events(id) ON DELETE CASCADE,
+    venue_assignment_id UUID NOT NULL REFERENCES event_venue_assignments(id) ON DELETE CASCADE,
+    registration_id UUID REFERENCES event_registrations(id),
+    start_time TIMESTAMPTZ,
+    duration_minutes INT DEFAULT 5,
+    room_label TEXT,
+    slot_order INT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Event Submissions (two-phase deadline)
+CREATE TABLE IF NOT EXISTS public.event_submissions (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    event_id UUID NOT NULL REFERENCES startup_events(id) ON DELETE CASCADE,
+    registration_id UUID NOT NULL REFERENCES event_registrations(id) ON DELETE CASCADE,
+    UNIQUE(event_id, registration_id),
+
+    -- Phase 1 fields: locked at submission_deadline
+    app_name TEXT,
+    github_url TEXT,
+    live_app_url TEXT,
+    description TEXT,
+    category TEXT,
+
+    -- Phase 2 fields: locked at metrics_deadline
+    mrr_amount DECIMAL(10,2) DEFAULT 0,
+    paying_users_count INT DEFAULT 0,
+    user_count INT DEFAULT 0,
+    proof_urls TEXT[] DEFAULT '{}',
+
+    -- Verification (batch - only Level 4/5 teams)
+    mrr_verified BOOLEAN DEFAULT false,
+    mrr_verified_at TIMESTAMPTZ,
+    mrr_verified_by UUID REFERENCES profiles(id),
+    mrr_rejected_reason TEXT,
+
+    -- Denormalized scoring
+    tier_level INT DEFAULT 0,
+    tier_points INT DEFAULT 0,
+    mrr_bonus_points INT DEFAULT 0,
+    total_score INT DEFAULT 0,
+
+    submitted_at TIMESTAMPTZ,
+    submitted_by UUID REFERENCES profiles(id),
+    metrics_updated_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Event Checklists (multi-role)
+CREATE TABLE IF NOT EXISTS public.event_checklists (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    event_id UUID NOT NULL REFERENCES startup_events(id) ON DELETE CASCADE,
+    title TEXT NOT NULL,
+    phase TEXT NOT NULL CHECK (phase IN ('pre_event','on_day','post_event')),
+    target_role TEXT NOT NULL CHECK (target_role IN ('admin','mentor','team')),
+    order_index INT DEFAULT 0
+);
+
+-- Event Checklist Items
+CREATE TABLE IF NOT EXISTS public.event_checklist_items (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    checklist_id UUID NOT NULL REFERENCES event_checklists(id) ON DELETE CASCADE,
+    title TEXT NOT NULL,
+    description TEXT,
+    order_index INT DEFAULT 0,
+    is_required BOOLEAN DEFAULT false
+);
+
+-- Event Checklist Completions
+CREATE TABLE IF NOT EXISTS public.event_checklist_completions (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    checklist_item_id UUID NOT NULL REFERENCES event_checklist_items(id) ON DELETE CASCADE,
+    completed_by UUID NOT NULL REFERENCES profiles(id),
+    registration_id UUID REFERENCES event_registrations(id),
+    staff_assignment_id UUID REFERENCES event_staff_assignments(id),
+    completed_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Indexes for Startup Studio
+CREATE INDEX idx_startup_events_status ON startup_events(status);
+CREATE INDEX idx_event_registrations_event ON event_registrations(event_id);
+CREATE INDEX idx_event_registrations_owner ON event_registrations(owner_id);
+CREATE INDEX idx_event_team_members_registration ON event_team_members(registration_id);
+CREATE INDEX idx_event_team_members_email ON event_team_members(email);
+CREATE INDEX idx_event_venue_assignments_event ON event_venue_assignments(event_id);
+CREATE INDEX idx_event_submissions_event ON event_submissions(event_id);
+CREATE INDEX idx_event_submissions_score ON event_submissions(event_id, total_score DESC, mrr_amount DESC);
+CREATE INDEX idx_event_staff_assignments_event ON event_staff_assignments(event_id);
+CREATE INDEX idx_event_demo_slots_event ON event_demo_slots(event_id);
+
+-- Enable RLS on all startup studio tables
+ALTER TABLE startup_events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE event_registrations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE event_team_members ENABLE ROW LEVEL SECURITY;
+ALTER TABLE event_venue_assignments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE event_team_venue_allocations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE event_staff_assignments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE event_demo_slots ENABLE ROW LEVEL SECURITY;
+ALTER TABLE event_submissions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE event_checklists ENABLE ROW LEVEL SECURITY;
+ALTER TABLE event_checklist_items ENABLE ROW LEVEL SECURITY;
+ALTER TABLE event_checklist_completions ENABLE ROW LEVEL SECURITY;
+
+-- =====================================================
 -- END OF TABLE DEFINITIONS
 -- =====================================================
