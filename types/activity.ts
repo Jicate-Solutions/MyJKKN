@@ -13,7 +13,7 @@ export interface UserActivityLog {
   request_url?: string;
   request_method?: string;
   status_code?: number;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
   session_id?: string;
   institution_id?: string;
   created_at: string;
@@ -66,7 +66,7 @@ export interface CreateActivityLogRequest {
   request_url?: string;
   request_method?: string;
   status_code?: number;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
   session_id?: string;
   institution_id?: string;
 }

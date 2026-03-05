@@ -1,4 +1,5 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import type { Json } from '@/types/supabase';
 import { ACTIVITY_TYPES, RESOURCE_TYPES } from '@/types/activity';
 
 export interface LogActivityClientParams {
@@ -8,7 +9,7 @@ export interface LogActivityClientParams {
   resourceId?: string;
   resourceName?: string;
   description: string;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
   institutionId?: string;
 }
 
@@ -27,7 +28,7 @@ export async function logActivityClient(params: LogActivityClientParams): Promis
       resource_id: params.resourceId,
       resource_name: params.resourceName,
       description: params.description,
-      metadata: params.metadata || {},
+      metadata: (params.metadata || {}) as Json,
       institution_id: params.institutionId,
     });
   } catch (error) {
@@ -317,7 +318,7 @@ export const AcademicActivityTemplates = {
     sub_type: 'attendance_update' as const,
   }),
   attendanceReportGenerated: (generatedFor: string) => ({
-    actionType: ACTIVITY_TYPES.CREATE,
+    actionType: ACTIVITY_TYPES.EXPORT,
     resourceType: RESOURCE_TYPES.ATTENDANCE,
     description: `Generated attendance report for ${generatedFor}`,
     sub_type: 'attendance_report' as const,
@@ -354,10 +355,10 @@ export const AcademicActivityTemplates = {
     description: `Created leave type "${typeName}"`,
     sub_type: 'leave_type' as const,
   }),
-  leaveTypeUpdated: (typeName: string) => ({
+  leaveTypeUpdated: (typeName: string, changes?: string[]) => ({
     actionType: ACTIVITY_TYPES.UPDATE,
     resourceType: RESOURCE_TYPES.LEAVE_TYPE,
-    description: `Updated leave type "${typeName}"`,
+    description: `Updated leave type "${typeName}"${changes?.length ? ` (${changes.join(', ')})` : ''}`,
     sub_type: 'leave_type' as const,
   }),
   leaveTypeDeleted: (typeName: string) => ({
