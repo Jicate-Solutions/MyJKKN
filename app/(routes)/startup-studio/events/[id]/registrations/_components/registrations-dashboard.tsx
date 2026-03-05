@@ -429,8 +429,8 @@ export function RegistrationsDashboard({ eventId }: RegistrationsDashboardProps)
                             <div className="mt-2 space-y-1 text-xs text-muted-foreground">
                               {members.map((m: any, i: number) => (
                                 <div key={i} className="flex items-center gap-2">
-                                  <span>{m.user_name || m.user_id || `Member ${i + 1}`}</span>
-                                  {m.is_team_lead && (
+                                  <span>{m.user_id || `Member ${i + 1}`}</span>
+                                  {m.is_anchor && (
                                     <Badge variant="outline" className="text-[10px] px-1 py-0">
                                       Lead
                                     </Badge>

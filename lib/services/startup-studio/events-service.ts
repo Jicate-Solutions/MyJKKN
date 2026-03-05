@@ -29,7 +29,8 @@ export class EventsService extends BaseService {
       query = query.eq('is_active', filters.is_active);
     }
     if (filters?.institution_id) {
-      query = query.eq('institution_id', filters.institution_id);
+      // Include institution-specific events AND global events (institution_id IS NULL)
+      query = query.or(`institution_id.eq.${filters.institution_id},institution_id.is.null`);
     }
     if (filters?.search) {
       const escaped = sanitizeSearch(filters.search);

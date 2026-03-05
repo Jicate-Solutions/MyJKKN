@@ -13,16 +13,16 @@ import type {
 
 const SUBMISSION_SELECT = `
   *,
-  user:profiles(id, full_name),
-  event:ss_events(id, name, slug)
+  user:profiles!user_id(id, full_name),
+  event:ss_events!event_id(id, name, slug)
 `;
 
 const SUBMISSION_WITH_SCORES_SELECT = `
   *,
-  user:profiles(id, full_name),
-  event:ss_events(id, name, slug),
-  cycle:ss_cycles(id, name),
-  scores:ss_judge_scores(*, judge:profiles(id, full_name))
+  user:profiles!user_id(id, full_name),
+  event:ss_events!event_id(id, name, slug),
+  cycle:ss_cycles!cycle_id(id, name),
+  scores:ss_judge_scores!submission_id(*, judge:profiles!judge_id(id, full_name))
 `;
 
 export class SubmissionsService extends BaseService {

@@ -3,7 +3,7 @@ import { withAuth } from '@/lib/auth/with-auth'
 import { SubmissionsService } from '@/lib/services/startup-studio/submissions-service'
 import { successApiResponse, createdResponse, errorResponse } from '@/lib/api/response'
 import { corsHeaders } from '@/lib/api-keys/cors'
-import { isValidUuid } from '@/lib/utils/validation'
+import { isValidUuid } from '@/lib/api-keys/query-helpers'
 
 export async function OPTIONS() {
   return NextResponse.json({}, { headers: corsHeaders })

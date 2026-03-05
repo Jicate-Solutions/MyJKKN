@@ -7,18 +7,16 @@ import { sanitizeSearch } from '@/lib/config/pagination';
 
 const TEAM_SELECT = `
   *,
-  anchor:profiles!ss_teams_anchor_id_fkey(id, full_name),
   cohort:ss_cohorts(id, name),
   institution:institutions(id, name)
 `;
 
 const TEAM_WITH_DETAILS_SELECT = `
   *,
-  anchor:profiles!ss_teams_anchor_id_fkey(id, full_name),
   cohort:ss_cohorts(id, name),
   institution:institutions(id, name),
-  members:ss_team_members(*, user:profiles(id, full_name)),
-  stage_history:ss_venture_stage_history(*, changer:profiles(id, full_name))
+  members:ss_team_members(*),
+  stage_history:ss_venture_stage_history(*)
 `;
 
 export class TeamsService extends BaseService {
@@ -345,9 +343,8 @@ export class TeamsService extends BaseService {
       .from('ss_teams')
       .select(`
         *,
-        anchor:profiles!ss_teams_anchor_id_fkey(id, full_name),
         institution:institutions(id, name),
-        members:ss_team_members(*, user:profiles(id, full_name))
+        members:ss_team_members(*)
       `, { count: 'exact' })
       .eq('event_id', eventId)
       .neq('registration_status', 'draft')

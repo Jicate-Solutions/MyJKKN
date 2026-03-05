@@ -3,7 +3,7 @@ import { withAuth } from '@/lib/auth/with-auth'
 import { TeamsService } from '@/lib/services/startup-studio/teams-service'
 import { successApiResponse, errorResponse } from '@/lib/api/response'
 import { corsHeaders } from '@/lib/api-keys/cors'
-import { isValidUuid } from '@/lib/utils/validation'
+import { isValidUuid } from '@/lib/api-keys/query-helpers'
 import { getStringParam, getUuidParam } from '@/lib/api-keys/query-helpers'
 
 export async function OPTIONS() {

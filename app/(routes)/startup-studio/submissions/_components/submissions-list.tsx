@@ -29,12 +29,12 @@ const STATUS_COLORS: Record<string, string> = {
   draft: 'bg-gray-100 text-gray-800',
   submitted: 'bg-blue-100 text-blue-800',
   under_review: 'bg-amber-100 text-amber-800',
-  reviewed: 'bg-purple-100 text-purple-800',
-  accepted: 'bg-green-100 text-green-800',
+  shortlisted: 'bg-purple-100 text-purple-800',
+  winner: 'bg-green-100 text-green-800',
   rejected: 'bg-red-100 text-red-800',
 };
 
-const STATUSES = ['all', 'draft', 'submitted', 'under_review', 'reviewed', 'accepted', 'rejected'];
+const STATUSES = ['all', 'draft', 'submitted', 'under_review', 'shortlisted', 'winner', 'rejected'];
 
 export function SubmissionsList() {
   const [search, setSearch] = useState('');
