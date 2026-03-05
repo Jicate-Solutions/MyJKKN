@@ -1,0 +1,145 @@
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import toast from 'react-hot-toast';
+import { EventVenueService } from '@/lib/services/startup-studio/event-venue-service';
+import { useAuth } from '@/hooks/use-auth';
+import type { CreateVenueDto, DayType, StaffRole } from '@/types/startup-studio';
+
+export function useEventVenues(eventId: string, dayType?: DayType) {
+  return useQuery({
+    queryKey: ['event-venues', eventId, dayType],
+    queryFn: () => EventVenueService.getVenues(eventId, dayType),
+    enabled: !!eventId,
+    staleTime: 15 * 1000,
+    retry: 3,
+  });
+}
+
+export function useAddVenue() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (dto: CreateVenueDto) => EventVenueService.addVenue(dto),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['event-venues'] });
+      queryClient.invalidateQueries({ queryKey: ['startup-event-stats'] });
+      toast.success('Venue added');
+    },
+    onError: (error: any) => toast.error(error.message || 'Failed to add venue'),
+  });
+}
+
+export function useRemoveVenue() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (venueId: string) => EventVenueService.removeVenue(venueId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['event-venues'] });
+      queryClient.invalidateQueries({ queryKey: ['startup-event-stats'] });
+      toast.success('Venue removed');
+    },
+    onError: () => toast.error('Failed to remove venue'),
+  });
+}
+
+export function useAssignStaff() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      eventId,
+      venueAssignmentId,
+      staffId,
+      role,
+      dayType,
+    }: {
+      eventId: string;
+      venueAssignmentId: string;
+      staffId: string;
+      role: StaffRole;
+      dayType: DayType;
+    }) => EventVenueService.assignStaff(eventId, venueAssignmentId, staffId, role, dayType),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['event-venues'] });
+      toast.success('Staff assigned');
+    },
+    onError: (error: any) => toast.error(error.message || 'Failed to assign staff'),
+  });
+}
+
+export function useRemoveStaff() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (assignmentId: string) => EventVenueService.removeStaff(assignmentId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['event-venues'] });
+      toast.success('Staff removed');
+    },
+    onError: () => toast.error('Failed to remove staff'),
+  });
+}
+
+export function useAutoAllocateTeams() {
+  const queryClient = useQueryClient();
+  const { profile } = useAuth();
+
+  return useMutation({
+    mutationFn: ({ eventId, dayType }: { eventId: string; dayType: DayType }) => {
+      if (!profile?.id) throw new Error('Not authenticated');
+      return EventVenueService.autoAllocateTeams(eventId, dayType, profile.id);
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['event-venues'] });
+      queryClient.invalidateQueries({ queryKey: ['event-registrations'] });
+      toast.success(`Allocated ${data.allocated} teams (${data.unallocated} unallocated)`);
+    },
+    onError: (error: any) => toast.error(error.message || 'Failed to auto-allocate teams'),
+  });
+}
+
+export function useManualAllocate() {
+  const queryClient = useQueryClient();
+  const { profile } = useAuth();
+
+  return useMutation({
+    mutationFn: ({
+      eventId,
+      registrationId,
+      venueAssignmentId,
+      dayType,
+    }: {
+      eventId: string;
+      registrationId: string;
+      venueAssignmentId: string;
+      dayType: DayType;
+    }) => {
+      if (!profile?.id) throw new Error('Not authenticated');
+      return EventVenueService.manualAllocate(eventId, registrationId, venueAssignmentId, dayType, profile.id);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['event-venues'] });
+      queryClient.invalidateQueries({ queryKey: ['event-registrations'] });
+      toast.success('Team allocated to venue');
+    },
+    onError: (error: any) => toast.error(error.message || 'Failed to allocate team'),
+  });
+}
+
+export function useRemoveAllocation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (allocationId: string) => EventVenueService.removeAllocation(allocationId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['event-venues'] });
+      queryClient.invalidateQueries({ queryKey: ['event-registrations'] });
+      toast.success('Allocation removed');
+    },
+    onError: () => toast.error('Failed to remove allocation'),
+  });
+}
+
+export function useStaffList(institutionId?: string) {
+  return useQuery({
+    queryKey: ['staff-list', institutionId],
+    queryFn: () => EventVenueService.getStaffList(institutionId),
+    staleTime: 60 * 1000,
+    retry: 3,
+  });
+}
