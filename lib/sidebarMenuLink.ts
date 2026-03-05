@@ -68,6 +68,7 @@ import {
   Workflow,
   MessagesSquare,
   Radio,
+  Rocket,
   SearchCheck,
   UserCog
 } from 'lucide-react';
@@ -394,7 +395,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admission/settings/workflows': 'admission.settings.workflows.view',
   '/admission/settings/workflow-config': 'admission.settings.workflows.manage',
   '/admission/settings/assignment-rules': 'admission.settings.assignment.view',
-  '/admission/settings/sources': 'admission.settings.sources.view'
+  '/admission/settings/sources': 'admission.settings.sources.view',
+
+  // Startup Studio
+  '/startup-studio/events': 'startup_studio.events.view',
 };
 
 export function GetPages(pathname: string): MenuGroup[] {
@@ -1370,6 +1374,18 @@ export function GetPages(pathname: string): MenuGroup[] {
           label: 'Lifecycle Analytics',
           active: pathname.startsWith('/admin/lifecycle'),
           icon: BarChart3,
+          submenus: []
+        }
+      ]
+    },
+    {
+      groupLabel: 'Startup Studio',
+      menus: [
+        {
+          href: '/startup-studio/events',
+          label: 'Events',
+          active: pathname.startsWith('/startup-studio'),
+          icon: Rocket,
           submenus: []
         }
       ]
