@@ -8,8 +8,11 @@ import { registerGrievanceTool } from '@/lib/mcp/tools/grievance';
 import { registerAdmissionTool } from '@/lib/mcp/tools/admission';
 import { registerOkrTool } from '@/lib/mcp/tools/okr';
 import { registerOrganizationsTool } from '@/lib/mcp/tools/organizations';
+import { registerAtRiskLearnersTool } from '@/lib/mcp/tools/at-risk-learners';
+import { registerDepartmentHealthTool } from '@/lib/mcp/tools/department-health';
 
 export function registerAllTools(server: McpServer): void {
+  // ── Module tools (9) ──────────────────────────────────────────────────────
   registerMorningBriefTool(server);
   registerAttendanceTool(server);
   registerBillingTool(server);
@@ -19,4 +22,8 @@ export function registerAllTools(server: McpServer): void {
   registerAdmissionTool(server);
   registerOkrTool(server);
   registerOrganizationsTool(server);
+
+  // ── Smart composite tools (2) ─────────────────────────────────────────────
+  registerAtRiskLearnersTool(server);
+  registerDepartmentHealthTool(server);
 }
