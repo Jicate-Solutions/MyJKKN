@@ -5,6 +5,7 @@ import {
   applyInstitutionFilterToQuery
 } from '@/lib/auth/api-institution-filter';
 import { logger } from '@/lib/utils/enhanced-logger';
+import { logActivityClient, AcademicActivityTemplates } from '@/lib/utils/activity-logger-client';
 import type {
   Period,
   CreatePeriodDto,
@@ -35,6 +36,24 @@ export class PeriodService {
         throw enhancedError;
       }
 
+      (async () => {
+        try {
+          const supabase = createClientSupabaseClient();
+          const { data: { user } } = await supabase.auth.getUser();
+          if (!user?.id) return;
+          const template = AcademicActivityTemplates.periodCreated(period.period_name);
+          await logActivityClient({
+            userId: user.id,
+            actionType: template.actionType,
+            resourceType: template.resourceType,
+            resourceId: period.id,
+            resourceName: period.period_name,
+            description: template.description,
+            metadata: { sub_type: template.sub_type },
+            institutionId: period.institution_id,
+          });
+        } catch { /* never block */ }
+      })();
       return period;
     } catch (error) {
       logger.error('academic/periods', 'Error creating period', error);
@@ -68,6 +87,24 @@ export class PeriodService {
         throw enhancedError;
       }
 
+      (async () => {
+        try {
+          const supabase = createClientSupabaseClient();
+          const { data: { user } } = await supabase.auth.getUser();
+          if (!user?.id) return;
+          const template = AcademicActivityTemplates.periodUpdated(period.period_name, Object.keys(data));
+          await logActivityClient({
+            userId: user.id,
+            actionType: template.actionType,
+            resourceType: template.resourceType,
+            resourceId: id,
+            resourceName: period.period_name,
+            description: template.description,
+            metadata: { sub_type: template.sub_type },
+            institutionId: period.institution_id,
+          });
+        } catch { /* never block */ }
+      })();
       return period;
     } catch (error) {
       logger.error('academic/periods', 'Error updating period', error);
@@ -76,6 +113,18 @@ export class PeriodService {
   }
 
   static async deletePeriod(id: string): Promise<void> {
+    let nameForLog = id;
+    let institutionIdForLog: string | undefined;
+    try {
+      const { data: existing } = await PeriodService.supabase
+        .from('periods')
+        .select('period_name, institution_id')
+        .eq('id', id)
+        .single();
+      nameForLog = existing?.period_name || id;
+      institutionIdForLog = existing?.institution_id;
+    } catch { /* ignore */ }
+
     try {
       const { error } = await this.supabase
         .from('periods')
@@ -85,6 +134,24 @@ export class PeriodService {
       if (error) throw error;
 
       toast.success('Period deleted successfully');
+      (async () => {
+        try {
+          const supabase = createClientSupabaseClient();
+          const { data: { user } } = await supabase.auth.getUser();
+          if (!user?.id) return;
+          const template = AcademicActivityTemplates.periodDeleted(nameForLog);
+          await logActivityClient({
+            userId: user.id,
+            actionType: template.actionType,
+            resourceType: template.resourceType,
+            resourceId: id,
+            resourceName: nameForLog,
+            description: template.description,
+            metadata: { sub_type: template.sub_type },
+            institutionId: institutionIdForLog,
+          });
+        } catch { /* never block */ }
+      })();
     } catch (error) {
       logger.error('academic/periods', 'Error deleting period', error);
       throw error;
