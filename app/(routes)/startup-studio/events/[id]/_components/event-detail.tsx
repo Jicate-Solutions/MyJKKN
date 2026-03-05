@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import Link from 'next/link';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -17,6 +17,12 @@ import {
   ArrowLeft,
   Settings,
   Palette,
+  Users,
+  ClipboardList,
+  ListChecks,
+  Presentation,
+  Send,
+  Clock,
 } from 'lucide-react';
 import { useSSEvent, useUpdateEvent } from '@/hooks/startup-studio';
 
@@ -302,6 +308,52 @@ export function EventDetail({ id }: EventDetailProps) {
         </CardContent>
       </Card>
 
+      {/* Registration & Participation */}
+      {event.is_active && (
+        <RegistrationSection eventId={id} event={event} />
+      )}
+
+      {/* Event Management (Admin) */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <ClipboardList className="h-5 w-5" />
+            Event Management
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <Button variant="outline" className="justify-start h-auto py-3" asChild>
+              <Link href={`/startup-studio/events/${id}/registrations`}>
+                <Users className="mr-2 h-4 w-4 text-blue-500" />
+                <div className="text-left">
+                  <p className="font-medium">Registrations</p>
+                  <p className="text-xs text-muted-foreground">View all teams and stats</p>
+                </div>
+              </Link>
+            </Button>
+            <Button variant="outline" className="justify-start h-auto py-3" asChild>
+              <Link href={`/startup-studio/events/${id}/checklists`}>
+                <ListChecks className="mr-2 h-4 w-4 text-green-500" />
+                <div className="text-left">
+                  <p className="font-medium">Checklists</p>
+                  <p className="text-xs text-muted-foreground">Pre-event, on-day, post-event</p>
+                </div>
+              </Link>
+            </Button>
+            <Button variant="outline" className="justify-start h-auto py-3" asChild>
+              <Link href={`/startup-studio/events/${id}/demo-day`}>
+                <Presentation className="mr-2 h-4 w-4 text-purple-500" />
+                <div className="text-left">
+                  <p className="font-medium">Demo Day</p>
+                  <p className="text-xs text-muted-foreground">Presentation schedule</p>
+                </div>
+              </Link>
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Config */}
       {event.config && Object.keys(event.config).length > 0 && (
         <Card>
@@ -319,5 +371,57 @@ export function EventDetail({ id }: EventDetailProps) {
         </Card>
       )}
     </div>
+  );
+}
+
+// --- Registration Section (separate for clarity) ---
+
+function RegistrationSection({ eventId, event }: { eventId: string; event: any }) {
+  const registrationDeadline = event.config?.registration_deadline;
+
+  const isPastDeadline = useMemo(() => {
+    if (!registrationDeadline) return false;
+    return new Date() > new Date(registrationDeadline);
+  }, [registrationDeadline]);
+
+  return (
+    <Card className={isPastDeadline ? 'border-amber-300' : 'border-primary/30'}>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Users className="h-5 w-5" />
+          Participate
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {isPastDeadline && (
+          <Alert>
+            <Clock className="h-4 w-4" />
+            <AlertDescription>
+              Registration deadline ({new Date(registrationDeadline).toLocaleDateString()}) has passed.
+              Late registration is still allowed.
+            </AlertDescription>
+          </Alert>
+        )}
+
+        <div className="flex flex-col sm:flex-row gap-3">
+          <Button asChild size="lg">
+            <Link href={`/startup-studio/events/${eventId}/register`}>
+              <Users className="mr-2 h-4 w-4" />
+              Register Your Team
+            </Link>
+          </Button>
+          <Button variant="outline" asChild size="lg">
+            <Link href={`/startup-studio/events/${eventId}/submit`}>
+              <Send className="mr-2 h-4 w-4" />
+              Submit Project
+            </Link>
+          </Button>
+        </div>
+
+        {event.description && (
+          <p className="text-sm text-muted-foreground">{event.description}</p>
+        )}
+      </CardContent>
+    </Card>
   );
 }

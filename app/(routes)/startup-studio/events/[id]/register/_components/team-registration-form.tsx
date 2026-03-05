@@ -15,8 +15,6 @@ import {
   AlertCircle,
   ArrowLeft,
   Users,
-  Plus,
-  Trash2,
   Loader2,
   CheckCircle2,
 } from 'lucide-react';
@@ -47,35 +45,17 @@ export function TeamRegistrationForm({ eventId }: TeamRegistrationFormProps) {
 
   const event = eventRaw as any;
 
+  const REQUIRED_MEMBERS = 5;
+
   const [teamName, setTeamName] = useState('');
   const [problemIdea, setProblemIdea] = useState('');
-  const [members, setMembers] = useState<MemberSlot[]>([
-    { ...EMPTY_MEMBER },
-    { ...EMPTY_MEMBER },
-  ]);
+  const [members, setMembers] = useState<MemberSlot[]>(
+    Array.from({ length: REQUIRED_MEMBERS }, () => ({ ...EMPTY_MEMBER }))
+  );
   const [teamLeadIndex, setTeamLeadIndex] = useState<string>('0');
   const [validationError, setValidationError] = useState('');
 
-  const addMember = useCallback(() => {
-    if (members.length < 5) {
-      setMembers((prev) => [...prev, { ...EMPTY_MEMBER }]);
-    }
-  }, [members.length]);
-
-  const removeMember = useCallback(
-    (index: number) => {
-      if (members.length <= 2) return;
-      setMembers((prev) => prev.filter((_, i) => i !== index));
-      // Adjust team lead index if needed
-      const leadIdx = parseInt(teamLeadIndex);
-      if (index === leadIdx) {
-        setTeamLeadIndex('0');
-      } else if (index < leadIdx) {
-        setTeamLeadIndex(String(leadIdx - 1));
-      }
-    },
-    [members.length, teamLeadIndex]
-  );
+  // Team size is fixed at 5 — no add/remove
 
   const updateMember = useCallback(
     (index: number, field: keyof MemberSlot, value: string | boolean) => {
@@ -93,8 +73,8 @@ export function TeamRegistrationForm({ eventId }: TeamRegistrationFormProps) {
     }
 
     const filledMembers = members.filter((m) => m.user_id.trim());
-    if (filledMembers.length < 2) {
-      setValidationError('At least 2 members are required (enter email or user ID for each).');
+    if (filledMembers.length < REQUIRED_MEMBERS) {
+      setValidationError(`All ${REQUIRED_MEMBERS} team members are required. Please enter email for each member.`);
       return false;
     }
 
@@ -234,14 +214,8 @@ export function TeamRegistrationForm({ eventId }: TeamRegistrationFormProps) {
           <div className="flex items-center justify-between">
             <CardTitle className="flex items-center gap-2">
               <Users className="h-5 w-5" />
-              Team Members ({members.length}/5)
+              Team Members ({REQUIRED_MEMBERS} required)
             </CardTitle>
-            {members.length < 5 && (
-              <Button variant="outline" size="sm" onClick={addMember}>
-                <Plus className="mr-2 h-4 w-4" />
-                Add Member
-              </Button>
-            )}
           </div>
         </CardHeader>
         <CardContent className="space-y-6">
@@ -277,16 +251,7 @@ export function TeamRegistrationForm({ eventId }: TeamRegistrationFormProps) {
                     </span>
                   )}
                 </h4>
-                {members.length > 2 && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => removeMember(index)}
-                    className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                )}
+                {/* Fixed team size — no remove */}
               </div>
 
               <div className="grid gap-3 sm:grid-cols-2">
