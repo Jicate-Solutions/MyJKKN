@@ -2,6 +2,7 @@ import { createClientSupabaseClient } from '@/lib/supabase/client';
 import toast from 'react-hot-toast';
 import { logger } from '@/lib/utils/enhanced-logger';
 import { trackUsage } from '@/lib/utils/track-usage';
+import { logActivityClient, AcademicActivityTemplates } from '@/lib/utils/activity-logger-client';
 import { LeaveCalendarService } from './leave-calendar-service';
 import type {
   StudentAttendance,
@@ -732,6 +733,49 @@ export class AttendanceCoreService {
         marked_by: attendanceData.marked_by,
         institution_id: attendanceData.institution_id
       });
+
+      // Activity logging — one summary log per marking session
+      const presentCount = attendanceData.student_records.filter(r => r.status === 'Present').length;
+      const totalCount = attendanceData.student_records.length;
+
+      let sectionNameForLog = attendanceData.section_id;
+      try {
+        const { data: section } = await AttendanceCoreService.supabase
+          .from('sections')
+          .select('name, section_name')
+          .eq('id', attendanceData.section_id)
+          .single();
+        sectionNameForLog = (section as any)?.name || (section as any)?.section_name || attendanceData.section_id;
+      } catch { /* ignore */ }
+
+      const markerDisplayName = markerName || attendanceData.marked_by;
+
+      (async () => {
+        try {
+          const logTemplate = AcademicActivityTemplates.attendanceMarked(
+            markerDisplayName,
+            sectionNameForLog,
+            'Manual Entry',
+            presentCount,
+            totalCount
+          );
+          await logActivityClient({
+            userId: attendanceData.marked_by,
+            actionType: logTemplate.actionType,
+            resourceType: logTemplate.resourceType,
+            description: logTemplate.description,
+            metadata: {
+              sub_type: logTemplate.sub_type,
+              section_id: attendanceData.section_id,
+              period_id: 'manual-entry',
+              attendance_date: attendanceData.attendance_date,
+              present_count: presentCount,
+              total_count: totalCount,
+            },
+            institutionId: attendanceData.institution_id,
+          });
+        } catch { /* never block */ }
+      })();
 
       trackUsage({ module: 'academic/attendance', feature: 'save_manual_attendance', eventType: 'create', metadata: { student_count: attendanceData.student_records.length } });
       toast.success(
