@@ -3,16 +3,16 @@
 import { Badge } from '@/components/ui/badge';
 import type { EventStatus } from '@/types/startup-studio';
 
-const statusConfig: Record<EventStatus, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' }> = {
-  draft: { label: 'Draft', variant: 'secondary' },
-  registration_open: { label: 'Registration Open', variant: 'default' },
-  registration_closed: { label: 'Registration Closed', variant: 'outline' },
-  build_day: { label: 'Build Day', variant: 'default' },
-  demo_day: { label: 'Demo Day', variant: 'default' },
-  closed: { label: 'Closed', variant: 'secondary' },
+const statusConfig: Record<EventStatus, { label: string; className: string }> = {
+  draft: { label: 'Draft', className: 'bg-muted text-muted-foreground hover:bg-muted' },
+  registration_open: { label: 'Active', className: 'bg-green-100 text-green-700 hover:bg-green-100 dark:bg-green-900/30 dark:text-green-400' },
+  registration_closed: { label: 'Closed', className: 'bg-muted text-muted-foreground hover:bg-muted' },
+  build_day: { label: 'Active', className: 'bg-green-100 text-green-700 hover:bg-green-100 dark:bg-green-900/30 dark:text-green-400' },
+  demo_day: { label: 'Active', className: 'bg-green-100 text-green-700 hover:bg-green-100 dark:bg-green-900/30 dark:text-green-400' },
+  closed: { label: 'Inactive', className: 'bg-muted text-muted-foreground hover:bg-muted' },
 };
 
 export function EventStatusBadge({ status }: { status: EventStatus }) {
-  const config = statusConfig[status] || { label: status, variant: 'secondary' as const };
-  return <Badge variant={config.variant}>{config.label}</Badge>;
+  const config = statusConfig[status] || { label: status, className: '' };
+  return <Badge variant="secondary" className={config.className}>{config.label}</Badge>;
 }

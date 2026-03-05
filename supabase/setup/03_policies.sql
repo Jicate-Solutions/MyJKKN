@@ -2729,7 +2729,6 @@ CREATE POLICY "startup_events_update_admin" ON startup_events
 CREATE POLICY "event_registrations_select" ON event_registrations
     FOR SELECT TO authenticated USING (
         owner_id = auth.uid()
-        OR EXISTS (SELECT 1 FROM event_team_members WHERE registration_id = event_registrations.id AND profile_id = auth.uid())
         OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND (is_super_admin = true OR role IN ('admin', 'administrator', 'staff')))
     );
 

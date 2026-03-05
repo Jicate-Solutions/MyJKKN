@@ -3,10 +3,12 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Separator } from '@/components/ui/separator';
 import {
   Select,
   SelectContent,
@@ -23,11 +25,16 @@ import {
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
-import { Building2, MapPin, Plus, Trash2, UserPlus, Users, Wand2, X } from 'lucide-react';
+import {
+  Building2, Hash, Loader2, MapPin, Plus, Trash2,
+  UserPlus, Users, Wand2, X,
+} from 'lucide-react';
+import { cn } from '@/lib/utils';
 import {
   useEventVenues,
   useAddVenue,
@@ -35,9 +42,11 @@ import {
   useAssignStaff,
   useRemoveStaff,
   useAutoAllocateTeams,
+  useManualAllocate,
   useRemoveAllocation,
   useStaffList,
 } from '@/hooks/startup-studio/use-event-venues';
+import { useEventRegistrations } from '@/hooks/startup-studio/use-event-registrations';
 import type { DayType, StaffRole, EventVenueAssignment } from '@/types/startup-studio';
 
 const STAFF_ROLES: { value: StaffRole; label: string }[] = [
@@ -72,8 +81,8 @@ export function VenuesPanel({ eventId }: VenuesPanelProps) {
   const [dayType, setDayType] = useState<DayType>('build_day');
 
   return (
-    <Tabs value={dayType} onValueChange={(v) => setDayType(v as DayType)} className="space-y-4">
-      <TabsList>
+    <Tabs value={dayType} onValueChange={(v) => setDayType(v as DayType)} className="space-y-5">
+      <TabsList className="grid w-full max-w-xs grid-cols-2">
         <TabsTrigger value="build_day">Build Day</TabsTrigger>
         <TabsTrigger value="demo_day">Demo Day</TabsTrigger>
       </TabsList>
@@ -92,29 +101,51 @@ function VenuesDayPanel({ eventId, dayType }: { eventId: string; dayType: DayTyp
   const { data: venues = [], isLoading } = useEventVenues(eventId, dayType);
   const autoAllocate = useAutoAllocateTeams();
 
+  const totalCapacity = venues.reduce((s, v) => s + (v.capacity_override || 0), 0);
+  const totalAllocated = venues.reduce((s, v) => s + (v.team_allocations?.length || 0), 0);
+  const totalStaff = venues.reduce((s, v) => s + (v.staff_assignments?.length || 0), 0);
+
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h3 className="text-lg font-semibold">
-          {dayType === 'build_day' ? 'Build Day' : 'Demo Day'} Venues
-        </h3>
+    <div className="space-y-5">
+      {/* Stats Row */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <MiniStat icon={<Building2 className="h-4 w-4" />} label="Venues" value={venues.length} />
+        <MiniStat icon={<Users className="h-4 w-4" />} label="Teams Allocated" value={totalAllocated} color="text-green-600" />
+        <MiniStat icon={<Hash className="h-4 w-4" />} label="Total Capacity" value={totalCapacity || '∞'} />
+        <MiniStat icon={<UserPlus className="h-4 w-4" />} label="Staff Assigned" value={totalStaff} color="text-blue-600" />
+      </div>
+
+      {/* Action Bar */}
+      <div className="flex items-center justify-end">
         <Button
           variant="outline"
+          size="sm"
           onClick={() => autoAllocate.mutate({ eventId, dayType })}
           disabled={autoAllocate.isPending}
+          className="gap-1.5"
         >
-          <Wand2 className="mr-2 h-4 w-4" />
+          {autoAllocate.isPending ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Wand2 className="h-4 w-4" />
+          )}
           {autoAllocate.isPending ? 'Allocating...' : 'Auto-Allocate Teams'}
         </Button>
       </div>
 
+      {/* Add Venue Form */}
       <AddVenueForm eventId={eventId} dayType={dayType} />
 
+      {/* Venue Cards */}
       {isLoading ? (
-        <div className="text-center py-8 text-muted-foreground">Loading venues...</div>
+        <div className="flex justify-center py-12">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        </div>
       ) : venues.length === 0 ? (
-        <div className="text-center py-8 text-muted-foreground">
-          No venues configured. Add a venue above.
+        <div className="text-center py-12">
+          <Building2 className="h-10 w-10 mx-auto text-muted-foreground/40 mb-3" />
+          <p className="text-sm text-muted-foreground">No venues configured yet.</p>
+          <p className="text-xs text-muted-foreground mt-1">Use the form above to add a venue.</p>
         </div>
       ) : (
         <div className="grid gap-4 md:grid-cols-2">
@@ -124,6 +155,22 @@ function VenuesDayPanel({ eventId, dayType }: { eventId: string; dayType: DayTyp
         </div>
       )}
     </div>
+  );
+}
+
+function MiniStat({ icon, label, value, color }: {
+  icon: React.ReactNode; label: string; value: number | string; color?: string;
+}) {
+  return (
+    <Card>
+      <CardContent className="pt-4 pb-3 px-4">
+        <div className="flex items-center gap-2 text-muted-foreground mb-1">
+          {icon}
+          <span className="text-xs font-medium">{label}</span>
+        </div>
+        <p className={cn('text-2xl font-bold', color)}>{value}</p>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -159,31 +206,103 @@ function AddVenueForm({ eventId, dayType }: { eventId: string; dayType: DayType 
   return (
     <Card>
       <CardHeader className="pb-3">
-        <CardTitle className="text-sm font-medium flex items-center gap-2">
+        <CardTitle className="text-base flex items-center gap-2">
           <Plus className="h-4 w-4" />
           Add Venue
         </CardTitle>
+        <CardDescription>
+          Add a new venue for {dayType === 'build_day' ? 'build day' : 'demo day'} activities.
+        </CardDescription>
       </CardHeader>
-      <CardContent>
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-          <Input placeholder="Venue name *" value={name} onChange={(e) => setName(e.target.value)} />
-          <Input placeholder="Building" value={building} onChange={(e) => setBuilding(e.target.value)} />
-          <Input placeholder="Room" value={room} onChange={(e) => setRoom(e.target.value)} />
-          <Input type="number" placeholder="Capacity" value={capacity} onChange={(e) => setCapacity(e.target.value)} />
-          <Select value={institutionId} onValueChange={setInstitutionId}>
-            <SelectTrigger>
-              <SelectValue placeholder="Institution *" />
-            </SelectTrigger>
-            <SelectContent>
-              {institutions.map((inst) => (
-                <SelectItem key={inst.id} value={inst.id}>{inst.name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+      <CardContent className="space-y-4">
+        {/* Row 1: Name & Institution */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <Label htmlFor="venue-name" className="text-sm font-medium flex items-center gap-1.5">
+              <Building2 className="h-3.5 w-3.5 text-muted-foreground" />
+              Venue Name <span className="text-red-500">*</span>
+            </Label>
+            <Input
+              id="venue-name"
+              placeholder="e.g., Main Auditorium"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="institution" className="text-sm font-medium flex items-center gap-1.5">
+              <MapPin className="h-3.5 w-3.5 text-muted-foreground" />
+              Institution <span className="text-red-500">*</span>
+            </Label>
+            <Select value={institutionId} onValueChange={setInstitutionId}>
+              <SelectTrigger id="institution">
+                <SelectValue placeholder="Select institution..." />
+              </SelectTrigger>
+              <SelectContent>
+                {institutions.map((inst) => (
+                  <SelectItem key={inst.id} value={inst.id}>{inst.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         </div>
-        <Button className="mt-3" size="sm" onClick={handleSubmit} disabled={!name || !institutionId || addVenue.isPending}>
-          {addVenue.isPending ? 'Adding...' : 'Add Venue'}
-        </Button>
+
+        {/* Row 2: Building, Room, Capacity */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="space-y-2">
+            <Label htmlFor="building" className="text-sm font-medium">
+              Building
+            </Label>
+            <Input
+              id="building"
+              placeholder="e.g., Block A"
+              value={building}
+              onChange={(e) => setBuilding(e.target.value)}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="room" className="text-sm font-medium">
+              Room
+            </Label>
+            <Input
+              id="room"
+              placeholder="e.g., 101"
+              value={room}
+              onChange={(e) => setRoom(e.target.value)}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="capacity" className="text-sm font-medium flex items-center gap-1.5">
+              <Hash className="h-3.5 w-3.5 text-muted-foreground" />
+              Capacity
+            </Label>
+            <Input
+              id="capacity"
+              type="number"
+              placeholder="e.g., 30"
+              value={capacity}
+              onChange={(e) => setCapacity(e.target.value)}
+              min={1}
+            />
+          </div>
+        </div>
+
+        <Separator />
+
+        <div className="flex justify-end">
+          <Button
+            onClick={handleSubmit}
+            disabled={!name || !institutionId || addVenue.isPending}
+            className="gap-1.5"
+          >
+            {addVenue.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Plus className="h-4 w-4" />
+            )}
+            {addVenue.isPending ? 'Adding...' : 'Add Venue'}
+          </Button>
+        </div>
       </CardContent>
     </Card>
   );
@@ -194,71 +313,126 @@ function VenueCard({ venue, eventId, dayType }: { venue: EventVenueAssignment; e
   const removeAllocation = useRemoveAllocation();
   const allocatedCount = venue.team_allocations?.length || 0;
   const capacity = venue.capacity_override || 0;
+  const fillPercent = capacity > 0 ? Math.round((allocatedCount / capacity) * 100) : 0;
 
   return (
-    <Card>
+    <Card className="overflow-hidden">
+      <div className={cn(
+        'h-1',
+        allocatedCount >= capacity && capacity > 0 ? 'bg-green-500' : 'bg-primary/60'
+      )} />
       <CardHeader className="pb-3">
         <div className="flex items-start justify-between">
           <div>
             <CardTitle className="text-base flex items-center gap-2">
-              <Building2 className="h-4 w-4" />
-              {venue.manual_name || venue.resource?.resource_name || 'Unnamed'}
+              <Building2 className="h-4 w-4 text-primary" />
+              {venue.manual_name || venue.resource?.name || 'Unnamed'}
             </CardTitle>
-            <div className="flex items-center gap-2 mt-1 text-sm text-muted-foreground">
-              {venue.manual_building && <span>{venue.manual_building}</span>}
+            <div className="flex items-center gap-3 mt-1.5 text-sm text-muted-foreground">
+              {venue.manual_building && (
+                <span className="flex items-center gap-1">
+                  <MapPin className="h-3 w-3" /> {venue.manual_building}
+                </span>
+              )}
               {venue.manual_room && <span>Room {venue.manual_room}</span>}
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <Badge variant={venue.institution?.name ? 'secondary' : 'outline'}>
+            <Badge variant="secondary" className="text-xs">
               {venue.institution?.name || 'Unknown'}
             </Badge>
-            <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive"
-              onClick={() => removeVenue.mutate(venue.id)}>
-              <Trash2 className="h-4 w-4" />
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 text-muted-foreground hover:text-destructive"
+              onClick={() => removeVenue.mutate(venue.id)}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
             </Button>
           </div>
         </div>
       </CardHeader>
-      <CardContent className="space-y-3">
-        <div className="flex items-center gap-2">
-          <MapPin className="h-4 w-4 text-muted-foreground" />
-          <span className="text-sm font-medium">
-            Capacity: {allocatedCount} / {capacity || '\u221e'}
-          </span>
+      <CardContent className="space-y-4">
+        {/* Capacity Bar */}
+        <div>
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-xs font-medium text-muted-foreground">Capacity</span>
+            <span className="text-xs font-medium">
+              {allocatedCount} / {capacity || '∞'}
+              {capacity > 0 && ` (${fillPercent}%)`}
+            </span>
+          </div>
+          {capacity > 0 && (
+            <div className="w-full bg-muted rounded-full h-1.5">
+              <div
+                className={cn(
+                  'h-1.5 rounded-full transition-all duration-300',
+                  fillPercent >= 100 ? 'bg-green-500' : fillPercent >= 75 ? 'bg-amber-500' : 'bg-primary'
+                )}
+                style={{ width: `${Math.min(fillPercent, 100)}%` }}
+              />
+            </div>
+          )}
         </div>
+
+        <Separator />
 
         {/* Staff Section */}
         <div>
           <div className="flex items-center justify-between mb-2">
-            <span className="text-sm font-medium flex items-center gap-1">
-              <Users className="h-3 w-3" /> Staff ({venue.staff_assignments?.length || 0})
+            <span className="text-sm font-medium flex items-center gap-1.5">
+              <Users className="h-3.5 w-3.5 text-muted-foreground" />
+              Staff
+              <Badge variant="outline" className="text-[10px] h-5 px-1.5 ml-1">
+                {venue.staff_assignments?.length || 0}
+              </Badge>
             </span>
             <AddStaffDialog eventId={eventId} venueId={venue.id} dayType={dayType} />
           </div>
-          <div className="flex flex-wrap gap-1">
-            {(venue.staff_assignments || []).map((sa: any) => (
-              <StaffBadge key={sa.id} assignment={sa} />
-            ))}
-          </div>
+          {(venue.staff_assignments?.length || 0) > 0 ? (
+            <div className="flex flex-wrap gap-1.5">
+              {(venue.staff_assignments || []).map((sa: any) => (
+                <StaffBadge key={sa.id} assignment={sa} />
+              ))}
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground">No staff assigned yet.</p>
+          )}
         </div>
+
+        <Separator />
 
         {/* Teams Section */}
         <div>
-          <span className="text-sm font-medium flex items-center gap-1 mb-2">
-            <Users className="h-3 w-3" /> Teams ({allocatedCount})
-          </span>
-          <div className="space-y-1">
-            {(venue.team_allocations || []).map((alloc: any) => (
-              <div key={alloc.id} className="flex items-center justify-between text-sm bg-muted/50 rounded px-2 py-1">
-                <span>{alloc.registration?.team_name || 'Unknown'}</span>
-                <Button variant="ghost" size="icon" className="h-6 w-6"
-                  onClick={() => removeAllocation.mutate(alloc.id)}>
-                  <X className="h-3 w-3" />
-                </Button>
-              </div>
-            ))}
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-sm font-medium flex items-center gap-1.5">
+              <Users className="h-3.5 w-3.5 text-muted-foreground" />
+              Teams
+              <Badge variant="outline" className="text-[10px] h-5 px-1.5 ml-1">
+                {allocatedCount}
+              </Badge>
+            </span>
+            <AssignTeamDialog eventId={eventId} venueId={venue.id} dayType={dayType} />
           </div>
+          {allocatedCount > 0 ? (
+            <div className="space-y-1">
+              {(venue.team_allocations || []).map((alloc: any) => (
+                <div key={alloc.id} className="flex items-center justify-between text-sm bg-muted/50 rounded-md px-3 py-1.5 group">
+                  <span className="font-medium text-xs">{alloc.registration?.team_name || 'Unknown'}</span>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-6 w-6 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive"
+                    onClick={() => removeAllocation.mutate(alloc.id)}
+                  >
+                    <X className="h-3 w-3" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground">No teams allocated yet. Use the button above to assign teams.</p>
+          )}
         </div>
       </CardContent>
     </Card>
@@ -270,15 +444,100 @@ function StaffBadge({ assignment }: { assignment: any }) {
   const staffName = assignment.staff
     ? `${assignment.staff.first_name} ${assignment.staff.last_name}`
     : 'Unknown';
+  const roleLabel = STAFF_ROLES.find((r) => r.value === assignment.role)?.label || assignment.role;
 
   return (
-    <Badge variant="outline" className="gap-1">
-      {staffName}
-      <span className="text-xs text-muted-foreground">({assignment.role})</span>
-      <button className="ml-1 hover:text-destructive" onClick={() => removeStaff.mutate(assignment.id)}>
+    <Badge variant="outline" className="gap-1.5 pr-1">
+      <span className="font-medium">{staffName}</span>
+      <span className="text-[10px] text-muted-foreground">({roleLabel})</span>
+      <button
+        className="ml-0.5 rounded-full p-0.5 hover:bg-destructive/10 hover:text-destructive transition-colors"
+        onClick={() => removeStaff.mutate(assignment.id)}
+      >
         <X className="h-3 w-3" />
       </button>
     </Badge>
+  );
+}
+
+function AssignTeamDialog({ eventId, venueId, dayType }: { eventId: string; venueId: string; dayType: DayType }) {
+  const { data: registrations = [] } = useEventRegistrations({ event_id: eventId });
+  const { data: venues = [] } = useEventVenues(eventId, dayType);
+  const manualAllocate = useManualAllocate();
+  const [open, setOpen] = useState(false);
+  const [selectedTeam, setSelectedTeam] = useState('');
+
+  // Find teams not yet allocated to ANY venue for this day type
+  const allocatedRegIds = new Set(
+    venues.flatMap((v) => (v.team_allocations || []).map((a: any) => a.registration_id))
+  );
+  const unallocatedTeams = registrations.filter((r) => !allocatedRegIds.has(r.id));
+
+  const handleAssign = () => {
+    if (!selectedTeam) return;
+    manualAllocate.mutate(
+      { eventId, registrationId: selectedTeam, venueAssignmentId: venueId, dayType },
+      {
+        onSuccess: () => {
+          setOpen(false);
+          setSelectedTeam('');
+        },
+      }
+    );
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button variant="outline" size="sm" className="h-7 gap-1 text-xs">
+          <Plus className="h-3 w-3" /> Assign Team
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Assign Team to Venue</DialogTitle>
+          <DialogDescription>Select a team to assign to this venue for {dayType === 'build_day' ? 'Build Day' : 'Demo Day'}.</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4 pt-2">
+          <div className="space-y-2">
+            <Label htmlFor="team-select" className="text-sm font-medium">
+              Team <span className="text-red-500">*</span>
+            </Label>
+            <Select value={selectedTeam} onValueChange={setSelectedTeam}>
+              <SelectTrigger id="team-select">
+                <SelectValue placeholder="Select a team..." />
+              </SelectTrigger>
+              <SelectContent>
+                {unallocatedTeams.length === 0 ? (
+                  <SelectItem value="_none" disabled>All teams are already allocated</SelectItem>
+                ) : (
+                  unallocatedTeams.map((r) => (
+                    <SelectItem key={r.id} value={r.id}>{r.team_name}</SelectItem>
+                  ))
+                )}
+              </SelectContent>
+            </Select>
+            {unallocatedTeams.length > 0 && (
+              <p className="text-xs text-muted-foreground">
+                {unallocatedTeams.length} unallocated team{unallocatedTeams.length !== 1 ? 's' : ''} available
+              </p>
+            )}
+          </div>
+          <Button
+            onClick={handleAssign}
+            disabled={!selectedTeam || manualAllocate.isPending}
+            className="w-full gap-1.5"
+          >
+            {manualAllocate.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Plus className="h-4 w-4" />
+            )}
+            {manualAllocate.isPending ? 'Assigning...' : 'Assign Team'}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -306,38 +565,62 @@ function AddStaffDialog({ eventId, venueId, dayType }: { eventId: string; venueI
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button variant="outline" size="sm" className="h-7">
-          <UserPlus className="mr-1 h-3 w-3" /> Add
+        <Button variant="outline" size="sm" className="h-7 gap-1 text-xs">
+          <UserPlus className="h-3 w-3" /> Add Staff
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Assign Staff</DialogTitle>
+          <DialogDescription>Select a staff member and their role for this venue.</DialogDescription>
         </DialogHeader>
-        <div className="space-y-3">
-          <Select value={selectedStaff} onValueChange={setSelectedStaff}>
-            <SelectTrigger>
-              <SelectValue placeholder="Select staff member" />
-            </SelectTrigger>
-            <SelectContent>
-              {staffList.map((s) => (
-                <SelectItem key={s.id} value={s.id}>
-                  {s.first_name} {s.last_name} ({s.email})
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select value={selectedRole} onValueChange={(v) => setSelectedRole(v as StaffRole)}>
-            <SelectTrigger>
-              <SelectValue placeholder="Select role" />
-            </SelectTrigger>
-            <SelectContent>
-              {STAFF_ROLES.map((r) => (
-                <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Button onClick={handleAssign} disabled={!selectedStaff || assignStaff.isPending} className="w-full">
+        <div className="space-y-4 pt-2">
+          <div className="space-y-2">
+            <Label htmlFor="staff-member" className="text-sm font-medium">
+              Staff Member <span className="text-red-500">*</span>
+            </Label>
+            <Select value={selectedStaff} onValueChange={setSelectedStaff}>
+              <SelectTrigger id="staff-member">
+                <SelectValue placeholder="Select staff member..." />
+              </SelectTrigger>
+              <SelectContent>
+                {staffList.length === 0 ? (
+                  <SelectItem value="_none" disabled>No staff available</SelectItem>
+                ) : (
+                  staffList.map((s) => (
+                    <SelectItem key={s.id} value={s.id}>
+                      {s.first_name} {s.last_name} ({s.email})
+                    </SelectItem>
+                  ))
+                )}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="staff-role" className="text-sm font-medium">
+              Role <span className="text-red-500">*</span>
+            </Label>
+            <Select value={selectedRole} onValueChange={(v) => setSelectedRole(v as StaffRole)}>
+              <SelectTrigger id="staff-role">
+                <SelectValue placeholder="Select role..." />
+              </SelectTrigger>
+              <SelectContent>
+                {STAFF_ROLES.map((r) => (
+                  <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <Button
+            onClick={handleAssign}
+            disabled={!selectedStaff || assignStaff.isPending}
+            className="w-full gap-1.5"
+          >
+            {assignStaff.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <UserPlus className="h-4 w-4" />
+            )}
             {assignStaff.isPending ? 'Assigning...' : 'Assign Staff'}
           </Button>
         </div>

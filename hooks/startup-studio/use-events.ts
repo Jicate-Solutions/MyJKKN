@@ -1,8 +1,9 @@
 // hooks/startup-studio/use-events.ts
 
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { EventService } from '@/lib/services/startup-studio/event-service';
-import type { EventFilters } from '@/types/startup-studio';
+import type { EventFilters, UpdateEventDto } from '@/types/startup-studio';
+import { toast } from 'sonner';
 
 export function useEvents(filters?: EventFilters) {
   return useQuery({
@@ -36,5 +37,21 @@ export function useEventStats(eventId: string | undefined) {
     enabled: !!eventId,
     staleTime: 15 * 1000,
     retry: 3,
+  });
+}
+
+export function useUpdateEvent() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, dto }: { id: string; dto: UpdateEventDto }) =>
+      EventService.updateEvent(id, dto),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['startup-events'] });
+      queryClient.invalidateQueries({ queryKey: ['startup-event', data.id] });
+      toast.success('Event updated successfully');
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to update event');
+    },
   });
 }

@@ -14,6 +14,15 @@ export function useEventRegistrations(filters: RegistrationFilters) {
   });
 }
 
+export function useEventRegistrationsPaginated(filters: RegistrationFilters) {
+  return useQuery({
+    queryKey: ['event-registrations-paginated', filters],
+    queryFn: () => EventRegistrationService.getRegistrationsPaginated(filters),
+    staleTime: 15 * 1000,
+    retry: 3,
+  });
+}
+
 export function useMyRegistration(eventId: string | undefined) {
   const { profile } = useAuth();
   return useQuery({

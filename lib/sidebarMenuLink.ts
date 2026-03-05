@@ -399,6 +399,14 @@ export const MENU_PERMISSIONS: MenuPermissions = {
 
   // Startup Studio
   '/startup-studio/events': 'startup_studio.events.view',
+  '/startup-studio/events/[id]/registrations': 'startup_studio.registrations.manage',
+  '/startup-studio/events/[id]/venues': 'startup_studio.venues.manage',
+  '/startup-studio/events/[id]/submit': 'startup_studio.events.view',
+  '/startup-studio/events/[id]/my-team': 'startup_studio.events.view',
+  '/startup-studio/events/[id]/my-assignment': 'startup_studio.venues.manage',
+  '/startup-studio/events/[id]/demo-day': 'startup_studio.demo_day.manage',
+  '/startup-studio/events/[id]/leaderboard': 'startup_studio.leaderboard.view',
+  '/startup-studio/events/[id]/checklists': 'startup_studio.checklists.manage',
 };
 
 export function GetPages(pathname: string): MenuGroup[] {
@@ -1380,15 +1388,62 @@ export function GetPages(pathname: string): MenuGroup[] {
     },
     {
       groupLabel: 'Startup Studio',
-      menus: [
-        {
-          href: '/startup-studio/events',
-          label: 'Events',
-          active: pathname.startsWith('/startup-studio'),
-          icon: Rocket,
-          submenus: []
-        }
-      ]
+      menus: (() => {
+        // Extract active event ID from pathname: /startup-studio/events/[uuid]/...
+        const eventMatch = pathname.match(/\/startup-studio\/events\/([^/]+)/);
+        const activeId = eventMatch?.[1] && eventMatch[1] !== 'events' ? eventMatch[1] : null;
+
+        return [
+          {
+            href: '/startup-studio/events',
+            label: 'Events',
+            active: pathname.startsWith('/startup-studio'),
+            icon: Rocket,
+            submenus: activeId ? [
+              {
+                href: `/startup-studio/events/${activeId}/my-team`,
+                label: 'My Team',
+                active: pathname.includes('/my-team')
+              },
+              {
+                href: `/startup-studio/events/${activeId}/submit`,
+                label: 'Submit Project',
+                active: pathname.includes('/submit')
+              },
+              {
+                href: `/startup-studio/events/${activeId}/my-assignment`,
+                label: 'My Assignment',
+                active: pathname.includes('/my-assignment')
+              },
+              {
+                href: `/startup-studio/events/${activeId}/registrations`,
+                label: 'Registrations',
+                active: pathname.includes('/registrations')
+              },
+              {
+                href: `/startup-studio/events/${activeId}/venues`,
+                label: 'Venues & Mentors',
+                active: pathname.includes('/venues')
+              },
+              {
+                href: `/startup-studio/events/${activeId}/demo-day`,
+                label: 'Demo Day',
+                active: pathname.includes('/demo-day')
+              },
+              {
+                href: `/startup-studio/events/${activeId}/leaderboard`,
+                label: 'Leaderboard',
+                active: pathname.includes('/leaderboard')
+              },
+              {
+                href: `/startup-studio/events/${activeId}/checklists`,
+                label: 'Checklists',
+                active: pathname.includes('/checklists')
+              },
+            ] : []
+          }
+        ];
+      })()
     },
     {
       groupLabel: 'System',

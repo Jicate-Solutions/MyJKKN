@@ -52,7 +52,7 @@ export default function RegisterPage({ params }: { params: Promise<{ id: string 
         { label: 'Register' },
       ]} />
 
-      <div className="space-y-6 mt-4 max-w-3xl">
+      <div className="space-y-6 mt-4 max-w-5xl">
         <div>
           <h1 className="text-2xl font-bold py-1">Register Your Team</h1>
           <p className="text-sm text-muted-foreground">

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useMemo } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -19,7 +19,8 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { Trophy, Medal, Eye, EyeOff } from 'lucide-react';
+import { Eye, EyeOff, Loader2, Medal, Trophy, Users } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { useLeaderboard, usePublishResults } from '@/hooks/startup-studio/use-event-leaderboard';
 import { useEvent } from '@/hooks/startup-studio/use-events';
 import type { LeaderboardEntry } from '@/types/startup-studio';
@@ -33,10 +34,16 @@ const TIER_NAMES: Record<number, string> = {
   5: 'Strong Revenue',
 };
 
+const MEDAL_COLORS: Record<number, string> = {
+  1: 'text-yellow-500',
+  2: 'text-gray-400',
+  3: 'text-amber-600',
+};
+
 const RANK_STYLES: Record<number, string> = {
-  1: 'border-l-4 border-l-yellow-400 bg-yellow-50 dark:bg-yellow-950/20',
-  2: 'border-l-4 border-l-gray-400 bg-gray-50 dark:bg-gray-950/20',
-  3: 'border-l-4 border-l-amber-600 bg-amber-50 dark:bg-amber-950/20',
+  1: 'border-l-4 border-l-yellow-400 bg-yellow-50/50 dark:bg-yellow-950/20',
+  2: 'border-l-4 border-l-gray-400 bg-gray-50/50 dark:bg-gray-950/20',
+  3: 'border-l-4 border-l-amber-600 bg-amber-50/50 dark:bg-amber-950/20',
 };
 
 interface LeaderboardTableProps {
@@ -60,41 +67,64 @@ export function LeaderboardTable({ eventId, isAdmin }: LeaderboardTableProps) {
     return entries.filter((e) => e.category === categoryFilter);
   }, [entries, categoryFilter]);
 
+  const topScore = filtered.length > 0 ? filtered[0]?.total_score : 0;
+
   if (isLoading) {
-    return <div className="text-center py-8 text-muted-foreground">Loading leaderboard...</div>;
+    return (
+      <div className="flex justify-center py-12">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
   }
 
   return (
     <Card>
       <CardHeader>
-        <div className="flex items-center justify-between">
-          <CardTitle className="flex items-center gap-2">
-            <Trophy className="h-5 w-5 text-yellow-500" />
-            Leaderboard
-          </CardTitle>
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div>
+            <CardTitle className="text-base flex items-center gap-2">
+              <Trophy className="h-4 w-4 text-yellow-500" />
+              Rankings
+            </CardTitle>
+            <CardDescription className="mt-1">
+              {entries.length} team{entries.length !== 1 ? 's' : ''} submitted
+              {event?.is_results_published && (
+                <Badge variant="default" className="ml-2 bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
+                  Published
+                </Badge>
+              )}
+            </CardDescription>
+          </div>
           <div className="flex items-center gap-3">
-            <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-              <SelectTrigger className="w-[180px]">
-                <SelectValue placeholder="All Categories" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Categories</SelectItem>
-                {categories.map((cat) => (
-                  <SelectItem key={cat} value={cat}>{cat}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            {categories.length > 0 && (
+              <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+                <SelectTrigger className="w-[180px] h-9">
+                  <SelectValue placeholder="All Categories" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Categories</SelectItem>
+                  {categories.map((cat) => (
+                    <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
             {isAdmin && (
               <Button
                 variant={event?.is_results_published ? 'destructive' : 'default'}
+                size="sm"
                 onClick={() => publishResults.mutate({ eventId, publish: !event?.is_results_published })}
                 disabled={publishResults.isPending}
+                className="gap-1.5"
               >
-                {event?.is_results_published ? (
-                  <><EyeOff className="mr-2 h-4 w-4" /> Unpublish</>
+                {publishResults.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : event?.is_results_published ? (
+                  <EyeOff className="h-4 w-4" />
                 ) : (
-                  <><Eye className="mr-2 h-4 w-4" /> Publish Results</>
+                  <Eye className="h-4 w-4" />
                 )}
+                {event?.is_results_published ? 'Unpublish' : 'Publish Results'}
               </Button>
             )}
           </div>
@@ -102,53 +132,83 @@ export function LeaderboardTable({ eventId, isAdmin }: LeaderboardTableProps) {
       </CardHeader>
       <CardContent>
         {filtered.length === 0 ? (
-          <div className="text-center py-8 text-muted-foreground">No submissions yet.</div>
+          <div className="text-center py-12">
+            <Trophy className="h-10 w-10 mx-auto text-muted-foreground/40 mb-3" />
+            <p className="text-sm text-muted-foreground">No submissions yet.</p>
+            <p className="text-xs text-muted-foreground mt-1">Teams will appear here once they submit their projects.</p>
+          </div>
         ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-16">Rank</TableHead>
-                <TableHead>Team</TableHead>
-                <TableHead>App</TableHead>
-                <TableHead>Category</TableHead>
-                <TableHead>College</TableHead>
-                <TableHead className="text-center">Tier</TableHead>
-                <TableHead className="text-right">MRR</TableHead>
-                <TableHead className="text-right">Total Score</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filtered.map((entry) => (
-                <TableRow key={entry.submission_id} className={RANK_STYLES[entry.rank] || ''}>
-                  <TableCell className="font-bold text-lg">
-                    {entry.rank <= 3 ? (
-                      <span className="flex items-center gap-1">
-                        <Medal className="h-5 w-5" />
-                        {entry.rank}
-                      </span>
-                    ) : entry.rank}
-                  </TableCell>
-                  <TableCell className="font-medium">{entry.team_name}</TableCell>
-                  <TableCell>{entry.app_name || '—'}</TableCell>
-                  <TableCell>
-                    {entry.category && <Badge variant="outline">{entry.category}</Badge>}
-                  </TableCell>
-                  <TableCell className="text-sm">{entry.institution_name || '—'}</TableCell>
-                  <TableCell className="text-center">
-                    <Badge variant="secondary">
-                      T{entry.tier_level} — {TIER_NAMES[entry.tier_level] || ''}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="text-right font-mono">
-                    {entry.mrr_amount > 0 ? `₹${entry.mrr_amount}` : '—'}
-                  </TableCell>
-                  <TableCell className="text-right font-bold text-lg">
-                    {entry.total_score}
-                  </TableCell>
+          <div className="border rounded-lg overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-muted/30">
+                  <TableHead className="w-16 text-center">Rank</TableHead>
+                  <TableHead className="min-w-[140px]">Team</TableHead>
+                  <TableHead className="min-w-[120px]">App</TableHead>
+                  <TableHead className="min-w-[100px]">Category</TableHead>
+                  <TableHead className="min-w-[120px]">College</TableHead>
+                  <TableHead className="text-center min-w-[120px]">Tier</TableHead>
+                  <TableHead className="text-right min-w-[80px]">MRR</TableHead>
+                  <TableHead className="text-right min-w-[100px]">Score</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {filtered.map((entry) => (
+                  <TableRow key={entry.submission_id} className={cn(RANK_STYLES[entry.rank] || '', 'group')}>
+                    <TableCell className="text-center">
+                      {entry.rank <= 3 ? (
+                        <span className="flex items-center justify-center gap-1">
+                          <Medal className={cn('h-5 w-5', MEDAL_COLORS[entry.rank])} />
+                          <span className="font-bold text-lg">{entry.rank}</span>
+                        </span>
+                      ) : (
+                        <span className="font-semibold text-muted-foreground">{entry.rank}</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <span className="font-medium text-sm">{entry.team_name}</span>
+                    </TableCell>
+                    <TableCell>
+                      <span className="text-sm text-muted-foreground">{entry.app_name || '—'}</span>
+                    </TableCell>
+                    <TableCell>
+                      {entry.category ? (
+                        <Badge variant="outline" className="text-xs">{entry.category}</Badge>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <span className="text-xs text-muted-foreground">{entry.institution_name || '—'}</span>
+                    </TableCell>
+                    <TableCell className="text-center">
+                      <Badge variant="secondary" className="text-xs">
+                        T{entry.tier_level} — {TIER_NAMES[entry.tier_level] || ''}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <span className="font-mono text-sm">
+                        {entry.mrr_amount > 0 ? `₹${entry.mrr_amount}` : '—'}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex items-center justify-end gap-2">
+                        {topScore > 0 && (
+                          <div className="w-12 bg-muted rounded-full h-1.5 hidden sm:block">
+                            <div
+                              className="bg-primary h-1.5 rounded-full"
+                              style={{ width: `${Math.round((entry.total_score / topScore) * 100)}%` }}
+                            />
+                          </div>
+                        )}
+                        <span className="font-bold text-base">{entry.total_score}</span>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
         )}
       </CardContent>
     </Card>

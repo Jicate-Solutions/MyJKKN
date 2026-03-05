@@ -109,6 +109,93 @@ export class EventChecklistService {
     return this.getChecklists(eventId);
   }
 
+  static async createChecklist(
+    eventId: string,
+    data: { title: string; phase: ChecklistPhase; target_role: ChecklistTargetRole }
+  ): Promise<EventChecklist> {
+    // Get max order_index for the event
+    const { data: existing } = await this.supabase
+      .from('event_checklists')
+      .select('order_index')
+      .eq('event_id', eventId)
+      .order('order_index', { ascending: false })
+      .limit(1);
+
+    const nextOrder = (existing?.[0]?.order_index ?? -1) + 1;
+
+    const { data: checklist, error } = await this.supabase
+      .from('event_checklists')
+      .insert({
+        event_id: eventId,
+        title: data.title,
+        phase: data.phase,
+        target_role: data.target_role,
+        order_index: nextOrder,
+      })
+      .select()
+      .single();
+
+    if (error) {
+      console.error('[startup/checklists] createChecklist failed:', error);
+      throw error;
+    }
+    return checklist as unknown as EventChecklist;
+  }
+
+  static async deleteChecklist(checklistId: string): Promise<void> {
+    const { error } = await this.supabase
+      .from('event_checklists')
+      .delete()
+      .eq('id', checklistId);
+
+    if (error) {
+      console.error('[startup/checklists] deleteChecklist failed:', error);
+      throw error;
+    }
+  }
+
+  static async addItem(
+    checklistId: string,
+    data: { title: string; description?: string; is_required?: boolean }
+  ): Promise<void> {
+    // Get max order_index for the checklist
+    const { data: existing } = await this.supabase
+      .from('event_checklist_items')
+      .select('order_index')
+      .eq('checklist_id', checklistId)
+      .order('order_index', { ascending: false })
+      .limit(1);
+
+    const nextOrder = (existing?.[0]?.order_index ?? -1) + 1;
+
+    const { error } = await this.supabase
+      .from('event_checklist_items')
+      .insert({
+        checklist_id: checklistId,
+        title: data.title,
+        description: data.description || null,
+        is_required: data.is_required ?? false,
+        order_index: nextOrder,
+      });
+
+    if (error) {
+      console.error('[startup/checklists] addItem failed:', error);
+      throw error;
+    }
+  }
+
+  static async deleteItem(itemId: string): Promise<void> {
+    const { error } = await this.supabase
+      .from('event_checklist_items')
+      .delete()
+      .eq('id', itemId);
+
+    if (error) {
+      console.error('[startup/checklists] deleteItem failed:', error);
+      throw error;
+    }
+  }
+
   static async completeItem(
     checklistItemId: string,
     userId: string,

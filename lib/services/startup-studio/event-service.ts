@@ -20,7 +20,8 @@ export class EventService {
       .select(`
         *,
         host_institution:institutions(id, name),
-        creator:profiles!startup_events_created_by_fkey(id, full_name, email)
+        creator:profiles!startup_events_created_by_fkey(id, full_name, email),
+        registrations:event_registrations(id, team_members:event_team_members(id))
       `)
       .order('created_at', { ascending: false });
 

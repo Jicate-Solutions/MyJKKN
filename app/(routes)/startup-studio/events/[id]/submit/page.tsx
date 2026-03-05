@@ -80,7 +80,7 @@ export default function SubmitPage({ params }: { params: Promise<{ id: string }>
 
   if (eventLoading || regLoading || subLoading) {
     return (
-      <ContentLayout>
+      <ContentLayout title="Submit Project">
         <PageBreadcrumb items={[
           { label: 'Startup Studio', href: '/startup-studio/events' },
           { label: 'Event', href: `/startup-studio/events/${id}` },
@@ -93,7 +93,7 @@ export default function SubmitPage({ params }: { params: Promise<{ id: string }>
 
   if (!registration) {
     return (
-      <ContentLayout>
+      <ContentLayout title="Submit Project">
         <PageBreadcrumb items={[
           { label: 'Startup Studio', href: '/startup-studio/events' },
           { label: 'Event', href: `/startup-studio/events/${id}` },
@@ -112,14 +112,14 @@ export default function SubmitPage({ params }: { params: Promise<{ id: string }>
   }
 
   return (
-    <ContentLayout>
+    <ContentLayout title="Submit Project">
       <PageBreadcrumb items={[
         { label: 'Startup Studio', href: '/startup-studio/events' },
         { label: event?.name || 'Event', href: `/startup-studio/events/${id}` },
         { label: 'Submit Project' },
       ]} />
 
-      <div className="space-y-6 max-w-3xl mx-auto">
+      <div className="space-y-6 max-w-5xl py-4">
         <div>
           <h2 className="text-2xl font-bold">Submit Project</h2>
           <p className="text-muted-foreground">Team: {registration.team_name}</p>
@@ -168,7 +168,7 @@ function ProjectSection({
 
   const onSubmit = (values: ProjectFormValues) => {
     if (submission) {
-      updateSubmission.mutate({ submissionId: submission.id, dto: values });
+      updateSubmission.mutate({ id: submission.id, dto: values });
     } else {
       submitProject.mutate({
         event_id: eventId,
@@ -303,7 +303,7 @@ function MetricsSection({
       ? values.proof_urls.split(',').map((u) => u.trim()).filter(Boolean)
       : [];
     updateMetrics.mutate({
-      submissionId: submission.id,
+      id: submission.id,
       dto: {
         mrr_amount: values.mrr_amount,
         paying_users_count: values.paying_users_count,

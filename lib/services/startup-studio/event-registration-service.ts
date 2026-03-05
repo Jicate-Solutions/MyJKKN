@@ -4,6 +4,7 @@ import type {
   CreateRegistrationDto,
   CreateTeamMemberDto,
   EventTeamMember,
+  PaginatedRegistrations,
   RegistrationFilters,
   ValidationResult,
 } from '@/types/startup-studio';
@@ -73,12 +74,26 @@ export class EventRegistrationService {
 
     const { data: profile } = await this.supabase
       .from('profiles')
-      .select('institution_id')
+      .select('institution_id, is_super_admin, role')
       .eq('id', userId)
       .single();
 
-    if (!profile?.institution_id) {
-      throw new Error('Your profile is not linked to an institution');
+    // Super admins may not have institution_id — allow DTO override or first available
+    let institutionId = profile?.institution_id || dto.institution_id;
+    if (!institutionId) {
+      const isSuperAdmin = profile?.is_super_admin || profile?.role === 'super_admin' || profile?.role === 'admin' || profile?.role === 'administrator';
+      if (isSuperAdmin) {
+        // Fallback: get first institution
+        const { data: firstInst } = await this.supabase
+          .from('institutions')
+          .select('id')
+          .limit(1)
+          .single();
+        institutionId = firstInst?.id;
+      }
+      if (!institutionId) {
+        throw new Error('Your profile is not linked to an institution');
+      }
     }
 
     const { data: registration, error: regError } = await this.supabase
@@ -88,7 +103,7 @@ export class EventRegistrationService {
         team_name: dto.team_name,
         problem_idea: dto.problem_idea,
         owner_id: userId,
-        institution_id: profile.institution_id,
+        institution_id: institutionId,
       })
       .select()
       .single();
@@ -147,6 +162,50 @@ export class EventRegistrationService {
     return (data || []) as unknown as EventRegistration[];
   }
 
+  static async getRegistrationsPaginated(filters: RegistrationFilters): Promise<PaginatedRegistrations> {
+    const page = filters.page || 1;
+    const limit = filters.limit || 10;
+    const from = (page - 1) * limit;
+    const to = from + limit - 1;
+
+    let query = this.supabase
+      .from('event_registrations')
+      .select(`
+        *,
+        owner:profiles!event_registrations_owner_id_fkey(id, full_name, email, avatar_url),
+        institution:institutions(id, name),
+        team_members:event_team_members(id, email, full_name, student_id, has_laptop, profile_id)
+      `, { count: 'exact' })
+      .eq('event_id', filters.event_id)
+      .order('created_at', { ascending: true })
+      .range(from, to);
+
+    if (filters.status) query = query.eq('status', filters.status);
+    if (filters.checked_in !== undefined) query = query.eq('checked_in', filters.checked_in);
+    if (filters.lovable_verified !== undefined) query = query.eq('lovable_verified', filters.lovable_verified);
+    if (filters.institution_id) query = query.eq('institution_id', filters.institution_id);
+    if (filters.search) {
+      query = query.or(`team_name.ilike.%${filters.search}%,problem_idea.ilike.%${filters.search}%`);
+    }
+
+    const { data, error, count } = await query;
+    if (error) {
+      console.error('[startup/registration] getRegistrationsPaginated failed:', error);
+      throw error;
+    }
+
+    const totalItems = count || 0;
+    return {
+      data: (data || []) as unknown as EventRegistration[],
+      pagination: {
+        page,
+        limit,
+        total_items: totalItems,
+        total_pages: Math.ceil(totalItems / limit),
+      },
+    };
+  }
+
   static async getMyRegistration(eventId: string, userId: string): Promise<EventRegistration | null> {
     const { data, error } = await this.supabase
       .from('event_registrations')
@@ -159,7 +218,7 @@ export class EventRegistrationService {
           id, day_type,
           venue_assignment:event_venue_assignments(
             id, manual_name, manual_building, manual_room, day_type, capacity_override,
-            resource:resources(id, resource_name, location),
+            resource:resources(id, name, building_number, room_number),
             staff_assignments:event_staff_assignments(
               id, role,
               staff:staff(id, first_name, last_name, email)

@@ -607,6 +607,37 @@ export const PERMISSION_CATEGORIES = [
     ]
   },
   {
+    name: 'Startup Studio',
+    key: 'startup_studio',
+    permissions: [
+      // Events
+      { key: 'startup_studio.events.view', label: 'View Events' },
+      { key: 'startup_studio.events.create', label: 'Create Events' },
+      { key: 'startup_studio.events.manage', label: 'Manage Events (Edit, Status, Config)' },
+
+      // Registrations
+      { key: 'startup_studio.registrations.view', label: 'View Registrations' },
+      { key: 'startup_studio.registrations.manage', label: 'Manage Registrations (Check-in, Lovable Verify)' },
+
+      // Venues & Staff
+      { key: 'startup_studio.venues.manage', label: 'Manage Venues & Staff Assignments' },
+
+      // Submissions
+      { key: 'startup_studio.submissions.view', label: 'View Submissions' },
+      { key: 'startup_studio.submissions.verify_mrr', label: 'Verify/Reject MRR Claims' },
+
+      // Leaderboard
+      { key: 'startup_studio.leaderboard.view', label: 'View Leaderboard' },
+      { key: 'startup_studio.leaderboard.publish', label: 'Publish/Unpublish Results' },
+
+      // Demo Day
+      { key: 'startup_studio.demo_day.manage', label: 'Manage Demo Day Slots' },
+
+      // Checklists
+      { key: 'startup_studio.checklists.manage', label: 'Manage Event Checklists' },
+    ]
+  },
+  {
     name: 'Administration',
     key: 'admin',
     permissions: [

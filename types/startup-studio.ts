@@ -218,6 +218,7 @@ export interface CreateRegistrationDto {
   event_id: string;
   team_name: string;
   problem_idea: string;
+  institution_id?: string;
   members: CreateTeamMemberDto[];
 }
 
@@ -280,6 +281,18 @@ export interface RegistrationFilters {
   institution_id?: string;
   checked_in?: boolean;
   lovable_verified?: boolean;
+  page?: number;
+  limit?: number;
+}
+
+export interface PaginatedRegistrations {
+  data: EventRegistration[];
+  pagination: {
+    page: number;
+    limit: number;
+    total_items: number;
+    total_pages: number;
+  };
 }
 
 // -- Validation --

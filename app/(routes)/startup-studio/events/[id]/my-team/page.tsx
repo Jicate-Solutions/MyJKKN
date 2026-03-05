@@ -19,9 +19,17 @@ export default function MyTeamPage({ params }: { params: Promise<{ id: string }>
   if (isLoading) {
     return (
       <ContentLayout title="My Team">
-        <div className="flex items-center justify-center py-20">
-          <Loader2 className="h-6 w-6 animate-spin" />
-        </div>
+        <PageBreadcrumb items={[
+          { label: 'Startup Studio', href: '/startup-studio/events' },
+          { label: event?.name || 'Event', href: `/startup-studio/events/${id}` },
+          { label: 'My Team' },
+        ]} />
+        <Card className="max-w-5xl mx-auto mt-8">
+          <CardContent className="pt-6 text-center space-y-3">
+            <Loader2 className="h-12 w-12 text-muted-foreground mx-auto animate-spin" />
+            <p className="text-muted-foreground">Loading your team information...</p>
+          </CardContent>
+        </Card>
       </ContentLayout>
     );
   }
@@ -30,17 +38,17 @@ export default function MyTeamPage({ params }: { params: Promise<{ id: string }>
     return (
       <ContentLayout title="My Team">
         <PageBreadcrumb items={[
-          { label: 'Home', href: '/' },
-          { label: 'Startup Studio', href: '/startup-studio/events' },
           { label: event?.name || 'Event', href: `/startup-studio/events/${id}` },
           { label: 'My Team' },
         ]} />
-        <div className="text-center py-20 space-y-4">
-          <p className="text-muted-foreground">You haven&apos;t registered a team for this event yet.</p>
-          <Link href={`/startup-studio/events/${id}/register`}>
-            <Button>Register Now</Button>
-          </Link>
-        </div>
+        <Card className="max-w-5xl mx-auto mt-8">
+          <CardContent className="pt-6 text-center space-y-3">
+            <p className="text-muted-foreground">You haven&apos;t registered a team for this event yet.</p>
+            <Link href={`/startup-studio/events/${id}/register`}>
+              <Button>Register Now</Button>
+            </Link>
+          </CardContent>
+        </Card>
       </ContentLayout>
     );
   }
@@ -57,7 +65,7 @@ export default function MyTeamPage({ params }: { params: Promise<{ id: string }>
         { label: 'My Team' },
       ]} />
 
-      <div className="space-y-6 mt-4 max-w-3xl">
+      <div className="space-y-6 mt-4 max-w-5xl py-4">
         {/* Team Info */}
         <Card>
           <CardHeader>
@@ -124,7 +132,7 @@ export default function MyTeamPage({ params }: { params: Promise<{ id: string }>
               <div className="p-3 border rounded-lg">
                 <p className="text-sm font-medium">Build Day</p>
                 <p className="text-sm text-muted-foreground">
-                  {buildDayVenue.venue_assignment?.resource?.resource_name ||
+                  {buildDayVenue.venue_assignment?.resource?.name ||
                    buildDayVenue.venue_assignment?.manual_name || 'Venue assigned'}
                   {buildDayVenue.venue_assignment?.manual_building &&
                     ` - ${buildDayVenue.venue_assignment.manual_building}`}
@@ -143,7 +151,7 @@ export default function MyTeamPage({ params }: { params: Promise<{ id: string }>
               <div className="p-3 border rounded-lg">
                 <p className="text-sm font-medium">Demo Day</p>
                 <p className="text-sm text-muted-foreground">
-                  {demoDayVenue.venue_assignment?.resource?.resource_name ||
+                  {demoDayVenue.venue_assignment?.resource?.name ||
                    demoDayVenue.venue_assignment?.manual_name || 'Venue assigned'}
                 </p>
               </div>

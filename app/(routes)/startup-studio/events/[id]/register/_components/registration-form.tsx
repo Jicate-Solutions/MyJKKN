@@ -11,6 +11,11 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   Form, FormControl, FormField, FormItem, FormLabel, FormMessage,
 } from '@/components/ui/form';
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,  
+} from '@/components/ui/select';
+import { useQuery } from '@tanstack/react-query';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { useRegisterTeam } from '@/hooks/startup-studio/use-event-registrations';
 import { useAuth } from '@/hooks/use-auth';
 import { Plus, Trash2, Laptop, Loader2 } from 'lucide-react';
@@ -26,21 +31,39 @@ const memberSchema = z.object({
 const registrationSchema = z.object({
   team_name: z.string().min(2, 'Team name must be at least 2 characters'),
   problem_idea: z.string().min(20, 'Problem idea must be at least 20 characters'),
+  institution_id: z.string().optional(),
   members: z.array(memberSchema).min(1, 'Add at least one team member'),
 });
 
 type FormValues = z.infer<typeof registrationSchema>;
 
+function useInstitutions() {
+  return useQuery({
+    queryKey: ['institutions-list'],
+    queryFn: async () => {
+      const supabase = createClientSupabaseClient();
+      const { data, error } = await supabase.from('institutions').select('id, name').order('name');
+      if (error) throw error;
+      return data as Array<{ id: string; name: string }>;
+    },
+    staleTime: 60 * 1000,
+  });
+}
+
 export function RegistrationForm({ event }: { event: StartupEvent }) {
   const { profile } = useAuth();
   const registerTeam = useRegisterTeam();
   const maxSize = event.config?.team_max_size || 5;
+  const isSuperAdmin = (profile as any)?.is_super_admin || profile?.role === 'super_admin' || profile?.role === 'admin' || profile?.role === 'administrator';
+  const needsInstitutionPicker = isSuperAdmin && !profile?.institution_id;
+  const { data: institutions = [] } = useInstitutions();
 
   const form = useForm<FormValues>({
     resolver: zodResolver(registrationSchema),
     defaultValues: {
       team_name: '',
       problem_idea: '',
+      institution_id: '',
       members: [
         {
           email: profile?.email || '',
@@ -62,7 +85,13 @@ export function RegistrationForm({ event }: { event: StartupEvent }) {
       event_id: event.id,
       team_name: values.team_name,
       problem_idea: values.problem_idea,
-      members: values.members,
+      institution_id: values.institution_id || undefined,
+      members: values.members.map((member) => ({
+        email: member.email,
+        full_name: member.full_name || '',
+        student_id: member.student_id || '',
+        has_laptop: member.has_laptop,
+      })),
     });
   };
 
@@ -104,6 +133,30 @@ export function RegistrationForm({ event }: { event: StartupEvent }) {
                 </FormItem>
               )}
             />
+            {needsInstitutionPicker && (
+              <FormField
+                control={form.control}
+                name="institution_id"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Institution</FormLabel>
+                    <Select onValueChange={field.onChange} value={field.value}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select institution" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {institutions.map((inst) => (
+                          <SelectItem key={inst.id} value={inst.id}>{inst.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            )}
           </CardContent>
         </Card>
 
