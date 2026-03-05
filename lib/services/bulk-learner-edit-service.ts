@@ -396,7 +396,7 @@ export class BulkLearnerEditService {
         await supabaseAdmin.from('user_activity_logs').insert({
           user_id: userId,
           action_type: 'update',
-          resource_type: 'student',
+          resource_type: 'learner',
           description: `Bulk edited ${result.updated || 0} learner profiles (${fieldsUpdated.join(', ')})`,
           institution_id: userInstitutionId || undefined,
           metadata: {

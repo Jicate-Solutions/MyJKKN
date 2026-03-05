@@ -123,7 +123,7 @@ export class LearnerProfileChangeService {
     await logActivity({
       userId: submittedBy,
       actionType: ACTIVITY_TYPES.CREATE,
-      resourceType: RESOURCE_TYPES.STUDENT,
+      resourceType: RESOURCE_TYPES.LEARNER,
       resourceId: request.id,
       resourceName: learnerName,
       description: `${learnerName} submitted profile change request (${fieldCount} fields)`,
@@ -390,7 +390,7 @@ export class LearnerProfileChangeService {
       await logActivity({
         userId: reviewedBy,
         actionType: ACTIVITY_TYPES.UPDATE,
-        resourceType: RESOURCE_TYPES.STUDENT,
+        resourceType: RESOURCE_TYPES.LEARNER,
         resourceId: requestId,
         resourceName: approvedLearnerName,
         description: `Approved change request for ${approvedLearnerName}`,
@@ -482,7 +482,7 @@ export class LearnerProfileChangeService {
     await logActivity({
       userId: reviewedBy,
       actionType: ACTIVITY_TYPES.UPDATE,
-      resourceType: RESOURCE_TYPES.STUDENT,
+      resourceType: RESOURCE_TYPES.LEARNER,
       resourceId: requestId,
       resourceName: rejectedLearnerName,
       description: `Rejected change request for ${rejectedLearnerName}`,

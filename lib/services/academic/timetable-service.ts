@@ -2,6 +2,7 @@ import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { randomUUID } from 'crypto';
 import { logger } from '@/lib/utils/enhanced-logger';
 import { trackUsage } from '@/lib/utils/track-usage';
+import { logActivityClient, AcademicActivityTemplates } from '@/lib/utils/activity-logger-client';
 import type {
   Timetable,
   CreateTimetableDto,
@@ -376,6 +377,34 @@ Please select a different date period that doesn't overlap.`
       }
 
       trackUsage({ module: 'academic/timetables', feature: 'create_timetable', eventType: 'create' });
+      (async () => {
+        try {
+          const supabase = createClientSupabaseClient();
+          const { data: { user } } = await supabase.auth.getUser();
+          if (!user?.id) return;
+          const isTemplate = timetable.is_template;
+          const name = timetable.timetable_name || timetable.template_name || timetable.id;
+          const template = isTemplate
+            ? AcademicActivityTemplates.timetableTemplateCreated(name)
+            : AcademicActivityTemplates.timetableCreated(name);
+          await logActivityClient({
+            userId: user.id,
+            actionType: template.actionType,
+            resourceType: template.resourceType,
+            resourceId: timetable.id,
+            resourceName: name,
+            description: template.description,
+            metadata: {
+              sub_type: template.sub_type,
+              is_template: timetable.is_template,
+              section_id: timetable.section_id,
+              semester_id: timetable.semester_id,
+              academic_year_id: timetable.academic_year_id,
+            },
+            institutionId: timetable.institution_id,
+          });
+        } catch { /* never block */ }
+      })();
       return timetable;
     } catch (error) {
       logger.error('academic/timetables', 'Error in createTimetable service', error);

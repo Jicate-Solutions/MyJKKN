@@ -173,7 +173,7 @@ export class BulkLearnerUploadService {
         await supabaseAdmin.from('user_activity_logs').insert({
           user_id: userId,
           action_type: 'import',
-          resource_type: 'student',
+          resource_type: 'learner',
           description: `Bulk uploaded ${result.upload_summary.learners_created} learner enquiries (${result.upload_summary.learners_failed} failed)`,
           metadata: {
             sub_type: 'bulk_upload',

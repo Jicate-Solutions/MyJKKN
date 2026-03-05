@@ -239,7 +239,10 @@
       "Bash(wait:*)",
       "Bash(claude config:*)",
       "Bash(openssl rand:*)",
-      "mcp__memory__read_graph"
+      "mcp__memory__read_graph",
+      "Bash(for route in attendance batches course-grades leave-calendar leave-onduty leaves periods regulations staff-planning timetables years)",
+      "Bash(do)",
+      "Read(//d/Projects/MyJKKN/app/\\(routes\\)/academic/**)"
     ],
     "deny": [],
     "ask": []
