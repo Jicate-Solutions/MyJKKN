@@ -6,3 +6,4 @@ export * from './use-submissions';
 export * from './use-analytics';
 export * from './use-teams';
 export * from './use-event-registration';
+export * from './use-venues';

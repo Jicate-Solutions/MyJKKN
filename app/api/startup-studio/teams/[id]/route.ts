@@ -34,6 +34,7 @@ export const PATCH = withAuth(async (request, auth, context) => {
     'registration_status', 'lovable_verified',
     'assigned_business_name', 'mentor_id', 'agreement_signed',
     'is_lighthouse', 'discipline_count', 'member_count',
+    'build_venue_id', 'demo_venue_id',
   ]
 
   const updateData: Record<string, any> = {}

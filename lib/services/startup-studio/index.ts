@@ -7,3 +7,4 @@ export { nifPipelineService, NifPipelineService } from './nif-pipeline-service';
 export { eventsService, EventsService } from './events-service';
 export { submissionsService, SubmissionsService } from './submissions-service';
 export { analyticsService, AnalyticsService } from './analytics-service';
+export { venuesService, VenuesService } from './venues-service';

@@ -777,3 +777,43 @@ export interface EventRegistrationStats {
   laptops_confirmed: number;
   by_institution: { institution_name: string; team_count: number; member_count: number; laptop_count: number }[];
 }
+
+// ============================================
+// VENUE ALLOCATION
+// ============================================
+
+export interface SSEventVenue {
+  id: string;
+  event_id: string;
+  resource_id: string | null;
+  day_type: 'build_day' | 'demo_day';
+  venue_name: string;
+  institution_id: string | null;
+  capacity: number;
+  location_info: string | null;
+  status: string;
+  created_at: string;
+  // Joined data
+  staff?: SSVenueStaff[];
+  teams?: SSTeam[];
+  institution?: { id: string; name: string };
+  resource?: { id: string; name: string; building_number: string; room_number: string };
+}
+
+export interface SSVenueStaff {
+  id: string;
+  venue_id: string;
+  user_id: string;
+  role: 'mentor' | 'lead_mentor' | 'judge' | 'panel_chair';
+  created_at: string;
+  // Joined
+  user?: { id: string; full_name: string; email: string };
+}
+
+export interface VenueStats {
+  total_venues: number;
+  total_capacity: number;
+  teams_allocated: number;
+  teams_unallocated: number;
+  staff_assigned: number;
+}
