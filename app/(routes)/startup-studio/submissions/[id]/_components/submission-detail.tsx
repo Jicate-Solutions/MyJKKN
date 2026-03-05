@@ -29,10 +29,14 @@ import {
   ExternalLink,
   Gavel,
   Pencil,
+  IndianRupee,
+  TrendingUp,
+  ImageIcon,
 } from 'lucide-react';
 import { useSubmission, useSubmitForReview } from '@/hooks/startup-studio';
 import { useAuth } from '@/hooks/use-auth';
 import { ScoringForm } from './scoring-form';
+import { calculateScore, getTierColor } from '@/lib/utils/tier-calculator';
 
 interface SubmissionDetailProps {
   id: string;
@@ -311,6 +315,94 @@ export function SubmissionDetail({ id }: SubmissionDetailProps) {
           </CardContent>
         </Card>
       )}
+
+      {/* Tier & Revenue Metrics */}
+      {(() => {
+        const scoring = calculateScore(submission);
+        return (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <TrendingUp className="h-5 w-5 text-green-600" />
+                Score & Metrics
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {/* Tier badge + total score */}
+              <div className="flex items-center gap-3 mb-4">
+                <span className={`px-3 py-1 rounded-full text-sm font-bold ${getTierColor(scoring.tier.level)}`}>
+                  Level {scoring.tier.level}: {scoring.tier.label}
+                </span>
+                <span className="text-2xl font-bold text-green-700">{scoring.totalScore} pts</span>
+                {scoring.mrrBonus > 0 && (
+                  <span className="text-sm text-muted-foreground">(tier {scoring.tier.points} + MRR bonus {scoring.mrrBonus})</span>
+                )}
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+                <div className="text-center p-4 bg-green-50 rounded-lg">
+                  <p className="text-sm font-medium text-muted-foreground mb-1">MRR</p>
+                  <p className="text-2xl font-bold text-green-700">
+                    {new Intl.NumberFormat('en-IN', {
+                      style: 'currency',
+                      currency: 'INR',
+                      maximumFractionDigits: 0,
+                    }).format(submission.mrr_amount ?? 0)}
+                  </p>
+                </div>
+                <div className="text-center p-4 bg-blue-50 rounded-lg">
+                  <p className="text-sm font-medium text-muted-foreground mb-1">Paying Users</p>
+                  <p className="text-2xl font-bold text-blue-700">
+                    {submission.paying_users_count ?? 0}
+                  </p>
+                </div>
+                <div className="text-center p-4 bg-indigo-50 rounded-lg">
+                  <p className="text-sm font-medium text-muted-foreground mb-1">Total Users</p>
+                  <p className="text-2xl font-bold text-indigo-700">
+                    {submission.total_users ?? 0}
+                  </p>
+                </div>
+                <div className="text-center p-4 bg-purple-50 rounded-lg">
+                  <p className="text-sm font-medium text-muted-foreground mb-1">Active Users</p>
+                  <p className="text-2xl font-bold text-purple-700">
+                    {submission.active_users ?? 0}
+                  </p>
+                </div>
+                <div className="text-center p-4 bg-gray-50 rounded-lg">
+                  <p className="text-sm font-medium text-muted-foreground mb-1">Last Updated</p>
+                  <p className="text-sm font-medium">
+                    {submission.metrics_updated_at
+                      ? new Date(submission.metrics_updated_at).toLocaleString('en-IN')
+                      : 'Not yet submitted'}
+                  </p>
+                </div>
+              </div>
+          {submission.proof_urls && submission.proof_urls.length > 0 && (
+            <div className="mt-4">
+              <p className="text-sm font-medium text-muted-foreground mb-2 flex items-center gap-1">
+                <ImageIcon className="h-4 w-4" />
+                Proof of Revenue ({submission.proof_urls.length})
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {submission.proof_urls.map((url: string, index: number) => (
+                  <a
+                    key={index}
+                    href={url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 px-3 py-1.5 text-xs border rounded-md hover:bg-muted/50 transition-colors text-blue-600"
+                  >
+                    <ImageIcon className="h-3 w-3" />
+                    Screenshot {index + 1}
+                    <ExternalLink className="h-3 w-3" />
+                  </a>
+                ))}
+              </div>
+            </div>
+          )}
+            </CardContent>
+          </Card>
+        );
+      })()}
 
       {/* Team Info */}
       {(submission.team_name || submission.team_members) && (

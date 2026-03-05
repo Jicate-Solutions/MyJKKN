@@ -281,15 +281,18 @@ export class SubmissionsService extends BaseService {
   }
 
   /**
-   * Get leaderboard for an event, ordered by average score descending
+   * Get leaderboard for an event, ordered by MRR descending (primary), paying users descending (secondary).
+   * Falls back to judge score for submissions without MRR.
    */
   static async getLeaderboard(eventId: string): Promise<SSAppathonSubmission[]> {
     const { data, error } = await this.supabase
       .from('ss_appathon_submissions')
       .select(SUBMISSION_WITH_SCORES_SELECT)
       .eq('event_id', eventId)
-      .not('score', 'is', null)
-      .order('score', { ascending: false });
+      .in('status', ['submitted', 'under_review', 'shortlisted', 'winner'])
+      .order('mrr_amount', { ascending: false })
+      .order('paying_users_count', { ascending: false })
+      .order('score', { ascending: false, nullsFirst: false });
 
     if (error) throw new Error(`Failed to fetch leaderboard: ${error.message}`);
     return (data || []) as SSAppathonSubmission[];

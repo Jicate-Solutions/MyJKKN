@@ -17,8 +17,13 @@ import {
   Presentation,
   Send,
   UserCheck,
+  TrendingUp,
+  IndianRupee,
+  CheckCircle2,
+  AlertTriangle,
 } from 'lucide-react';
 import { useMyTeam } from '@/hooks/startup-studio';
+import { calculateScore, getTierColor } from '@/lib/utils/tier-calculator';
 
 interface MyTeamViewProps {
   eventId: string;
@@ -358,6 +363,79 @@ export function MyTeamView({ eventId }: MyTeamViewProps) {
           )}
         </CardContent>
       </Card>
+
+      {/* Tier & Metrics */}
+      {team.submission && (() => {
+        const scoring = calculateScore(team.submission);
+        return (
+          <Card className={team.submission.metrics_updated_at ? 'border-green-200' : 'border-amber-200'}>
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <TrendingUp className="h-4 w-4" />
+                Your Score
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {team.submission.metrics_updated_at ? (
+                <>
+                  {/* Tier + Score Summary */}
+                  <div className="flex items-center gap-3">
+                    <span className={`px-3 py-1 rounded-full text-sm font-bold ${getTierColor(scoring.tier.level)}`}>
+                      Level {scoring.tier.level}: {scoring.tier.label}
+                    </span>
+                    <span className="text-2xl font-bold text-green-700">{scoring.totalScore} pts</span>
+                    {scoring.mrrBonus > 0 && (
+                      <span className="text-sm text-green-600">(+{scoring.mrrBonus} MRR bonus)</span>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <div className="text-center p-3 bg-green-50 rounded-lg">
+                      <p className="text-xs text-muted-foreground">MRR</p>
+                      <p className="text-lg font-bold text-green-700">
+                        {new Intl.NumberFormat('en-IN', {
+                          style: 'currency',
+                          currency: 'INR',
+                          maximumFractionDigits: 0,
+                        }).format(team.submission.mrr_amount ?? 0)}
+                      </p>
+                    </div>
+                    <div className="text-center p-3 bg-blue-50 rounded-lg">
+                      <p className="text-xs text-muted-foreground">Paying Users</p>
+                      <p className="text-lg font-bold text-blue-700">
+                        {team.submission.paying_users_count ?? 0}
+                      </p>
+                    </div>
+                    <div className="text-center p-3 bg-indigo-50 rounded-lg">
+                      <p className="text-xs text-muted-foreground">Total Users</p>
+                      <p className="text-lg font-bold text-indigo-700">
+                        {team.submission.total_users ?? 0}
+                      </p>
+                    </div>
+                    <div className="text-center p-3 bg-purple-50 rounded-lg">
+                      <p className="text-xs text-muted-foreground">Active Users</p>
+                      <p className="text-lg font-bold text-purple-700">
+                        {team.submission.active_users ?? 0}
+                      </p>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="flex items-center gap-2 text-amber-700">
+                  <AlertTriangle className="h-4 w-4" />
+                  <span className="text-sm font-medium">
+                    Metrics pending -- update before Monday morning!
+                  </span>
+                </div>
+              )}
+              <Button variant="outline" size="sm" asChild>
+                <Link href={`/startup-studio/events/${eventId}/submit`}>
+                  {team.submission.metrics_updated_at ? 'Update Metrics' : 'Enter Metrics'}
+                </Link>
+              </Button>
+            </CardContent>
+          </Card>
+        );
+      })()}
     </div>
   );
 }

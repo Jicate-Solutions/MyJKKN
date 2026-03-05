@@ -142,3 +142,18 @@ export function useUpdateJudgeScore() {
     },
   });
 }
+
+/**
+ * Update metrics (MRR, paying users, proof) on a submission
+ */
+export function useUpdateMetrics() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: { mrr_amount?: number; paying_users_count?: number; proof_urls?: string[] } }) =>
+      apiClient.patch(`/api/startup-studio/submissions/${id}/metrics`, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: startupStudioKeys.submissions.all });
+    },
+  });
+}

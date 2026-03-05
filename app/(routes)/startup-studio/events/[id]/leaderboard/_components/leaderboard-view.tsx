@@ -28,21 +28,25 @@ import {
   Trophy,
   Medal,
   Users,
-  Star,
   Eye,
   Filter,
   Megaphone,
+  IndianRupee,
+  TrendingUp,
 } from 'lucide-react';
 import { useLeaderboard } from '@/hooks/startup-studio';
 import { useUpdateEvent, useSSEvent } from '@/hooks/startup-studio';
 import { useAuth } from '@/hooks/use-auth';
 import { toast } from 'sonner';
+import { calculateScore, getTierColor } from '@/lib/utils/tier-calculator';
 
 interface LeaderboardViewProps {
   eventId: string;
 }
 
 const ADMIN_ROLES = ['admin', 'super_admin', 'administrator'];
+
+type SortMode = 'total_score' | 'mrr' | 'paying_users';
 
 /** Medal styles for top 3 */
 const RANK_STYLES: Record<number, { bg: string; border: string; icon: string; label: string }> = {
@@ -66,6 +70,14 @@ const RANK_STYLES: Record<number, { bg: string; border: string; icon: string; la
   },
 };
 
+function formatINR(amount: number): string {
+  return new Intl.NumberFormat('en-IN', {
+    style: 'currency',
+    currency: 'INR',
+    maximumFractionDigits: 0,
+  }).format(amount);
+}
+
 export function LeaderboardView({ eventId }: LeaderboardViewProps) {
   const { data: leaderboardRaw, isLoading, error } = useLeaderboard(eventId);
   const { data: eventRaw } = useSSEvent(eventId);
@@ -73,6 +85,7 @@ export function LeaderboardView({ eventId }: LeaderboardViewProps) {
   const { profile } = useAuth();
 
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
+  const [sortMode, setSortMode] = useState<SortMode>('total_score');
   const [showAll, setShowAll] = useState(false);
 
   const event = eventRaw as any;
@@ -93,7 +106,7 @@ export function LeaderboardView({ eventId }: LeaderboardViewProps) {
     return Array.from(cats).sort();
   }, [submissions]);
 
-  // Compute ranked list with average scores
+  // Compute ranked list with tier scoring
   const rankedSubmissions = useMemo(() => {
     let filtered = submissions;
 
@@ -102,39 +115,47 @@ export function LeaderboardView({ eventId }: LeaderboardViewProps) {
       filtered = filtered.filter((s: any) => s.category === categoryFilter);
     }
 
-    // Compute average weighted score per submission from judge scores
+    // Add computed fields including tier
     const ranked = filtered.map((sub: any) => {
-      const judgeScores = sub.scores ?? [];
-      const scoredJudges = judgeScores.filter(
-        (s: any) => s.weighted_score != null
-      );
-      const judgeCount = scoredJudges.length;
-
-      let avgScore = 0;
-      if (judgeCount > 0) {
-        const totalWeighted = scoredJudges.reduce(
-          (sum: number, s: any) => sum + (s.weighted_score ?? 0),
-          0
-        );
-        // weighted_score is on a 0-100 scale, convert to 0-5 for display
-        avgScore = totalWeighted / judgeCount / 20;
-      } else if (sub.score != null) {
-        // Fallback to aggregate score on submission (could be 0-100 or 0-5)
-        avgScore = sub.score > 5 ? sub.score / 20 : sub.score;
-      }
+      const mrr = sub.mrr_amount ?? 0;
+      const payingUsers = sub.paying_users_count ?? 0;
+      const proofCount = (sub.proof_urls ?? []).length;
+      const scoring = calculateScore(sub);
 
       return {
         ...sub,
-        avgScore: Math.round(avgScore * 100) / 100,
-        judgeCount,
+        mrr,
+        payingUsers,
+        proofCount,
+        tierLevel: scoring.tier.level,
+        tierLabel: scoring.tier.label,
+        tierPoints: scoring.tier.points,
+        mrrBonus: scoring.mrrBonus,
+        totalScore: scoring.totalScore,
       };
     });
 
-    // Sort by average score descending
-    ranked.sort((a: any, b: any) => b.avgScore - a.avgScore);
+    // Sort by selected mode
+    if (sortMode === 'paying_users') {
+      ranked.sort((a: any, b: any) => {
+        if (b.payingUsers !== a.payingUsers) return b.payingUsers - a.payingUsers;
+        return b.totalScore - a.totalScore;
+      });
+    } else if (sortMode === 'mrr') {
+      ranked.sort((a: any, b: any) => {
+        if (b.mrr !== a.mrr) return b.mrr - a.mrr;
+        return b.totalScore - a.totalScore;
+      });
+    } else {
+      // Default: Total Score (tier + MRR bonus), tiebreaker = higher MRR
+      ranked.sort((a: any, b: any) => {
+        if (b.totalScore !== a.totalScore) return b.totalScore - a.totalScore;
+        return b.mrr - a.mrr;
+      });
+    }
 
     return ranked;
-  }, [submissions, categoryFilter]);
+  }, [submissions, categoryFilter, sortMode]);
 
   // Apply top 10 limit
   const displaySubmissions = showAll
@@ -203,7 +224,8 @@ export function LeaderboardView({ eventId }: LeaderboardViewProps) {
           </h1>
           <p className="text-sm text-muted-foreground">
             {event?.name ? `${event.name} - ` : ''}
-            {rankedSubmissions.length} scored submission{rankedSubmissions.length !== 1 ? 's' : ''}
+            {rankedSubmissions.length} submission{rankedSubmissions.length !== 1 ? 's' : ''}
+            {' '} ranked by score
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -230,7 +252,7 @@ export function LeaderboardView({ eventId }: LeaderboardViewProps) {
         </div>
       </div>
 
-      {/* Filters */}
+      {/* Filters & Sort */}
       <div className="flex flex-wrap items-center gap-3">
         {categories.length > 0 && (
           <div className="flex items-center gap-2">
@@ -250,6 +272,21 @@ export function LeaderboardView({ eventId }: LeaderboardViewProps) {
             </Select>
           </div>
         )}
+
+        <div className="flex items-center gap-2">
+          <TrendingUp className="h-4 w-4 text-muted-foreground" />
+          <Select value={sortMode} onValueChange={(v) => setSortMode(v as SortMode)}>
+            <SelectTrigger className="w-[180px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="total_score">Sort by Total Score</SelectItem>
+              <SelectItem value="mrr">Sort by MRR</SelectItem>
+              <SelectItem value="paying_users">Sort by Paying Users</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
         <Button
           variant="ghost"
           size="sm"
@@ -265,9 +302,9 @@ export function LeaderboardView({ eventId }: LeaderboardViewProps) {
         <Card>
           <CardContent className="pt-6 text-center py-12">
             <Trophy className="mx-auto h-12 w-12 text-muted-foreground/50 mb-4" />
-            <h3 className="text-lg font-semibold mb-1">No scored submissions yet</h3>
+            <h3 className="text-lg font-semibold mb-1">No submissions yet</h3>
             <p className="text-muted-foreground text-sm">
-              Submissions will appear here once judges have scored them.
+              Submissions will appear here once teams submit their projects and enter revenue metrics.
             </p>
           </CardContent>
         </Card>
@@ -287,7 +324,7 @@ export function LeaderboardView({ eventId }: LeaderboardViewProps) {
                 <CardHeader className="pb-2">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <div className={`flex items-center justify-center w-8 h-8 rounded-full bg-white shadow-sm`}>
+                      <div className="flex items-center justify-center w-8 h-8 rounded-full bg-white shadow-sm">
                         {rank === 1 ? (
                           <Trophy className={`h-4 w-4 ${style.icon}`} />
                         ) : (
@@ -298,12 +335,24 @@ export function LeaderboardView({ eventId }: LeaderboardViewProps) {
                         #{rank} {style.label}
                       </span>
                     </div>
-                    <Badge variant="secondary" className="text-xs">
-                      {sub.avgScore.toFixed(2)} / 5.0
-                    </Badge>
+                    {sub.proofCount > 0 && (
+                      <Badge variant="secondary" className="text-xs">
+                        <ImageIcon className="h-3 w-3 mr-1" />
+                        Verified
+                      </Badge>
+                    )}
                   </div>
                 </CardHeader>
                 <CardContent className="pt-0">
+                  <div className="flex items-baseline gap-2 mb-2">
+                    <p className="text-3xl font-bold text-green-700">
+                      {sub.totalScore}
+                    </p>
+                    <p className="text-xs text-muted-foreground">pts</p>
+                  </div>
+                  <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-semibold mb-2 ${getTierColor(sub.tierLevel)}`}>
+                    Lv.{sub.tierLevel} {sub.tierLabel}
+                  </span>
                   <h3 className="font-semibold text-base leading-tight mb-1">
                     <Link
                       href={`/startup-studio/submissions/${sub.id}`}
@@ -318,15 +367,19 @@ export function LeaderboardView({ eventId }: LeaderboardViewProps) {
                       {sub.team_name}
                     </p>
                   )}
-                  {sub.category && (
-                    <Badge variant="outline" className="mt-2 text-xs">
-                      {sub.category}
-                    </Badge>
-                  )}
-                  <p className="text-xs text-muted-foreground mt-2">
-                    <Star className="inline h-3 w-3 mr-1" />
-                    {sub.judgeCount} judge{sub.judgeCount !== 1 ? 's' : ''} scored
-                  </p>
+                  <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground">
+                    {sub.mrr > 0 && (
+                      <span>{formatINR(sub.mrr)} MRR</span>
+                    )}
+                    {sub.payingUsers > 0 && (
+                      <span>{sub.payingUsers} paying</span>
+                    )}
+                    {sub.category && (
+                      <Badge variant="outline" className="text-xs">
+                        {sub.category}
+                      </Badge>
+                    )}
+                  </div>
                 </CardContent>
               </Card>
             );
@@ -348,9 +401,10 @@ export function LeaderboardView({ eventId }: LeaderboardViewProps) {
                     <TableHead className="w-16">Rank</TableHead>
                     <TableHead>Team</TableHead>
                     <TableHead>App</TableHead>
-                    <TableHead>Category</TableHead>
-                    <TableHead className="text-center">Score</TableHead>
-                    <TableHead className="text-center">Judges</TableHead>
+                    <TableHead className="text-center">Tier</TableHead>
+                    <TableHead className="text-right">MRR</TableHead>
+                    <TableHead className="text-center">Paying</TableHead>
+                    <TableHead className="text-right font-bold">Score</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -389,23 +443,21 @@ export function LeaderboardView({ eventId }: LeaderboardViewProps) {
                             {sub.app_name ?? 'Untitled'}
                           </Link>
                         </TableCell>
-                        <TableCell>
-                          {sub.category ? (
-                            <Badge variant="outline" className="text-xs">
-                              {sub.category}
-                            </Badge>
-                          ) : (
-                            '-'
-                          )}
+                        <TableCell className="text-center">
+                          <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-semibold ${getTierColor(sub.tierLevel)}`}>
+                            Lv.{sub.tierLevel}
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {sub.mrr > 0 ? formatINR(sub.mrr) : '-'}
                         </TableCell>
                         <TableCell className="text-center">
-                          <span className={isTop3 ? 'font-bold text-primary' : ''}>
-                            {sub.avgScore.toFixed(2)}
-                          </span>
-                          <span className="text-muted-foreground text-xs"> / 5.0</span>
+                          {sub.payingUsers > 0 ? sub.payingUsers : '-'}
                         </TableCell>
-                        <TableCell className="text-center text-muted-foreground">
-                          {sub.judgeCount}
+                        <TableCell className="text-right">
+                          <span className={isTop3 ? 'font-bold text-green-700 text-lg' : 'font-semibold'}>
+                            {sub.totalScore}
+                          </span>
                         </TableCell>
                       </TableRow>
                     );

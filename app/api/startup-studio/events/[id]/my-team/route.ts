@@ -96,10 +96,10 @@ export const GET = withAuth(async (request, auth, context) => {
     mentor = data
   }
 
-  // Step 7: Get submission if exists
+  // Step 7: Get submission if exists (including metrics fields)
   const { data: submission } = await supabase
     .from('ss_appathon_submissions')
-    .select('id, app_name, live_url, status, submitted_at')
+    .select('id, app_name, live_url, status, submitted_at, mrr_amount, paying_users_count, proof_urls, metrics_updated_at')
     .eq('team_id', team.id)
     .eq('event_id', eventId)
     .order('created_at', { ascending: false })

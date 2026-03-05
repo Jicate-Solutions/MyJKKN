@@ -23,6 +23,16 @@ export type NifStage =
   | 'identified' | 'screened' | 'shortlisted' | 'incubating'
   | 'graduated' | 'rejected' | 'on_hold';
 export type SubmissionStatus = 'draft' | 'submitted' | 'under_review' | 'shortlisted' | 'winner' | 'rejected';
+
+// Metrics fields (Appathon 2.0 tiered objectives)
+export interface SubmissionMetrics {
+  mrr_amount: number;
+  paying_users_count: number;
+  total_users: number;
+  active_users: number;
+  proof_urls: string[];
+  metrics_updated_at: string | null;
+}
 export type ReviewStatus = 'pending' | 'in_review' | 'approved' | 'needs_revision' | 'flagged';
 
 // ============================================
@@ -339,6 +349,10 @@ export interface SSAppathonSubmission {
   status: SubmissionStatus;
   submission_number: string | null;
   score: number | null;
+  mrr_amount: number;
+  paying_users_count: number;
+  proof_urls: string[];
+  metrics_updated_at: string | null;
   submitted_at: string | null;
   created_at: string;
   updated_at: string;
