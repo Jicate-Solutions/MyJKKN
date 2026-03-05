@@ -1,22 +1,16 @@
 'use client';
 
 import { use, useMemo } from 'react';
-import Link from 'next/link';
-import { ContentLayout } from '@/components/layout/content-layout';
-import { PageBreadcrumb } from '@/components/navigation';
-import { useEvent } from '@/hooks/startup-studio/use-events';
-import { useMyRegistration } from '@/hooks/startup-studio/use-event-registrations';
-import { useMySubmission, useSubmitProject, useUpdateSubmission, useUpdateMetrics } from '@/hooks/startup-studio/use-event-submissions';
-import { EventSubmissionService } from '@/lib/services/startup-studio/event-submission-service';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { z } from 'zod';
-import { Loader2, Lock, Trophy, TrendingUp, DollarSign, Users } from 'lucide-react';
+import * as z from 'zod';
+import { ContentLayout } from '@/components/layout/content-layout';
+import { PageBreadcrumb } from '@/components/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import {
   Select,
   SelectContent,
@@ -32,17 +26,24 @@ import {
   FormLabel,
   FormMessage,
 } from '@/components/ui/form';
+import { Lock, Send, BarChart3, Trophy } from 'lucide-react';
+import { useEvent } from '@/hooks/startup-studio/use-events';
+import { useMyRegistration } from '@/hooks/startup-studio/use-event-registrations';
+import { useMySubmission, useSubmitProject, useUpdateSubmission, useUpdateMetrics } from '@/hooks/startup-studio/use-event-submissions';
+import { EventSubmissionService } from '@/lib/services/startup-studio/event-submission-service';
 import type { EventConfig } from '@/types/startup-studio';
+import Link from 'next/link';
 
 const projectSchema = z.object({
   app_name: z.string().min(2, 'App name required'),
-  github_url: z.string().url('Must be a valid URL').startsWith('https://github.com/', 'Must be a GitHub URL'),
+  github_url: z.string().url('Must be a valid URL').refine(
+    (url) => url.startsWith('https://github.com/'),
+    'Must be a GitHub URL'
+  ),
   live_app_url: z.string().url('Must be a valid URL').optional().or(z.literal('')),
   description: z.string().optional(),
   category: z.string().optional(),
 });
-
-type ProjectFormValues = z.infer<typeof projectSchema>;
 
 const metricsSchema = z.object({
   mrr_amount: z.coerce.number().min(0).default(0),
@@ -51,115 +52,127 @@ const metricsSchema = z.object({
   proof_urls: z.string().optional(),
 });
 
+type ProjectFormValues = z.infer<typeof projectSchema>;
 type MetricsFormValues = z.infer<typeof metricsSchema>;
 
 const TIER_NAMES: Record<number, string> = {
   0: 'No Submission',
-  1: 'Deployed App',
+  1: 'Live App',
   2: '5+ Users',
   3: '10+ Users',
-  4: 'Revenue Generated',
-  5: 'Significant Revenue',
+  4: 'Revenue',
+  5: 'Strong Revenue',
 };
 
 export default function SubmitPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id: eventId } = use(params);
-  const { data: event, isLoading: eventLoading } = useEvent(eventId);
-  const { data: registration, isLoading: regLoading } = useMyRegistration(eventId);
-  const { data: submission, isLoading: subLoading } = useMySubmission(eventId);
+  const { id } = use(params);
+  const { data: event, isLoading: eventLoading } = useEvent(id);
+  const { data: registration, isLoading: regLoading } = useMyRegistration(id);
+  const { data: submission, isLoading: subLoading } = useMySubmission(id);
 
+  const now = new Date();
+  const submissionLocked = event?.submission_deadline
+    ? new Date(event.submission_deadline) < now
+    : false;
+  const metricsLocked = event?.metrics_deadline
+    ? new Date(event.metrics_deadline) < now
+    : false;
+
+  if (eventLoading || regLoading || subLoading) {
+    return (
+      <ContentLayout>
+        <PageBreadcrumb items={[
+          { label: 'Startup Studio', href: '/startup-studio/events' },
+          { label: 'Event', href: `/startup-studio/events/${id}` },
+          { label: 'Submit Project' },
+        ]} />
+        <div className="text-center py-12 text-muted-foreground">Loading...</div>
+      </ContentLayout>
+    );
+  }
+
+  if (!registration) {
+    return (
+      <ContentLayout>
+        <PageBreadcrumb items={[
+          { label: 'Startup Studio', href: '/startup-studio/events' },
+          { label: 'Event', href: `/startup-studio/events/${id}` },
+          { label: 'Submit Project' },
+        ]} />
+        <Card className="max-w-lg mx-auto mt-8">
+          <CardContent className="pt-6 text-center space-y-4">
+            <p className="text-muted-foreground">You must register a team before submitting a project.</p>
+            <Button asChild>
+              <Link href={`/startup-studio/events/${id}/register`}>Register Now</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      </ContentLayout>
+    );
+  }
+
+  return (
+    <ContentLayout>
+      <PageBreadcrumb items={[
+        { label: 'Startup Studio', href: '/startup-studio/events' },
+        { label: event?.name || 'Event', href: `/startup-studio/events/${id}` },
+        { label: 'Submit Project' },
+      ]} />
+
+      <div className="space-y-6 max-w-3xl mx-auto">
+        <div>
+          <h2 className="text-2xl font-bold">Submit Project</h2>
+          <p className="text-muted-foreground">Team: {registration.team_name}</p>
+        </div>
+
+        <ProjectSection
+          eventId={id}
+          registrationId={registration.id}
+          submission={submission}
+          locked={submissionLocked}
+          categories={event?.config?.categories || []}
+        />
+
+        <MetricsSection
+          submission={submission}
+          locked={metricsLocked}
+          config={event?.config as EventConfig}
+        />
+      </div>
+    </ContentLayout>
+  );
+}
+
+function ProjectSection({
+  eventId, registrationId, submission, locked, categories,
+}: {
+  eventId: string;
+  registrationId: string;
+  submission: any;
+  locked: boolean;
+  categories: string[];
+}) {
   const submitProject = useSubmitProject();
   const updateSubmission = useUpdateSubmission();
-  const updateMetrics = useUpdateMetrics();
 
-  const config: EventConfig = event?.config ?? {
-    team_max_size: 5,
-    categories: [],
-    tools: [],
-    scoring_type: 'tiered',
-    tier_points: {},
-    mrr_bonus_brackets: [],
-  };
-
-  const submissionDeadlinePassed = event?.submission_deadline
-    ? new Date(event.submission_deadline) < new Date()
-    : false;
-
-  const metricsDeadlinePassed = event?.metrics_deadline
-    ? new Date(event.metrics_deadline) < new Date()
-    : false;
-
-  const projectForm = useForm<ProjectFormValues>({
+  const form = useForm<ProjectFormValues>({
     resolver: zodResolver(projectSchema),
     defaultValues: {
-      app_name: '',
-      github_url: '',
-      live_app_url: '',
-      description: '',
-      category: '',
+      app_name: submission?.app_name || '',
+      github_url: submission?.github_url || '',
+      live_app_url: submission?.live_app_url || '',
+      description: submission?.description || '',
+      category: submission?.category || '',
     },
-    values: submission
-      ? {
-          app_name: submission.app_name || '',
-          github_url: submission.github_url || '',
-          live_app_url: submission.live_app_url || '',
-          description: submission.description || '',
-          category: submission.category || '',
-        }
-      : undefined,
   });
 
-  const metricsForm = useForm<MetricsFormValues>({
-    resolver: zodResolver(metricsSchema),
-    defaultValues: {
-      mrr_amount: 0,
-      paying_users_count: 0,
-      user_count: 0,
-      proof_urls: '',
-    },
-    values: submission
-      ? {
-          mrr_amount: submission.mrr_amount || 0,
-          paying_users_count: submission.paying_users_count || 0,
-          user_count: submission.user_count || 0,
-          proof_urls: (submission.proof_urls || []).join(', '),
-        }
-      : undefined,
-  });
-
-  const watchedMetrics = metricsForm.watch();
-  const watchedLiveUrl = projectForm.watch('live_app_url');
-
-  const scorePreview = useMemo(() => {
-    return EventSubmissionService.calculateScore(
-      {
-        mrr_amount: watchedMetrics.mrr_amount || 0,
-        paying_users_count: watchedMetrics.paying_users_count || 0,
-        user_count: watchedMetrics.user_count || 0,
-        live_app_url: watchedLiveUrl || submission?.live_app_url || null,
-      },
-      config
-    );
-  }, [watchedMetrics, watchedLiveUrl, submission?.live_app_url, config]);
-
-  const onSubmitProject = (values: ProjectFormValues) => {
-    if (!registration) return;
-
+  const onSubmit = (values: ProjectFormValues) => {
     if (submission) {
-      updateSubmission.mutate({
-        id: submission.id,
-        dto: {
-          app_name: values.app_name,
-          github_url: values.github_url,
-          live_app_url: values.live_app_url || undefined,
-          description: values.description || undefined,
-          category: values.category || undefined,
-        },
-      });
+      updateSubmission.mutate({ submissionId: submission.id, dto: values });
     } else {
       submitProject.mutate({
         event_id: eventId,
-        registration_id: registration.id,
+        registration_id: registrationId,
         app_name: values.app_name,
         github_url: values.github_url,
         live_app_url: values.live_app_url || undefined,
@@ -169,15 +182,128 @@ export default function SubmitPage({ params }: { params: Promise<{ id: string }>
     }
   };
 
-  const onSubmitMetrics = (values: MetricsFormValues) => {
-    if (!submission) return;
+  const isPending = submitProject.isPending || updateSubmission.isPending;
 
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center justify-between">
+          <span className="flex items-center gap-2">
+            <Send className="h-5 w-5" />
+            Project Details
+          </span>
+          {locked && (
+            <Badge variant="destructive" className="gap-1">
+              <Lock className="h-3 w-3" /> Submission Locked
+            </Badge>
+          )}
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+            <FormField control={form.control} name="app_name" render={({ field }) => (
+              <FormItem>
+                <FormLabel>App Name *</FormLabel>
+                <FormControl><Input {...field} disabled={locked} placeholder="My Awesome App" /></FormControl>
+                <FormMessage />
+              </FormItem>
+            )} />
+
+            <FormField control={form.control} name="github_url" render={({ field }) => (
+              <FormItem>
+                <FormLabel>GitHub URL *</FormLabel>
+                <FormControl><Input {...field} disabled={locked} placeholder="https://github.com/user/repo" /></FormControl>
+                <FormMessage />
+              </FormItem>
+            )} />
+
+            <FormField control={form.control} name="live_app_url" render={({ field }) => (
+              <FormItem>
+                <FormLabel>Live App URL</FormLabel>
+                <FormControl><Input {...field} disabled={locked} placeholder="https://myapp.com" /></FormControl>
+                <FormMessage />
+              </FormItem>
+            )} />
+
+            <FormField control={form.control} name="description" render={({ field }) => (
+              <FormItem>
+                <FormLabel>Description</FormLabel>
+                <FormControl><Textarea {...field} disabled={locked} placeholder="Describe your project..." rows={3} /></FormControl>
+                <FormMessage />
+              </FormItem>
+            )} />
+
+            <FormField control={form.control} name="category" render={({ field }) => (
+              <FormItem>
+                <FormLabel>Category</FormLabel>
+                <Select onValueChange={field.onChange} value={field.value} disabled={locked}>
+                  <FormControl>
+                    <SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    {categories.map((cat) => (
+                      <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <FormMessage />
+              </FormItem>
+            )} />
+
+            {!locked && (
+              <Button type="submit" disabled={isPending}>
+                {isPending ? 'Saving...' : submission ? 'Update Submission' : 'Submit Project'}
+              </Button>
+            )}
+          </form>
+        </Form>
+      </CardContent>
+    </Card>
+  );
+}
+
+function MetricsSection({
+  submission, locked, config,
+}: {
+  submission: any;
+  locked: boolean;
+  config: EventConfig;
+}) {
+  const updateMetrics = useUpdateMetrics();
+
+  const form = useForm<MetricsFormValues>({
+    resolver: zodResolver(metricsSchema),
+    defaultValues: {
+      mrr_amount: submission?.mrr_amount || 0,
+      paying_users_count: submission?.paying_users_count || 0,
+      user_count: submission?.user_count || 0,
+      proof_urls: submission?.proof_urls?.join(', ') || '',
+    },
+  });
+
+  const watchedValues = form.watch();
+
+  const scorePreview = useMemo(() => {
+    if (!config) return null;
+    return EventSubmissionService.calculateScore(
+      {
+        mrr_amount: watchedValues.mrr_amount || 0,
+        paying_users_count: watchedValues.paying_users_count || 0,
+        user_count: watchedValues.user_count || 0,
+        live_app_url: submission?.live_app_url || null,
+      },
+      config
+    );
+  }, [watchedValues.mrr_amount, watchedValues.paying_users_count, watchedValues.user_count, submission?.live_app_url, config]);
+
+  const onSubmit = (values: MetricsFormValues) => {
+    if (!submission) return;
     const proofUrls = values.proof_urls
       ? values.proof_urls.split(',').map((u) => u.trim()).filter(Boolean)
       : [];
-
     updateMetrics.mutate({
-      id: submission.id,
+      submissionId: submission.id,
       dto: {
         mrr_amount: values.mrr_amount,
         paying_users_count: values.paying_users_count,
@@ -188,340 +314,114 @@ export default function SubmitPage({ params }: { params: Promise<{ id: string }>
     });
   };
 
-  if (eventLoading || regLoading || subLoading) {
+  if (!submission) {
     return (
-      <ContentLayout title="Submit Project">
-        <div className="flex items-center justify-center py-20">
-          <Loader2 className="h-6 w-6 animate-spin" />
-        </div>
-      </ContentLayout>
-    );
-  }
-
-  if (!event) {
-    return (
-      <ContentLayout title="Submit Project">
-        <div className="text-center py-20 text-muted-foreground">Event not found.</div>
-      </ContentLayout>
-    );
-  }
-
-  if (!registration) {
-    return (
-      <ContentLayout title="Submit Project">
-        <PageBreadcrumb
-          items={[
-            { label: 'Home', href: '/' },
-            { label: 'Startup Studio', href: '/startup-studio/events' },
-            { label: event.name, href: `/startup-studio/events/${eventId}` },
-            { label: 'Submit Project' },
-          ]}
-        />
-        <div className="text-center py-20 space-y-4">
-          <p className="text-muted-foreground">You must register before submitting a project.</p>
-          <Link href={`/startup-studio/events/${eventId}/register`}>
-            <Button>Register Now</Button>
-          </Link>
-        </div>
-      </ContentLayout>
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <BarChart3 className="h-5 w-5" />
+            Metrics
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-muted-foreground">Submit your project details first before adding metrics.</p>
+        </CardContent>
+      </Card>
     );
   }
 
   return (
-    <ContentLayout title={`Submit Project - ${event.name}`}>
-      <PageBreadcrumb
-        items={[
-          { label: 'Home', href: '/' },
-          { label: 'Startup Studio', href: '/startup-studio/events' },
-          { label: event.name, href: `/startup-studio/events/${eventId}` },
-          { label: 'Submit Project' },
-        ]}
-      />
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center justify-between">
+          <span className="flex items-center gap-2">
+            <BarChart3 className="h-5 w-5" />
+            Metrics &amp; Scoring
+          </span>
+          {locked && (
+            <Badge variant="destructive" className="gap-1">
+              <Lock className="h-3 w-3" /> Metrics Locked
+            </Badge>
+          )}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <FormField control={form.control} name="mrr_amount" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>MRR Amount</FormLabel>
+                  <FormControl><Input type="number" {...field} disabled={locked} min={0} /></FormControl>
+                  <FormMessage />
+                </FormItem>
+              )} />
 
-      <div className="space-y-6 mt-4 max-w-3xl">
-        {/* Section 1: Project Details */}
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <CardTitle>Project Details</CardTitle>
-              {submissionDeadlinePassed && (
-                <Badge variant="secondary" className="gap-1">
-                  <Lock className="h-3 w-3" />
-                  Submission deadline has passed
-                </Badge>
-              )}
+              <FormField control={form.control} name="paying_users_count" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Paying Users</FormLabel>
+                  <FormControl><Input type="number" {...field} disabled={locked} min={0} /></FormControl>
+                  <FormMessage />
+                </FormItem>
+              )} />
+
+              <FormField control={form.control} name="user_count" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Total Users</FormLabel>
+                  <FormControl><Input type="number" {...field} disabled={locked} min={0} /></FormControl>
+                  <FormMessage />
+                </FormItem>
+              )} />
             </div>
-          </CardHeader>
-          <CardContent>
-            <Form {...projectForm}>
-              <form onSubmit={projectForm.handleSubmit(onSubmitProject)} className="space-y-4">
-                <FormField
-                  control={projectForm.control}
-                  name="app_name"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>App Name *</FormLabel>
-                      <FormControl>
-                        <Input
-                          placeholder="My Awesome App"
-                          disabled={submissionDeadlinePassed}
-                          {...field}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
 
-                <FormField
-                  control={projectForm.control}
-                  name="github_url"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>GitHub URL *</FormLabel>
-                      <FormControl>
-                        <Input
-                          placeholder="https://github.com/user/repo"
-                          disabled={submissionDeadlinePassed}
-                          {...field}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+            <FormField control={form.control} name="proof_urls" render={({ field }) => (
+              <FormItem>
+                <FormLabel>Proof URLs (comma-separated)</FormLabel>
+                <FormControl><Input {...field} disabled={locked} placeholder="https://proof1.com, https://proof2.com" /></FormControl>
+                <FormMessage />
+              </FormItem>
+            )} />
 
-                <FormField
-                  control={projectForm.control}
-                  name="live_app_url"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Live App URL</FormLabel>
-                      <FormControl>
-                        <Input
-                          placeholder="https://myapp.vercel.app"
-                          disabled={submissionDeadlinePassed}
-                          {...field}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+            {!locked && (
+              <Button type="submit" disabled={updateMetrics.isPending}>
+                {updateMetrics.isPending ? 'Saving...' : 'Update Metrics'}
+              </Button>
+            )}
+          </form>
+        </Form>
 
-                <FormField
-                  control={projectForm.control}
-                  name="description"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Description</FormLabel>
-                      <FormControl>
-                        <Textarea
-                          placeholder="Brief description of your project..."
-                          rows={3}
-                          disabled={submissionDeadlinePassed}
-                          {...field}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                {config.categories && config.categories.length > 0 && (
-                  <FormField
-                    control={projectForm.control}
-                    name="category"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Category</FormLabel>
-                        <Select
-                          onValueChange={field.onChange}
-                          value={field.value}
-                          disabled={submissionDeadlinePassed}
-                        >
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select a category" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            {config.categories.map((cat) => (
-                              <SelectItem key={cat} value={cat}>
-                                {cat}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                )}
-
-                <Button
-                  type="submit"
-                  disabled={
-                    submissionDeadlinePassed ||
-                    submitProject.isPending ||
-                    updateSubmission.isPending
-                  }
-                >
-                  {(submitProject.isPending || updateSubmission.isPending) && (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  )}
-                  {submission ? 'Update Submission' : 'Submit Project'}
-                </Button>
-              </form>
-            </Form>
-          </CardContent>
-        </Card>
-
-        {/* Section 2: Metrics (only shown after initial submission) */}
-        {submission && (
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <CardTitle>Metrics</CardTitle>
-                {metricsDeadlinePassed && (
-                  <Badge variant="secondary" className="gap-1">
-                    <Lock className="h-3 w-3" />
-                    Metrics deadline has passed
-                  </Badge>
-                )}
+        {/* Score Preview */}
+        {scorePreview && (
+          <Card className="bg-muted/50">
+            <CardContent className="pt-4">
+              <div className="flex items-center gap-2 mb-3">
+                <Trophy className="h-4 w-4 text-yellow-500" />
+                <span className="font-semibold text-sm">Score Preview</span>
               </div>
-            </CardHeader>
-            <CardContent>
-              <Form {...metricsForm}>
-                <form onSubmit={metricsForm.handleSubmit(onSubmitMetrics)} className="space-y-4">
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                    <FormField
-                      control={metricsForm.control}
-                      name="mrr_amount"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>MRR Amount ($)</FormLabel>
-                          <FormControl>
-                            <Input
-                              type="number"
-                              min={0}
-                              step="0.01"
-                              disabled={metricsDeadlinePassed}
-                              {...field}
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
-                    <FormField
-                      control={metricsForm.control}
-                      name="paying_users_count"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Paying Users</FormLabel>
-                          <FormControl>
-                            <Input
-                              type="number"
-                              min={0}
-                              disabled={metricsDeadlinePassed}
-                              {...field}
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
-                    <FormField
-                      control={metricsForm.control}
-                      name="user_count"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Total Users</FormLabel>
-                          <FormControl>
-                            <Input
-                              type="number"
-                              min={0}
-                              disabled={metricsDeadlinePassed}
-                              {...field}
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                <div>
+                  <div className="text-muted-foreground">Tier</div>
+                  <div className="font-semibold">
+                    {scorePreview.tier_level} — {TIER_NAMES[scorePreview.tier_level] || ''}
                   </div>
-
-                  <FormField
-                    control={metricsForm.control}
-                    name="proof_urls"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Proof URLs (comma-separated)</FormLabel>
-                        <FormControl>
-                          <Input
-                            placeholder="https://screenshot1.png, https://screenshot2.png"
-                            disabled={metricsDeadlinePassed}
-                            {...field}
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <Button
-                    type="submit"
-                    disabled={metricsDeadlinePassed || updateMetrics.isPending}
-                  >
-                    {updateMetrics.isPending && (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    )}
-                    Update Metrics
-                  </Button>
-                </form>
-              </Form>
+                </div>
+                <div>
+                  <div className="text-muted-foreground">Tier Points</div>
+                  <div className="font-semibold">{scorePreview.tier_points}</div>
+                </div>
+                <div>
+                  <div className="text-muted-foreground">MRR Bonus</div>
+                  <div className="font-semibold">{scorePreview.mrr_bonus_points}</div>
+                </div>
+                <div>
+                  <div className="text-muted-foreground">Total Score</div>
+                  <div className="font-bold text-lg">{scorePreview.total_score}</div>
+                </div>
+              </div>
             </CardContent>
           </Card>
         )}
-
-        {/* Score Preview */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Trophy className="h-5 w-5" />
-              Score Preview
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-              <div className="text-center p-3 rounded-lg bg-muted">
-                <TrendingUp className="h-5 w-5 mx-auto mb-1 text-muted-foreground" />
-                <p className="text-xs text-muted-foreground">Current Tier</p>
-                <p className="text-lg font-bold">{scorePreview.tier_level}</p>
-                <p className="text-xs text-muted-foreground">{TIER_NAMES[scorePreview.tier_level]}</p>
-              </div>
-              <div className="text-center p-3 rounded-lg bg-muted">
-                <Trophy className="h-5 w-5 mx-auto mb-1 text-muted-foreground" />
-                <p className="text-xs text-muted-foreground">Tier Points</p>
-                <p className="text-lg font-bold">{scorePreview.tier_points}</p>
-              </div>
-              <div className="text-center p-3 rounded-lg bg-muted">
-                <DollarSign className="h-5 w-5 mx-auto mb-1 text-muted-foreground" />
-                <p className="text-xs text-muted-foreground">MRR Bonus</p>
-                <p className="text-lg font-bold">{scorePreview.mrr_bonus_points}</p>
-              </div>
-              <div className="text-center p-3 rounded-lg bg-muted">
-                <Users className="h-5 w-5 mx-auto mb-1 text-muted-foreground" />
-                <p className="text-xs text-muted-foreground">Total Score</p>
-                <p className="text-lg font-bold">{scorePreview.total_score}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-    </ContentLayout>
+      </CardContent>
+    </Card>
   );
 }
