@@ -37,12 +37,12 @@ export function registerOrganizationsTool(server: McpServer): void {
           },
           departments: {
             table: 'departments' as const,
-            select: 'id, name, code, institution_id, is_active, created_at, updated_at',
+            select: 'id, department_name, department_code, institution_id, degree_id, is_active, display_name, department_order, created_at, updated_at',
             instColumn: 'institution_id',
           },
           courses: {
             table: 'courses' as const,
-            select: 'id, name, code, institution_id, department_id, is_active, created_at, updated_at',
+            select: 'id, course_name, course_code, institution_id, is_active, created_at, updated_at',
             instColumn: 'institution_id',
           },
         };

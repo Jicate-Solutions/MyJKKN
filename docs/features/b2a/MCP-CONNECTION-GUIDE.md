@@ -25,7 +25,7 @@ Keys are scoped to your role:
 3. Click **Add Connector**
 4. Enter:
    - **Name**: MyJKKN
-   - **URL**: `https://myjkkn.vercel.app/api/mcp`
+   - **URL**: `https://www.jkkn.ai/api/mcp/mcp`
    - **Auth**: Bearer Token > paste your `jkkn_xxxx` key
 5. Click **Save**
 
@@ -38,7 +38,7 @@ You can now ask Claude questions like:
 
 1. Open ChatGPT
 2. Go to **Settings > Connectors > Advanced > Developer Mode**
-3. Add URL: `https://myjkkn.vercel.app/api/mcp`
+3. Add URL: `https://www.jkkn.ai/api/mcp/mcp`
 4. Auth: Bearer token > paste your `jkkn_xxxx` key
 5. Save
 
@@ -50,7 +50,7 @@ Add to your `.mcp.json` or project configuration:
 {
   "mcpServers": {
     "myjkkn": {
-      "url": "https://myjkkn.vercel.app/api/mcp",
+      "url": "https://www.jkkn.ai/api/mcp/mcp",
       "headers": {
         "Authorization": "Bearer jkkn_YOUR_API_KEY"
       }
@@ -70,7 +70,7 @@ Use the `mcp-remote` proxy for clients that only support stdio:
       "command": "npx",
       "args": [
         "mcp-remote",
-        "https://myjkkn.vercel.app/api/mcp",
+        "https://www.jkkn.ai/api/mcp/mcp",
         "--header", "Authorization: Bearer jkkn_YOUR_API_KEY"
       ]
     }
