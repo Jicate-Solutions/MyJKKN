@@ -5,6 +5,7 @@ import {
 } from '@/lib/auth/api-institution-filter';
 import { TimetableStaffSyncService } from './timetable-staff-sync-service';
 import { logger } from '@/lib/utils/enhanced-logger';
+import { logActivityClient, AcademicActivityTemplates } from '@/lib/utils/activity-logger-client';
 import { AcademicYearService } from './academic-year-service';
 import type {
   StaffPlan,
@@ -124,6 +125,27 @@ export class StaffPlanService {
 
         if (updateError) throw updateError;
         staffPlan = updatedPlan as StaffPlan;
+
+        // Activity log: updated existing plan (merge path)
+        (async () => {
+          try {
+            const supabase = createClientSupabaseClient();
+            const { data: { user } } = await supabase.auth.getUser();
+            if (!user?.id) return;
+            const planName = `Staff Plan ${staffPlan.id}`;
+            const template = AcademicActivityTemplates.staffPlanUpdated(planName, ['courses']);
+            await logActivityClient({
+              userId: user.id,
+              actionType: template.actionType,
+              resourceType: template.resourceType,
+              resourceId: staffPlan.id,
+              resourceName: planName,
+              description: template.description,
+              metadata: { sub_type: template.sub_type, merged: true },
+              institutionId: staffPlan.institution_id,
+            });
+          } catch { /* never block */ }
+        })();
       } else {
         // Create new staff plan
         const query: any = this.supabase.from('staff_plans');
@@ -147,6 +169,27 @@ export class StaffPlanService {
 
         if (planError) throw planError;
         staffPlan = newPlan as StaffPlan;
+
+        // Activity log: created new plan
+        (async () => {
+          try {
+            const supabase = createClientSupabaseClient();
+            const { data: { user } } = await supabase.auth.getUser();
+            if (!user?.id) return;
+            const planName = `Staff Plan ${staffPlan.id}`;
+            const template = AcademicActivityTemplates.staffPlanCreated(planName);
+            await logActivityClient({
+              userId: user.id,
+              actionType: template.actionType,
+              resourceType: template.resourceType,
+              resourceId: staffPlan.id,
+              resourceName: planName,
+              description: template.description,
+              metadata: { sub_type: template.sub_type },
+              institutionId: staffPlan.institution_id,
+            });
+          } catch { /* never block */ }
+        })();
       }
 
       // Insert course assignments if courses exist and is not empty
@@ -696,7 +739,30 @@ export class StaffPlanService {
         if (insertError) throw insertError;
       }
 
-      return staffPlan as StaffPlan;
+      const result = staffPlan as StaffPlan;
+
+      // Activity log: updated staff plan
+      (async () => {
+        try {
+          const supabase = createClientSupabaseClient();
+          const { data: { user } } = await supabase.auth.getUser();
+          if (!user?.id) return;
+          const planName = `Staff Plan ${id}`;
+          const template = AcademicActivityTemplates.staffPlanUpdated(planName, Object.keys(data));
+          await logActivityClient({
+            userId: user.id,
+            actionType: template.actionType,
+            resourceType: template.resourceType,
+            resourceId: id,
+            resourceName: planName,
+            description: template.description,
+            metadata: { sub_type: template.sub_type, changed_fields: Object.keys(data) },
+            institutionId: result.institution_id,
+          });
+        } catch { /* never block */ }
+      })();
+
+      return result;
     } catch (error) {
       logger.error('academic/staff-planning', 'Error updating staff plan', error);
       throw error;
@@ -1144,6 +1210,32 @@ export class StaffPlanService {
         clonedAssignments: clonedCount
       });
 
+      // Activity log: cloned staff plan to new year
+      (async () => {
+        try {
+          const supabase = createClientSupabaseClient();
+          const { data: { user } } = await supabase.auth.getUser();
+          if (!user?.id) return;
+          const sourceName = `Staff Plan ${sourcePlanId}`;
+          const targetYearName = targetAcademicYear.academic_year_name || targetAcademicYearId;
+          const template = AcademicActivityTemplates.staffPlanCloned(sourceName, targetYearName);
+          await logActivityClient({
+            userId: user.id,
+            actionType: template.actionType,
+            resourceType: template.resourceType,
+            resourceId: newPlan.id,
+            resourceName: sourceName,
+            description: template.description,
+            metadata: {
+              sub_type: template.sub_type,
+              source_plan_id: sourcePlanId,
+              target_year_id: targetAcademicYearId,
+            },
+            institutionId: sourcePlan.institution_id,
+          });
+        } catch { /* never block */ }
+      })();
+
       return {
         success: true,
         newPlanId: newPlan.id,
@@ -1235,6 +1327,18 @@ export class StaffPlanService {
   }
 
   static async deleteStaffPlan(id: string): Promise<void> {
+    // Pre-fetch name for activity log before deletion
+    let planNameForLog = `Staff Plan ${id}`;
+    let planInstitutionId: string | undefined;
+    try {
+      const { data: existing } = await this.supabase
+        .from('staff_plans')
+        .select('institution_id')
+        .eq('id', id)
+        .single();
+      planInstitutionId = existing?.institution_id;
+    } catch { /* ignore */ }
+
     try {
       // Delete the staff plan (courses will be deleted automatically due to CASCADE)
       const { error: deleteError, count } = await this.supabase
@@ -1248,6 +1352,26 @@ export class StaffPlanService {
       if (count === 0) {
         throw new Error('Staff plan not found or has already been deleted');
       }
+
+      // Activity log: deleted staff plan
+      (async () => {
+        try {
+          const supabase = createClientSupabaseClient();
+          const { data: { user } } = await supabase.auth.getUser();
+          if (!user?.id) return;
+          const template = AcademicActivityTemplates.staffPlanDeleted(planNameForLog);
+          await logActivityClient({
+            userId: user.id,
+            actionType: template.actionType,
+            resourceType: template.resourceType,
+            resourceId: id,
+            resourceName: planNameForLog,
+            description: template.description,
+            metadata: { sub_type: template.sub_type },
+            institutionId: planInstitutionId,
+          });
+        } catch { /* never block */ }
+      })();
     } catch (error) {
       logger.error('academic/staff-planning', 'Error deleting staff plan', error);
       throw error;
