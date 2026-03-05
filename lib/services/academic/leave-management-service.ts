@@ -14,6 +14,7 @@
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { logger } from '@/lib/utils/enhanced-logger';
+import { logActivityClient, AcademicActivityTemplates } from '@/lib/utils/activity-logger-client';
 import type {
   LeaveType,
   CreateLeaveTypeDto,
@@ -72,6 +73,26 @@ export class LeaveManagementService {
         throw enhancedError;
       }
 
+      (async () => {
+        try {
+          const supabase = createClientSupabaseClient();
+          const { data: { user } } = await supabase.auth.getUser();
+          if (!user?.id) return;
+          const typeName = leaveType.leave_type_name || leaveType.id;
+          const template = AcademicActivityTemplates.leaveTypeCreated(typeName);
+          await logActivityClient({
+            userId: user.id,
+            actionType: template.actionType,
+            resourceType: template.resourceType,
+            resourceId: leaveType.id,
+            resourceName: typeName,
+            description: template.description,
+            metadata: { sub_type: template.sub_type },
+            institutionId: leaveType.institution_id,
+          });
+        } catch { /* never block */ }
+      })();
+
       return leaveType as LeaveType;
     } catch (error) {
       logger.error('academic/leaves', 'Error creating leave type', error);
@@ -107,6 +128,26 @@ export class LeaveManagementService {
         throw enhancedError;
       }
 
+      (async () => {
+        try {
+          const supabase = createClientSupabaseClient();
+          const { data: { user } } = await supabase.auth.getUser();
+          if (!user?.id) return;
+          const typeName = leaveType.leave_type_name || leaveType.id;
+          const template = AcademicActivityTemplates.leaveTypeUpdated(typeName, Object.keys(data));
+          await logActivityClient({
+            userId: user.id,
+            actionType: template.actionType,
+            resourceType: template.resourceType,
+            resourceId: leaveType.id,
+            resourceName: typeName,
+            description: template.description,
+            metadata: { sub_type: template.sub_type, changed_fields: Object.keys(data) },
+            institutionId: leaveType.institution_id,
+          });
+        } catch { /* never block */ }
+      })();
+
       return leaveType as LeaveType;
     } catch (error) {
       logger.error('academic/leaves', 'Error updating leave type', error);
@@ -119,6 +160,18 @@ export class LeaveManagementService {
    */
   static async deleteLeaveType(id: string): Promise<void> {
     try {
+      let typeNameForLog = id;
+      let typeInstitutionIdForLog: string | undefined;
+      try {
+        const { data: existingType } = await this.supabase
+          .from('leave_types')
+          .select('leave_type_name, institution_id')
+          .eq('id', id)
+          .single();
+        typeNameForLog = existingType?.leave_type_name || id;
+        typeInstitutionIdForLog = existingType?.institution_id;
+      } catch { /* ignore */ }
+
       const { error } = await this.supabase
         .from('leave_types')
         .delete()
@@ -128,6 +181,25 @@ export class LeaveManagementService {
         logger.error('academic/leaves', 'Database error deleting leave type', error);
         throw error;
       }
+
+      (async () => {
+        try {
+          const supabase = createClientSupabaseClient();
+          const { data: { user } } = await supabase.auth.getUser();
+          if (!user?.id) return;
+          const template = AcademicActivityTemplates.leaveTypeDeleted(typeNameForLog);
+          await logActivityClient({
+            userId: user.id,
+            actionType: template.actionType,
+            resourceType: template.resourceType,
+            resourceId: id,
+            resourceName: typeNameForLog,
+            description: template.description,
+            metadata: { sub_type: template.sub_type },
+            institutionId: typeInstitutionIdForLog,
+          });
+        } catch { /* never block */ }
+      })();
     } catch (error) {
       logger.error('academic/leaves', 'Error deleting leave type', error);
       throw error;
@@ -396,6 +468,26 @@ export class LeaveManagementService {
         throw enhancedError;
       }
 
+      (async () => {
+        try {
+          const supabase = createClientSupabaseClient();
+          const { data: { user } } = await supabase.auth.getUser();
+          if (!user?.id) return;
+          const leaveTypeName = (leave as any).leave_type?.leave_type_name || 'Leave';
+          const template = AcademicActivityTemplates.leaveCreated(leaveTypeName);
+          await logActivityClient({
+            userId: user.id,
+            actionType: template.actionType,
+            resourceType: template.resourceType,
+            resourceId: (leave as any).id,
+            resourceName: leaveTypeName,
+            description: template.description,
+            metadata: { sub_type: template.sub_type, start_date: (leave as any).start_date, end_date: (leave as any).end_date },
+            institutionId: (leave as any).institution_id,
+          });
+        } catch { /* never block */ }
+      })();
+
       return leave as unknown as InstitutionLeave;
     } catch (error) {
       logger.error('academic/leaves', 'Error creating leave', error);
@@ -436,6 +528,26 @@ export class LeaveManagementService {
         throw enhancedError;
       }
 
+      (async () => {
+        try {
+          const supabase = createClientSupabaseClient();
+          const { data: { user } } = await supabase.auth.getUser();
+          if (!user?.id) return;
+          const leaveTypeName = (leave as any).leave_type?.leave_type_name || 'Leave';
+          const template = AcademicActivityTemplates.leaveUpdated(leaveTypeName, Object.keys(data));
+          await logActivityClient({
+            userId: user.id,
+            actionType: template.actionType,
+            resourceType: template.resourceType,
+            resourceId: (leave as any).id,
+            resourceName: leaveTypeName,
+            description: template.description,
+            metadata: { sub_type: template.sub_type, changed_fields: Object.keys(data) },
+            institutionId: (leave as any).institution_id,
+          });
+        } catch { /* never block */ }
+      })();
+
       return leave as unknown as InstitutionLeave;
     } catch (error) {
       logger.error('academic/leaves', 'Error updating leave', error);
@@ -448,6 +560,16 @@ export class LeaveManagementService {
    */
   static async deleteLeave(id: string): Promise<void> {
     try {
+      let leaveInstitutionIdForLog: string | undefined;
+      try {
+        const { data: existingLeave } = await this.supabase
+          .from('institution_leaves')
+          .select('institution_id')
+          .eq('id', id)
+          .single();
+        leaveInstitutionIdForLog = existingLeave?.institution_id;
+      } catch { /* ignore */ }
+
       const { error } = await this.supabase
         .from('institution_leaves')
         .delete()
@@ -457,6 +579,24 @@ export class LeaveManagementService {
         logger.error('academic/leaves', 'Database error deleting leave', error);
         throw error;
       }
+
+      (async () => {
+        try {
+          const supabase = createClientSupabaseClient();
+          const { data: { user } } = await supabase.auth.getUser();
+          if (!user?.id) return;
+          const template = AcademicActivityTemplates.leaveDeleted(id);
+          await logActivityClient({
+            userId: user.id,
+            actionType: template.actionType,
+            resourceType: template.resourceType,
+            resourceId: id,
+            description: template.description,
+            metadata: { sub_type: template.sub_type },
+            institutionId: leaveInstitutionIdForLog,
+          });
+        } catch { /* never block */ }
+      })();
     } catch (error) {
       logger.error('academic/leaves', 'Error deleting leave', error);
       throw error;
@@ -734,6 +874,30 @@ export class LeaveManagementService {
         }
       ]);
 
+      (async () => {
+        try {
+          const supabase = createClientSupabaseClient();
+          const { data: applicantProfile } = await supabase
+            .from('profiles')
+            .select('full_name')
+            .eq('id', (leave as any).requested_by)
+            .single();
+          const applicantName = applicantProfile?.full_name || 'Applicant';
+          const leaveTypeName = (leave as any).leave_type?.leave_type_name || 'leave';
+          const template = AcademicActivityTemplates.leaveApplicationApproved(applicantName, leaveTypeName);
+          await logActivityClient({
+            userId: approverId,
+            actionType: template.actionType,
+            resourceType: template.resourceType,
+            resourceId: id,
+            resourceName: applicantName,
+            description: template.description,
+            metadata: { sub_type: template.sub_type, leave_type: leaveTypeName, comments },
+            institutionId: (leave as any).institution_id,
+          });
+        } catch { /* never block */ }
+      })();
+
       return leave as unknown as InstitutionLeave;
     } catch (error) {
       logger.error('academic/leaves', 'Error approving leave', error);
@@ -779,6 +943,30 @@ export class LeaveManagementService {
         }
       ]);
 
+      (async () => {
+        try {
+          const supabase = createClientSupabaseClient();
+          const { data: applicantProfile } = await supabase
+            .from('profiles')
+            .select('full_name')
+            .eq('id', (leave as any).requested_by)
+            .single();
+          const applicantName = applicantProfile?.full_name || 'Applicant';
+          const leaveTypeName = (leave as any).leave_type?.leave_type_name || 'leave';
+          const template = AcademicActivityTemplates.leaveApplicationRejected(applicantName, leaveTypeName);
+          await logActivityClient({
+            userId: approverId,
+            actionType: template.actionType,
+            resourceType: template.resourceType,
+            resourceId: id,
+            resourceName: applicantName,
+            description: template.description,
+            metadata: { sub_type: template.sub_type, leave_type: leaveTypeName, reason },
+            institutionId: (leave as any).institution_id,
+          });
+        } catch { /* never block */ }
+      })();
+
       return leave as unknown as InstitutionLeave;
     } catch (error) {
       logger.error('academic/leaves', 'Error rejecting leave', error);
@@ -807,6 +995,25 @@ export class LeaveManagementService {
         .single();
 
       if (error) throw error;
+
+      (async () => {
+        try {
+          const supabase = createClientSupabaseClient();
+          const { data: { user } } = await supabase.auth.getUser();
+          if (!user?.id) return;
+          const leaveTypeName = (leave as any).leave_type?.leave_type_name || 'leave';
+          const template = AcademicActivityTemplates.leaveApplicationCancelled('User', leaveTypeName);
+          await logActivityClient({
+            userId: user.id,
+            actionType: template.actionType,
+            resourceType: template.resourceType,
+            resourceId: id,
+            description: template.description,
+            metadata: { sub_type: template.sub_type, leave_type: leaveTypeName },
+            institutionId: (leave as any).institution_id,
+          });
+        } catch { /* never block */ }
+      })();
 
       return leave as unknown as InstitutionLeave;
     } catch (error) {
