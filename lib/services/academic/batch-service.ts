@@ -8,6 +8,7 @@ import type {
   BatchListResponse
 } from '@/types/academics';
 import { logger } from '@/lib/utils/enhanced-logger';
+import { logActivityClient, AcademicActivityTemplates } from '@/lib/utils/activity-logger-client';
 
 export class BatchService {
   private static supabase = createClientSupabaseClient();
@@ -31,6 +32,25 @@ export class BatchService {
         throw enhancedError;
       }
 
+      (async () => {
+        try {
+          const supabase = createClientSupabaseClient();
+          const { data: { user } } = await supabase.auth.getUser();
+          if (!user?.id) return;
+          const batchResult = batch as Batch;
+          const template = AcademicActivityTemplates.batchCreated(batchResult.batch_name);
+          await logActivityClient({
+            userId: user.id,
+            actionType: template.actionType,
+            resourceType: template.resourceType,
+            resourceId: batchResult.id,
+            resourceName: batchResult.batch_name,
+            description: template.description,
+            metadata: { sub_type: template.sub_type },
+            institutionId: batchResult.institution_id,
+          });
+        } catch { /* never block */ }
+      })();
       return batch as Batch;
     } catch (error) {
       logger.error('academic/batches', 'Error creating batch', error);
@@ -63,6 +83,25 @@ export class BatchService {
         throw enhancedError;
       }
 
+      (async () => {
+        try {
+          const supabase = createClientSupabaseClient();
+          const { data: { user } } = await supabase.auth.getUser();
+          if (!user?.id) return;
+          const batchResult = batch as Batch;
+          const template = AcademicActivityTemplates.batchUpdated(batchResult.batch_name, Object.keys(data));
+          await logActivityClient({
+            userId: user.id,
+            actionType: template.actionType,
+            resourceType: template.resourceType,
+            resourceId: id,
+            resourceName: batchResult.batch_name,
+            description: template.description,
+            metadata: { sub_type: template.sub_type },
+            institutionId: batchResult.institution_id,
+          });
+        } catch { /* never block */ }
+      })();
       return batch as Batch;
     } catch (error) {
       logger.error('academic/batches', 'Error updating batch', error);
@@ -74,6 +113,18 @@ export class BatchService {
     id: string,
     options: { showToast?: boolean } = { showToast: true }
   ): Promise<void> {
+    let nameForLog = id;
+    let institutionIdForLog: string | undefined;
+    try {
+      const { data: existing } = await BatchService.supabase
+        .from('batches')
+        .select('batch_name, institution_id')
+        .eq('id', id)
+        .single();
+      nameForLog = existing?.batch_name || id;
+      institutionIdForLog = existing?.institution_id;
+    } catch { /* ignore */ }
+
     try {
       const { error } = await this.supabase
         .from('batches')
@@ -85,6 +136,24 @@ export class BatchService {
       if (options.showToast) {
         toast.success('Batch deleted successfully');
       }
+      (async () => {
+        try {
+          const supabase = createClientSupabaseClient();
+          const { data: { user } } = await supabase.auth.getUser();
+          if (!user?.id) return;
+          const template = AcademicActivityTemplates.batchDeleted(nameForLog);
+          await logActivityClient({
+            userId: user.id,
+            actionType: template.actionType,
+            resourceType: template.resourceType,
+            resourceId: id,
+            resourceName: nameForLog,
+            description: template.description,
+            metadata: { sub_type: template.sub_type },
+            institutionId: institutionIdForLog,
+          });
+        } catch { /* never block */ }
+      })();
     } catch (error) {
       logger.error('academic/batches', 'Error deleting batch', error);
       throw error;
