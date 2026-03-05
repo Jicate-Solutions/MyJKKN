@@ -29,31 +29,36 @@ export default async function DashboardPage() {
  * BentoGrid Section - Async Server Component
  */
 async function BentoGridSection() {
-  const supabase = await createServerSupabaseClient();
+  try {
+    const supabase = await createServerSupabaseClient();
 
-  // Get current user
-  const {
-    data: { user }
-  } = await supabase.auth.getUser();
+    // Get current user
+    const {
+      data: { user }
+    } = await supabase.auth.getUser();
 
-  if (!user) {
+    if (!user) {
+      return (
+        <DashboardBentoGrid currentUser='Guest' />
+      );
+    }
+
+    // Get user profile
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('full_name')
+      .eq('id', user.id)
+      .single();
+
+    const currentUser = profile?.full_name || user.email?.split('@')[0] || 'User';
+
     return (
-      <DashboardBentoGrid currentUser='Guest' />
+      <div className='w-full'>
+        <DashboardBentoGrid currentUser={currentUser} />
+      </div>
     );
+  } catch (error) {
+    console.error('[Dashboard] BentoGridSection error:', error);
+    return <DashboardBentoGrid currentUser='Guest' />;
   }
-
-  // Get user profile
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('full_name')
-    .eq('id', user.id)
-    .single();
-
-  const currentUser = profile?.full_name || user.email?.split('@')[0] || 'User';
-
-  return (
-    <div className='w-full'>
-      <DashboardBentoGrid currentUser={currentUser} />
-    </div>
-  );
 }
