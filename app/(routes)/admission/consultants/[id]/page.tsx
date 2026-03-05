@@ -723,7 +723,7 @@ function ConsultantDetailContent() {
 
 export default function ConsultantDetailPage() {
   return (
-    <PermissionGuard module="consultants" action="view">
+    <PermissionGuard module="admission.consultants" action="view">
       <ContentLayout title="Consultant Details">
         <Breadcrumb>
           <BreadcrumbList>

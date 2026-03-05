@@ -92,11 +92,16 @@ CREATE POLICY "users_all_authenticated" ON users
 -- SECTION 2: INSTITUTION & ACCESS TABLES
 -- ================================================================================
 
--- INSTITUTIONS TABLE (4 policies)
+-- INSTITUTIONS TABLE (5 policies)
 ALTER TABLE institutions ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "institutions_select_all" ON institutions
     FOR SELECT USING (true);
+
+-- Allow admission role users (cross-institution, no institution_id) to read all institutions
+-- Added: 2026-03-05 - Admission role users have NULL institution_id so existing policies excluded them
+CREATE POLICY "institutions_select_admission_role" ON institutions
+    FOR SELECT USING (get_current_user_role() = 'admission');
 
 CREATE POLICY "institutions_insert_super_admin" ON institutions
     FOR INSERT WITH CHECK (is_super_admin());
@@ -161,7 +166,12 @@ CREATE POLICY "user_institution_access_delete_admin" ON user_institution_access
 
 -- ACADEMIC_YEARS TABLE (Optimized policies)
 -- Updated: 2025-12-15 - Changed to use security definer functions to prevent intermittent loading issues
+-- Updated: 2026-03-05 - Added admission role policy (cross-institution users have NULL institution_id)
 ALTER TABLE academic_years ENABLE ROW LEVEL SECURITY;
+
+-- Admission role users are cross-institution and need to read all academic years
+CREATE POLICY "academic_years_select_admission_role" ON academic_years
+    FOR SELECT USING (get_current_user_role() = 'admission');
 
 -- Optimized SELECT policy using security definer function
 CREATE POLICY "academic_years_select_optimized" ON academic_years
@@ -233,7 +243,11 @@ CREATE POLICY "academic_years_delete_by_role" ON academic_years
 
 -- DEGREES TABLE (Optimized policies)
 -- Updated: 2025-12-15 - Changed to use security definer functions
+-- Updated: 2026-03-05 - Added admission role policy
 ALTER TABLE degrees ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "degrees_select_admission_role" ON degrees
+    FOR SELECT USING (get_current_user_role() = 'admission');
 
 CREATE POLICY "degrees_select_optimized" ON degrees
     FOR SELECT USING (
@@ -262,7 +276,11 @@ CREATE POLICY "degrees_delete_by_role" ON degrees
 
 -- DEPARTMENTS TABLE (Optimized policies)
 -- Updated: 2025-12-15 - Changed to use security definer functions
+-- Updated: 2026-03-05 - Added admission role policy
 ALTER TABLE departments ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "departments_select_admission_role" ON departments
+    FOR SELECT USING (get_current_user_role() = 'admission');
 
 CREATE POLICY "departments_select_optimized" ON departments
     FOR SELECT USING (
@@ -291,7 +309,11 @@ CREATE POLICY "departments_delete_by_role" ON departments
 
 -- PROGRAMS TABLE (Optimized policies)
 -- Updated: 2025-12-15 - Changed to use security definer functions
+-- Updated: 2026-03-05 - Added admission role policy
 ALTER TABLE programs ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "programs_select_admission_role" ON programs
+    FOR SELECT USING (get_current_user_role() = 'admission');
 
 CREATE POLICY "programs_select_optimized" ON programs
     FOR SELECT USING (

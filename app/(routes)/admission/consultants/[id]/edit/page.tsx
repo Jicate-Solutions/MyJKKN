@@ -783,7 +783,7 @@ function EditConsultantForm() {
 
 export default function EditConsultantPage() {
   return (
-    <PermissionGuard module="consultants" action="edit">
+    <PermissionGuard module="admission.consultants" action="edit">
       <ContentLayout title="Edit Consultant">
         <Breadcrumb>
           <BreadcrumbList>

@@ -621,7 +621,7 @@ function NewConsultantForm() {
 
 export default function NewConsultantPage() {
   return (
-    <PermissionGuard module="consultants" action="create">
+    <PermissionGuard module="admission.consultants" action="create">
       <ContentLayout title="Add Education Consultant">
         <Breadcrumb>
           <BreadcrumbList>
