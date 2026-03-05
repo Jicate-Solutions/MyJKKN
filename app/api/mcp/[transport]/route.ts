@@ -15,16 +15,34 @@ const handler = createMcpHandler(
   {
     basePath: '/api/mcp',
     maxDuration: 60,
+    verboseLogs: true,
   }
 );
 
 const authHandler = withMcpAuth(
   handler,
   async (req, token) => {
-    const result = await verifyMcpToken(req, token);
-    return result as unknown as AuthInfo | undefined;
+    try {
+      const result = await verifyMcpToken(req, token);
+      return result as unknown as AuthInfo | undefined;
+    } catch (err) {
+      console.error('[MCP Auth] verifyMcpToken error:', err);
+      return undefined;
+    }
   },
   { required: true }
 );
 
-export { authHandler as GET, authHandler as POST, authHandler as DELETE };
+async function wrappedHandler(req: Request) {
+  try {
+    return await authHandler(req);
+  } catch (err) {
+    console.error('[MCP Route] Unhandled error:', err);
+    return new Response(JSON.stringify({ error: 'Internal server error', details: String(err) }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+}
+
+export { wrappedHandler as GET, wrappedHandler as POST, wrappedHandler as DELETE };

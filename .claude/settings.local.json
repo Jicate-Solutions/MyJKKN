@@ -242,7 +242,16 @@
       "mcp__memory__read_graph",
       "Bash(for route in attendance batches course-grades leave-calendar leave-onduty leaves periods regulations staff-planning timetables years)",
       "Bash(do)",
-      "Read(//d/Projects/MyJKKN/app/\\(routes\\)/academic/**)"
+      "Read(//d/Projects/MyJKKN/app/\\(routes\\)/academic/**)",
+      "WebFetch(domain:developers.cloudflare.com)",
+      "WebFetch(domain:bytebridge.medium.com)",
+      "WebFetch(domain:supersami.medium.com)",
+      "WebFetch(domain:stytch.com)",
+      "WebFetch(domain:clerk.com)",
+      "Bash(bun add:*)",
+      "Bash(bun run:*)",
+      "Bash(MSYS_NO_PATHCONV=1 /usr/bin/sleep 20:*)",
+      "Bash(tasklist:*)"
     ],
     "deny": [],
     "ask": []
