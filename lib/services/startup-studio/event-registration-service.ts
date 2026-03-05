@@ -135,7 +135,8 @@ export class EventRegistrationService {
   }
 
   static async getRegistrations(filters: RegistrationFilters): Promise<EventRegistration[]> {
-    let query = this.supabase
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- avoids TS infinite type instantiation with nested Supabase selects
+    let query: any = this.supabase
       .from('event_registrations')
       .select(`
         *,
@@ -168,7 +169,8 @@ export class EventRegistrationService {
     const from = (page - 1) * limit;
     const to = from + limit - 1;
 
-    let query = this.supabase
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- avoids TS infinite type instantiation with nested Supabase selects
+    let query: any = this.supabase
       .from('event_registrations')
       .select(`
         *,

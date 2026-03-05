@@ -16,7 +16,7 @@ export class EventChecklistService {
     eventId: string,
     targetRole?: ChecklistTargetRole
   ): Promise<EventChecklist[]> {
-    let query = this.supabase
+    const query = this.supabase
       .from('event_checklists')
       .select(
         '*, items:event_checklist_items(*, completion:event_checklist_completions(*))'
@@ -24,11 +24,9 @@ export class EventChecklistService {
       .eq('event_id', eventId)
       .order('order_index', { ascending: true });
 
-    if (targetRole) {
-      query = query.eq('target_role', targetRole);
-    }
-
-    const { data, error } = await query;
+    const { data, error } = await (targetRole
+      ? query.eq('target_role', targetRole)
+      : query);
     if (error) {
       console.error('[startup/checklists] getChecklists failed:', error);
       throw error;

@@ -13,7 +13,8 @@ export class EventVenueService {
   }
 
   static async getVenues(eventId: string, dayType?: DayType): Promise<EventVenueAssignment[]> {
-    let query = this.supabase
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- avoids TS infinite type instantiation with nested Supabase selects
+    let query: any = this.supabase
       .from('event_venue_assignments')
       .select(`
         *,

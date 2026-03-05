@@ -15,7 +15,8 @@ export class EventService {
   }
 
   static async getEvents(filters?: EventFilters): Promise<StartupEvent[]> {
-    let query = this.supabase
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- avoids TS infinite type instantiation with nested Supabase selects
+    let query: any = this.supabase
       .from('startup_events')
       .select(`
         *,
