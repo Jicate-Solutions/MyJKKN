@@ -22,6 +22,7 @@ import {
   FileCode,
   ArrowRight,
   Filter,
+  Github,
 } from 'lucide-react';
 import { useSubmissions, useSSEvents } from '@/hooks/startup-studio';
 
@@ -168,6 +169,7 @@ export function SubmissionsList() {
                 <TableRow>
                   <TableHead>App Name</TableHead>
                   <TableHead>Team</TableHead>
+                  <TableHead>GitHub</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="text-right">Score</TableHead>
                   <TableHead>Submitted</TableHead>
@@ -190,6 +192,22 @@ export function SubmissionsList() {
                     </TableCell>
                     <TableCell>
                       {submission.team_name ?? '-'}
+                    </TableCell>
+                    <TableCell>
+                      {submission.github_repo_url ? (
+                        <a
+                          href={submission.github_repo_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="inline-flex items-center gap-1 text-sm text-blue-600 hover:text-blue-800 hover:underline"
+                        >
+                          <Github className="h-3.5 w-3.5" />
+                          Repo
+                        </a>
+                      ) : (
+                        <span className="text-muted-foreground">-</span>
+                      )}
                     </TableCell>
                     <TableCell>
                       {submission.status && (

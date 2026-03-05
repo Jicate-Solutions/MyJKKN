@@ -333,6 +333,7 @@ export interface SSAppathonSubmission {
   lovable_url: string | null;
   elevator_pitch: string | null;
   demo_video_url: string | null;
+  github_repo_url: string | null;
   screenshots: any[];
   category: string | null;
   status: SubmissionStatus;
@@ -348,12 +349,16 @@ export interface SSJudgeScore {
   submission_id: string;
   judge_id: string;
   track_id: string | null;
-  problem_impact: number | null;
-  solution_innovation: number | null;
-  working_prototype: number | null;
-  user_validation: number | null;
-  presentation_quality: number | null;
-  bioconvergence_alignment: number | null;
+  /** Real Problem - backed by discovery interviews (25% weight, 1-5) */
+  real_problem: number | null;
+  /** Working App - actually functions (25% weight, 1-5) */
+  working_app: number | null;
+  /** User Tested - real people tried it (20% weight, 1-5) */
+  user_tested: number | null;
+  /** Completeness - usable today (15% weight, 1-5) */
+  completeness: number | null;
+  /** Presentation - clear, confident, within time (15% weight, 1-5) */
+  presentation: number | null;
   weighted_score: number | null;
   total_score: number | null;
   notes: string | null;
@@ -461,6 +466,7 @@ export interface CreateSubmissionInput {
   live_url?: string;
   lovable_url?: string;
   elevator_pitch?: string;
+  github_repo_url?: string;
   category?: string;
 }
 

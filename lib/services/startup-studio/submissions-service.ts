@@ -107,6 +107,7 @@ export class SubmissionsService extends BaseService {
         live_url: input.live_url || null,
         lovable_url: input.lovable_url || null,
         elevator_pitch: input.elevator_pitch || null,
+        github_repo_url: input.github_repo_url || null,
         category: input.category || null,
         status: 'draft' as SubmissionStatus,
       })
@@ -167,21 +168,43 @@ export class SubmissionsService extends BaseService {
   }
 
   /**
+   * Judging criteria weights (must sum to 1.0)
+   * Matches ops plan: Real Problem 25%, Working App 25%, User Tested 20%, Completeness 15%, Presentation 15%
+   */
+  static readonly CRITERIA_WEIGHTS = {
+    real_problem: 0.25,
+    working_app: 0.25,
+    user_tested: 0.20,
+    completeness: 0.15,
+    presentation: 0.15,
+  } as const;
+
+  /**
+   * Calculate weighted score from individual criteria (each 1-5).
+   * Returns a score out of 100: (weighted_average / 5) * 100
+   */
+  static calculateWeightedScore(data: Record<string, any>): number {
+    const weightedSum =
+      (data.real_problem || 0) * this.CRITERIA_WEIGHTS.real_problem +
+      (data.working_app || 0) * this.CRITERIA_WEIGHTS.working_app +
+      (data.user_tested || 0) * this.CRITERIA_WEIGHTS.user_tested +
+      (data.completeness || 0) * this.CRITERIA_WEIGHTS.completeness +
+      (data.presentation || 0) * this.CRITERIA_WEIGHTS.presentation;
+    // weightedSum is on a 1-5 scale; multiply by 20 to get 0-100
+    return Math.round(weightedSum * 20 * 100) / 100;
+  }
+
+  /**
    * Add a judge score for a submission
-   * Auto-calculates weighted_score and total_score from individual criteria
+   * Auto-calculates weighted_score and total_score from 5 criteria (each 1-5)
+   * Criteria: real_problem (25%), working_app (25%), user_tested (20%), completeness (15%), presentation (15%)
    */
   static async addJudgeScore(
     submissionId: string,
     judgeId: string,
     data: Record<string, any>
   ): Promise<SSJudgeScore> {
-    const totalScore =
-      (data.problem_impact || 0) +
-      (data.solution_innovation || 0) +
-      (data.working_prototype || 0) +
-      (data.user_validation || 0) +
-      (data.presentation_quality || 0) +
-      (data.bioconvergence_alignment || 0);
+    const weightedScore = this.calculateWeightedScore(data);
 
     const { data: score, error } = await this.supabase
       .from('ss_judge_scores')
@@ -189,14 +212,13 @@ export class SubmissionsService extends BaseService {
         submission_id: submissionId,
         judge_id: judgeId,
         track_id: data.track_id || null,
-        problem_impact: data.problem_impact || null,
-        solution_innovation: data.solution_innovation || null,
-        working_prototype: data.working_prototype || null,
-        user_validation: data.user_validation || null,
-        presentation_quality: data.presentation_quality || null,
-        bioconvergence_alignment: data.bioconvergence_alignment || null,
-        weighted_score: totalScore,
-        total_score: totalScore,
+        real_problem: data.real_problem || null,
+        working_app: data.working_app || null,
+        user_tested: data.user_tested || null,
+        completeness: data.completeness || null,
+        presentation: data.presentation || null,
+        weighted_score: weightedScore,
+        total_score: weightedScore,
         notes: data.notes || null,
         strengths: data.strengths || null,
         improvements: data.improvements || null,
@@ -224,12 +246,11 @@ export class SubmissionsService extends BaseService {
 
     // If any scoring criteria are present, recalculate total
     const hasCriteria =
-      'problem_impact' in data ||
-      'solution_innovation' in data ||
-      'working_prototype' in data ||
-      'user_validation' in data ||
-      'presentation_quality' in data ||
-      'bioconvergence_alignment' in data;
+      'real_problem' in data ||
+      'working_app' in data ||
+      'user_tested' in data ||
+      'completeness' in data ||
+      'presentation' in data;
 
     if (hasCriteria) {
       // Fetch current score to merge with updates for recalculation
@@ -242,16 +263,10 @@ export class SubmissionsService extends BaseService {
       if (fetchError) throw new Error(`Failed to fetch score for update: ${fetchError.message}`);
 
       const merged = { ...current, ...data };
-      const totalScore =
-        (merged.problem_impact || 0) +
-        (merged.solution_innovation || 0) +
-        (merged.working_prototype || 0) +
-        (merged.user_validation || 0) +
-        (merged.presentation_quality || 0) +
-        (merged.bioconvergence_alignment || 0);
+      const weightedScore = this.calculateWeightedScore(merged);
 
-      updates.weighted_score = totalScore;
-      updates.total_score = totalScore;
+      updates.weighted_score = weightedScore;
+      updates.total_score = weightedScore;
     }
 
     const { data: score, error } = await this.supabase

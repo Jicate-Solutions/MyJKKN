@@ -222,7 +222,7 @@ export function SubmissionDetail({ id }: SubmissionDetailProps) {
       </Card>
 
       {/* URLs */}
-      {(submission.live_url || submission.lovable_url || submission.demo_video_url) && (
+      {(submission.live_url || submission.lovable_url || submission.github_repo_url || submission.demo_video_url) && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -253,6 +253,18 @@ export function SubmissionDetail({ id }: SubmissionDetailProps) {
                 >
                   <Github className="h-4 w-4" />
                   <span className="text-sm font-medium">Lovable Project</span>
+                  <ExternalLink className="h-3.5 w-3.5 ml-auto text-muted-foreground" />
+                </a>
+              )}
+              {submission.github_repo_url && (
+                <a
+                  href={submission.github_repo_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-2 p-3 border rounded-lg hover:bg-muted/50 transition-colors"
+                >
+                  <Github className="h-4 w-4 text-gray-900" />
+                  <span className="text-sm font-medium">GitHub Repo</span>
                   <ExternalLink className="h-3.5 w-3.5 ml-auto text-muted-foreground" />
                 </a>
               )}
@@ -324,25 +336,41 @@ export function SubmissionDetail({ id }: SubmissionDetailProps) {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Judge</TableHead>
-                    <TableHead>Criteria</TableHead>
-                    <TableHead className="text-right">Score</TableHead>
-                    <TableHead>Comments</TableHead>
+                    <TableHead className="text-center">Real Problem (25%)</TableHead>
+                    <TableHead className="text-center">Working App (25%)</TableHead>
+                    <TableHead className="text-center">User Tested (20%)</TableHead>
+                    <TableHead className="text-center">Completeness (15%)</TableHead>
+                    <TableHead className="text-center">Presentation (15%)</TableHead>
+                    <TableHead className="text-right">Weighted Total</TableHead>
+                    <TableHead>Notes</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {scores.map((score: any, index: number) => (
                     <TableRow key={score.id ?? index}>
                       <TableCell className="font-medium">
-                        {score.judge_name ?? score.judge?.name ?? `Judge ${index + 1}`}
+                        {score.judge?.full_name ?? score.judge_name ?? `Judge ${index + 1}`}
                       </TableCell>
-                      <TableCell>
-                        {score.criteria ?? score.dimension ?? '-'}
+                      <TableCell className="text-center">
+                        {score.real_problem ?? '-'}
                       </TableCell>
-                      <TableCell className="text-right font-medium">
-                        {score.score ?? score.value ?? '-'}
+                      <TableCell className="text-center">
+                        {score.working_app ?? '-'}
                       </TableCell>
-                      <TableCell className="text-muted-foreground">
-                        {score.comments ?? score.notes ?? '-'}
+                      <TableCell className="text-center">
+                        {score.user_tested ?? '-'}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        {score.completeness ?? '-'}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        {score.presentation ?? '-'}
+                      </TableCell>
+                      <TableCell className="text-right font-bold">
+                        {score.weighted_score ?? score.total_score ?? '-'}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground max-w-[200px] truncate">
+                        {score.notes ?? '-'}
                       </TableCell>
                     </TableRow>
                   ))}

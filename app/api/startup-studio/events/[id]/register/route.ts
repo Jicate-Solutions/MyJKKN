@@ -16,6 +16,12 @@ export const POST = withAuth(async (request, auth, context) => {
 
   const body = await request.json()
   if (!body.name) return errorResponse('Team name is required', 400)
+  if (!body.problem_idea || typeof body.problem_idea !== 'string' || !body.problem_idea.trim()) {
+    return errorResponse('Describe the problem your team plans to solve', 400)
+  }
+  if (body.problem_idea.trim().length < 20) {
+    return errorResponse('Problem description must be at least 20 characters', 400)
+  }
   if (!body.members || !Array.isArray(body.members) || body.members.length < 1) {
     return errorResponse('At least 1 team member is required', 400)
   }

@@ -27,6 +27,7 @@ import {
   Video,
   FileText,
   Link as LinkIcon,
+  Github,
 } from 'lucide-react';
 import { useSSEvent } from '@/hooks/startup-studio';
 import { apiClient } from '@/lib/api/client';
@@ -70,6 +71,7 @@ export function SubmissionForm({ eventId }: SubmissionFormProps) {
     solution_summary: '',
     live_url: '',
     lovable_url: '',
+    github_repo_url: '',
     elevator_pitch: '',
     demo_video_url: '',
     category: '',
@@ -92,6 +94,14 @@ export function SubmissionForm({ eventId }: SubmissionFormProps) {
     }
     if (!formData.solution_summary.trim()) {
       setValidationError('Solution summary is required.');
+      return false;
+    }
+    if (!formData.github_repo_url.trim()) {
+      setValidationError('GitHub Repository URL is required.');
+      return false;
+    }
+    if (!formData.github_repo_url.trim().startsWith('https://github.com/')) {
+      setValidationError('GitHub Repository URL must start with https://github.com/');
       return false;
     }
     setValidationError('');
@@ -305,6 +315,23 @@ export function SubmissionForm({ eventId }: SubmissionFormProps) {
               value={formData.lovable_url}
               onChange={(e) => updateField('lovable_url', e.target.value)}
             />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="github-repo-url" className="flex items-center gap-2">
+              <Github className="h-4 w-4" />
+              GitHub Repository URL *
+            </Label>
+            <Input
+              id="github-repo-url"
+              type="url"
+              placeholder="https://github.com/username/repo"
+              value={formData.github_repo_url}
+              onChange={(e) => updateField('github_repo_url', e.target.value)}
+            />
+            <p className="text-xs text-muted-foreground">
+              Export your Lovable project to GitHub before submitting. This preserves your work after credits expire.
+            </p>
           </div>
 
           <div className="space-y-2">

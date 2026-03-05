@@ -33,6 +33,7 @@ export const POST = withAuth(async (request, auth, context) => {
     live_url: body.live_url,
     lovable_url: body.lovable_url,
     elevator_pitch: body.elevator_pitch,
+    github_repo_url: body.github_repo_url,
     category: body.category,
   })
 

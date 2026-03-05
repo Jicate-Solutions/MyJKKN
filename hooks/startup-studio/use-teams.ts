@@ -44,6 +44,7 @@ export function useUpdateTeam() {
       apiClient.patch(`/api/startup-studio/teams/${id}`, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['startup-studio', 'teams'] });
+      queryClient.invalidateQueries({ queryKey: ['startup-studio', 'events'] });
     },
   });
 }

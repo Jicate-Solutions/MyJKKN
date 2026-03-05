@@ -72,6 +72,16 @@ export function TeamRegistrationForm({ eventId }: TeamRegistrationFormProps) {
       return false;
     }
 
+    if (!problemIdea.trim()) {
+      setValidationError('Describe the problem your team plans to solve');
+      return false;
+    }
+
+    if (problemIdea.trim().length < 20) {
+      setValidationError('Problem description must be at least 20 characters.');
+      return false;
+    }
+
     const filledMembers = members.filter((m) => m.user_id.trim());
     if (filledMembers.length < REQUIRED_MEMBERS) {
       setValidationError(`All ${REQUIRED_MEMBERS} team members are required. Please enter email for each member.`);
@@ -106,7 +116,7 @@ export function TeamRegistrationForm({ eventId }: TeamRegistrationFormProps) {
         eventId,
         data: {
           name: teamName.trim(),
-          problem_idea: problemIdea.trim() || undefined,
+          problem_idea: problemIdea.trim(),
           members: memberData,
         },
       });
@@ -196,14 +206,19 @@ export function TeamRegistrationForm({ eventId }: TeamRegistrationFormProps) {
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="problem-idea">Problem Idea / Description</Label>
+            <Label htmlFor="problem-idea">Problem / Idea Description *</Label>
             <Textarea
               id="problem-idea"
-              placeholder="Briefly describe the problem your team wants to solve"
+              placeholder="Describe the problem your team plans to solve (minimum 20 characters)"
               value={problemIdea}
               onChange={(e) => setProblemIdea(e.target.value)}
               rows={3}
             />
+            {problemIdea.trim().length > 0 && problemIdea.trim().length < 20 && (
+              <p className="text-xs text-destructive">
+                {20 - problemIdea.trim().length} more characters needed (minimum 20)
+              </p>
+            )}
           </div>
         </CardContent>
       </Card>
