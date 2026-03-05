@@ -23,6 +23,7 @@ import {
   Presentation,
   Send,
   Clock,
+  MapPin,
 } from 'lucide-react';
 import { useSSEvent, useUpdateEvent } from '@/hooks/startup-studio';
 
@@ -347,6 +348,15 @@ export function EventDetail({ id }: EventDetailProps) {
                 <div className="text-left">
                   <p className="font-medium">Demo Day</p>
                   <p className="text-xs text-muted-foreground">Presentation schedule</p>
+                </div>
+              </Link>
+            </Button>
+            <Button variant="outline" className="justify-start h-auto py-3" asChild>
+              <Link href={`/startup-studio/events/${id}/venues`}>
+                <MapPin className="mr-2 h-4 w-4 text-orange-500" />
+                <div className="text-left">
+                  <p className="font-medium">Venues & Mentors</p>
+                  <p className="text-xs text-muted-foreground">Allocate teams to venues</p>
                 </div>
               </Link>
             </Button>
