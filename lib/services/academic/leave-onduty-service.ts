@@ -40,6 +40,8 @@ import {
   AttendanceUpdateRecord,
 } from '@/types/leave-onduty';
 
+import { logActivityClient, AcademicActivityTemplates } from '@/lib/utils/activity-logger-client';
+
 // Helper to get untyped client for tables not yet in database.types.ts
 const getSupabase = () => createClientSupabaseClient() as any;
 
@@ -797,6 +799,30 @@ export class LeaveOndutyService {
     if (error) {
       throw new Error(`Failed to cancel application: ${error.message}`);
     }
+
+    (async () => {
+      try {
+        const supabase = createClientSupabaseClient();
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user?.id) return;
+        // Fetch application details for logging
+        const { data: app } = await (supabase as any)
+          .from('leave_onduty_applications')
+          .select('institution_id')
+          .eq('id', applicationId)
+          .single();
+        const template = AcademicActivityTemplates.leaveApplicationCancelled('Learner', 'on-duty');
+        await logActivityClient({
+          userId: user.id,
+          actionType: template.actionType,
+          resourceType: template.resourceType,
+          resourceId: applicationId,
+          description: template.description,
+          metadata: { sub_type: template.sub_type, learner_id: learnerId },
+          institutionId: app?.institution_id,
+        });
+      } catch { /* never block */ }
+    })();
   }
 
   /**

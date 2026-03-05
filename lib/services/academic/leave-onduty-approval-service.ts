@@ -20,6 +20,7 @@ import {
   LeaveOndutyApplication,
 } from '@/types/leave-onduty';
 import { LeaveOndutyAttendanceIntegrationService } from './leave-onduty-attendance-integration-service';
+import { logActivityClient, AcademicActivityTemplates } from '@/lib/utils/activity-logger-client';
 
 // Helper to get untyped client for tables not yet in database.types.ts
 const getSupabase = () => createClientSupabaseClient() as any;
@@ -110,6 +111,30 @@ export class LeaveOndutyApprovalService {
       }
 
       console.log('[leave-onduty/approval] Super admin approval completed successfully');
+
+      (async () => {
+        try {
+          const { data: learnerApp } = await getSupabase()
+            .from('leave_onduty_applications')
+            .select('learner_id, institution_id')
+            .eq('id', data.application_id)
+            .single();
+          const applicantId = learnerApp?.learner_id || data.application_id;
+          const template = data.status === 'rejected'
+            ? AcademicActivityTemplates.leaveOndutyApplicationRejected(applicantId)
+            : AcademicActivityTemplates.leaveOndutyApplicationApproved(applicantId);
+          await logActivityClient({
+            userId: data.approver_id,
+            actionType: template.actionType,
+            resourceType: template.resourceType,
+            resourceId: data.application_id,
+            description: template.description,
+            metadata: { sub_type: template.sub_type, action: data.status, comments: data.comments },
+            institutionId: learnerApp?.institution_id,
+          });
+        } catch { /* never block */ }
+      })();
+
       return;
     }
 
@@ -139,6 +164,22 @@ export class LeaveOndutyApprovalService {
     // Handle rejection - immediately reject application
     if (data.status === 'rejected') {
       await this.handleRejection(application.id, data.application_id);
+      (async () => {
+        try {
+          const template = AcademicActivityTemplates.leaveOndutyApplicationRejected(
+            application.learner_id || data.application_id
+          );
+          await logActivityClient({
+            userId: data.approver_id,
+            actionType: template.actionType,
+            resourceType: template.resourceType,
+            resourceId: data.application_id,
+            description: template.description,
+            metadata: { sub_type: template.sub_type, action: 'rejected', comments: data.comments },
+            institutionId: application.institution_id,
+          });
+        } catch { /* never block */ }
+      })();
       return;
     }
 
@@ -148,6 +189,23 @@ export class LeaveOndutyApprovalService {
     } else {
       await this.handleParallelApproval(application, flow);
     }
+
+    (async () => {
+      try {
+        const template = AcademicActivityTemplates.leaveOndutyApplicationApproved(
+          application.learner_id || data.application_id
+        );
+        await logActivityClient({
+          userId: data.approver_id,
+          actionType: template.actionType,
+          resourceType: template.resourceType,
+          resourceId: data.application_id,
+          description: template.description,
+          metadata: { sub_type: template.sub_type, action: 'approved', comments: data.comments },
+          institutionId: application.institution_id,
+        });
+      } catch { /* never block */ }
+    })();
   }
 
   /**
