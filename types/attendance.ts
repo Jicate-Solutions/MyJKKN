@@ -533,3 +533,88 @@ export function calculateAttendanceStatistics(
 export function countsAsPresent(status: AttendanceStatus): boolean {
   return status === 'Present' || status === 'OnDuty';
 }
+
+// ============================================================
+// Facilitator Attendance Report Types
+// Added: 2026-03-06
+// ============================================================
+
+export interface FacilitatorTrendPoint {
+  week: string; // ISO date string (week start)
+  count: number;
+}
+
+export interface FacilitatorDailyPoint {
+  date: string; // YYYY-MM-DD
+  count: number;
+}
+
+export interface FacilitatorAttendanceStat {
+  staffId: string;
+  firstName: string;
+  lastName: string;
+  designation: string;
+  departmentName: string;
+  departmentId: string;
+  periodsMarked: number;
+  lastMarkedAt: string | null;
+  trendData: FacilitatorTrendPoint[];
+  dailyData: FacilitatorDailyPoint[];
+}
+
+export interface FacilitatorReportSummary {
+  totalFacilitators: number;
+  totalPeriodsMarked: number;
+  avgPeriodsPerFacilitator: number;
+}
+
+export interface FacilitatorDepartmentBreakdown {
+  departmentId: string;
+  departmentName: string;
+  facilitatorCount: number;
+  totalMarked: number;
+  avgRate: number;
+}
+
+export interface FacilitatorReportFilters {
+  dateFrom: string; // YYYY-MM-DD
+  dateTo: string;   // YYYY-MM-DD
+  departmentId?: string;
+  programId?: string;
+  semesterId?: string;
+  facilitatorId?: string;
+}
+
+export interface FacilitatorReportData {
+  summary: FacilitatorReportSummary;
+  facilitators: FacilitatorAttendanceStat[];
+  departmentBreakdown: FacilitatorDepartmentBreakdown[];
+}
+
+// Raw RPC response shape (snake_case) — mapped in service layer
+export interface FacilitatorReportRaw {
+  summary: {
+    total_facilitators: number;
+    total_periods_marked: number;
+    avg_periods_per_facilitator: number;
+  };
+  facilitators: Array<{
+    staff_id: string;
+    first_name: string;
+    last_name: string;
+    designation: string;
+    department_name: string;
+    department_id: string;
+    periods_marked: number;
+    last_marked_at: string | null;
+    trend_data: Array<{ week: string; count: number }>;
+    daily_data: Array<{ date: string; count: number }>;
+  }>;
+  department_breakdown: Array<{
+    department_id: string;
+    department_name: string;
+    facilitator_count: number;
+    total_marked: number;
+    avg_rate: number;
+  }>;
+}
