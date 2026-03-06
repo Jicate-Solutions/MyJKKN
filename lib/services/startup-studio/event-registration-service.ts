@@ -15,7 +15,7 @@ export class EventRegistrationService {
     return createClientSupabaseClient();
   }
 
-  static async validateRegistration(eventId: string, userId: string, members: CreateTeamMemberDto[]): Promise<ValidationResult> {
+  static async validateRegistration(eventId: string, userId: string): Promise<ValidationResult> {
     const { data: event, error: eventError } = await this.supabase
       .from('startup_events')
       .select('id, status, registration_deadline, config')
@@ -32,35 +32,37 @@ export class EventRegistrationService {
       return { valid: false, error: 'Registration deadline has passed' };
     }
 
-    const maxSize = event.config?.team_max_size || 5;
-    if (members.length > maxSize) {
-      return { valid: false, error: `Maximum ${maxSize} team members allowed` };
-    }
-
-    const { data: existing } = await this.supabase
+    // Check if user already owns a team for this event
+    const { data: existingOwner } = await this.supabase
       .from('event_registrations')
       .select('id, team_name')
       .eq('event_id', eventId)
       .eq('owner_id', userId)
       .maybeSingle();
 
-    if (existing) {
-      return { valid: false, error: `You already registered team "${existing.team_name}" for this event` };
+    if (existingOwner) {
+      return { valid: false, error: `You already registered team "${existingOwner.team_name}" for this event` };
     }
 
-    const memberEmails = members.map(m => m.email);
-    if (memberEmails.length > 0) {
-      const { data: existingMembers } = await this.supabase
-        .from('event_team_members')
-        .select('email, registration:event_registrations!inner(event_id)')
-        .in('email', memberEmails);
+    // Check if user is already an accepted member of another team for this event
+    const { data: eventRegs } = await this.supabase
+      .from('event_registrations')
+      .select('id')
+      .eq('event_id', eventId);
 
-      const conflicting = (existingMembers || []).filter(
-        (m: any) => m.registration?.event_id === eventId
-      );
-      if (conflicting.length > 0) {
-        const emails = conflicting.map((m: any) => m.email).join(', ');
-        return { valid: false, error: `Some members are already registered with another team: ${emails}` };
+    const regIds = (eventRegs || []).map((r: any) => r.id);
+
+    if (regIds.length > 0) {
+      const { data: existingMember } = await this.supabase
+        .from('event_team_members')
+        .select('id')
+        .in('registration_id', regIds)
+        .eq('profile_id', userId)
+        .eq('status', 'accepted')
+        .maybeSingle();
+
+      if (existingMember) {
+        return { valid: false, error: 'You are already a member of another team for this event' };
       }
     }
 
@@ -68,23 +70,21 @@ export class EventRegistrationService {
   }
 
   static async registerTeam(dto: CreateRegistrationDto, userId: string): Promise<EventRegistration> {
-    const validation = await this.validateRegistration(dto.event_id, userId, dto.members);
+    const validation = await this.validateRegistration(dto.event_id, userId);
     if (!validation.valid) {
       throw new Error(validation.error);
     }
 
     const { data: profile } = await this.supabase
       .from('profiles')
-      .select('institution_id, is_super_admin, role')
+      .select('institution_id, is_super_admin, role, email, full_name, learner_id')
       .eq('id', userId)
       .single();
 
-    // Super admins may not have institution_id — allow DTO override or first available
     let institutionId = profile?.institution_id || dto.institution_id;
     if (!institutionId) {
-      const isSuperAdmin = profile?.is_super_admin || profile?.role === 'super_admin' || profile?.role === 'admin' || profile?.role === 'administrator';
+      const isSuperAdmin = profile?.is_super_admin || ['super_admin', 'admin', 'administrator'].includes(profile?.role);
       if (isSuperAdmin) {
-        // Fallback: get first institution
         const { data: firstInst } = await this.supabase
           .from('institutions')
           .select('id')
@@ -97,11 +97,20 @@ export class EventRegistrationService {
       }
     }
 
+    // Generate institution-wise team code via DB function
+    const { data: codeResult, error: codeError } = await this.supabase
+      .rpc('generate_team_code', { p_event_id: dto.event_id, p_institution_id: institutionId });
+
+    if (codeError) {
+      console.error('[startup/registration] generate_team_code failed:', codeError);
+    }
+
     const { data: registration, error: regError } = await this.supabase
       .from('event_registrations')
       .insert({
         event_id: dto.event_id,
         team_name: dto.team_name,
+        team_code: codeResult || null,
         problem_idea: dto.problem_idea,
         owner_id: userId,
         institution_id: institutionId,
@@ -114,22 +123,22 @@ export class EventRegistrationService {
       throw regError;
     }
 
-    if (dto.members.length > 0) {
-      const membersToInsert = dto.members.map(m => ({
+    // Auto-add team leader as accepted member with is_leader=true
+    const { error: leaderError } = await this.supabase
+      .from('event_team_members')
+      .insert({
         registration_id: registration.id,
-        email: m.email,
-        full_name: m.full_name || null,
-        student_id: m.student_id || null,
-        has_laptop: m.has_laptop || false,
-      }));
+        profile_id: userId,
+        learner_id: profile?.learner_id || null,
+        email: profile?.email || '',
+        full_name: profile?.full_name || null,
+        has_laptop: false,
+        status: 'accepted',
+        is_leader: true,
+      });
 
-      const { error: membersError } = await this.supabase
-        .from('event_team_members')
-        .insert(membersToInsert);
-
-      if (membersError) {
-        console.error('[startup/registration] insertMembers failed:', membersError);
-      }
+    if (leaderError) {
+      console.error('[startup/registration] auto-add leader failed:', leaderError);
     }
 
     return registration as unknown as EventRegistration;
@@ -142,7 +151,7 @@ export class EventRegistrationService {
         *,
         owner:profiles!event_registrations_owner_id_fkey(id, full_name, email, avatar_url),
         institution:institutions(id, name),
-        team_members:event_team_members(id, email, full_name, student_id, has_laptop, profile_id)
+        team_members:event_team_members(id, email, full_name, student_id, has_laptop, profile_id, learner_id, status, is_leader, responded_at)
       `)
       .eq('event_id', filters.event_id)
       .order('created_at', { ascending: true });
@@ -175,7 +184,7 @@ export class EventRegistrationService {
         *,
         owner:profiles!event_registrations_owner_id_fkey(id, full_name, email, avatar_url),
         institution:institutions(id, name),
-        team_members:event_team_members(id, email, full_name, student_id, has_laptop, profile_id)
+        team_members:event_team_members(id, email, full_name, student_id, has_laptop, profile_id, learner_id, status, is_leader, responded_at)
       `, { count: 'exact' })
       .eq('event_id', filters.event_id)
       .order('created_at', { ascending: true })
@@ -214,7 +223,7 @@ export class EventRegistrationService {
         *,
         owner:profiles!event_registrations_owner_id_fkey(id, full_name, email),
         institution:institutions(id, name),
-        team_members:event_team_members(id, email, full_name, student_id, has_laptop, profile_id),
+        team_members:event_team_members(id, email, full_name, student_id, has_laptop, profile_id, learner_id, status, is_leader, responded_at),
         venue_allocations:event_team_venue_allocations(
           id, day_type,
           venue_assignment:event_venue_assignments(
@@ -239,24 +248,220 @@ export class EventRegistrationService {
     return data as unknown as EventRegistration | null;
   }
 
-  static async addMember(registrationId: string, member: CreateTeamMemberDto): Promise<EventTeamMember> {
+  static async inviteMember(
+    registrationId: string,
+    eventId: string,
+    student: { learner_id: string; profile_id: string | null; email: string; full_name?: string; roll_number?: string },
+    invitedByProfileId: string
+  ): Promise<EventTeamMember> {
+    // Validate team size limit
+    const { data: reg } = await this.supabase
+      .from('event_registrations')
+      .select('id, event:startup_events(config), team_members:event_team_members(id, status)')
+      .eq('id', registrationId)
+      .single();
+
+    const maxSize: number = (reg as any)?.event?.config?.team_max_size || 5;
+    const activeCount = ((reg as any)?.team_members || []).filter(
+      (m: any) => m.status === 'accepted' || m.status === 'pending'
+    ).length;
+    if (activeCount >= maxSize) {
+      throw new Error(`Team is full (max ${maxSize} members including leader)`);
+    }
+
+    // Validate invitee not already in another team for this event
+    if (student.profile_id) {
+      const { data: existingOwner } = await this.supabase
+        .from('event_registrations')
+        .select('id, team_name')
+        .eq('event_id', eventId)
+        .eq('owner_id', student.profile_id)
+        .maybeSingle();
+
+      if (existingOwner) {
+        throw new Error(`This student is already a team leader for "${(existingOwner as any).team_name}"`);
+      }
+
+      // Check if already accepted/pending in any team for this event
+      const { data: eventRegs } = await this.supabase
+        .from('event_registrations')
+        .select('id')
+        .eq('event_id', eventId);
+
+      const regIds = (eventRegs || []).map((r: any) => r.id);
+
+      if (regIds.length > 0) {
+        const { data: existingMember } = await this.supabase
+          .from('event_team_members')
+          .select('id, status')
+          .in('registration_id', regIds)
+          .eq('profile_id', student.profile_id)
+          .in('status', ['pending', 'accepted'])
+          .maybeSingle();
+
+        if (existingMember) {
+          const memberStatus = (existingMember as any).status;
+          throw new Error(
+            memberStatus === 'accepted'
+              ? 'This student is already in another team for this event'
+              : 'This student already has a pending invitation for this event'
+          );
+        }
+      }
+    }
+
+    // Check not already invited to THIS team (by learner_id)
+    const { data: alreadyInvited } = await this.supabase
+      .from('event_team_members')
+      .select('id, status')
+      .eq('registration_id', registrationId)
+      .eq('learner_id', student.learner_id)
+      .maybeSingle();
+
+    if (alreadyInvited) {
+      throw new Error('This student has already been invited to your team');
+    }
+
     const { data, error } = await this.supabase
       .from('event_team_members')
       .insert({
         registration_id: registrationId,
-        email: member.email,
-        full_name: member.full_name || null,
-        student_id: member.student_id || null,
-        has_laptop: member.has_laptop || false,
+        profile_id: student.profile_id,
+        learner_id: student.learner_id,
+        email: student.email,
+        full_name: student.full_name || null,
+        student_id: student.roll_number || null,
+        has_laptop: false,
+        status: 'pending',
+        is_leader: false,
       })
       .select()
       .single();
 
     if (error) {
-      console.error('[startup/registration] addMember failed:', error);
+      console.error('[startup/registration] inviteMember failed:', error);
       throw error;
     }
     return data as unknown as EventTeamMember;
+  }
+
+  static async respondToInvitation(
+    memberId: string,
+    profileId: string,
+    accept: boolean
+  ): Promise<void> {
+    const { data: member, error: fetchError } = await this.supabase
+      .from('event_team_members')
+      .select('id, status, profile_id, registration_id')
+      .eq('id', memberId)
+      .single();
+
+    if (fetchError || !member) {
+      throw new Error('Invitation not found');
+    }
+    if ((member as any).profile_id !== profileId) {
+      throw new Error('This invitation does not belong to you');
+    }
+    if ((member as any).status !== 'pending') {
+      throw new Error('This invitation has already been responded to');
+    }
+
+    if (accept) {
+      // Get the event_id for this registration
+      const { data: reg } = await this.supabase
+        .from('event_registrations')
+        .select('event_id')
+        .eq('id', (member as any).registration_id)
+        .single();
+
+      const eventId = (reg as any)?.event_id;
+
+      if (eventId) {
+        // One-team rule: check if invitee is already a team owner
+        const { data: alreadyOwner } = await this.supabase
+          .from('event_registrations')
+          .select('id')
+          .eq('event_id', eventId)
+          .eq('owner_id', profileId)
+          .maybeSingle();
+
+        if (alreadyOwner) {
+          throw new Error('You are already a team leader for this event');
+        }
+
+        // One-team rule: check if invitee is already accepted in another team
+        const { data: eventRegs } = await this.supabase
+          .from('event_registrations')
+          .select('id')
+          .eq('event_id', eventId);
+
+        const regIds = (eventRegs || []).map((r: any) => r.id);
+
+        if (regIds.length > 0) {
+          const { data: alreadyMember } = await this.supabase
+            .from('event_team_members')
+            .select('id')
+            .in('registration_id', regIds)
+            .eq('profile_id', profileId)
+            .eq('status', 'accepted')
+            .neq('id', memberId)
+            .maybeSingle();
+
+          if (alreadyMember) {
+            throw new Error('You are already part of another team for this event');
+          }
+        }
+      }
+    }
+
+    const { error: updateError } = await this.supabase
+      .from('event_team_members')
+      .update({
+        status: accept ? 'accepted' : 'declined',
+        responded_at: new Date().toISOString(),
+      })
+      .eq('id', memberId);
+
+    if (updateError) {
+      console.error('[startup/registration] respondToInvitation failed:', updateError);
+      throw updateError;
+    }
+  }
+
+  static async getMyPendingInvitations(profileId: string): Promise<import('@/types/startup-studio').PendingInvitation[]> {
+    const { data, error } = await this.supabase
+      .from('event_team_members')
+      .select(`
+        id,
+        added_at,
+        registration:event_registrations!inner(
+          id,
+          team_name,
+          team_code,
+          event_id,
+          owner:profiles!event_registrations_owner_id_fkey(full_name),
+          event:startup_events!inner(id, name)
+        )
+      `)
+      .eq('profile_id', profileId)
+      .eq('status', 'pending')
+      .order('added_at', { ascending: false });
+
+    if (error) {
+      console.error('[startup/registration] getMyPendingInvitations failed:', error);
+      throw error;
+    }
+
+    return ((data || []) as any[]).map((m) => ({
+      member_id: m.id,
+      registration_id: m.registration?.id,
+      team_name: m.registration?.team_name,
+      team_code: m.registration?.team_code,
+      event_id: m.registration?.event?.id,
+      event_name: m.registration?.event?.name,
+      invited_at: m.added_at,
+      invited_by_name: m.registration?.owner?.full_name || null,
+    }));
   }
 
   static async removeMember(memberId: string): Promise<void> {
