@@ -2062,6 +2062,11 @@ ALTER TABLE event_checklists ENABLE ROW LEVEL SECURITY;
 ALTER TABLE event_checklist_items ENABLE ROW LEVEL SECURITY;
 ALTER TABLE event_checklist_completions ENABLE ROW LEVEL SECURITY;
 
+-- Updated: 2026-03-06 - Team invitation workflow columns
+-- event_registrations: added team_code TEXT (institution-wise auto-generated, unique per event+institution)
+-- event_team_members: added learner_id UUID (→ learners_profiles), status TEXT (pending/accepted/declined/removed),
+--                     is_leader BOOLEAN, responded_at TIMESTAMPTZ
+
 -- =====================================================
 -- END OF TABLE DEFINITIONS
 -- =====================================================

@@ -4352,3 +4352,42 @@ AS $$
       updated_at = now()
   WHERE id = p_counselor_id;
 $$;
+
+-- =====================================================
+-- STARTUP STUDIO: generate_team_code
+-- Updated: 2026-03-06
+-- Generates a unique team code like "JKKN-001" per event per institution
+-- =====================================================
+CREATE OR REPLACE FUNCTION generate_team_code(p_event_id UUID, p_institution_id UUID)
+RETURNS TEXT
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  v_inst_prefix TEXT;
+  v_seq         INT;
+  v_code        TEXT;
+BEGIN
+  -- Use counselling_code if available, else first 4 chars of institution name
+  SELECT UPPER(COALESCE(
+    NULLIF(TRIM(counselling_code), ''),
+    SUBSTRING(name FROM 1 FOR 4)
+  ))
+  INTO v_inst_prefix
+  FROM institutions
+  WHERE id = p_institution_id;
+
+  IF v_inst_prefix IS NULL THEN
+    v_inst_prefix := 'TEAM';
+  END IF;
+
+  -- Count existing registrations for this institution+event to derive sequence
+  SELECT COUNT(*) + 1
+  INTO v_seq
+  FROM event_registrations
+  WHERE event_id = p_event_id
+    AND institution_id = p_institution_id;
+
+  v_code := v_inst_prefix || '-' || LPAD(v_seq::TEXT, 3, '0');
+  RETURN v_code;
+END;
+$$;
