@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { useEvent } from '@/hooks/startup-studio/use-events';
 import {
   useMyRegistration,
+  useMyAcceptedMembership,
   useRemoveTeamMember,
   useRespondToInvitation,
   useMyPendingInvitations,
@@ -26,12 +27,14 @@ export default function MyTeamPage({ params }: { params: Promise<{ id: string }>
   const { id } = use(params);
   const { profile } = useAuth();
   const { data: event } = useEvent(id);
-  const { data: registration, isLoading } = useMyRegistration(id);
+  const { data: registration, isLoading: regLoading } = useMyRegistration(id);
+  const { data: membership, isLoading: memberLoading } = useMyAcceptedMembership(id);
   const { data: pendingInvitations = [] } = useMyPendingInvitations();
   const removeMember = useRemoveTeamMember();
   const respondToInvitation = useRespondToInvitation();
   const [searchDialogOpen, setSearchDialogOpen] = useState(false);
 
+  const isLoading = regLoading || memberLoading;
   const isLeader = registration?.owner_id === profile?.id;
   const acceptedMembers = (registration?.team_members || []).filter(
     (m: EventTeamMember) => m.status === 'accepted'
@@ -60,6 +63,51 @@ export default function MyTeamPage({ params }: { params: Promise<{ id: string }>
             <Loader2 className="h-12 w-12 text-muted-foreground mx-auto animate-spin" />
           </CardContent>
         </Card>
+      </ContentLayout>
+    );
+  }
+
+  // Accepted member (non-owner): show read-only team info card
+  if (!registration && membership) {
+    return (
+      <ContentLayout title="My Team">
+        <PageBreadcrumb items={[
+          { label: 'Startup Studio', href: '/startup-studio/events' },
+          { label: event?.name || 'Event', href: `/startup-studio/events/${id}` },
+          { label: 'My Team' },
+        ]} />
+        <div className="space-y-6 mt-4 max-w-5xl py-4">
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div>
+                  <CardTitle className="text-xl">{(membership as any).team_name}</CardTitle>
+                  {(membership as any).team_code && (
+                    <div className="flex items-center gap-1.5 mt-1">
+                      <Hash className="h-3.5 w-3.5 text-muted-foreground" />
+                      <span className="text-sm font-mono text-muted-foreground font-medium">
+                        {(membership as any).team_code}
+                      </span>
+                    </div>
+                  )}
+                </div>
+                <Badge variant="outline" className="gap-1">
+                  <User className="h-3 w-3" /> Team Member
+                </Badge>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-muted-foreground">
+                You are a member of this team. The team leader manages invitations and submissions.
+              </p>
+            </CardContent>
+          </Card>
+          {event && ['build_day', 'demo_day'].includes(event.status) && (
+            <Link href={`/startup-studio/events/${id}/submit`}>
+              <Button className="w-full" size="lg">Submit Your Project</Button>
+            </Link>
+          )}
+        </div>
       </ContentLayout>
     );
   }
