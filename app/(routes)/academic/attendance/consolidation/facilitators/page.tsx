@@ -113,6 +113,9 @@ export default function FacilitatorAttendancePage() {
     totalFacilitators: 0,
     totalPeriodsMarked: 0,
     avgPeriodsPerFacilitator: 0,
+    totalPeriodsAssigned: 0,
+    totalPeriodsPending: 0,
+    overallMarkingRate: 0,
   };
   const facilitators = data?.facilitators ?? [];
   const departmentBreakdown = data?.departmentBreakdown ?? [];
@@ -138,12 +141,49 @@ export default function FacilitatorAttendancePage() {
 
         {/* Main content — only when data is ready */}
         {!isLoading && !institutionsLoading && !error && (
-          <div className="mt-6 flex flex-col lg:flex-row gap-6">
-            {/* Left: Sticky Filters + Department Breakdown */}
-            <aside className="lg:w-64 shrink-0">
-              <div className="lg:sticky lg:top-6 space-y-6">
-                <div className="rounded-lg border bg-card p-4">
-                  <h3 className="text-sm font-semibold mb-4">Filters</h3>
+          <div className="mt-4 space-y-6">
+
+            {/* Page header row */}
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h1 className="text-xl font-bold sm:text-2xl">Facilitator Attendance Report</h1>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Periods marked by each facilitator within the selected date range
+                </p>
+              </div>
+              {isSuperAdmin && institutions.length > 0 && (
+                <Select
+                  value={selectedInstitutionId ?? ''}
+                  onValueChange={(val) => setSelectedInstitutionId(val)}
+                >
+                  <SelectTrigger className="w-full sm:w-[240px] shrink-0">
+                    <Building2 className="mr-2 h-4 w-4 text-muted-foreground" />
+                    <SelectValue placeholder="Select institution..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {institutions.map((inst) => (
+                      <SelectItem key={inst.id} value={inst.id}>
+                        {inst.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
+
+            {/* KPI Cards — full width, always */}
+            <FacilitatorSummaryCards
+              summary={summary}
+              departmentCount={departmentBreakdown.length}
+            />
+
+            {/* Filters bar (horizontal on md+, stacked on mobile) */}
+            <div className="rounded-lg border bg-card p-4">
+              <div className="flex flex-col gap-4 md:flex-row md:items-end md:flex-wrap">
+                <div className="shrink-0">
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">
+                    Filters
+                  </p>
                   <FacilitatorFilters
                     filters={filters}
                     departments={departments}
@@ -152,62 +192,38 @@ export default function FacilitatorAttendancePage() {
                     facilitatorSearchQuery={facilitatorSearch}
                   />
                 </div>
-                <DepartmentBreakdown breakdown={departmentBreakdown} />
               </div>
-            </aside>
+            </div>
 
-            {/* Right: Main content */}
-            <div className="flex-1 space-y-6 min-w-0">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                <div>
-                  <h1 className="text-2xl font-bold">Facilitator Attendance Report</h1>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    Periods marked by each facilitator within the selected date range
-                  </p>
+            {/* Charts + Department Breakdown side-by-side on lg */}
+            <div className="flex flex-col xl:flex-row gap-6">
+              {/* Charts column */}
+              <div className="flex-1 min-w-0 space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <FacilitatorBarChart facilitators={facilitators} />
+                  <FacilitatorPieChart departmentBreakdown={departmentBreakdown} />
                 </div>
-                {/* Institution selector — super admin only */}
-                {isSuperAdmin && institutions.length > 0 && (
-                  <Select
-                    value={selectedInstitutionId ?? ''}
-                    onValueChange={(val) => setSelectedInstitutionId(val)}
-                  >
-                    <SelectTrigger className="w-full sm:w-[260px] shrink-0">
-                      <Building2 className="mr-2 h-4 w-4 text-muted-foreground" />
-                      <SelectValue placeholder="Select institution..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {institutions.map((inst) => (
-                        <SelectItem key={inst.id} value={inst.id}>
-                          {inst.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
+
+                <FacilitatorTrendChart facilitators={facilitators} />
+
+                <FacilitatorHeatmap
+                  facilitators={facilitators}
+                  dateFrom={filters.dateFrom}
+                  dateTo={filters.dateTo}
+                />
+
+                <FacilitatorDataTable
+                  facilitators={facilitators}
+                  globalFilter={facilitatorSearch}
+                />
               </div>
 
-              <FacilitatorSummaryCards
-                summary={summary}
-                departmentCount={departmentBreakdown.length}
-              />
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <FacilitatorBarChart facilitators={facilitators} />
-                <FacilitatorPieChart departmentBreakdown={departmentBreakdown} />
-              </div>
-
-              <FacilitatorTrendChart facilitators={facilitators} />
-
-              <FacilitatorHeatmap
-                facilitators={facilitators}
-                dateFrom={filters.dateFrom}
-                dateTo={filters.dateTo}
-              />
-
-              <FacilitatorDataTable
-                facilitators={facilitators}
-                globalFilter={facilitatorSearch}
-              />
+              {/* Department Breakdown sidebar — sticks to right on xl */}
+              <aside className="xl:w-72 shrink-0">
+                <div className="xl:sticky xl:top-6">
+                  <DepartmentBreakdown breakdown={departmentBreakdown} />
+                </div>
+              </aside>
             </div>
           </div>
         )}

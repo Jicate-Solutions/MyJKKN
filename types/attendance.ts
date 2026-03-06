@@ -557,6 +557,9 @@ export interface FacilitatorAttendanceStat {
   departmentName: string;
   departmentId: string;
   periodsMarked: number;
+  periodsAssigned: number;
+  periodsPending: number;
+  markingRate: number;
   lastMarkedAt: string | null;
   trendData: FacilitatorTrendPoint[];
   dailyData: FacilitatorDailyPoint[];
@@ -565,7 +568,10 @@ export interface FacilitatorAttendanceStat {
 export interface FacilitatorReportSummary {
   totalFacilitators: number;
   totalPeriodsMarked: number;
+  totalPeriodsAssigned: number;
+  totalPeriodsPending: number;
   avgPeriodsPerFacilitator: number;
+  overallMarkingRate: number;
 }
 
 export interface FacilitatorDepartmentBreakdown {
@@ -573,6 +579,8 @@ export interface FacilitatorDepartmentBreakdown {
   departmentName: string;
   facilitatorCount: number;
   totalMarked: number;
+  totalAssigned: number;
+  totalPending: number;
   avgRate: number;
 }
 
@@ -594,7 +602,10 @@ export interface FacilitatorReportRaw {
   summary: {
     total_facilitators: number;
     total_periods_marked: number;
+    total_periods_assigned: number;
+    total_periods_pending: number;
     avg_periods_per_facilitator: number;
+    overall_marking_rate: number;
   };
   facilitators: Array<{
     staff_id: string;
@@ -604,6 +615,9 @@ export interface FacilitatorReportRaw {
     department_name: string;
     department_id: string;
     periods_marked: number;
+    periods_assigned: number;
+    periods_pending: number;
+    marking_rate: number;
     last_marked_at: string | null;
     trend_data: Array<{ week: string; count: number }>;
     daily_data: Array<{ date: string; count: number }>;
@@ -613,6 +627,8 @@ export interface FacilitatorReportRaw {
     department_name: string;
     facilitator_count: number;
     total_marked: number;
+    total_assigned: number;
+    total_pending: number;
     avg_rate: number;
   }>;
 }
