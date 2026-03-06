@@ -245,8 +245,8 @@ export default function AttendanceConsolidationPage() {
         </Card>
 
         {/* Facilitator Report Link */}
-        <Card className="border-dashed hover:border-solid hover:bg-muted/30 transition-all cursor-pointer">
-          <Link href="/academic/attendance/consolidation/facilitators">
+        <Link href="/academic/attendance/consolidation/facilitators" className="block">
+          <Card className="border-dashed hover:border-solid hover:bg-muted/30 transition-all cursor-pointer">
             <CardHeader>
               <div className="flex items-center gap-3">
                 <div className="rounded-full p-2 bg-blue-50 dark:bg-blue-950">
@@ -260,8 +260,8 @@ export default function AttendanceConsolidationPage() {
                 </div>
               </div>
             </CardHeader>
-          </Link>
-        </Card>
+          </Card>
+        </Link>
 
         {/* Reports Data Table */}
         <ReportsDataTable
