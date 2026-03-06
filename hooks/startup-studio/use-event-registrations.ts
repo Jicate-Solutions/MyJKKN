@@ -2,8 +2,9 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { EventRegistrationService } from '@/lib/services/startup-studio/event-registration-service';
+import { StudentSearchService } from '@/lib/services/startup-studio/student-search-service';
 import { useAuth } from '@/hooks/use-auth';
-import type { CreateRegistrationDto, CreateTeamMemberDto, RegistrationFilters } from '@/types/startup-studio';
+import type { CreateRegistrationDto, RegistrationFilters, StudentSearchFilters } from '@/types/startup-studio';
 
 export function useEventRegistrations(filters: RegistrationFilters) {
   return useQuery({
@@ -95,20 +96,6 @@ export function useToggleLovableVerified() {
   });
 }
 
-export function useAddTeamMember() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: ({ registrationId, member }: { registrationId: string; member: CreateTeamMemberDto }) => {
-      return EventRegistrationService.addMember(registrationId, member);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['my-registration'] });
-      queryClient.invalidateQueries({ queryKey: ['event-registrations'] });
-      toast.success('Member added');
-    },
-    onError: (error: any) => toast.error(error.message || 'Failed to add member'),
-  });
-}
 
 export function useRemoveTeamMember() {
   const queryClient = useQueryClient();
@@ -120,5 +107,85 @@ export function useRemoveTeamMember() {
       toast.success('Member removed');
     },
     onError: () => toast.error('Failed to remove member'),
+  });
+}
+
+export function useStudentSearch(filters: StudentSearchFilters & { enabled?: boolean }) {
+  const { enabled = true, ...searchFilters } = filters;
+  return useQuery({
+    queryKey: ['student-search', searchFilters],
+    queryFn: () => StudentSearchService.searchStudents(searchFilters),
+    enabled: enabled && !!searchFilters.event_id && !!searchFilters.institution_id,
+    staleTime: 30 * 1000,
+    retry: 1,
+  });
+}
+
+export function useStudentSearchFilterOptions(filters: {
+  institution_id?: string;
+  degree_id?: string;
+  department_id?: string;
+  program_id?: string;
+}) {
+  return useQuery({
+    queryKey: ['student-search-filter-options', filters],
+    queryFn: () => StudentSearchService.getFilterOptions(filters),
+    staleTime: 60 * 1000,
+    retry: 1,
+  });
+}
+
+export function useInviteTeamMember() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      registrationId,
+      eventId,
+      student,
+      invitedByProfileId,
+    }: {
+      registrationId: string;
+      eventId: string;
+      student: Parameters<typeof EventRegistrationService.inviteMember>[2];
+      invitedByProfileId: string;
+    }) => EventRegistrationService.inviteMember(registrationId, eventId, student, invitedByProfileId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['my-registration'] });
+      queryClient.invalidateQueries({ queryKey: ['student-search'] });
+      toast.success('Invitation sent!');
+    },
+    onError: (error: any) => toast.error(error.message || 'Failed to send invitation'),
+  });
+}
+
+export function useRespondToInvitation() {
+  const queryClient = useQueryClient();
+  const { profile } = useAuth();
+  return useMutation({
+    mutationFn: ({ memberId, accept }: { memberId: string; accept: boolean }) => {
+      if (!profile?.id) throw new Error('Not authenticated');
+      return EventRegistrationService.respondToInvitation(memberId, profile.id, accept);
+    },
+    onSuccess: (_, { accept }) => {
+      queryClient.invalidateQueries({ queryKey: ['my-pending-invitations'] });
+      queryClient.invalidateQueries({ queryKey: ['my-registration'] });
+      queryClient.invalidateQueries({ queryKey: ['event-registrations'] });
+      toast.success(accept ? 'You joined the team!' : 'Invitation declined');
+    },
+    onError: (error: any) => toast.error(error.message || 'Failed to respond to invitation'),
+  });
+}
+
+export function useMyPendingInvitations() {
+  const { profile } = useAuth();
+  return useQuery({
+    queryKey: ['my-pending-invitations', profile?.id],
+    queryFn: () => {
+      if (!profile?.id) return [];
+      return EventRegistrationService.getMyPendingInvitations(profile.id);
+    },
+    enabled: !!profile?.id,
+    staleTime: 15 * 1000,
+    retry: 2,
   });
 }
