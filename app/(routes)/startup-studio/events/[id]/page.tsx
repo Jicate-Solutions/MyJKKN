@@ -337,7 +337,7 @@ export default function EventDetailPage({ params }: { params: Promise<{ id: stri
         {/* Action Banners */}
         <div className="grid gap-6">
           {/* Registration CTA */}
-          {isRegistrationOpen && !myRegistration && (
+          {isRegistrationOpen && !isInATeam && (
             <div className="relative overflow-hidden rounded-xl bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-950/30 dark:to-teal-950/30 border border-emerald-100 dark:border-emerald-900/50 p-6 md:p-8">
               <div className="flex flex-col md:flex-row items-center justify-between gap-6 relative z-10">
                 <div className="flex items-start gap-4">
