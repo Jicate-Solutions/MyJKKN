@@ -4407,6 +4407,7 @@ CREATE OR REPLACE FUNCTION get_facilitator_attendance_stats(
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = public
 AS $$
 DECLARE
   v_result JSONB;
