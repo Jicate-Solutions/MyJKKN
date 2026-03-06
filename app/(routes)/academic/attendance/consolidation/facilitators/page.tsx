@@ -83,28 +83,6 @@ export default function FacilitatorAttendancePage() {
     </Breadcrumb>
   );
 
-  if (isLoading) {
-    return (
-      <ContentLayout title="Facilitator Attendance Report">
-        {breadcrumb}
-        <div className="mt-6">
-          <LoadingSkeleton />
-        </div>
-      </ContentLayout>
-    );
-  }
-
-  if (error) {
-    return (
-      <ContentLayout title="Facilitator Attendance Report">
-        {breadcrumb}
-        <div className="mt-6 text-center text-destructive text-sm">
-          Failed to load report. Please try again.
-        </div>
-      </ContentLayout>
-    );
-  }
-
   const summary = data?.summary ?? {
     totalFacilitators: 0,
     totalPeriodsMarked: 0,
@@ -118,57 +96,74 @@ export default function FacilitatorAttendancePage() {
       <ContentLayout title="Facilitator Attendance Report">
         {breadcrumb}
 
-        <div className="mt-6 flex flex-col lg:flex-row gap-6">
-          {/* Left: Sticky Filters + Department Breakdown */}
-          <aside className="lg:w-64 shrink-0">
-            <div className="lg:sticky lg:top-6 space-y-6">
-              <div className="rounded-lg border bg-card p-4">
-                <h3 className="text-sm font-semibold mb-4">Filters</h3>
-                <FacilitatorFilters
-                  filters={filters}
-                  departments={departments}
-                  onFiltersChange={setFilters}
-                  onFacilitatorSearch={setFacilitatorSearch}
-                  facilitatorSearchQuery={facilitatorSearch}
-                />
-              </div>
-              <DepartmentBreakdown breakdown={departmentBreakdown} />
-            </div>
-          </aside>
-
-          {/* Right: Main content */}
-          <div className="flex-1 space-y-6 min-w-0">
-            <div>
-              <h1 className="text-2xl font-bold">Facilitator Attendance Report</h1>
-              <p className="text-sm text-muted-foreground mt-1">
-                Periods marked by each facilitator within the selected date range
-              </p>
-            </div>
-
-            <FacilitatorSummaryCards
-              summary={summary}
-              departmentCount={departmentBreakdown.length}
-            />
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <FacilitatorBarChart facilitators={facilitators} />
-              <FacilitatorPieChart departmentBreakdown={departmentBreakdown} />
-            </div>
-
-            <FacilitatorTrendChart facilitators={facilitators} />
-
-            <FacilitatorHeatmap
-              facilitators={facilitators}
-              dateFrom={filters.dateFrom}
-              dateTo={filters.dateTo}
-            />
-
-            <FacilitatorDataTable
-              facilitators={facilitators}
-              globalFilter={facilitatorSearch}
-            />
+        {/* Loading state */}
+        {isLoading && (
+          <div className="mt-6">
+            <LoadingSkeleton />
           </div>
-        </div>
+        )}
+
+        {/* Error state */}
+        {error && !isLoading && (
+          <div className="mt-6 text-center text-destructive text-sm">
+            Failed to load report. Please try again.
+          </div>
+        )}
+
+        {/* Main content — only when data is ready */}
+        {!isLoading && !error && (
+          <div className="mt-6 flex flex-col lg:flex-row gap-6">
+            {/* Left: Sticky Filters + Department Breakdown */}
+            <aside className="lg:w-64 shrink-0">
+              <div className="lg:sticky lg:top-6 space-y-6">
+                <div className="rounded-lg border bg-card p-4">
+                  <h3 className="text-sm font-semibold mb-4">Filters</h3>
+                  <FacilitatorFilters
+                    filters={filters}
+                    departments={departments}
+                    onFiltersChange={setFilters}
+                    onFacilitatorSearch={setFacilitatorSearch}
+                    facilitatorSearchQuery={facilitatorSearch}
+                  />
+                </div>
+                <DepartmentBreakdown breakdown={departmentBreakdown} />
+              </div>
+            </aside>
+
+            {/* Right: Main content */}
+            <div className="flex-1 space-y-6 min-w-0">
+              <div>
+                <h1 className="text-2xl font-bold">Facilitator Attendance Report</h1>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Periods marked by each facilitator within the selected date range
+                </p>
+              </div>
+
+              <FacilitatorSummaryCards
+                summary={summary}
+                departmentCount={departmentBreakdown.length}
+              />
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <FacilitatorBarChart facilitators={facilitators} />
+                <FacilitatorPieChart departmentBreakdown={departmentBreakdown} />
+              </div>
+
+              <FacilitatorTrendChart facilitators={facilitators} />
+
+              <FacilitatorHeatmap
+                facilitators={facilitators}
+                dateFrom={filters.dateFrom}
+                dateTo={filters.dateTo}
+              />
+
+              <FacilitatorDataTable
+                facilitators={facilitators}
+                globalFilter={facilitatorSearch}
+              />
+            </div>
+          </div>
+        )}
       </ContentLayout>
     </PermissionGuard>
   );
