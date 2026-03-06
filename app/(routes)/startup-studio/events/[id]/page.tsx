@@ -14,6 +14,7 @@ import { useMyRegistration } from '@/hooks/startup-studio/use-event-registration
 import { useAuth } from '@/hooks/use-auth';
 import { EventStatusBadge } from '../_components/event-status-badge';
 import { EditEventDialog } from './_components/edit-event-dialog';
+import { PendingInvitationsCard } from '../_components/pending-invitations-card';
 import {
   ArrowLeft,
   Calendar,
@@ -172,6 +173,9 @@ export default function EventDetailPage({ params }: { params: Promise<{ id: stri
             </div>
           </div>
         </div>
+
+        {/* Pending Invitations — student only */}
+        {!isAdmin && <PendingInvitationsCard />}
 
         {/* Stats Grid */}
         {stats && (
