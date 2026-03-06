@@ -19,7 +19,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { StudentSearchDialog } from './_components/student-search-dialog';
 import {
   CheckCircle2, Clock, Laptop, MapPin, User, Users, Loader2,
-  UserPlus, XCircle, Hash, Bell, Shield,
+  UserPlus, XCircle, Hash, Bell, Shield, GraduationCap, Building2, Mail,
 } from 'lucide-react';
 import type { EventTeamMember, PendingInvitation } from '@/types/startup-studio';
 
@@ -67,8 +67,9 @@ export default function MyTeamPage({ params }: { params: Promise<{ id: string }>
     );
   }
 
-  // Accepted member (non-owner): show read-only team info card
+  // Accepted member (non-owner): show read-only team info + leader details
   if (!registration && membership) {
+    const m = membership as any;
     return (
       <ContentLayout title="My Team">
         <PageBreadcrumb items={[
@@ -77,16 +78,18 @@ export default function MyTeamPage({ params }: { params: Promise<{ id: string }>
           { label: 'My Team' },
         ]} />
         <div className="space-y-6 mt-4 max-w-5xl py-4">
+
+          {/* Team header */}
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between flex-wrap gap-2">
                 <div>
-                  <CardTitle className="text-xl">{(membership as any).team_name}</CardTitle>
-                  {(membership as any).team_code && (
+                  <CardTitle className="text-xl">{m.team_name}</CardTitle>
+                  {m.team_code && (
                     <div className="flex items-center gap-1.5 mt-1">
                       <Hash className="h-3.5 w-3.5 text-muted-foreground" />
                       <span className="text-sm font-mono text-muted-foreground font-medium">
-                        {(membership as any).team_code}
+                        {m.team_code}
                       </span>
                     </div>
                   )}
@@ -96,12 +99,56 @@ export default function MyTeamPage({ params }: { params: Promise<{ id: string }>
                 </Badge>
               </div>
             </CardHeader>
-            <CardContent>
-              <p className="text-sm text-muted-foreground">
-                You are a member of this team. The team leader manages invitations and submissions.
-              </p>
+          </Card>
+
+          {/* Team Leader details */}
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Shield className="h-4 w-4" /> Team Leader
+              </CardTitle>
+              <CardDescription>
+                The leader manages team invitations and project submissions.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="flex items-center gap-3 p-3 rounded-lg border bg-muted/30">
+                <div className="h-9 w-9 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                  <User className="h-4 w-4 text-primary" />
+                </div>
+                <div className="min-w-0 flex-1 space-y-2">
+                  <p className="font-medium text-sm leading-none">{m.leader_name || '—'}</p>
+                  {m.leader_email && (
+                    <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                      <Mail className="h-3 w-3 shrink-0" />
+                      <span className="truncate">{m.leader_email}</span>
+                    </div>
+                  )}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5 pt-1">
+                    {m.leader_institution && (
+                      <div className="flex items-start gap-1.5 text-xs text-muted-foreground">
+                        <Building2 className="h-3 w-3 shrink-0 mt-0.5" />
+                        <span>{m.leader_institution}</span>
+                      </div>
+                    )}
+                    {m.leader_degree && m.leader_department && (
+                      <div className="flex items-start gap-1.5 text-xs text-muted-foreground">
+                        <GraduationCap className="h-3 w-3 shrink-0 mt-0.5" />
+                        <span>{m.leader_degree} · {m.leader_department}</span>
+                      </div>
+                    )}
+                    {m.leader_semester && (
+                      <div className="flex items-start gap-1.5 text-xs text-muted-foreground">
+                        <Clock className="h-3 w-3 shrink-0 mt-0.5" />
+                        <span>{m.leader_semester}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
             </CardContent>
           </Card>
+
           {event && ['build_day', 'demo_day'].includes(event.status) && (
             <Link href={`/startup-studio/events/${id}/submit`}>
               <Button className="w-full" size="lg">Submit Your Project</Button>

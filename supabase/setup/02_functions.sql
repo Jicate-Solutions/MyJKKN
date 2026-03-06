@@ -4400,23 +4400,49 @@ $$;
 -- Used to hide "Register Team" / show "View My Team" for non-owner accepted members.
 -- Direct query would require reading event_registrations (blocked by RLS for non-owners).
 -- =====================================================
-CREATE OR REPLACE FUNCTION get_my_event_team(p_profile_id uuid, p_event_id uuid)
+-- Updated: 2026-03-06 — extended to include team leader academic details
+-- (institution, degree, department, semester) via learners_profiles join
+DROP FUNCTION IF EXISTS get_my_event_team(uuid, uuid);
+CREATE FUNCTION get_my_event_team(p_profile_id uuid, p_event_id uuid)
 RETURNS TABLE (
-    registration_id uuid,
-    team_name       text,
-    team_code       text,
-    is_leader       boolean
+    registration_id     uuid,
+    team_name           text,
+    team_code           text,
+    is_leader           boolean,
+    leader_name         text,
+    leader_email        text,
+    leader_institution  text,
+    leader_degree       text,
+    leader_department   text,
+    leader_semester     text
 )
 LANGUAGE sql
 SECURITY DEFINER
 SET search_path = public
 AS $$
-    SELECT er.id, er.team_name, er.team_code, etm.is_leader
-    FROM event_team_members etm
-    JOIN event_registrations er ON er.id = etm.registration_id
-    WHERE etm.profile_id = p_profile_id
-      AND er.event_id = p_event_id
-      AND etm.status = 'accepted'
+    SELECT
+        er.id               AS registration_id,
+        er.team_name,
+        er.team_code,
+        mem.is_leader,
+        p.full_name         AS leader_name,
+        p.email             AS leader_email,
+        inst.name           AS leader_institution,
+        d.degree_name       AS leader_degree,
+        dep.department_name AS leader_department,
+        s.semester_name     AS leader_semester
+    FROM event_team_members mem
+    JOIN event_registrations er    ON er.id   = mem.registration_id
+    JOIN profiles            p     ON p.id    = er.owner_id
+    LEFT JOIN event_team_members ldr  ON ldr.registration_id = er.id AND ldr.is_leader = true
+    LEFT JOIN learners_profiles  lp   ON lp.id   = ldr.learner_id
+    LEFT JOIN institutions       inst ON inst.id = lp.institution_id
+    LEFT JOIN degrees            d    ON d.id    = lp.degree_id
+    LEFT JOIN departments        dep  ON dep.id  = lp.department_id
+    LEFT JOIN semesters          s    ON s.id    = lp.semester_id
+    WHERE mem.profile_id = p_profile_id
+      AND er.event_id    = p_event_id
+      AND mem.status     = 'accepted'
     LIMIT 1;
 $$;
 
