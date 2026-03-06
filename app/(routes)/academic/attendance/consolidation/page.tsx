@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { Building2 } from 'lucide-react';
+import { Building2, Users } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 import { ContentLayout } from '@/components/layout/content-layout';
@@ -242,6 +242,25 @@ export default function AttendanceConsolidationPage() {
               <li>Apply filters for specific programs, semesters, or sections</li>
             </ul>
           </CardContent>
+        </Card>
+
+        {/* Facilitator Report Link */}
+        <Card className="border-dashed hover:border-solid hover:bg-muted/30 transition-all cursor-pointer">
+          <Link href="/academic/attendance/consolidation/facilitators">
+            <CardHeader>
+              <div className="flex items-center gap-3">
+                <div className="rounded-full p-2 bg-blue-50 dark:bg-blue-950">
+                  <Users className="h-5 w-5 text-blue-600" />
+                </div>
+                <div>
+                  <CardTitle className="text-base">Facilitator Attendance Report</CardTitle>
+                  <CardDescription>
+                    View periods marked by each facilitator with charts and heatmap
+                  </CardDescription>
+                </div>
+              </div>
+            </CardHeader>
+          </Link>
         </Card>
 
         {/* Reports Data Table */}
