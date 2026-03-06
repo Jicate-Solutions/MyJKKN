@@ -1,8 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { format, startOfMonth } from 'date-fns';
 import Link from 'next/link';
+import { Building2 } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { LoadingSkeleton } from '@/components/loading-skeleton';
 import {
@@ -13,8 +14,17 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { useAuth } from '@/hooks/use-auth';
+import { usePermissions } from '@/hooks/use-permissions';
+import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { useDepartments } from '@/hooks/organization/use-departments';
 import { useFacilitatorAttendanceReport } from '@/hooks/academic/use-facilitator-attendance';
 import type { FacilitatorReportFilters } from '@/types/attendance';
@@ -30,7 +40,23 @@ import { DepartmentBreakdown } from './_components/department-breakdown';
 
 export default function FacilitatorAttendancePage() {
   const { profile } = useAuth();
-  const institutionId = profile?.institution_id;
+  const { isSuperAdmin } = usePermissions([], { waitForLoad: false });
+  const { institutions, loading: institutionsLoading } = useInstitutionsWithAccess({
+    isActive: true,
+    autoFetch: !!profile,
+  });
+
+  const [selectedInstitutionId, setSelectedInstitutionId] = useState<string | undefined>(undefined);
+
+  // Auto-select institution once loaded
+  useEffect(() => {
+    if (institutionsLoading || selectedInstitutionId) return;
+    if (!isSuperAdmin && profile?.institution_id) {
+      setSelectedInstitutionId(profile.institution_id);
+    } else if (isSuperAdmin && institutions.length > 0) {
+      setSelectedInstitutionId(institutions[0].id);
+    }
+  }, [profile, institutions, institutionsLoading, isSuperAdmin, selectedInstitutionId]);
 
   const today = format(new Date(), 'yyyy-MM-dd');
   const monthStart = format(startOfMonth(new Date()), 'yyyy-MM-dd');
@@ -42,12 +68,12 @@ export default function FacilitatorAttendancePage() {
   const [facilitatorSearch, setFacilitatorSearch] = useState('');
 
   const { data, isLoading, error } = useFacilitatorAttendanceReport(
-    institutionId,
+    selectedInstitutionId,
     filters
   );
 
   const { data: departmentsData } = useDepartments({
-    institution_id: institutionId ?? undefined,
+    institution_id: selectedInstitutionId,
     isActive: true,
   });
   const departments = (departmentsData?.data ?? []).map((d) => ({
@@ -97,21 +123,21 @@ export default function FacilitatorAttendancePage() {
         {breadcrumb}
 
         {/* Loading state */}
-        {isLoading && (
+        {(isLoading || institutionsLoading) && (
           <div className="mt-6">
             <LoadingSkeleton />
           </div>
         )}
 
         {/* Error state */}
-        {error && !isLoading && (
+        {error && !isLoading && !institutionsLoading && (
           <div className="mt-6 text-center text-destructive text-sm">
             Failed to load report. Please try again.
           </div>
         )}
 
         {/* Main content — only when data is ready */}
-        {!isLoading && !error && (
+        {!isLoading && !institutionsLoading && !error && (
           <div className="mt-6 flex flex-col lg:flex-row gap-6">
             {/* Left: Sticky Filters + Department Breakdown */}
             <aside className="lg:w-64 shrink-0">
@@ -132,11 +158,32 @@ export default function FacilitatorAttendancePage() {
 
             {/* Right: Main content */}
             <div className="flex-1 space-y-6 min-w-0">
-              <div>
-                <h1 className="text-2xl font-bold">Facilitator Attendance Report</h1>
-                <p className="text-sm text-muted-foreground mt-1">
-                  Periods marked by each facilitator within the selected date range
-                </p>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <h1 className="text-2xl font-bold">Facilitator Attendance Report</h1>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Periods marked by each facilitator within the selected date range
+                  </p>
+                </div>
+                {/* Institution selector — super admin only */}
+                {isSuperAdmin && institutions.length > 0 && (
+                  <Select
+                    value={selectedInstitutionId ?? ''}
+                    onValueChange={(val) => setSelectedInstitutionId(val)}
+                  >
+                    <SelectTrigger className="w-full sm:w-[260px] shrink-0">
+                      <Building2 className="mr-2 h-4 w-4 text-muted-foreground" />
+                      <SelectValue placeholder="Select institution..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {institutions.map((inst) => (
+                        <SelectItem key={inst.id} value={inst.id}>
+                          {inst.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
               </div>
 
               <FacilitatorSummaryCards
