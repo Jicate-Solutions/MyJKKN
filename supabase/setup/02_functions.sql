@@ -4411,27 +4411,33 @@ DECLARE
   v_result JSONB;
 BEGIN
   WITH attendance_counts AS (
-    -- Count periods marked per staff member within date range
+    -- Expand each period from attendance_data JSONB and extract marker_id
+    -- marked_by is stored as attendance_data->[period_id]->'marked_by_details'->>'marker_id'
     SELECT
-      sa.marked_by,
-      COUNT(*)                 AS periods_marked,
-      MAX(sa.attendance_date)  AS last_marked_at
-    FROM student_attendance sa
+      (pe.val -> 'marked_by_details' ->> 'marker_id')::UUID AS marked_by,
+      COUNT(*)                                               AS periods_marked,
+      MAX(sa.attendance_date)                                AS last_marked_at
+    FROM student_attendance sa,
+         jsonb_each(sa.attendance_data) AS pe(period_key, val)
     WHERE sa.institution_id = p_institution_id
       AND sa.attendance_date BETWEEN p_date_from AND p_date_to
-      AND (p_facilitator_id IS NULL OR sa.marked_by = p_facilitator_id)
-    GROUP BY sa.marked_by
+      AND (pe.val -> 'marked_by_details' ->> 'marker_id') IS NOT NULL
+      AND (
+        p_facilitator_id IS NULL
+        OR (pe.val -> 'marked_by_details' ->> 'marker_id')::UUID = p_facilitator_id
+      )
+    GROUP BY (pe.val -> 'marked_by_details' ->> 'marker_id')::UUID
   ),
   staff_stats AS (
     -- Join counts with staff + department info; filter by department if provided
     SELECT
-      s.id                              AS staff_id,
+      s.id                                    AS staff_id,
       s.first_name,
       s.last_name,
-      COALESCE(s.designation, '')       AS designation,
-      COALESCE(d.department_name, 'Unknown') AS department_name,
+      COALESCE(s.designation, '')             AS designation,
+      COALESCE(d.department_name, 'Unknown')  AS department_name,
       s.department_id,
-      COALESCE(ac.periods_marked, 0)    AS periods_marked,
+      COALESCE(ac.periods_marked, 0)          AS periods_marked,
       ac.last_marked_at
     FROM staff s
     LEFT JOIN departments d ON s.department_id = d.id
@@ -4443,26 +4449,38 @@ BEGIN
   weekly_counts AS (
     -- Weekly aggregates per staff (for line trend chart)
     SELECT
-      sa.marked_by,
-      date_trunc('week', sa.attendance_date)::DATE AS week_start,
-      COUNT(*)                                      AS week_count
-    FROM student_attendance sa
+      (pe.val -> 'marked_by_details' ->> 'marker_id')::UUID AS marked_by,
+      date_trunc('week', sa.attendance_date)::DATE           AS week_start,
+      COUNT(*)                                               AS week_count
+    FROM student_attendance sa,
+         jsonb_each(sa.attendance_data) AS pe(period_key, val)
     WHERE sa.institution_id = p_institution_id
       AND sa.attendance_date BETWEEN p_date_from AND p_date_to
-      AND (p_facilitator_id IS NULL OR sa.marked_by = p_facilitator_id)
-    GROUP BY sa.marked_by, date_trunc('week', sa.attendance_date)
+      AND (pe.val -> 'marked_by_details' ->> 'marker_id') IS NOT NULL
+      AND (
+        p_facilitator_id IS NULL
+        OR (pe.val -> 'marked_by_details' ->> 'marker_id')::UUID = p_facilitator_id
+      )
+    GROUP BY (pe.val -> 'marked_by_details' ->> 'marker_id')::UUID,
+             date_trunc('week', sa.attendance_date)
   ),
   daily_counts AS (
     -- Daily aggregates per staff (for calendar heatmap)
     SELECT
-      sa.marked_by,
+      (pe.val -> 'marked_by_details' ->> 'marker_id')::UUID AS marked_by,
       sa.attendance_date,
       COUNT(*) AS day_count
-    FROM student_attendance sa
+    FROM student_attendance sa,
+         jsonb_each(sa.attendance_data) AS pe(period_key, val)
     WHERE sa.institution_id = p_institution_id
       AND sa.attendance_date BETWEEN p_date_from AND p_date_to
-      AND (p_facilitator_id IS NULL OR sa.marked_by = p_facilitator_id)
-    GROUP BY sa.marked_by, sa.attendance_date
+      AND (pe.val -> 'marked_by_details' ->> 'marker_id') IS NOT NULL
+      AND (
+        p_facilitator_id IS NULL
+        OR (pe.val -> 'marked_by_details' ->> 'marker_id')::UUID = p_facilitator_id
+      )
+    GROUP BY (pe.val -> 'marked_by_details' ->> 'marker_id')::UUID,
+             sa.attendance_date
   ),
   aggregated AS (
     SELECT
