@@ -13,16 +13,16 @@ import {
 export function PendingInvitationsCard() {
   const { data: invitations, isLoading } = useMyPendingInvitations();
   const respond = useRespondToInvitation();
-  const [respondingId, setRespondingId] = useState<string | null>(null);
+  const [responding, setResponding] = useState<{ id: string; action: 'accept' | 'decline' } | null>(null);
 
   if (isLoading) return null;
   if (!invitations || invitations.length === 0) return null;
 
   const handleRespond = (memberId: string, accept: boolean) => {
-    setRespondingId(memberId);
+    setResponding({ id: memberId, action: accept ? 'accept' : 'decline' });
     respond.mutate(
       { memberId, accept },
-      { onSettled: () => setRespondingId(null) }
+      { onSettled: () => setResponding(null) }
     );
   };
 
@@ -58,10 +58,10 @@ export function PendingInvitationsCard() {
                 size="sm"
                 variant="outline"
                 className="h-8 gap-1.5 text-destructive hover:text-destructive hover:bg-destructive/10"
-                disabled={respondingId === inv.member_id}
+                disabled={responding?.id === inv.member_id}
                 onClick={() => handleRespond(inv.member_id, false)}
               >
-                {respondingId === inv.member_id ? (
+                {responding?.id === inv.member_id && responding.action === 'decline' ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
                 ) : (
                   <X className="h-3.5 w-3.5" />
@@ -71,10 +71,10 @@ export function PendingInvitationsCard() {
               <Button
                 size="sm"
                 className="h-8 gap-1.5"
-                disabled={respondingId === inv.member_id}
+                disabled={responding?.id === inv.member_id}
                 onClick={() => handleRespond(inv.member_id, true)}
               >
-                {respondingId === inv.member_id ? (
+                {responding?.id === inv.member_id && responding.action === 'accept' ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
                 ) : (
                   <Check className="h-3.5 w-3.5" />
