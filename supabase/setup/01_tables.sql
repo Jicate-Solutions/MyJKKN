@@ -1899,6 +1899,7 @@ CREATE TABLE IF NOT EXISTS public.event_registrations (
     checked_in_at TIMESTAMPTZ,
     checked_in_by UUID REFERENCES profiles(id),
     status TEXT NOT NULL DEFAULT 'registered' CHECK (status IN ('registered','checked_in','disqualified')),
+    team_code           TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE(event_id, owner_id)
@@ -1914,6 +1915,10 @@ CREATE TABLE IF NOT EXISTS public.event_team_members (
     student_id TEXT,
     has_laptop BOOLEAN DEFAULT false,
     added_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    learner_id          UUID REFERENCES learners_profiles(id) ON DELETE SET NULL,
+    status              TEXT NOT NULL DEFAULT 'accepted' CHECK (status IN ('pending', 'accepted', 'declined', 'removed')),
+    is_leader           BOOLEAN NOT NULL DEFAULT false,
+    responded_at        TIMESTAMPTZ,
     UNIQUE(registration_id, email)
 );
 
