@@ -191,6 +191,31 @@ When updating any SQL file:
 
 ## 📝 Change Log
 
+### 2026-03-06: Startup Studio — Team Invitation Workflow
+
+- **Files Updated**:
+  - `supabase/setup/01_tables.sql` — Added `team_code` to `event_registrations`; added `learner_id`, `status`, `is_leader`, `responded_at` to `event_team_members`
+  - `supabase/setup/02_functions.sql` — Added `generate_team_code()` function
+  - `supabase/migrations/20260306000000_add_team_invitation_workflow.sql` — Applied migration ✅
+
+  **Purpose**: Enable structured team-based participation in startup studio events. Teams are identified by an auto-generated institution-prefixed code; members can be invited by the team leader and must accept or decline before the event.
+
+#### Updated 2026-03-06 — Team Invitation Workflow
+
+**event_registrations** — Added column:
+- `team_code TEXT` — Institution-wise auto-generated team code (e.g., `JKKN-001`). Generated via `generate_team_code()` DB function at registration time. Unique per `(event_id, institution_id)` combination.
+
+**event_team_members** — Added columns:
+- `learner_id UUID` → `learners_profiles.id` — Links member to verified learner profile for validated invitations
+- `status TEXT` — Member workflow status: `pending` (invited, awaiting response) | `accepted` (confirmed member) | `declined` (rejected) | `removed` (removed by leader). Default: `accepted` (for backward compat with pre-invitation rows)
+- `is_leader BOOLEAN` — Marks the team leader (auto-set to `true` for team owner at registration). Default: `false`
+- `responded_at TIMESTAMPTZ` — When the invitee accepted or declined
+
+**New DB function:**
+- `generate_team_code(p_event_id UUID, p_institution_id UUID) → TEXT` — Generates sequential team codes using `institutions.counselling_code` as prefix. Defined in `supabase/setup/02_functions.sql`
+
+---
+
 ### 2026-02-06: Lifecycle Analytics System
 
 - **Files Updated**:
