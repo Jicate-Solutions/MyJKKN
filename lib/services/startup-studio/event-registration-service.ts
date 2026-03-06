@@ -75,6 +75,9 @@ export class EventRegistrationService {
       throw new Error(validation.error);
     }
 
+    // Note: dto.members is intentionally not processed here.
+    // Team members are added post-registration via inviteMember().
+
     const { data: profile } = await this.supabase
       .from('profiles')
       .select('institution_id, is_super_admin, role, email, full_name, learner_id')
@@ -120,7 +123,7 @@ export class EventRegistrationService {
 
     if (regError) {
       console.error('[startup/registration] registerTeam insert failed:', regError);
-      throw regError;
+      throw new Error('Failed to create team registration. Please try again.');
     }
 
     // Auto-add team leader as accepted member with is_leader=true
@@ -255,11 +258,15 @@ export class EventRegistrationService {
     invitedByProfileId: string
   ): Promise<EventTeamMember> {
     // Validate team size limit
-    const { data: reg } = await this.supabase
+    const { data: reg, error: regFetchError } = await this.supabase
       .from('event_registrations')
       .select('id, event:startup_events(config), team_members:event_team_members(id, status)')
       .eq('id', registrationId)
       .single();
+
+    if (regFetchError || !reg) {
+      throw new Error('Registration not found');
+    }
 
     const maxSize: number = (reg as any)?.event?.config?.team_max_size || 5;
     const activeCount = ((reg as any)?.team_members || []).filter(
@@ -424,7 +431,7 @@ export class EventRegistrationService {
 
     if (updateError) {
       console.error('[startup/registration] respondToInvitation failed:', updateError);
-      throw updateError;
+      throw new Error('Failed to update invitation. Please try again.');
     }
   }
 
@@ -440,7 +447,7 @@ export class EventRegistrationService {
           team_code,
           event_id,
           owner:profiles!event_registrations_owner_id_fkey(full_name),
-          event:startup_events!inner(id, name)
+          event:startup_events(id, name)
         )
       `)
       .eq('profile_id', profileId)
