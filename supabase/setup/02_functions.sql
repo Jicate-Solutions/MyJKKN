@@ -4430,7 +4430,7 @@ BEGIN
       s.first_name,
       s.last_name,
       COALESCE(s.designation, '')       AS designation,
-      COALESCE(d.name, 'Unknown')       AS department_name,
+      COALESCE(d.department_name, 'Unknown') AS department_name,
       s.department_id,
       COALESCE(ac.periods_marked, 0)    AS periods_marked,
       ac.last_marked_at
