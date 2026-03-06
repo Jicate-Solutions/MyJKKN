@@ -86,6 +86,7 @@ When updating any SQL file:
 | Institution Access    | setup/02_functions.sql | 10    | Institution access control      |
 | Billing               | setup/02_functions.sql | 20    | Billing calculations, invoices  |
 | Attendance            | setup/02_functions.sql | 5     | Attendance statistics           |
+| **Facilitator Attendance** | **setup/02_functions.sql** | **1** | **get_facilitator_attendance_stats() — periods marked per facilitator for live dashboard** |
 | Timetable             | setup/02_functions.sql | 10    | Timetable management            |
 | Academic              | setup/02_functions.sql | 15    | Academic hierarchy, validations |
 | Staff                 | setup/02_functions.sql | 5     | Staff management                |
@@ -190,6 +191,18 @@ When updating any SQL file:
 ```
 
 ## 📝 Change Log
+
+### 2026-03-06: Facilitator Attendance Report — RPC Function
+
+- **Files Updated**:
+  - `supabase/setup/02_functions.sql` — Added `get_facilitator_attendance_stats()` RPC function
+  - `supabase/setup/03_policies.sql` — Added `GRANT EXECUTE` for `authenticated` role
+
+  **Purpose**: Aggregates `student_attendance.marked_by` counts per staff member to power the live facilitator attendance dashboard at `/attendance/consolidation/facilitators`. Returns summary totals, per-facilitator detail with weekly trend and daily heatmap data, and department-level breakdown — all as a single JSONB response.
+
+  **Function signature**: `get_facilitator_attendance_stats(p_institution_id UUID, p_date_from DATE, p_date_to DATE, p_department_id UUID DEFAULT NULL, p_program_id UUID DEFAULT NULL, p_semester_id UUID DEFAULT NULL, p_facilitator_id UUID DEFAULT NULL) → JSONB`
+
+---
 
 ### 2026-03-06: Startup Studio — Team Invitation Workflow
 

@@ -2897,3 +2897,7 @@ CREATE POLICY "event_checklist_completions_select" ON event_checklist_completion
 
 CREATE POLICY "event_checklist_completions_insert" ON event_checklist_completions
     FOR INSERT TO authenticated WITH CHECK (completed_by = auth.uid());
+
+-- Updated: 2026-03-06 - Grant execute on facilitator attendance stats RPC
+GRANT EXECUTE ON FUNCTION get_facilitator_attendance_stats(UUID, DATE, DATE, UUID, UUID, UUID, UUID)
+  TO authenticated;

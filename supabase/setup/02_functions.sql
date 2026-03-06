@@ -4390,4 +4390,154 @@ BEGIN
   v_code := v_inst_prefix || '-' || LPAD(v_seq::TEXT, 3, '0');
   RETURN v_code;
 END;
+
+-- ============================================================
+-- Updated: 2026-03-06 - Add facilitator attendance stats RPC
+-- Purpose: Aggregates periods marked per facilitator for live dashboard
+-- ============================================================
+CREATE OR REPLACE FUNCTION get_facilitator_attendance_stats(
+  p_institution_id  UUID,
+  p_date_from       DATE,
+  p_date_to         DATE,
+  p_department_id   UUID DEFAULT NULL,
+  p_program_id      UUID DEFAULT NULL,
+  p_semester_id     UUID DEFAULT NULL,
+  p_facilitator_id  UUID DEFAULT NULL
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_result JSONB;
+BEGIN
+  WITH attendance_counts AS (
+    -- Count periods marked per staff member within date range
+    SELECT
+      sa.marked_by,
+      COUNT(*)                 AS periods_marked,
+      MAX(sa.attendance_date)  AS last_marked_at
+    FROM student_attendance sa
+    WHERE sa.institution_id = p_institution_id
+      AND sa.attendance_date BETWEEN p_date_from AND p_date_to
+      AND (p_facilitator_id IS NULL OR sa.marked_by = p_facilitator_id)
+    GROUP BY sa.marked_by
+  ),
+  staff_stats AS (
+    -- Join counts with staff + department info; filter by department if provided
+    SELECT
+      s.id                              AS staff_id,
+      s.first_name,
+      s.last_name,
+      COALESCE(s.designation, '')       AS designation,
+      COALESCE(d.name, 'Unknown')       AS department_name,
+      s.department_id,
+      COALESCE(ac.periods_marked, 0)    AS periods_marked,
+      ac.last_marked_at
+    FROM staff s
+    LEFT JOIN departments d ON s.department_id = d.id
+    INNER JOIN attendance_counts ac ON s.id = ac.marked_by
+    WHERE s.institution_id = p_institution_id
+      AND s.is_active = true
+      AND (p_department_id IS NULL OR s.department_id = p_department_id)
+  ),
+  weekly_counts AS (
+    -- Weekly aggregates per staff (for line trend chart)
+    SELECT
+      sa.marked_by,
+      date_trunc('week', sa.attendance_date)::DATE AS week_start,
+      COUNT(*)                                      AS week_count
+    FROM student_attendance sa
+    WHERE sa.institution_id = p_institution_id
+      AND sa.attendance_date BETWEEN p_date_from AND p_date_to
+      AND (p_facilitator_id IS NULL OR sa.marked_by = p_facilitator_id)
+    GROUP BY sa.marked_by, date_trunc('week', sa.attendance_date)
+  ),
+  daily_counts AS (
+    -- Daily aggregates per staff (for calendar heatmap)
+    SELECT
+      sa.marked_by,
+      sa.attendance_date,
+      COUNT(*) AS day_count
+    FROM student_attendance sa
+    WHERE sa.institution_id = p_institution_id
+      AND sa.attendance_date BETWEEN p_date_from AND p_date_to
+      AND (p_facilitator_id IS NULL OR sa.marked_by = p_facilitator_id)
+    GROUP BY sa.marked_by, sa.attendance_date
+  ),
+  aggregated AS (
+    SELECT
+      jsonb_build_object(
+        'summary', jsonb_build_object(
+          'total_facilitators',          COUNT(*)::INT,
+          'total_periods_marked',        SUM(ss.periods_marked)::INT,
+          'avg_periods_per_facilitator', ROUND(AVG(ss.periods_marked), 1)
+        ),
+        'facilitators', jsonb_agg(
+          jsonb_build_object(
+            'staff_id',        ss.staff_id,
+            'first_name',      ss.first_name,
+            'last_name',       ss.last_name,
+            'designation',     ss.designation,
+            'department_name', ss.department_name,
+            'department_id',   ss.department_id,
+            'periods_marked',  ss.periods_marked,
+            'last_marked_at',  ss.last_marked_at,
+            'trend_data', COALESCE((
+              SELECT jsonb_agg(
+                jsonb_build_object('week', wc.week_start, 'count', wc.week_count)
+                ORDER BY wc.week_start
+              )
+              FROM weekly_counts wc
+              WHERE wc.marked_by = ss.staff_id
+            ), '[]'::JSONB),
+            'daily_data', COALESCE((
+              SELECT jsonb_agg(
+                jsonb_build_object('date', dc.attendance_date, 'count', dc.day_count)
+                ORDER BY dc.attendance_date
+              )
+              FROM daily_counts dc
+              WHERE dc.marked_by = ss.staff_id
+            ), '[]'::JSONB)
+          )
+          ORDER BY ss.periods_marked DESC
+        ),
+        'department_breakdown', (
+          SELECT COALESCE(jsonb_agg(
+            jsonb_build_object(
+              'department_id',     dept_grp.department_id,
+              'department_name',   dept_grp.department_name,
+              'facilitator_count', dept_grp.fac_count,
+              'total_marked',      dept_grp.total,
+              'avg_rate',          dept_grp.avg_rate
+            )
+            ORDER BY dept_grp.total DESC
+          ), '[]'::JSONB)
+          FROM (
+            SELECT
+              ss2.department_id,
+              ss2.department_name,
+              COUNT(*)::INT                     AS fac_count,
+              SUM(ss2.periods_marked)::INT      AS total,
+              ROUND(AVG(ss2.periods_marked), 1) AS avg_rate
+            FROM staff_stats ss2
+            GROUP BY ss2.department_id, ss2.department_name
+          ) dept_grp
+        )
+      ) AS result
+    FROM staff_stats ss
+  )
+  SELECT result INTO v_result FROM aggregated;
+
+  RETURN COALESCE(v_result, jsonb_build_object(
+    'summary', jsonb_build_object(
+      'total_facilitators',          0,
+      'total_periods_marked',        0,
+      'avg_periods_per_facilitator', 0
+    ),
+    'facilitators',          '[]'::JSONB,
+    'department_breakdown',  '[]'::JSONB
+  ));
+END;
+$$;
 $$;
