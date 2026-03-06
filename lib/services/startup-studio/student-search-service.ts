@@ -93,25 +93,35 @@ export class StudentSearchService {
   private static async getAlreadyTeamedProfileIds(eventId: string): Promise<Set<string>> {
     const result = new Set<string>();
 
-    // Accepted members
-    const { data: accepted } = await this.supabase
-      .from('event_team_members')
-      .select('profile_id, registration:event_registrations!inner(event_id)')
-      .eq('event_registrations.event_id', eventId)
-      .eq('status', 'accepted')
-      .not('profile_id', 'is', null);
-
-    (accepted || []).forEach((m: any) => {
-      if (m.profile_id) result.add(m.profile_id);
-    });
-
-    // Team owners
-    const { data: owners } = await this.supabase
+    // Step 1: Get all registration IDs for this event (and collect owners in one query)
+    const { data: eventRegs } = await this.supabase
       .from('event_registrations')
-      .select('owner_id')
+      .select('id, owner_id')
       .eq('event_id', eventId);
 
-    (owners || []).forEach((r: any) => result.add(r.owner_id));
+    const registrationIds = (eventRegs || []).map((r: any) => r.id);
+
+    // Add all team owners for this event
+    (eventRegs || []).forEach((r: any) => {
+      if (r.owner_id) result.add(r.owner_id);
+    });
+
+    // Step 2: Find accepted members within those registrations
+    if (registrationIds.length > 0) {
+      const { data: accepted, error: acceptedError } = await this.supabase
+        .from('event_team_members')
+        .select('profile_id')
+        .in('registration_id', registrationIds)
+        .eq('status', 'accepted')
+        .not('profile_id', 'is', null);
+
+      if (acceptedError) {
+        console.error('[startup/student-search] getAlreadyTeamedProfileIds (members) failed:', acceptedError);
+      }
+      (accepted || []).forEach((m: any) => {
+        if (m.profile_id) result.add(m.profile_id);
+      });
+    }
 
     return result;
   }
