@@ -2,6 +2,7 @@
 // Created: 2026-03-06
 
 import { createClientSupabaseClient } from '@/lib/supabase/client';
+import { logger } from '@/lib/utils/enhanced-logger';
 import type {
   FacilitatorReportFilters,
   FacilitatorReportData,
@@ -28,7 +29,10 @@ export class FacilitatorAttendanceService {
       }
     );
 
-    if (error) throw new Error(error.message);
+    if (error) {
+      logger.error('academic/attendance-facilitator', 'Failed to fetch facilitator attendance stats', error);
+      throw error;
+    }
 
     const raw = data as FacilitatorReportRaw;
 
