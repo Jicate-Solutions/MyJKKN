@@ -16,23 +16,21 @@ export class FacilitatorAttendanceService {
   ): Promise<FacilitatorReportData> {
     const supabase = createClientSupabaseClient();
 
-    const { data, error } = await supabase.rpc(
-      'get_facilitator_attendance_stats',
-      {
-        p_institution_id:  institutionId,
-        p_date_from:       filters.dateFrom,
-        p_date_to:         filters.dateTo,
-        p_department_id:   filters.departmentId   ?? null,
-        p_facilitator_id:  filters.facilitatorId  ?? null,
-      }
-    );
+    // @ts-expect-error — function not yet in generated Supabase types
+    const { data, error } = await supabase.rpc('get_facilitator_attendance_stats', {
+      p_institution_id:  institutionId,
+      p_date_from:       filters.dateFrom,
+      p_date_to:         filters.dateTo,
+      p_department_id:   filters.departmentId   ?? null,
+      p_facilitator_id:  filters.facilitatorId  ?? null,
+    });
 
     if (error) {
       logger.error('academic/attendance-facilitator', 'Failed to fetch facilitator attendance stats', error);
       throw error;
     }
 
-    const raw = data as FacilitatorReportRaw;
+    const raw = (data as unknown) as FacilitatorReportRaw;
 
     return {
       summary: {
