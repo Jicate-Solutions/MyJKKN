@@ -110,7 +110,7 @@ export default function EventDetailPage({ params }: { params: Promise<{ id: stri
         { label: event.name },
       ]} />
 
-      <div className="space-y-8 mt-6 max-w-6xl mx-auto pb-10">
+      <div className="space-y-8 mt-6 mx-auto pb-10">
 
         {/* Top Bar: Back + Edit */}
         <div className="flex items-center justify-between">
@@ -384,13 +384,11 @@ export default function EventDetailPage({ params }: { params: Promise<{ id: stri
                       <Users className="h-4 w-4" /> Manage Team
                     </Button>
                   </Link>
-                  {['build_day', 'demo_day'].includes(event.status) && (
-                    <Link href={`/startup-studio/events/${id}/submit`}>
-                      <Button className="bg-blue-600 hover:bg-blue-700 text-white shadow-sm gap-2">
-                        <FileText className="h-4 w-4" /> Submit Project
-                      </Button>
-                    </Link>
-                  )}
+                  <Link href={`/startup-studio/events/${id}/submit`}>
+                    <Button className="bg-blue-600 hover:bg-blue-700 text-white shadow-sm gap-2">
+                      <FileText className="h-4 w-4" /> Submit Project
+                    </Button>
+                  </Link>
                 </div>
               </div>
             </div>

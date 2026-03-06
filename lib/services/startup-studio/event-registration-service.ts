@@ -114,7 +114,7 @@ export class EventRegistrationService {
         event_id: dto.event_id,
         team_name: dto.team_name,
         team_code: codeResult || null,
-        problem_idea: dto.problem_idea,
+        problem_idea: dto.problem_idea || null,
         owner_id: userId,
         institution_id: institutionId,
       })
@@ -317,21 +317,25 @@ export class EventRegistrationService {
       }
     }
 
-    // Check not already invited to THIS team (by learner_id)
-    const { data: alreadyInvited } = await this.supabase
+    // Block only if the student is already an accepted member of this team.
+    // Pending → re-invite is allowed (upsert resets the invitation).
+    // Declined → re-invite is allowed (upsert creates a fresh pending invite).
+    const { data: alreadyAccepted } = await this.supabase
       .from('event_team_members')
-      .select('id, status')
+      .select('id')
       .eq('registration_id', registrationId)
       .eq('learner_id', student.learner_id)
+      .eq('status', 'accepted')
       .maybeSingle();
 
-    if (alreadyInvited) {
-      throw new Error('This student has already been invited to your team');
+    if (alreadyAccepted) {
+      throw new Error('This student is already an accepted member of your team');
     }
 
+    // Upsert on (registration_id, email) — handles re-inviting after a decline
     const { data, error } = await this.supabase
       .from('event_team_members')
-      .insert({
+      .upsert({
         registration_id: registrationId,
         profile_id: student.profile_id,
         learner_id: student.learner_id,
@@ -341,7 +345,8 @@ export class EventRegistrationService {
         has_laptop: false,
         status: 'pending',
         is_leader: false,
-      })
+        responded_at: null,
+      }, { onConflict: 'registration_id,email' })
       .select()
       .single();
 
@@ -461,6 +466,18 @@ export class EventRegistrationService {
     });
   }
 
+  static async updateMemberLaptop(memberId: string, hasLaptop: boolean): Promise<void> {
+    const { error } = await this.supabase
+      .from('event_team_members')
+      .update({ has_laptop: hasLaptop })
+      .eq('id', memberId);
+
+    if (error) {
+      console.error('[startup/registration] updateMemberLaptop failed:', error);
+      throw new Error('Failed to update laptop status.');
+    }
+  }
+
   static async removeMember(memberId: string): Promise<void> {
     const { error } = await this.supabase
       .from('event_team_members')
@@ -505,6 +522,38 @@ export class EventRegistrationService {
     if (error) {
       console.error('[startup/registration] toggleLovableVerified failed:', error);
       throw error;
+    }
+  }
+
+  static async updateTeamName(registrationId: string, ownerId: string, teamName: string): Promise<void> {
+    const { error } = await this.supabase
+      .from('event_registrations')
+      .update({
+        team_name: teamName,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', registrationId)
+      .eq('owner_id', ownerId);
+
+    if (error) {
+      console.error('[startup/registration] updateTeamName failed:', error);
+      throw new Error('Failed to update team name. Please try again.');
+    }
+  }
+
+  static async updateProblemIdea(registrationId: string, ownerId: string, problemIdea: string): Promise<void> {
+    const { error } = await this.supabase
+      .from('event_registrations')
+      .update({
+        problem_idea: problemIdea || null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', registrationId)
+      .eq('owner_id', ownerId);
+
+    if (error) {
+      console.error('[startup/registration] updateProblemIdea failed:', error);
+      throw new Error('Failed to update problem idea. Please try again.');
     }
   }
 

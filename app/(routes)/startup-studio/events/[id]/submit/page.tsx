@@ -1,6 +1,7 @@
 'use client';
 
 import { use, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -26,7 +27,8 @@ import {
   FormLabel,
   FormMessage,
 } from '@/components/ui/form';
-import { Lock, Send, BarChart3, Trophy } from 'lucide-react';
+import { Lock, Send, BarChart3, Trophy, Globe, Github, Link2, Video, FileText, Lightbulb, ArrowLeft, Loader2 } from 'lucide-react';
+import { useAuth } from '@/hooks/use-auth';
 import { useEvent } from '@/hooks/startup-studio/use-events';
 import { useMyRegistration } from '@/hooks/startup-studio/use-event-registrations';
 import { useMySubmission, useSubmitProject, useUpdateSubmission, useUpdateMetrics } from '@/hooks/startup-studio/use-event-submissions';
@@ -35,14 +37,18 @@ import type { EventConfig } from '@/types/startup-studio';
 import Link from 'next/link';
 
 const projectSchema = z.object({
-  app_name: z.string().min(2, 'App name required'),
+  app_name: z.string().min(2, 'App name is required'),
+  category: z.string().optional(),
+  problem_statement: z.string().min(10, 'Problem statement is required'),
+  solution_summary: z.string().min(10, 'Solution summary is required'),
+  elevator_pitch: z.string().optional(),
+  live_app_url: z.string().url('Must be a valid URL').optional().or(z.literal('')),
+  lovable_url: z.string().url('Must be a valid URL').optional().or(z.literal('')),
   github_url: z.string().url('Must be a valid URL').refine(
     (url) => url.startsWith('https://github.com/'),
-    'Must be a GitHub URL'
+    'Must be a GitHub URL (https://github.com/...)'
   ),
-  live_app_url: z.string().url('Must be a valid URL').optional().or(z.literal('')),
-  description: z.string().optional(),
-  category: z.string().optional(),
+  demo_video_url: z.string().url('Must be a valid URL').optional().or(z.literal('')),
 });
 
 const metricsSchema = z.object({
@@ -66,6 +72,7 @@ const TIER_NAMES: Record<number, string> = {
 
 export default function SubmitPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
+  const { isLoading: authLoading } = useAuth();
   const { data: event, isLoading: eventLoading } = useEvent(id);
   const { data: registration, isLoading: regLoading } = useMyRegistration(id);
   const { data: submission, isLoading: subLoading } = useMySubmission(id);
@@ -78,15 +85,12 @@ export default function SubmitPage({ params }: { params: Promise<{ id: string }>
     ? new Date(event.metrics_deadline) < now
     : false;
 
-  if (eventLoading || regLoading || subLoading) {
+  if (authLoading || eventLoading || regLoading || subLoading) {
     return (
       <ContentLayout title="Submit Project">
-        <PageBreadcrumb items={[
-          { label: 'Startup Studio', href: '/startup-studio/events' },
-          { label: 'Event', href: `/startup-studio/events/${id}` },
-          { label: 'Submit Project' },
-        ]} />
-        <div className="text-center py-12 text-muted-foreground">Loading...</div>
+        <div className="flex items-center justify-center min-h-[60vh]">
+          <Loader2 className="h-8 w-8 text-green-600 animate-spin" />
+        </div>
       </ContentLayout>
     );
   }
@@ -114,15 +118,23 @@ export default function SubmitPage({ params }: { params: Promise<{ id: string }>
   return (
     <ContentLayout title="Submit Project">
       <PageBreadcrumb items={[
+        { label: 'Home', href: '/' },
         { label: 'Startup Studio', href: '/startup-studio/events' },
         { label: event?.name || 'Event', href: `/startup-studio/events/${id}` },
         { label: 'Submit Project' },
       ]} />
 
       <div className="space-y-6 max-w-5xl py-4">
-        <div>
-          <h2 className="text-2xl font-bold">Submit Project</h2>
-          <p className="text-muted-foreground">Team: {registration.team_name}</p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-2xl font-bold">Submit Project</h2>
+            <p className="text-sm text-muted-foreground">Event: {event?.name}</p>
+          </div>
+          <Button variant="outline" size="sm" asChild>
+            <Link href={`/startup-studio/events/${id}/my-team`}>
+              <ArrowLeft className="h-4 w-4 mr-1" /> Back
+            </Link>
+          </Button>
         </div>
 
         <ProjectSection
@@ -154,112 +166,214 @@ function ProjectSection({
 }) {
   const submitProject = useSubmitProject();
   const updateSubmission = useUpdateSubmission();
+  const router = useRouter();
 
   const form = useForm<ProjectFormValues>({
     resolver: zodResolver(projectSchema),
     defaultValues: {
       app_name: submission?.app_name || '',
-      github_url: submission?.github_url || '',
-      live_app_url: submission?.live_app_url || '',
-      description: submission?.description || '',
       category: submission?.category || '',
+      problem_statement: submission?.problem_statement || '',
+      solution_summary: submission?.solution_summary || '',
+      elevator_pitch: submission?.elevator_pitch || '',
+      live_app_url: submission?.live_app_url || '',
+      lovable_url: submission?.lovable_url || '',
+      github_url: submission?.github_url || '',
+      demo_video_url: submission?.demo_video_url || '',
     },
   });
 
+  const redirectToTeam = () => router.push(`/startup-studio/events/${eventId}/my-team`);
+
   const onSubmit = (values: ProjectFormValues) => {
     if (submission) {
-      updateSubmission.mutate({ id: submission.id, dto: values });
+      updateSubmission.mutate(
+        { id: submission.id, dto: values },
+        { onSuccess: redirectToTeam }
+      );
     } else {
-      submitProject.mutate({
-        event_id: eventId,
-        registration_id: registrationId,
-        app_name: values.app_name,
-        github_url: values.github_url,
-        live_app_url: values.live_app_url || undefined,
-        description: values.description || undefined,
-        category: values.category || undefined,
-      });
+      submitProject.mutate(
+        {
+          event_id: eventId,
+          registration_id: registrationId,
+          app_name: values.app_name,
+          problem_statement: values.problem_statement,
+          solution_summary: values.solution_summary,
+          elevator_pitch: values.elevator_pitch || undefined,
+          github_url: values.github_url,
+          live_app_url: values.live_app_url || undefined,
+          lovable_url: values.lovable_url || undefined,
+          demo_video_url: values.demo_video_url || undefined,
+          category: values.category || undefined,
+        },
+        { onSuccess: redirectToTeam }
+      );
     }
   };
 
   const isPending = submitProject.isPending || updateSubmission.isPending;
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center justify-between">
-          <span className="flex items-center gap-2">
-            <Send className="h-5 w-5" />
-            Project Details
-          </span>
-          {locked && (
-            <Badge variant="destructive" className="gap-1">
-              <Lock className="h-3 w-3" /> Submission Locked
-            </Badge>
-          )}
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
-        <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+    <Form {...form}>
+      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+
+        {locked && (
+          <div className="flex items-center gap-2 p-3 rounded-lg border border-destructive/30 bg-destructive/5 text-destructive text-sm">
+            <Lock className="h-4 w-4 shrink-0" /> Submission deadline has passed. Your submission is locked.
+          </div>
+        )}
+
+        {/* Card 1: Project Details */}
+        <Card>
+          <CardHeader className="pb-4">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <FileText className="h-4 w-4" /> Project Details
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
             <FormField control={form.control} name="app_name" render={({ field }) => (
               <FormItem>
-                <FormLabel>App Name *</FormLabel>
-                <FormControl><Input {...field} disabled={locked} placeholder="My Awesome App" /></FormControl>
+                <FormLabel>App Name <span className="text-destructive">*</span></FormLabel>
+                <FormControl>
+                  <Input {...field} disabled={locked} placeholder="Enter your app name" />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )} />
+
+            {categories.length > 0 && (
+              <FormField control={form.control} name="category" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Category</FormLabel>
+                  <Select onValueChange={field.onChange} value={field.value} disabled={locked}>
+                    <FormControl>
+                      <SelectTrigger><SelectValue placeholder="Select a category" /></SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      {categories.map((cat) => (
+                        <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )} />
+            )}
+
+            <FormField control={form.control} name="problem_statement" render={({ field }) => (
+              <FormItem>
+                <FormLabel>Problem Statement <span className="text-destructive">*</span></FormLabel>
+                <FormControl>
+                  <Textarea {...field} disabled={locked} placeholder="What problem does your app solve?" rows={3} />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )} />
+
+            <FormField control={form.control} name="solution_summary" render={({ field }) => (
+              <FormItem>
+                <FormLabel>Solution Summary <span className="text-destructive">*</span></FormLabel>
+                <FormControl>
+                  <Textarea {...field} disabled={locked} placeholder="How does your app solve this problem?" rows={3} />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )} />
+
+            <FormField control={form.control} name="elevator_pitch" render={({ field }) => (
+              <FormItem>
+                <FormLabel className="flex items-center gap-1.5">
+                  <Lightbulb className="h-3.5 w-3.5" /> Elevator Pitch
+                </FormLabel>
+                <FormControl>
+                  <Textarea {...field} disabled={locked} placeholder="Describe your app in 30 seconds..." rows={2} />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )} />
+          </CardContent>
+        </Card>
+
+        {/* Card 2: Project Links */}
+        <Card>
+          <CardHeader className="pb-4">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Link2 className="h-4 w-4" /> Project Links
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <FormField control={form.control} name="live_app_url" render={({ field }) => (
+              <FormItem>
+                <FormLabel className="flex items-center gap-1.5">
+                  <Globe className="h-3.5 w-3.5" /> Live URL
+                </FormLabel>
+                <FormControl>
+                  <Input {...field} disabled={locked} placeholder="https://your-app.lovable.app" />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )} />
+
+            <FormField control={form.control} name="lovable_url" render={({ field }) => (
+              <FormItem>
+                <FormLabel className="flex items-center gap-1.5">
+                  <Link2 className="h-3.5 w-3.5" /> Lovable Project URL
+                </FormLabel>
+                <FormControl>
+                  <Input {...field} disabled={locked} placeholder="https://lovable.dev/projects/..." />
+                </FormControl>
                 <FormMessage />
               </FormItem>
             )} />
 
             <FormField control={form.control} name="github_url" render={({ field }) => (
               <FormItem>
-                <FormLabel>GitHub URL *</FormLabel>
-                <FormControl><Input {...field} disabled={locked} placeholder="https://github.com/user/repo" /></FormControl>
+                <FormLabel className="flex items-center gap-1.5">
+                  <Github className="h-3.5 w-3.5" /> GitHub Repository URL <span className="text-destructive">*</span>
+                </FormLabel>
+                <FormControl>
+                  <Input {...field} disabled={locked} placeholder="https://github.com/username/repo" />
+                </FormControl>
+                <p className="text-xs text-muted-foreground">
+                  Export your Lovable project to GitHub before submitting. This preserves your work after credits expire.
+                </p>
                 <FormMessage />
               </FormItem>
             )} />
 
-            <FormField control={form.control} name="live_app_url" render={({ field }) => (
+            <FormField control={form.control} name="demo_video_url" render={({ field }) => (
               <FormItem>
-                <FormLabel>Live App URL</FormLabel>
-                <FormControl><Input {...field} disabled={locked} placeholder="https://myapp.com" /></FormControl>
+                <FormLabel className="flex items-center gap-1.5">
+                  <Video className="h-3.5 w-3.5" /> Demo Video URL <span className="text-muted-foreground font-normal text-xs">(optional)</span>
+                </FormLabel>
+                <FormControl>
+                  <Input {...field} disabled={locked} placeholder="https://youtube.com/watch?v=..." />
+                </FormControl>
                 <FormMessage />
               </FormItem>
             )} />
+          </CardContent>
+        </Card>
 
-            <FormField control={form.control} name="description" render={({ field }) => (
-              <FormItem>
-                <FormLabel>Description</FormLabel>
-                <FormControl><Textarea {...field} disabled={locked} placeholder="Describe your project..." rows={3} /></FormControl>
-                <FormMessage />
-              </FormItem>
-            )} />
-
-            <FormField control={form.control} name="category" render={({ field }) => (
-              <FormItem>
-                <FormLabel>Category</FormLabel>
-                <Select onValueChange={field.onChange} value={field.value} disabled={locked}>
-                  <FormControl>
-                    <SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger>
-                  </FormControl>
-                  <SelectContent>
-                    {categories.map((cat) => (
-                      <SelectItem key={cat} value={cat}>{cat}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <FormMessage />
-              </FormItem>
-            )} />
-
-            {!locked && (
-              <Button type="submit" disabled={isPending}>
-                {isPending ? 'Saving...' : submission ? 'Update Submission' : 'Submit Project'}
-              </Button>
-            )}
-          </form>
-        </Form>
-      </CardContent>
-    </Card>
+        {/* Action Buttons */}
+        {!locked && (
+          <div className="flex items-center justify-end gap-3">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => router.back()}
+              disabled={isPending}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" disabled={isPending} className="gap-2">
+              <Send className="h-4 w-4" />
+              {isPending ? 'Saving...' : submission ? 'Update Submission' : 'Submit Project'}
+            </Button>
+          </div>
+        )}
+      </form>
+    </Form>
   );
 }
 

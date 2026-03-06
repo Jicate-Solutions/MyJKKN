@@ -22,7 +22,7 @@ import type { StartupEvent } from '@/types/startup-studio';
 
 const registrationSchema = z.object({
   team_name: z.string().min(2, 'Team name must be at least 2 characters'),
-  problem_idea: z.string().min(20, 'Problem idea must be at least 20 characters'),
+  problem_idea: z.string().optional(),
   institution_id: z.string().optional(),
 });
 
@@ -94,14 +94,20 @@ export function RegistrationForm({ event }: { event: StartupEvent }) {
               name="problem_idea"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Problem / Idea</FormLabel>
+                  <FormLabel>
+                    Problem / Idea{' '}
+                    <span className="text-muted-foreground font-normal">(optional)</span>
+                  </FormLabel>
                   <FormControl>
                     <Textarea
                       {...field}
-                      placeholder="What problem will your team solve? (minimum 20 characters)"
+                      placeholder="What problem will your team solve? You can fill this in later from My Team page."
                       rows={4}
                     />
                   </FormControl>
+                  <p className="text-xs text-muted-foreground">
+                    Not sure yet? You can add or edit this later from your My Team page.
+                  </p>
                   <FormMessage />
                 </FormItem>
               )}

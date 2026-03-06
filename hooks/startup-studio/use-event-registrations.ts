@@ -127,6 +127,19 @@ export function useToggleLovableVerified() {
 }
 
 
+export function useUpdateMemberLaptop() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ memberId, hasLaptop }: { memberId: string; hasLaptop: boolean }) =>
+      EventRegistrationService.updateMemberLaptop(memberId, hasLaptop),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['my-registration'] });
+      queryClient.invalidateQueries({ queryKey: ['event-registrations'] });
+    },
+    onError: () => toast.error('Failed to update laptop status'),
+  });
+}
+
 export function useRemoveTeamMember() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -205,6 +218,46 @@ export function useRespondToInvitation() {
       toast.success(accept ? 'You joined the team!' : 'Invitation declined');
     },
     onError: (error: any) => toast.error(error.message || 'Failed to respond to invitation'),
+  });
+}
+
+export function useUpdateTeamName() {
+  const queryClient = useQueryClient();
+  const { profile } = useAuth();
+
+  return useMutation({
+    mutationFn: ({ registrationId, teamName }: { registrationId: string; teamName: string }) => {
+      if (!profile?.id) throw new Error('Not authenticated');
+      return EventRegistrationService.updateTeamName(registrationId, profile.id, teamName);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['my-registration'] });
+      queryClient.invalidateQueries({ queryKey: ['event-registrations'] });
+      toast.success('Team name updated!');
+    },
+    onError: (error: any) => {
+      toast.error(error.message || 'Failed to update team name');
+    },
+  });
+}
+
+export function useUpdateProblemIdea() {
+  const queryClient = useQueryClient();
+  const { profile } = useAuth();
+
+  return useMutation({
+    mutationFn: ({ registrationId, problemIdea }: { registrationId: string; problemIdea: string }) => {
+      if (!profile?.id) throw new Error('Not authenticated');
+      return EventRegistrationService.updateProblemIdea(registrationId, profile.id, problemIdea);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['my-registration'] });
+      queryClient.invalidateQueries({ queryKey: ['event-registrations'] });
+      toast.success('Problem / Idea updated!');
+    },
+    onError: (error: any) => {
+      toast.error(error.message || 'Failed to update problem idea');
+    },
   });
 }
 

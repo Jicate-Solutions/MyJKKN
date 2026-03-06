@@ -122,33 +122,21 @@ export class EventService {
   }
 
   static async getEventStats(eventId: string) {
-    const { data: registrations, error } = await this.supabase
-      .from('event_registrations')
-      .select(`
-        id,
-        status,
-        checked_in,
-        lovable_verified,
-        institution_id,
-        team_members:event_team_members(id, has_laptop)
-      `)
-      .eq('event_id', eventId);
+    const { data, error } = await this.supabase
+      .rpc('get_event_stats', { p_event_id: eventId });
 
     if (error) {
       console.error('[startup/events] getEventStats failed:', error);
       throw error;
     }
 
-    const teams = registrations || [];
-    const allMembers = teams.flatMap((t: any) => t.team_members || []);
-
-    return {
-      total_teams: teams.length,
-      checked_in_teams: teams.filter((t: any) => t.checked_in).length,
-      lovable_verified_teams: teams.filter((t: any) => t.lovable_verified).length,
-      total_members: allMembers.length,
-      members_with_laptops: allMembers.filter((m: any) => m.has_laptop).length,
-      institutions: [...new Set(teams.map((t: any) => t.institution_id))].length,
+    return data as {
+      total_teams: number;
+      checked_in_teams: number;
+      lovable_verified_teams: number;
+      total_members: number;
+      members_with_laptops: number;
+      institutions: number;
     };
   }
 }

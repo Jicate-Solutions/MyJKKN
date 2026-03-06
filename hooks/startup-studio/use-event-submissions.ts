@@ -18,6 +18,19 @@ export function useMySubmission(eventId: string | undefined) {
   });
 }
 
+export function useTeamSubmission(eventId: string | undefined, registrationId: string | undefined) {
+  return useQuery({
+    queryKey: ['team-submission', eventId, registrationId],
+    queryFn: () => {
+      if (!eventId || !registrationId) return null;
+      return EventSubmissionService.getSubmission(eventId, registrationId);
+    },
+    enabled: !!eventId && !!registrationId,
+    staleTime: 15 * 1000,
+    retry: 2,
+  });
+}
+
 export function useSubmitProject() {
   const queryClient = useQueryClient();
   const { profile } = useAuth();

@@ -151,7 +151,12 @@ export interface EventSubmission {
   app_name: string | null;
   github_url: string | null;
   live_app_url: string | null;
+  lovable_url: string | null;
+  demo_video_url: string | null;
   description: string | null;
+  problem_statement: string | null;
+  solution_summary: string | null;
+  elevator_pitch: string | null;
   category: string | null;
   mrr_amount: number;
   paying_users_count: number;
@@ -225,7 +230,7 @@ export interface UpdateEventDto extends Partial<CreateEventDto> {
 export interface CreateRegistrationDto {
   event_id: string;
   team_name: string;
-  problem_idea: string;
+  problem_idea?: string;
   institution_id?: string;
   members: CreateTeamMemberDto[];
 }
@@ -254,9 +259,13 @@ export interface SubmitProjectDto {
   event_id: string;
   registration_id: string;
   app_name: string;
+  problem_statement: string;
+  solution_summary: string;
   github_url: string;
   live_app_url?: string;
-  description?: string;
+  lovable_url?: string;
+  demo_video_url?: string;
+  elevator_pitch?: string;
   category?: string;
 }
 
@@ -348,6 +357,7 @@ export interface StudentSearchResult {
   profile_id: string | null;
   first_name: string;
   last_name: string | null;
+  college_email: string | null;
   student_email: string;
   roll_number: string | null;
   institution_name: string | null;
