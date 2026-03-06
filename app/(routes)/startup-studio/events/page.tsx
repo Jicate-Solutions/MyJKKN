@@ -4,18 +4,26 @@ import { useState, useMemo } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useEvents } from '@/hooks/startup-studio/use-events';
+import { useAuth } from '@/hooks/use-auth';
 import { EventCard } from './_components/event-card';
-import { Loader2, Search } from 'lucide-react';
+import { CreateEventDialog } from './_components/create-event-dialog';
+import { PendingInvitationsCard } from './_components/pending-invitations-card';
+import { Loader2, Plus, Search } from 'lucide-react';
 import type { EventStatus } from '@/types/startup-studio';
 
 const ACTIVE_STATUSES: EventStatus[] = ['registration_open', 'build_day', 'demo_day'];
 
 export default function StartupStudioEventsPage() {
   const { data: events, isLoading, error } = useEvents();
+  const { profile } = useAuth();
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<'all' | 'active' | 'inactive'>('all');
+  const [createOpen, setCreateOpen] = useState(false);
+
+  const isAdmin = profile?.is_super_admin || profile?.role === 'super_admin' || profile?.role === 'admin' || profile?.role === 'administrator';
 
   const filteredEvents = useMemo(() => {
     if (!events) return [];
@@ -36,12 +44,21 @@ export default function StartupStudioEventsPage() {
       ]} />
 
       <div className="space-y-4 mt-4">
-        <div>
-          <h1 className="text-2xl font-bold py-1">Events</h1>
-          <p className="text-sm text-muted-foreground">
-            Manage hackathons, sprints, and innovation events
-          </p>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold py-1">Events</h1>
+            <p className="text-sm text-muted-foreground">
+              Manage hackathons, sprints, and innovation events
+            </p>
+          </div>
+          {isAdmin && (
+            <Button onClick={() => setCreateOpen(true)} className="gap-2 shrink-0">
+              <Plus className="h-4 w-4" /> New Event
+            </Button>
+          )}
         </div>
+
+        <PendingInvitationsCard />
 
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -87,6 +104,14 @@ export default function StartupStudioEventsPage() {
           </div>
         )}
       </div>
+
+      {isAdmin && profile?.id && (
+        <CreateEventDialog
+          open={createOpen}
+          onOpenChange={setCreateOpen}
+          userId={profile.id}
+        />
+      )}
     </ContentLayout>
   );
 }
