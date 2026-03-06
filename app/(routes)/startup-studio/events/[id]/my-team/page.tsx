@@ -11,6 +11,7 @@ import { useEvent } from '@/hooks/startup-studio/use-events';
 import {
   useMyRegistration,
   useMyAcceptedMembership,
+  useMyTeamMembers,
   useRemoveTeamMember,
   useRespondToInvitation,
   useMyPendingInvitations,
@@ -29,6 +30,7 @@ export default function MyTeamPage({ params }: { params: Promise<{ id: string }>
   const { data: event } = useEvent(id);
   const { data: registration, isLoading: regLoading } = useMyRegistration(id);
   const { data: membership, isLoading: memberLoading } = useMyAcceptedMembership(id);
+  const { data: teamMembers = [] } = useMyTeamMembers(id);
   const { data: pendingInvitations = [] } = useMyPendingInvitations();
   const removeMember = useRemoveTeamMember();
   const respondToInvitation = useRespondToInvitation();
@@ -111,43 +113,92 @@ export default function MyTeamPage({ params }: { params: Promise<{ id: string }>
                 The leader manages team invitations and project submissions.
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="flex items-center gap-3 p-3 rounded-lg border bg-muted/30">
-                <div className="h-9 w-9 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+            <CardContent>
+              <div className="flex items-start gap-3 p-3 rounded-lg border bg-muted/30">
+                <div className="h-9 w-9 rounded-full bg-primary/10 flex items-center justify-center shrink-0 mt-0.5">
                   <User className="h-4 w-4 text-primary" />
                 </div>
-                <div className="min-w-0 flex-1 space-y-2">
-                  <p className="font-medium text-sm leading-none">{m.leader_name || '—'}</p>
+                <div className="min-w-0 flex-1 space-y-1.5">
+                  <p className="font-medium text-sm">{m.leader_name || '—'}</p>
                   {m.leader_email && (
                     <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                       <Mail className="h-3 w-3 shrink-0" />
                       <span className="truncate">{m.leader_email}</span>
                     </div>
                   )}
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5 pt-1">
-                    {m.leader_institution && (
-                      <div className="flex items-start gap-1.5 text-xs text-muted-foreground">
-                        <Building2 className="h-3 w-3 shrink-0 mt-0.5" />
-                        <span>{m.leader_institution}</span>
-                      </div>
-                    )}
-                    {m.leader_degree && m.leader_department && (
-                      <div className="flex items-start gap-1.5 text-xs text-muted-foreground">
-                        <GraduationCap className="h-3 w-3 shrink-0 mt-0.5" />
-                        <span>{m.leader_degree} · {m.leader_department}</span>
-                      </div>
-                    )}
-                    {m.leader_semester && (
-                      <div className="flex items-start gap-1.5 text-xs text-muted-foreground">
-                        <Clock className="h-3 w-3 shrink-0 mt-0.5" />
-                        <span>{m.leader_semester}</span>
-                      </div>
-                    )}
-                  </div>
+                  {m.leader_institution && (
+                    <div className="flex items-start gap-1.5 text-xs text-muted-foreground">
+                      <Building2 className="h-3 w-3 shrink-0 mt-0.5" />
+                      <span>{m.leader_institution}</span>
+                    </div>
+                  )}
+                  {(m.leader_degree || m.leader_department) && (
+                    <div className="flex items-start gap-1.5 text-xs text-muted-foreground">
+                      <GraduationCap className="h-3 w-3 shrink-0 mt-0.5" />
+                      <span>
+                        {[m.leader_degree, m.leader_department].filter(Boolean).join(' · ')}
+                      </span>
+                    </div>
+                  )}
+                  {m.leader_semester && (
+                    <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                      <Clock className="h-3 w-3 shrink-0" />
+                      <span>{m.leader_semester}</span>
+                    </div>
+                  )}
                 </div>
               </div>
             </CardContent>
           </Card>
+
+          {/* Team Members */}
+          {(teamMembers as any[]).length > 0 && (
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <Users className="h-4 w-4" />
+                  Team Members ({(teamMembers as any[]).filter((m: any) => m.status === 'accepted').length})
+                </CardTitle>
+                {(teamMembers as any[]).some((m: any) => m.status === 'pending') && (
+                  <CardDescription>
+                    {(teamMembers as any[]).filter((m: any) => m.status === 'pending').length} pending invitation(s)
+                  </CardDescription>
+                )}
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {(teamMembers as any[])
+                  .filter((tm: any) => tm.status === 'accepted')
+                  .map((tm: any) => (
+                    <div key={tm.member_id} className="flex items-center justify-between p-3 border rounded-lg">
+                      <div className="flex items-center gap-3">
+                        <User className="h-4 w-4 text-muted-foreground shrink-0" />
+                        <div>
+                          <div className="flex items-center gap-1.5">
+                            <p className="text-sm font-medium">{tm.full_name || tm.email}</p>
+                            {tm.is_leader && (
+                              <Badge variant="outline" className="text-xs py-0 px-1.5 gap-1">
+                                <Shield className="h-2.5 w-2.5" /> Leader
+                              </Badge>
+                            )}
+                          </div>
+                          <p className="text-xs text-muted-foreground">{tm.email}</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        {tm.student_id && (
+                          <Badge variant="outline" className="text-xs">{tm.student_id}</Badge>
+                        )}
+                        {tm.has_laptop && (
+                          <Badge variant="secondary" className="text-xs">
+                            <Laptop className="h-3 w-3 mr-1" /> Laptop
+                          </Badge>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+              </CardContent>
+            </Card>
+          )}
 
           {event && ['build_day', 'demo_day'].includes(event.status) && (
             <Link href={`/startup-studio/events/${id}/submit`}>

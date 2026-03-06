@@ -4400,8 +4400,8 @@ $$;
 -- Used to hide "Register Team" / show "View My Team" for non-owner accepted members.
 -- Direct query would require reading event_registrations (blocked by RLS for non-owners).
 -- =====================================================
--- Updated: 2026-03-06 — extended to include team leader academic details
--- (institution, degree, department, semester) via learners_profiles join
+-- Updated: 2026-03-06 — extended with leader academic details + institution fallback
+-- When leader has no learner_id (staff/admin), falls back to event_registrations.institution_id
 DROP FUNCTION IF EXISTS get_my_event_team(uuid, uuid);
 CREATE FUNCTION get_my_event_team(p_profile_id uuid, p_event_id uuid)
 RETURNS TABLE (
@@ -4421,29 +4421,69 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
     SELECT
-        er.id               AS registration_id,
+        er.id                                              AS registration_id,
         er.team_name,
         er.team_code,
         mem.is_leader,
-        p.full_name         AS leader_name,
-        p.email             AS leader_email,
-        inst.name           AS leader_institution,
-        d.degree_name       AS leader_degree,
-        dep.department_name AS leader_department,
-        s.semester_name     AS leader_semester
+        p.full_name                                        AS leader_name,
+        p.email                                            AS leader_email,
+        COALESCE(lp_inst.name, reg_inst.name)              AS leader_institution,
+        d.degree_name                                      AS leader_degree,
+        dep.department_name                                AS leader_department,
+        s.semester_name                                    AS leader_semester
     FROM event_team_members mem
-    JOIN event_registrations er    ON er.id   = mem.registration_id
-    JOIN profiles            p     ON p.id    = er.owner_id
+    JOIN event_registrations er       ON er.id   = mem.registration_id
+    JOIN profiles            p        ON p.id    = er.owner_id
+    LEFT JOIN institutions   reg_inst ON reg_inst.id = er.institution_id
     LEFT JOIN event_team_members ldr  ON ldr.registration_id = er.id AND ldr.is_leader = true
     LEFT JOIN learners_profiles  lp   ON lp.id   = ldr.learner_id
-    LEFT JOIN institutions       inst ON inst.id = lp.institution_id
-    LEFT JOIN degrees            d    ON d.id    = lp.degree_id
-    LEFT JOIN departments        dep  ON dep.id  = lp.department_id
-    LEFT JOIN semesters          s    ON s.id    = lp.semester_id
+    LEFT JOIN institutions  lp_inst   ON lp_inst.id = lp.institution_id
+    LEFT JOIN degrees        d        ON d.id    = lp.degree_id
+    LEFT JOIN departments    dep      ON dep.id  = lp.department_id
+    LEFT JOIN semesters      s        ON s.id    = lp.semester_id
     WHERE mem.profile_id = p_profile_id
       AND er.event_id    = p_event_id
       AND mem.status     = 'accepted'
     LIMIT 1;
+$$;
+
+-- =====================================================
+-- STARTUP STUDIO: get_my_team_members
+-- Updated: 2026-03-06
+-- Returns all accepted/pending members of the team the caller belongs to.
+-- Security: caller must be an accepted member of the team.
+-- =====================================================
+CREATE OR REPLACE FUNCTION get_my_team_members(p_profile_id uuid, p_event_id uuid)
+RETURNS TABLE (
+    member_id   uuid,
+    full_name   text,
+    email       text,
+    student_id  text,
+    has_laptop  boolean,
+    is_leader   boolean,
+    status      text
+)
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+    SELECT
+        etm.id,
+        etm.full_name,
+        etm.email,
+        etm.student_id,
+        etm.has_laptop,
+        etm.is_leader,
+        etm.status
+    FROM event_team_members etm
+    JOIN event_registrations er ON er.id = etm.registration_id
+    WHERE er.event_id = p_event_id
+      AND er.id IN (
+          SELECT registration_id FROM event_team_members
+          WHERE profile_id = p_profile_id AND status = 'accepted'
+      )
+      AND etm.status IN ('accepted', 'pending')
+    ORDER BY etm.is_leader DESC, etm.added_at ASC;
 $$;
 
 -- =====================================================

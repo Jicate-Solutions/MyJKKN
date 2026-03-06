@@ -454,6 +454,13 @@ export class EventRegistrationService {
     });
   }
 
+  static async getMyTeamMembers(eventId: string, profileId: string) {
+    return this.supabase.rpc('get_my_team_members', {
+      p_profile_id: profileId,
+      p_event_id: eventId,
+    });
+  }
+
   static async removeMember(memberId: string): Promise<void> {
     const { error } = await this.supabase
       .from('event_team_members')

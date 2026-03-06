@@ -38,6 +38,21 @@ export function useMyRegistration(eventId: string | undefined) {
   });
 }
 
+export function useMyTeamMembers(eventId: string | undefined) {
+  const { profile } = useAuth();
+  return useQuery({
+    queryKey: ['my-team-members', eventId, profile?.id],
+    queryFn: async () => {
+      if (!eventId || !profile?.id) return [];
+      const { data } = await EventRegistrationService.getMyTeamMembers(eventId, profile.id);
+      return (data as any[]) ?? [];
+    },
+    enabled: !!eventId && !!profile?.id,
+    staleTime: 15 * 1000,
+    retry: 2,
+  });
+}
+
 export function useMyAcceptedMembership(eventId: string | undefined) {
   const { profile } = useAuth();
   return useQuery({
@@ -185,6 +200,7 @@ export function useRespondToInvitation() {
       queryClient.invalidateQueries({ queryKey: ['my-pending-invitations'] });
       queryClient.invalidateQueries({ queryKey: ['my-registration'] });
       queryClient.invalidateQueries({ queryKey: ['my-accepted-membership'] });
+      queryClient.invalidateQueries({ queryKey: ['my-team-members'] });
       queryClient.invalidateQueries({ queryKey: ['event-registrations'] });
       toast.success(accept ? 'You joined the team!' : 'Invitation declined');
     },
