@@ -2742,12 +2742,15 @@ CREATE POLICY "event_registrations_update" ON event_registrations
     );
 
 -- event_team_members: owner of registration can manage
+-- Updated: 2026-03-06 — added profile_id = auth.uid() so invited members can see their own pending invitations
 CREATE POLICY "event_team_members_select" ON event_team_members
     FOR SELECT TO authenticated USING (
-        EXISTS (SELECT 1 FROM event_registrations WHERE id = event_team_members.registration_id AND (
-            owner_id = auth.uid()
-            OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND (is_super_admin = true OR role IN ('admin', 'administrator', 'staff')))
-        ))
+        -- Team owner can see all their team members
+        EXISTS (SELECT 1 FROM event_registrations WHERE id = event_team_members.registration_id AND owner_id = auth.uid())
+        -- Admins and staff can see all
+        OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND (is_super_admin = true OR role IN ('admin', 'administrator', 'staff')))
+        -- Members can see their own row (needed for pending invitation check)
+        OR profile_id = auth.uid()
     );
 
 CREATE POLICY "event_team_members_insert" ON event_team_members
