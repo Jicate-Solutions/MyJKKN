@@ -350,6 +350,35 @@ function NewLeadPageContent() {
     return Object.keys(newErrors).length === 0;
   };
 
+  const resetForm = () => {
+    setFormData({
+      first_name: '',
+      last_name: '',
+      email: '',
+      phone: '',
+      alternate_phone: '',
+      date_of_birth: '',
+      gender: '',
+      parent_name: '',
+      parent_phone: '',
+      parent_email: '',
+      address_line1: '',
+      city: '',
+      state: 'tamil_nadu',
+      district: '',
+      pincode: '',
+      first_touch_source: '',
+      notes: '',
+      student_interest_level: '',
+      parent_decision_status: '',
+      academic_year: '',
+    });
+    setSelectedProgramIds([]);
+    setSelectedCounselorProfileId('');
+    setSelectedConsultantId('');
+    setErrors({});
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -425,6 +454,7 @@ function NewLeadPageContent() {
       }
 
       toast.success('Lead created successfully');
+      resetForm();
       router.push(`/admission/leads/${lead.id}`);
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to create lead';
