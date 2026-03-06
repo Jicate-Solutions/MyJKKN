@@ -2759,6 +2759,13 @@ CREATE POLICY "event_team_members_member_self_select" ON event_team_members
         profile_id = auth.uid()
     );
 
+-- Updated: 2026-03-06 — allows invitees to accept/decline (update status/responded_at on own row)
+-- Without this policy, respondToInvitation silently affected 0 rows (RLS blocked UPDATE, no error returned)
+CREATE POLICY "event_team_members_member_self_update" ON event_team_members
+    FOR UPDATE TO authenticated
+    USING (profile_id = auth.uid())
+    WITH CHECK (profile_id = auth.uid());
+
 CREATE POLICY "event_team_members_insert" ON event_team_members
     FOR INSERT TO authenticated WITH CHECK (
         EXISTS (SELECT 1 FROM event_registrations WHERE id = event_team_members.registration_id AND owner_id = auth.uid())

@@ -4394,6 +4394,33 @@ AS $$
 $$;
 
 -- =====================================================
+-- STARTUP STUDIO: get_my_event_team
+-- Updated: 2026-03-06
+-- SECURITY DEFINER: allows checking accepted team membership for a student.
+-- Used to hide "Register Team" / show "View My Team" for non-owner accepted members.
+-- Direct query would require reading event_registrations (blocked by RLS for non-owners).
+-- =====================================================
+CREATE OR REPLACE FUNCTION get_my_event_team(p_profile_id uuid, p_event_id uuid)
+RETURNS TABLE (
+    registration_id uuid,
+    team_name       text,
+    team_code       text,
+    is_leader       boolean
+)
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+    SELECT er.id, er.team_name, er.team_code, etm.is_leader
+    FROM event_team_members etm
+    JOIN event_registrations er ON er.id = etm.registration_id
+    WHERE etm.profile_id = p_profile_id
+      AND er.event_id = p_event_id
+      AND etm.status = 'accepted'
+    LIMIT 1;
+$$;
+
+-- =====================================================
 -- STARTUP STUDIO: generate_team_code
 -- Updated: 2026-03-06
 -- Generates a unique team code like "JKKN-001" per event per institution

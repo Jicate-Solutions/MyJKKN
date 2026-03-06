@@ -447,6 +447,13 @@ export class EventRegistrationService {
     return (data || []) as import('@/types/startup-studio').PendingInvitation[];
   }
 
+  static async getMyAcceptedMembership(eventId: string, profileId: string) {
+    return this.supabase.rpc('get_my_event_team', {
+      p_profile_id: profileId,
+      p_event_id: eventId,
+    });
+  }
+
   static async removeMember(memberId: string): Promise<void> {
     const { error } = await this.supabase
       .from('event_team_members')

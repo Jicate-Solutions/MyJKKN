@@ -10,7 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { useEvent, useEventStats } from '@/hooks/startup-studio/use-events';
-import { useMyRegistration } from '@/hooks/startup-studio/use-event-registrations';
+import { useMyRegistration, useMyAcceptedMembership } from '@/hooks/startup-studio/use-event-registrations';
 import { useAuth } from '@/hooks/use-auth';
 import { EventStatusBadge } from '../_components/event-status-badge';
 import { EditEventDialog } from './_components/edit-event-dialog';
@@ -70,6 +70,8 @@ export default function EventDetailPage({ params }: { params: Promise<{ id: stri
   const { data: event, isLoading } = useEvent(id);
   const { data: stats } = useEventStats(id);
   const { data: myRegistration } = useMyRegistration(id);
+  const { data: myMembership } = useMyAcceptedMembership(id);
+  const isInATeam = !!myRegistration || !!myMembership;
   const { profile } = useAuth();
   const [editOpen, setEditOpen] = useState(false);
 
@@ -155,14 +157,14 @@ export default function EventDetailPage({ params }: { params: Promise<{ id: stri
 
               {/* Quick Action Buttons */}
               <div className="shrink-0 flex flex-col gap-3 min-w-[200px]">
-                {isRegistrationOpen && !myRegistration && (
+                {isRegistrationOpen && !isInATeam && (
                   <Link href={`/startup-studio/events/${id}/register`} className="w-full">
                     <Button size="lg" className="w-full gap-2 shadow-md hover:shadow-lg transition-all bg-primary hover:bg-primary/90">
                       <Rocket className="h-4 w-4" /> Register Team
                     </Button>
                   </Link>
                 )}
-                {myRegistration && (
+                {isInATeam && (
                   <Link href={`/startup-studio/events/${id}/my-team`} className="w-full">
                     <Button variant="outline" size="lg" className="w-full gap-2 border-primary/20 bg-primary/5 hover:bg-primary/10 text-primary">
                       <Users className="h-4 w-4" /> View My Team
