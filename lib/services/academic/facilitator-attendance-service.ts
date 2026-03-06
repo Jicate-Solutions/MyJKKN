@@ -23,8 +23,6 @@ export class FacilitatorAttendanceService {
         p_date_from:       filters.dateFrom,
         p_date_to:         filters.dateTo,
         p_department_id:   filters.departmentId   ?? null,
-        p_program_id:      filters.programId      ?? null,
-        p_semester_id:     filters.semesterId     ?? null,
         p_facilitator_id:  filters.facilitatorId  ?? null,
       }
     );

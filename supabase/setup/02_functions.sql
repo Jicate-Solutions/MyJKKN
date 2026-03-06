@@ -4400,8 +4400,6 @@ CREATE OR REPLACE FUNCTION get_facilitator_attendance_stats(
   p_date_from       DATE,
   p_date_to         DATE,
   p_department_id   UUID DEFAULT NULL,
-  p_program_id      UUID DEFAULT NULL,
-  p_semester_id     UUID DEFAULT NULL,
   p_facilitator_id  UUID DEFAULT NULL
 )
 RETURNS JSONB

@@ -580,8 +580,6 @@ export interface FacilitatorReportFilters {
   dateFrom: string; // YYYY-MM-DD
   dateTo: string;   // YYYY-MM-DD
   departmentId?: string;
-  programId?: string;
-  semesterId?: string;
   facilitatorId?: string;
 }
 
