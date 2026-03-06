@@ -49,6 +49,7 @@ export interface EventRegistration {
   id: string;
   event_id: string;
   team_name: string;
+  team_code: string | null;
   problem_idea: string;
   owner_id: string;
   institution_id: string;
@@ -69,16 +70,23 @@ export interface EventRegistration {
   submission?: EventSubmission;
 }
 
+export type TeamMemberStatus = 'pending' | 'accepted' | 'declined' | 'removed';
+
 export interface EventTeamMember {
   id: string;
   registration_id: string;
   profile_id: string | null;
+  learner_id: string | null;
   email: string;
   full_name: string | null;
   student_id: string | null;
   has_laptop: boolean;
+  is_leader: boolean;
+  status: TeamMemberStatus;
   added_at: string;
+  responded_at: string | null;
   profile?: any;
+  learner?: any;
 }
 
 export interface EventVenueAssignment {
@@ -223,9 +231,11 @@ export interface CreateRegistrationDto {
 }
 
 export interface CreateTeamMemberDto {
+  learner_id: string;          // learners_profiles.id
+  profile_id?: string | null;  // profiles.id (resolved from learner_id)
   email: string;
   full_name?: string;
-  student_id?: string;
+  student_id?: string;         // roll_number from learners_profiles
   has_laptop?: boolean;
 }
 
@@ -319,4 +329,44 @@ export interface LeaderboardEntry {
   user_count: number;
   registration_id: string;
   submission_id: string;
+}
+
+// -- Student Search --
+
+export interface StudentSearchFilters {
+  event_id: string;
+  institution_id?: string;
+  degree_id?: string;
+  department_id?: string;
+  program_id?: string;
+  semester_id?: string;
+  search?: string; // name or roll_number
+}
+
+export interface StudentSearchResult {
+  learner_id: string;
+  profile_id: string | null;
+  first_name: string;
+  last_name: string | null;
+  student_email: string;
+  roll_number: string | null;
+  institution_name: string | null;
+  institution_id: string | null;
+  degree_name: string | null;
+  department_name: string | null;
+  program_name: string | null;
+  semester_name: string | null;
+}
+
+// -- Pending Invitation View --
+
+export interface PendingInvitation {
+  member_id: string;          // event_team_members.id
+  registration_id: string;
+  team_name: string;
+  team_code: string | null;
+  event_id: string;
+  event_name: string;
+  invited_at: string;
+  invited_by_name: string | null;
 }
