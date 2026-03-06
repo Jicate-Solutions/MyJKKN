@@ -8,7 +8,8 @@ import type {
 } from '@/types/startup-studio';
 
 export class EventChecklistService {
-  private static get supabase() {
+  // Typed as any because startup-studio tables are not yet in generated database types
+  private static get supabase(): any {
     return createClientSupabaseClient();
   }
 
@@ -16,7 +17,7 @@ export class EventChecklistService {
     eventId: string,
     targetRole?: ChecklistTargetRole
   ): Promise<EventChecklist[]> {
-    const query = this.supabase
+    let query = this.supabase
       .from('event_checklists')
       .select(
         '*, items:event_checklist_items(*, completion:event_checklist_completions(*))'
@@ -24,9 +25,11 @@ export class EventChecklistService {
       .eq('event_id', eventId)
       .order('order_index', { ascending: true });
 
-    const { data, error } = await (targetRole
-      ? query.eq('target_role', targetRole)
-      : query);
+    if (targetRole) {
+      query = query.eq('target_role', targetRole);
+    }
+
+    const { data, error } = await query;
     if (error) {
       console.error('[startup/checklists] getChecklists failed:', error);
       throw error;

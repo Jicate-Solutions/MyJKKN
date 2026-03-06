@@ -2,7 +2,8 @@ import { createClientSupabaseClient } from '@/lib/supabase/client';
 import type { LeaderboardEntry, EventDemoSlot } from '@/types/startup-studio';
 
 export class EventLeaderboardService {
-  private static get supabase() {
+  // Typed as any because startup-studio tables are not yet in generated database types
+  private static get supabase(): any {
     return createClientSupabaseClient();
   }
 

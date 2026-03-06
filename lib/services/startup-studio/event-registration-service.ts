@@ -10,7 +10,8 @@ import type {
 } from '@/types/startup-studio';
 
 export class EventRegistrationService {
-  private static get supabase() {
+  // Typed as any because startup-studio tables are not yet in generated database types
+  private static get supabase(): any {
     return createClientSupabaseClient();
   }
 
@@ -135,8 +136,7 @@ export class EventRegistrationService {
   }
 
   static async getRegistrations(filters: RegistrationFilters): Promise<EventRegistration[]> {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- avoids TS infinite type instantiation with nested Supabase selects
-    let query: any = this.supabase
+    let query = this.supabase
       .from('event_registrations')
       .select(`
         *,
@@ -169,8 +169,7 @@ export class EventRegistrationService {
     const from = (page - 1) * limit;
     const to = from + limit - 1;
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- avoids TS infinite type instantiation with nested Supabase selects
-    let query: any = this.supabase
+    let query = this.supabase
       .from('event_registrations')
       .select(`
         *,

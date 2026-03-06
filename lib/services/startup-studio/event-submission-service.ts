@@ -8,7 +8,8 @@ import type {
 } from '@/types/startup-studio';
 
 export class EventSubmissionService {
-  private static get supabase() {
+  // Typed as any because startup-studio tables are not yet in generated database types
+  private static get supabase(): any {
     return createClientSupabaseClient();
   }
 

@@ -10,13 +10,13 @@ import type {
 } from '@/types/startup-studio';
 
 export class EventService {
-  private static get supabase() {
+  // Typed as any because startup-studio tables are not yet in generated database types
+  private static get supabase(): any {
     return createClientSupabaseClient();
   }
 
   static async getEvents(filters?: EventFilters): Promise<StartupEvent[]> {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- avoids TS infinite type instantiation with nested Supabase selects
-    let query: any = this.supabase
+    let query = this.supabase
       .from('startup_events')
       .select(`
         *,
