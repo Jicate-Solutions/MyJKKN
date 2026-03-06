@@ -2,7 +2,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { EventService } from '@/lib/services/startup-studio/event-service';
-import type { EventFilters, UpdateEventDto } from '@/types/startup-studio';
+import type { EventFilters, UpdateEventDto, CreateEventDto } from '@/types/startup-studio';
 import { toast } from 'sonner';
 
 export function useEvents(filters?: EventFilters) {
@@ -52,6 +52,21 @@ export function useUpdateEvent() {
     },
     onError: (error: Error) => {
       toast.error(error.message || 'Failed to update event');
+    },
+  });
+}
+
+export function useCreateEvent() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ dto, userId }: { dto: CreateEventDto; userId: string }) =>
+      EventService.createEvent(dto, userId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['startup-events'] });
+      toast.success('Event created successfully');
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Failed to create event');
     },
   });
 }
