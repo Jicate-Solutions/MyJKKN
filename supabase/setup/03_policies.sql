@@ -2725,19 +2725,14 @@ CREATE POLICY "startup_events_update_admin" ON startup_events
         EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND (is_super_admin = true OR role IN ('admin', 'administrator')))
     );
 
--- event_registrations: owner, admin/staff, or invited/accepted members can read
--- Updated: 2026-03-06 — invited members need to read the registration for the
--- invitation join in getMyPendingInvitations (!inner + RLS was silently dropping rows)
+-- event_registrations: owner or admin/staff can read
+-- Updated: 2026-03-06 — removed event_team_members subquery to break mutual RLS recursion
+-- (event_registrations_select ↔ event_team_members_select caused infinite 42P17 cycle)
+-- Invited members access registration data via SECURITY DEFINER function get_my_pending_invitations()
 CREATE POLICY "event_registrations_select" ON event_registrations
     FOR SELECT TO authenticated USING (
         owner_id = auth.uid()
         OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND (is_super_admin = true OR role IN ('admin', 'administrator', 'staff')))
-        OR EXISTS (
-            SELECT 1 FROM event_team_members
-            WHERE event_team_members.registration_id = event_registrations.id
-              AND event_team_members.profile_id = auth.uid()
-              AND event_team_members.status IN ('pending', 'accepted')
-        )
     );
 
 CREATE POLICY "event_registrations_insert" ON event_registrations

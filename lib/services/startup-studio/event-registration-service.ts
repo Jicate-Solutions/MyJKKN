@@ -437,38 +437,14 @@ export class EventRegistrationService {
 
   static async getMyPendingInvitations(profileId: string): Promise<import('@/types/startup-studio').PendingInvitation[]> {
     const { data, error } = await this.supabase
-      .from('event_team_members')
-      .select(`
-        id,
-        added_at,
-        registration:event_registrations!inner(
-          id,
-          team_name,
-          team_code,
-          event_id,
-          owner:profiles!event_registrations_owner_id_fkey(full_name),
-          event:startup_events(id, name)
-        )
-      `)
-      .eq('profile_id', profileId)
-      .eq('status', 'pending')
-      .order('added_at', { ascending: false });
+      .rpc('get_my_pending_invitations', { p_profile_id: profileId });
 
     if (error) {
       console.error('[startup/registration] getMyPendingInvitations failed:', error);
       throw error;
     }
 
-    return ((data || []) as any[]).map((m) => ({
-      member_id: m.id,
-      registration_id: m.registration?.id,
-      team_name: m.registration?.team_name,
-      team_code: m.registration?.team_code,
-      event_id: m.registration?.event?.id,
-      event_name: m.registration?.event?.name,
-      invited_at: m.added_at,
-      invited_by_name: m.registration?.owner?.full_name || null,
-    }));
+    return (data || []) as import('@/types/startup-studio').PendingInvitation[];
   }
 
   static async removeMember(memberId: string): Promise<void> {

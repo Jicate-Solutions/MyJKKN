@@ -4354,6 +4354,46 @@ AS $$
 $$;
 
 -- =====================================================
+-- STARTUP STUDIO: get_my_pending_invitations
+-- Updated: 2026-03-06
+-- SECURITY DEFINER: bypasses RLS on event_registrations/startup_events/profiles
+-- to avoid 42P17 mutual recursion between event_registrations_select and
+-- event_team_members_select. Students can only retrieve rows for their own profile_id.
+-- =====================================================
+CREATE OR REPLACE FUNCTION get_my_pending_invitations(p_profile_id uuid)
+RETURNS TABLE (
+    member_id        uuid,
+    registration_id  uuid,
+    team_name        text,
+    team_code        text,
+    event_id         uuid,
+    event_name       text,
+    invited_at       timestamptz,
+    invited_by_name  text
+)
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+    SELECT
+        etm.id           AS member_id,
+        er.id            AS registration_id,
+        er.team_name,
+        er.team_code,
+        se.id            AS event_id,
+        se.name          AS event_name,
+        etm.added_at     AS invited_at,
+        p.full_name      AS invited_by_name
+    FROM event_team_members etm
+    JOIN event_registrations er ON er.id = etm.registration_id
+    JOIN startup_events      se ON se.id = er.event_id
+    LEFT JOIN profiles       p  ON p.id  = er.owner_id
+    WHERE etm.profile_id = p_profile_id
+      AND etm.status = 'pending'
+    ORDER BY etm.added_at DESC;
+$$;
+
+-- =====================================================
 -- STARTUP STUDIO: generate_team_code
 -- Updated: 2026-03-06
 -- Generates a unique team code like "JKKN-001" per event per institution
@@ -4393,7 +4433,8 @@ END;
 
 -- ============================================================
 -- Updated: 2026-03-06 - Add facilitator attendance stats RPC
--- Purpose: Aggregates periods marked per facilitator for live dashboard
+-- Updated: 2026-03-06 - Add assigned_periods CTE; periods_assigned, periods_pending, marking_rate
+-- Purpose: Aggregates periods marked/assigned per facilitator for live dashboard
 -- ============================================================
 CREATE OR REPLACE FUNCTION get_facilitator_attendance_stats(
   p_institution_id  UUID,
@@ -4423,6 +4464,23 @@ BEGIN
       AND (pe.val -> 'marked_by_details' ->> 'marker_id') IS NOT NULL
     GROUP BY (pe.val -> 'marked_by_details' ->> 'marker_id')::UUID
   ),
+  assigned_periods AS (
+    -- Count periods each staff member is scheduled to teach in the date range.
+    -- timetable_data keys are uppercase day names ("MONDAY", "TUESDAY", ...).
+    -- staff_ids contains staff.id values (UUID).
+    -- Skips break slots (is_break_slot = true).
+    SELECT
+      (sid.value #>> '{}')::UUID AS staff_id,
+      COUNT(*)::INT               AS assigned_count
+    FROM timetables t,
+         generate_series(p_date_from::TIMESTAMP, p_date_to::TIMESTAMP, '1 day'::INTERVAL) gs(d),
+         jsonb_each(t.timetable_data -> UPPER(to_char(gs.d, 'fmDay'))) day_slot(period_key, slot_val),
+         jsonb_array_elements(slot_val -> 'staff_ids') sid
+    WHERE t.institution_id = p_institution_id
+      AND t.is_active = true
+      AND COALESCE((slot_val ->> 'is_break_slot')::BOOLEAN, false) = false
+    GROUP BY (sid.value #>> '{}')::UUID
+  ),
   staff_stats AS (
     -- Join via profile_id (not id) since marker_id = staff.profile_id
     SELECT
@@ -4433,11 +4491,18 @@ BEGIN
       COALESCE(s.designation, '')             AS designation,
       COALESCE(d.department_name, 'Unknown')  AS department_name,
       s.department_id,
-      COALESCE(ac.periods_marked, 0)          AS periods_marked,
+      COALESCE(ac.periods_marked, 0)                                    AS periods_marked,
+      COALESCE(ap.assigned_count, 0)                                    AS periods_assigned,
+      GREATEST(COALESCE(ap.assigned_count, 0) - COALESCE(ac.periods_marked, 0), 0) AS periods_pending,
+      CASE
+        WHEN COALESCE(ap.assigned_count, 0) = 0 THEN 0.0
+        ELSE ROUND((COALESCE(ac.periods_marked, 0)::NUMERIC / ap.assigned_count) * 100, 1)
+      END                                                               AS marking_rate,
       ac.last_marked_at
     FROM staff s
     LEFT JOIN departments d ON s.department_id = d.id
     INNER JOIN attendance_counts ac ON s.profile_id = ac.marked_by
+    LEFT JOIN assigned_periods ap ON s.id = ap.staff_id
     WHERE s.institution_id = p_institution_id
       AND s.is_active = true
       AND (p_department_id IS NULL OR s.department_id = p_department_id)
@@ -4477,18 +4542,27 @@ BEGIN
         'summary', jsonb_build_object(
           'total_facilitators',          COUNT(*)::INT,
           'total_periods_marked',        SUM(ss.periods_marked)::INT,
-          'avg_periods_per_facilitator', ROUND(AVG(ss.periods_marked), 1)
+          'total_periods_assigned',      SUM(ss.periods_assigned)::INT,
+          'total_periods_pending',       SUM(ss.periods_pending)::INT,
+          'avg_periods_per_facilitator', ROUND(AVG(ss.periods_marked), 1),
+          'overall_marking_rate',        CASE
+            WHEN SUM(ss.periods_assigned) = 0 THEN 0.0
+            ELSE ROUND((SUM(ss.periods_marked)::NUMERIC / SUM(ss.periods_assigned)) * 100, 1)
+          END
         ),
         'facilitators', jsonb_agg(
           jsonb_build_object(
-            'staff_id',        ss.staff_id,
-            'first_name',      ss.first_name,
-            'last_name',       ss.last_name,
-            'designation',     ss.designation,
-            'department_name', ss.department_name,
-            'department_id',   ss.department_id,
-            'periods_marked',  ss.periods_marked,
-            'last_marked_at',  ss.last_marked_at,
+            'staff_id',         ss.staff_id,
+            'first_name',       ss.first_name,
+            'last_name',        ss.last_name,
+            'designation',      ss.designation,
+            'department_name',  ss.department_name,
+            'department_id',    ss.department_id,
+            'periods_marked',   ss.periods_marked,
+            'periods_assigned', ss.periods_assigned,
+            'periods_pending',  ss.periods_pending,
+            'marking_rate',     ss.marking_rate,
+            'last_marked_at',   ss.last_marked_at,
             'trend_data', COALESCE((
               SELECT jsonb_agg(
                 jsonb_build_object('week', wc.week_start, 'count', wc.week_count)
@@ -4514,18 +4588,22 @@ BEGIN
               'department_id',     dept_grp.department_id,
               'department_name',   dept_grp.department_name,
               'facilitator_count', dept_grp.fac_count,
-              'total_marked',      dept_grp.total,
+              'total_marked',      dept_grp.total_marked,
+              'total_assigned',    dept_grp.total_assigned,
+              'total_pending',     dept_grp.total_pending,
               'avg_rate',          dept_grp.avg_rate
             )
-            ORDER BY dept_grp.total DESC
+            ORDER BY dept_grp.total_marked DESC
           ), '[]'::JSONB)
           FROM (
             SELECT
               ss2.department_id,
               ss2.department_name,
-              COUNT(*)::INT                     AS fac_count,
-              SUM(ss2.periods_marked)::INT      AS total,
-              ROUND(AVG(ss2.periods_marked), 1) AS avg_rate
+              COUNT(*)::INT                      AS fac_count,
+              SUM(ss2.periods_marked)::INT       AS total_marked,
+              SUM(ss2.periods_assigned)::INT     AS total_assigned,
+              SUM(ss2.periods_pending)::INT      AS total_pending,
+              ROUND(AVG(ss2.marking_rate), 1)    AS avg_rate
             FROM staff_stats ss2
             GROUP BY ss2.department_id, ss2.department_name
           ) dept_grp
@@ -4539,7 +4617,10 @@ BEGIN
     'summary', jsonb_build_object(
       'total_facilitators',          0,
       'total_periods_marked',        0,
-      'avg_periods_per_facilitator', 0
+      'total_periods_assigned',      0,
+      'total_periods_pending',       0,
+      'avg_periods_per_facilitator', 0,
+      'overall_marking_rate',        0.0
     ),
     'facilitators',          '[]'::JSONB,
     'department_breakdown',  '[]'::JSONB
