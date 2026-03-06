@@ -4411,8 +4411,7 @@ DECLARE
   v_result JSONB;
 BEGIN
   WITH attendance_counts AS (
-    -- Expand each period from attendance_data JSONB and extract marker_id
-    -- marked_by is stored as attendance_data->[period_id]->'marked_by_details'->>'marker_id'
+    -- marked_by = staff.profile_id (auth user UUID stored in marked_by_details.marker_id)
     SELECT
       (pe.val -> 'marked_by_details' ->> 'marker_id')::UUID AS marked_by,
       COUNT(*)                                               AS periods_marked,
@@ -4422,16 +4421,13 @@ BEGIN
     WHERE sa.institution_id = p_institution_id
       AND sa.attendance_date BETWEEN p_date_from AND p_date_to
       AND (pe.val -> 'marked_by_details' ->> 'marker_id') IS NOT NULL
-      AND (
-        p_facilitator_id IS NULL
-        OR (pe.val -> 'marked_by_details' ->> 'marker_id')::UUID = p_facilitator_id
-      )
     GROUP BY (pe.val -> 'marked_by_details' ->> 'marker_id')::UUID
   ),
   staff_stats AS (
-    -- Join counts with staff + department info; filter by department if provided
+    -- Join via profile_id (not id) since marker_id = staff.profile_id
     SELECT
       s.id                                    AS staff_id,
+      s.profile_id,
       s.first_name,
       s.last_name,
       COALESCE(s.designation, '')             AS designation,
@@ -4441,10 +4437,11 @@ BEGIN
       ac.last_marked_at
     FROM staff s
     LEFT JOIN departments d ON s.department_id = d.id
-    INNER JOIN attendance_counts ac ON s.id = ac.marked_by
+    INNER JOIN attendance_counts ac ON s.profile_id = ac.marked_by
     WHERE s.institution_id = p_institution_id
       AND s.is_active = true
       AND (p_department_id IS NULL OR s.department_id = p_department_id)
+      AND (p_facilitator_id IS NULL OR s.id = p_facilitator_id)
   ),
   weekly_counts AS (
     -- Weekly aggregates per staff (for line trend chart)
@@ -4457,10 +4454,6 @@ BEGIN
     WHERE sa.institution_id = p_institution_id
       AND sa.attendance_date BETWEEN p_date_from AND p_date_to
       AND (pe.val -> 'marked_by_details' ->> 'marker_id') IS NOT NULL
-      AND (
-        p_facilitator_id IS NULL
-        OR (pe.val -> 'marked_by_details' ->> 'marker_id')::UUID = p_facilitator_id
-      )
     GROUP BY (pe.val -> 'marked_by_details' ->> 'marker_id')::UUID,
              date_trunc('week', sa.attendance_date)
   ),
@@ -4475,10 +4468,6 @@ BEGIN
     WHERE sa.institution_id = p_institution_id
       AND sa.attendance_date BETWEEN p_date_from AND p_date_to
       AND (pe.val -> 'marked_by_details' ->> 'marker_id') IS NOT NULL
-      AND (
-        p_facilitator_id IS NULL
-        OR (pe.val -> 'marked_by_details' ->> 'marker_id')::UUID = p_facilitator_id
-      )
     GROUP BY (pe.val -> 'marked_by_details' ->> 'marker_id')::UUID,
              sa.attendance_date
   ),
@@ -4506,7 +4495,7 @@ BEGIN
                 ORDER BY wc.week_start
               )
               FROM weekly_counts wc
-              WHERE wc.marked_by = ss.staff_id
+              WHERE wc.marked_by = ss.profile_id
             ), '[]'::JSONB),
             'daily_data', COALESCE((
               SELECT jsonb_agg(
@@ -4514,7 +4503,7 @@ BEGIN
                 ORDER BY dc.attendance_date
               )
               FROM daily_counts dc
-              WHERE dc.marked_by = ss.staff_id
+              WHERE dc.marked_by = ss.profile_id
             ), '[]'::JSONB)
           )
           ORDER BY ss.periods_marked DESC
