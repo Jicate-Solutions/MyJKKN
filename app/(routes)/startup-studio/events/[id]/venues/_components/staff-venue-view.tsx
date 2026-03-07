@@ -2,25 +2,28 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import toast from 'react-hot-toast';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import {
   Building2,
-  CheckCircle2,
   ClipboardList,
-  Hash,
+  ListChecks,
   Loader2,
   MapPin,
   Users,
-  XCircle,
-  UserPlus,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useStaffVenues, useVenueAttendance } from '@/hooks/startup-studio/use-event-venues';
-import type { DayType, EventVenueAssignment, AttendanceStatus, StaffRole } from '@/types/startup-studio';
+import { EventChecklistService } from '@/lib/services/startup-studio/event-checklist-service';
+import { useAuth } from '@/hooks/use-auth';
+import type { DayType, ChecklistPhase, EventVenueAssignment, AttendanceStatus, StaffRole } from '@/types/startup-studio';
 
 const ROLE_LABELS: Record<StaffRole, string> = {
   mentor: 'Mentor',
@@ -126,6 +129,7 @@ function StaffVenueCard({ venue, eventId, dayType, staffEmail, onMarkAttendance 
   staffEmail: string;
   onMarkAttendance: () => void;
 }) {
+  const [checklistTeam, setChecklistTeam] = useState<{ registrationId: string; teamName: string } | null>(null);
   const { data: attendanceRecords = [] } = useVenueAttendance(eventId, venue.id, dayType);
 
   const teams = venue.team_allocations || [];
@@ -244,11 +248,21 @@ function StaffVenueCard({ venue, eventId, dayType, staffEmail, onMarkAttendance 
             <div className="space-y-1">
               {teams.slice(0, 6).map((alloc: any, idx: number) => {
                 const status = attMap[alloc.registration_id] as AttendanceStatus | undefined;
+                const teamName = alloc.registration?.team_name || 'Unknown';
                 return (
-                  <div key={alloc.id} className="flex items-center justify-between text-xs rounded-md px-2.5 py-1.5 bg-muted/30">
-                    <span className="text-muted-foreground tabular-nums w-5">{idx + 1}.</span>
-                    <span className="flex-1 font-medium truncate">{alloc.registration?.team_name || 'Unknown'}</span>
+                  <div key={alloc.id} className="flex items-center gap-2 text-xs rounded-md px-2.5 py-1.5 bg-muted/30">
+                    <span className="text-muted-foreground tabular-nums w-5 shrink-0">{idx + 1}.</span>
+                    <span className="flex-1 font-medium truncate">{teamName}</span>
                     <AttendancePill status={status} />
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6 shrink-0 text-muted-foreground hover:text-primary"
+                      title="Open checklist for this team"
+                      onClick={() => setChecklistTeam({ registrationId: alloc.registration_id, teamName })}
+                    >
+                      <ListChecks className="h-3.5 w-3.5" />
+                    </Button>
                   </div>
                 );
               })}
@@ -261,7 +275,144 @@ function StaffVenueCard({ venue, eventId, dayType, staffEmail, onMarkAttendance 
           )}
         </div>
       </CardContent>
+
+      {/* Team-wise checklist sheet */}
+      {checklistTeam && (
+        <TeamChecklistSheet
+          eventId={eventId}
+          registrationId={checklistTeam.registrationId}
+          teamName={checklistTeam.teamName}
+          dayType={dayType}
+          open={!!checklistTeam}
+          onOpenChange={(open) => { if (!open) setChecklistTeam(null); }}
+        />
+      )}
     </Card>
+  );
+}
+
+// ── Per-team checklist sheet ──────────────────────────────────────────────────
+function TeamChecklistSheet({ eventId, registrationId, teamName, dayType, open, onOpenChange }: {
+  eventId: string;
+  registrationId: string;
+  teamName: string;
+  dayType: DayType;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const { profile } = useAuth();
+  const queryClient = useQueryClient();
+  const phase = dayType as ChecklistPhase;
+  const queryKey = ['team-checklist', eventId, registrationId, phase];
+
+  const { data: items = [], isLoading } = useQuery({
+    queryKey,
+    queryFn: () => EventChecklistService.getTeamChecklists(eventId, registrationId, phase),
+    enabled: open && !!registrationId,
+    staleTime: 10_000,
+  });
+
+  const invalidate = () => queryClient.invalidateQueries({ queryKey });
+
+  const completeItem = useMutation({
+    mutationFn: (itemId: string) => {
+      if (!profile?.id) throw new Error('Not authenticated');
+      return EventChecklistService.completeItem(itemId, profile.id, registrationId);
+    },
+    onSuccess: () => { invalidate(); toast.success('Checked'); },
+    onError: () => toast.error('Failed to check item'),
+  });
+
+  const uncompleteItem = useMutation({
+    mutationFn: (completionId: string) => EventChecklistService.uncompleteItem(completionId),
+    onSuccess: () => { invalidate(); toast.success('Unchecked'); },
+    onError: () => toast.error('Failed to uncheck item'),
+  });
+
+  const doneCount = items.filter((i) => !!i.completion).length;
+  const pct = items.length > 0 ? Math.round((doneCount / items.length) * 100) : 0;
+
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent side="right" className="w-full sm:max-w-md overflow-y-auto">
+        <SheetHeader className="mb-4">
+          <SheetTitle className="flex items-center gap-2">
+            <ListChecks className="h-5 w-5 text-primary" />
+            {teamName}
+          </SheetTitle>
+          <p className="text-sm text-muted-foreground capitalize">
+            {dayType === 'build_day' ? 'Build Day' : 'Demo Day'} Checklist
+          </p>
+        </SheetHeader>
+
+        {isLoading ? (
+          <div className="flex justify-center py-12">
+            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+          </div>
+        ) : items.length === 0 ? (
+          <div className="text-center py-12 text-muted-foreground">
+            <ListChecks className="h-8 w-8 mx-auto mb-2 opacity-30" />
+            <p className="text-sm">No checklist items for {dayType === 'build_day' ? 'Build Day' : 'Demo Day'}.</p>
+            <p className="text-xs mt-1">Ask admin to add items in the Checklists page.</p>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {/* Progress */}
+            <div>
+              <div className="flex justify-between text-xs text-muted-foreground mb-1.5">
+                <span>Progress</span>
+                <span className="font-medium tabular-nums">{doneCount}/{items.length} ({pct}%)</span>
+              </div>
+              <div className="w-full bg-muted rounded-full h-2">
+                <div
+                  className={cn('h-2 rounded-full transition-all duration-300', pct === 100 ? 'bg-green-500' : 'bg-primary')}
+                  style={{ width: `${pct}%` }}
+                />
+              </div>
+            </div>
+
+            <Separator />
+
+            {/* Items */}
+            <div className="divide-y">
+              {items.map((item) => {
+                const isCompleted = !!item.completion;
+                const isPending = completeItem.isPending || uncompleteItem.isPending;
+                return (
+                  <div key={item.id} className="flex items-start gap-3 py-3">
+                    <Checkbox
+                      checked={isCompleted}
+                      disabled={isPending}
+                      onCheckedChange={(checked) => {
+                        if (checked) completeItem.mutate(item.id);
+                        else if (item.completion) uncompleteItem.mutate(item.completion.id);
+                      }}
+                      className={cn('mt-0.5', isCompleted && 'data-[state=checked]:bg-green-500 data-[state=checked]:border-green-500')}
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p className={cn('text-sm', isCompleted && 'line-through text-muted-foreground')}>
+                        {item.title}
+                        {item.is_required && <span className="text-red-500 ml-1">*</span>}
+                      </p>
+                      {item.description && !isCompleted && (
+                        <p className="text-xs text-muted-foreground mt-0.5">{item.description}</p>
+                      )}
+                      {isCompleted && item.completion?.completed_at && (
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          {new Date(item.completion.completed_at).toLocaleString('en-IN', {
+                            day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
+                          })}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </SheetContent>
+    </Sheet>
   );
 }
 

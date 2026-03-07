@@ -2039,6 +2039,11 @@ CREATE TABLE IF NOT EXISTS public.event_checklist_completions (
     completed_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Updated: 2026-03-07 - Partial unique index for per-team checklist completions
+CREATE UNIQUE INDEX IF NOT EXISTS idx_checklist_completions_item_reg
+  ON event_checklist_completions(checklist_item_id, registration_id)
+  WHERE registration_id IS NOT NULL;
+
 -- Indexes for Startup Studio
 CREATE INDEX idx_startup_events_status ON startup_events(status);
 CREATE INDEX idx_event_registrations_event ON event_registrations(event_id);

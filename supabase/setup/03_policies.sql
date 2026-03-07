@@ -2954,6 +2954,10 @@ CREATE POLICY "event_checklist_completions_select" ON event_checklist_completion
 CREATE POLICY "event_checklist_completions_insert" ON event_checklist_completions
     FOR INSERT TO authenticated WITH CHECK (completed_by = auth.uid());
 
+-- Updated: 2026-03-07 - Allow deleting own completions (for unchecking team checklist items)
+CREATE POLICY "event_checklist_completions_delete_own" ON event_checklist_completions
+    FOR DELETE TO authenticated USING (completed_by = auth.uid());
+
 -- Updated: 2026-03-06 - Grant execute on facilitator attendance stats RPC
 GRANT EXECUTE ON FUNCTION get_facilitator_attendance_stats(UUID, DATE, DATE, UUID, UUID)
   TO authenticated;

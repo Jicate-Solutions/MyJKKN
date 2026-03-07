@@ -37,6 +37,63 @@ export class EventChecklistService {
     return (data || []) as unknown as EventChecklist[];
   }
 
+  static async getTeamChecklists(
+    eventId: string,
+    registrationId: string,
+    phase: ChecklistPhase
+  ): Promise<Array<{
+    id: string;
+    title: string;
+    is_required: boolean;
+    description: string | null;
+    completion: { id: string; completed_at: string } | null;
+  }>> {
+    // Fetch all items for this phase
+    const { data: checklists, error: clError } = await this.supabase
+      .from('event_checklists')
+      .select('id, items:event_checklist_items(id, title, description, is_required, order_index)')
+      .eq('event_id', eventId)
+      .eq('phase', phase)
+      .order('order_index', { ascending: true });
+
+    if (clError) {
+      console.error('[startup/checklists] getTeamChecklists checklists failed:', clError);
+      throw clError;
+    }
+    if (!checklists || checklists.length === 0) return [];
+
+    const itemIds = (checklists as any[]).flatMap((cl: any) => (cl.items || []).map((i: any) => i.id));
+    if (itemIds.length === 0) return [];
+
+    // Fetch completions for this team only
+    const { data: completions, error: compError } = await this.supabase
+      .from('event_checklist_completions')
+      .select('id, checklist_item_id, completed_at')
+      .in('checklist_item_id', itemIds)
+      .eq('registration_id', registrationId);
+
+    if (compError) {
+      console.error('[startup/checklists] getTeamChecklists completions failed:', compError);
+      throw compError;
+    }
+
+    const compMap = Object.fromEntries(
+      (completions || []).map((c: any) => [c.checklist_item_id, { id: c.id, completed_at: c.completed_at }])
+    );
+
+    return (checklists as any[]).flatMap((cl: any) =>
+      (cl.items || [])
+        .sort((a: any, b: any) => a.order_index - b.order_index)
+        .map((item: any) => ({
+          id: item.id,
+          title: item.title,
+          description: item.description,
+          is_required: item.is_required,
+          completion: compMap[item.id] || null,
+        }))
+    );
+  }
+
   static async seedChecklists(
     eventId: string,
     checklists: Array<{
