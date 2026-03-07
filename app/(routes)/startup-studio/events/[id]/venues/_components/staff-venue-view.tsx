@@ -233,11 +233,11 @@ function StaffVenueCard({ venue, eventId, dayType, staffEmail, onMarkAttendance 
 
         {/* Team list preview — top 5 with status */}
         <div>
-          <p className="text-xs font-medium text-muted-foreground mb-2 flex items-center gap-1.5">
+          <div className="text-xs font-medium text-muted-foreground mb-2 flex items-center gap-1.5">
             <Users className="h-3.5 w-3.5" />
             Allocated Teams
             <Badge variant="outline" className="text-[10px] h-5 px-1.5 ml-1">{allocatedCount}</Badge>
-          </p>
+          </div>
           {allocatedCount === 0 ? (
             <p className="text-xs text-muted-foreground">No teams allocated to this venue.</p>
           ) : (
