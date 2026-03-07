@@ -1892,9 +1892,6 @@ CREATE TABLE IF NOT EXISTS public.event_registrations (
     problem_idea TEXT, -- nullable: optional field in registration form (updated 2026-03-07)
     owner_id UUID NOT NULL REFERENCES profiles(id),
     institution_id UUID NOT NULL REFERENCES institutions(id),
-    lovable_verified BOOLEAN DEFAULT false,
-    lovable_verified_at TIMESTAMPTZ,
-    lovable_verified_by UUID REFERENCES profiles(id),
     checked_in BOOLEAN DEFAULT false,
     checked_in_at TIMESTAMPTZ,
     checked_in_by UUID REFERENCES profiles(id),

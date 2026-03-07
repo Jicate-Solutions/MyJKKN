@@ -419,6 +419,25 @@ export class EventVenueService {
     return map;
   }
 
+  static async getVenueById(venueId: string): Promise<EventVenueAssignment | null> {
+    const { data, error } = await this.supabase
+      .from('event_venue_assignments')
+      .select(`
+        *,
+        institution:institutions(id, name),
+        staff_assignments:event_staff_assignments(id, staff_id, role, day_type, staff:staff(id, first_name, last_name, email)),
+        team_allocations:event_team_venue_allocations(id, registration_id, registration:event_registrations(id, team_name, institution_id))
+      `)
+      .eq('id', venueId)
+      .maybeSingle();
+
+    if (error) {
+      console.error('[startup/venues] getVenueById failed:', error);
+      throw error;
+    }
+    return data as unknown as EventVenueAssignment | null;
+  }
+
   static async markAttendance(
     dto: import('@/types/startup-studio').MarkAttendanceDto,
     userId: string

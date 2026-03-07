@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -19,7 +20,6 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useStaffVenues, useVenueAttendance } from '@/hooks/startup-studio/use-event-venues';
-import { VenueAttendanceSheet } from './venue-attendance-sheet';
 import type { DayType, EventVenueAssignment, AttendanceStatus, StaffRole } from '@/types/startup-studio';
 
 const ROLE_LABELS: Record<StaffRole, string> = {
@@ -75,8 +75,8 @@ function StaffDayPanel({ eventId, staffEmail, dayType }: {
   staffEmail: string;
   dayType: DayType;
 }) {
+  const router = useRouter();
   const { data: venues = [], isLoading } = useStaffVenues(eventId, staffEmail, dayType);
-  const [attendanceVenue, setAttendanceVenue] = useState<EventVenueAssignment | null>(null);
 
   if (isLoading) {
     return (
@@ -99,29 +99,22 @@ function StaffDayPanel({ eventId, staffEmail, dayType }: {
   }
 
   return (
-    <>
-      <div className="space-y-4">
-        {venues.map((venue) => (
-          <StaffVenueCard
-            key={venue.id}
-            venue={venue}
-            eventId={eventId}
-            dayType={dayType}
-            staffEmail={staffEmail}
-            onMarkAttendance={() => setAttendanceVenue(venue)}
-          />
-        ))}
-      </div>
-
-      <VenueAttendanceSheet
-        venue={attendanceVenue}
-        eventId={eventId}
-        dayType={dayType}
-        open={!!attendanceVenue}
-        onClose={() => setAttendanceVenue(null)}
-        readOnly={false}
-      />
-    </>
+    <div className="space-y-4">
+      {venues.map((venue) => (
+        <StaffVenueCard
+          key={venue.id}
+          venue={venue}
+          eventId={eventId}
+          dayType={dayType}
+          staffEmail={staffEmail}
+          onMarkAttendance={() =>
+            router.push(
+              `/startup-studio/events/${eventId}/venues/${venue.id}?day=${dayType}&tab=attendance`
+            )
+          }
+        />
+      ))}
+    </div>
   );
 }
 

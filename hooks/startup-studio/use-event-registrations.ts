@@ -10,6 +10,16 @@ import type { CreateRegistrationDto, RegistrationFilters, StudentSearchFilters }
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const isValidUUID = (id: string | undefined): boolean => !!id && UUID_REGEX.test(id);
 
+export function useRegistration(registrationId: string | undefined) {
+  return useQuery({
+    queryKey: ['registration', registrationId],
+    queryFn: () => EventRegistrationService.getRegistrationById(registrationId!),
+    enabled: !!registrationId,
+    staleTime: 15 * 1000,
+    retry: 3,
+  });
+}
+
 export function useEventRegistrations(filters: RegistrationFilters) {
   const { isLoading: authLoading } = useAuth();
   return useQuery({
@@ -112,24 +122,6 @@ export function useToggleCheckIn() {
     onError: () => toast.error('Failed to update check-in'),
   });
 }
-
-export function useToggleLovableVerified() {
-  const queryClient = useQueryClient();
-  const { profile } = useAuth();
-
-  return useMutation({
-    mutationFn: ({ registrationId, verified }: { registrationId: string; verified: boolean }) => {
-      if (!profile?.id) throw new Error('Not authenticated');
-      return EventRegistrationService.toggleLovableVerified(registrationId, profile.id, verified);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['event-registrations'] });
-      toast.success('Lovable verification updated');
-    },
-    onError: () => toast.error('Failed to update verification'),
-  });
-}
-
 
 export function useUpdateRegistrationStatus() {
   const queryClient = useQueryClient();

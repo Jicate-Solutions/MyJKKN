@@ -4749,3 +4749,78 @@ BEGIN
   ));
 END;
 $$;
+
+-- =====================================================
+-- STARTUP STUDIO: get_event_stats
+-- Added: 2026-03-07
+-- Returns aggregate team/member stats for a single event.
+-- Used by the registrations page global stats cards (no filter active).
+-- SECURITY DEFINER: bypasses RLS on event_registrations/event_team_members
+-- so any authenticated role can read event stats.
+-- =====================================================
+CREATE OR REPLACE FUNCTION get_event_stats(p_event_id UUID)
+RETURNS jsonb
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+    SELECT jsonb_build_object(
+        'total_teams',            COUNT(DISTINCT er.id) FILTER (WHERE er.status != 'disqualified'),
+        'checked_in_teams',       COUNT(DISTINCT er.id) FILTER (WHERE er.checked_in = true AND er.status != 'disqualified'),
+        'total_members',          COUNT(etm.id) FILTER (WHERE etm.status = 'accepted'),
+        'members_with_laptops',   COUNT(etm.id) FILTER (WHERE etm.status = 'accepted' AND etm.has_laptop = true),
+        'institutions',           COUNT(DISTINCT er.institution_id) FILTER (WHERE er.status != 'disqualified')
+    )
+    FROM event_registrations er
+    LEFT JOIN event_team_members etm ON etm.registration_id = er.id
+    WHERE er.event_id = p_event_id;
+$$;
+
+-- =====================================================
+-- STARTUP STUDIO: get_learner_participation_stats
+-- Added: 2026-03-07
+-- Returns total learners / participated / not_participated for a given event.
+-- Counts only lifecycle_status = 'active' learners from learners_profiles.
+-- Participation = learner_id appears in event_team_members for this event
+--   with status 'accepted' or 'pending'.
+-- All filter params are optional (NULL = no filter applied).
+-- SECURITY DEFINER: bypasses RLS so admin can count all institution learners.
+-- =====================================================
+CREATE OR REPLACE FUNCTION get_learner_participation_stats(
+    p_event_id        UUID,
+    p_institution_id  UUID DEFAULT NULL,
+    p_degree_id       UUID DEFAULT NULL,
+    p_department_id   UUID DEFAULT NULL,
+    p_program_id      UUID DEFAULT NULL,
+    p_semester_id     UUID DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+    WITH eligible_learners AS (
+        SELECT id
+        FROM learners_profiles
+        WHERE lifecycle_status = 'active'
+          AND (p_institution_id IS NULL OR institution_id = p_institution_id)
+          AND (p_degree_id      IS NULL OR degree_id      = p_degree_id)
+          AND (p_department_id  IS NULL OR department_id  = p_department_id)
+          AND (p_program_id     IS NULL OR program_id     = p_program_id)
+          AND (p_semester_id    IS NULL OR semester_id    = p_semester_id)
+    ),
+    participated AS (
+        SELECT DISTINCT etm.learner_id
+        FROM event_team_members etm
+        JOIN event_registrations er ON er.id = etm.registration_id
+        WHERE er.event_id  = p_event_id
+          AND etm.learner_id IS NOT NULL
+          AND etm.status IN ('accepted', 'pending')
+          AND etm.learner_id IN (SELECT id FROM eligible_learners)
+    )
+    SELECT jsonb_build_object(
+        'total_learners',   (SELECT COUNT(*) FROM eligible_learners),
+        'participated',     (SELECT COUNT(*) FROM participated),
+        'not_participated', (SELECT COUNT(*) FROM eligible_learners) - (SELECT COUNT(*) FROM participated)
+    );
+$$;

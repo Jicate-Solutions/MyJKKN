@@ -183,7 +183,6 @@ export class EventRegistrationService {
 
     if (filters.status) query = query.eq('status', filters.status);
     if (filters.checked_in !== undefined) query = query.eq('checked_in', filters.checked_in);
-    if (filters.lovable_verified !== undefined) query = query.eq('lovable_verified', filters.lovable_verified);
     if (filters.institution_id) query = query.eq('institution_id', filters.institution_id);
     if (filters.search) {
       query = query.or(`team_name.ilike.%${filters.search}%,problem_idea.ilike.%${filters.search}%`);
@@ -217,7 +216,6 @@ export class EventRegistrationService {
 
     if (filters.status) query = query.eq('status', filters.status);
     if (filters.checked_in !== undefined) query = query.eq('checked_in', filters.checked_in);
-    if (filters.lovable_verified !== undefined) query = query.eq('lovable_verified', filters.lovable_verified);
     if (filters.institution_id) query = query.eq('institution_id', filters.institution_id);
     if (filters.search) {
       query = query.or(`team_name.ilike.%${filters.search}%,problem_idea.ilike.%${filters.search}%`);
@@ -268,6 +266,38 @@ export class EventRegistrationService {
 
     if (error) {
       console.error('[startup/registration] getMyRegistration failed:', error);
+      throw error;
+    }
+    return data as unknown as EventRegistration | null;
+  }
+
+  static async getRegistrationById(registrationId: string): Promise<EventRegistration | null> {
+    const { data, error } = await this.supabase
+      .from('event_registrations')
+      .select(`
+        *,
+        owner:profiles!event_registrations_owner_id_fkey(id, full_name, email, avatar_url),
+        institution:institutions(id, name),
+        team_members:event_team_members(id, email, full_name, student_id, has_laptop, profile_id, learner_id, status, is_leader, responded_at),
+        venue_allocations:event_team_venue_allocations(
+          id, day_type,
+          venue_assignment:event_venue_assignments(
+            id, manual_name, manual_building, manual_room, day_type, capacity_override,
+            resource:resources(id, name, building_number, room_number),
+            institution:institutions(id, name),
+            staff_assignments:event_staff_assignments(
+              id, role,
+              staff:staff(id, first_name, last_name, email)
+            )
+          )
+        ),
+        submission:event_submissions(*)
+      `)
+      .eq('id', registrationId)
+      .maybeSingle();
+
+    if (error) {
+      console.error('[startup/registration] getRegistrationById failed:', error);
       throw error;
     }
     return data as unknown as EventRegistration | null;
@@ -550,23 +580,6 @@ export class EventRegistrationService {
 
     if (error) {
       console.error('[startup/registration] toggleCheckIn failed:', error);
-      throw error;
-    }
-  }
-
-  static async toggleLovableVerified(registrationId: string, userId: string, verified: boolean): Promise<void> {
-    const { error } = await this.supabase
-      .from('event_registrations')
-      .update({
-        lovable_verified: verified,
-        lovable_verified_at: verified ? new Date().toISOString() : null,
-        lovable_verified_by: verified ? userId : null,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', registrationId);
-
-    if (error) {
-      console.error('[startup/registration] toggleLovableVerified failed:', error);
       throw error;
     }
   }

@@ -4,6 +4,16 @@ import { EventVenueService } from '@/lib/services/startup-studio/event-venue-ser
 import { useAuth } from '@/hooks/use-auth';
 import type { CreateVenueDto, UpdateVenueDto, DayType, StaffRole, MarkAttendanceDto, EventTeamAttendance } from '@/types/startup-studio';
 
+export function useVenue(venueId: string) {
+  return useQuery({
+    queryKey: ['event-venue', venueId],
+    queryFn: () => EventVenueService.getVenueById(venueId),
+    enabled: !!venueId,
+    staleTime: 15 * 1000,
+    retry: 3,
+  });
+}
+
 export function useEventVenues(eventId: string, dayType?: DayType) {
   return useQuery({
     queryKey: ['event-venues', eventId, dayType],
@@ -71,6 +81,7 @@ export function useAssignStaff() {
     }) => EventVenueService.assignStaff(eventId, venueAssignmentId, staffId, role, dayType),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['event-venues'] });
+      queryClient.invalidateQueries({ queryKey: ['event-venue'] });
       toast.success('Staff assigned');
     },
     onError: (error: any) => toast.error(error.message || 'Failed to assign staff'),
@@ -83,6 +94,7 @@ export function useRemoveStaff() {
     mutationFn: (assignmentId: string) => EventVenueService.removeStaff(assignmentId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['event-venues'] });
+      queryClient.invalidateQueries({ queryKey: ['event-venue'] });
       toast.success('Staff removed');
     },
     onError: () => toast.error('Failed to remove staff'),
@@ -138,6 +150,7 @@ export function useManualAllocate() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['event-venues'] });
+      queryClient.invalidateQueries({ queryKey: ['event-venue'] });
       queryClient.invalidateQueries({ queryKey: ['event-registrations'] });
       toast.success('Team allocated to venue');
     },
@@ -151,6 +164,7 @@ export function useRemoveAllocation() {
     mutationFn: (allocationId: string) => EventVenueService.removeAllocation(allocationId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['event-venues'] });
+      queryClient.invalidateQueries({ queryKey: ['event-venue'] });
       queryClient.invalidateQueries({ queryKey: ['event-registrations'] });
       toast.success('Allocation removed');
     },

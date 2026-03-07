@@ -13,7 +13,6 @@ interface ExportFilters {
   status?: string;
   institution?: string;
   search?: string;
-  lovable?: string;
 }
 
 interface InstitutionGroup {
@@ -102,7 +101,6 @@ export class RegistrationsPDFExporter {
     const activeFilters: string[] = [];
     if (filters.status && filters.status !== 'all') activeFilters.push(`Status: ${filters.status}`);
     if (filters.institution) activeFilters.push(`Institution: ${filters.institution}`);
-    if (filters.lovable && filters.lovable !== 'all') activeFilters.push(`Lovable: ${filters.lovable}`);
     if (filters.search) activeFilters.push(`Search: "${filters.search}"`);
 
     if (activeFilters.length > 0) {
@@ -135,7 +133,6 @@ export class RegistrationsPDFExporter {
         group.teams.length,
         allMembers.length,
         allMembers.filter((m: any) => m.has_laptop).length,
-        group.teams.filter((t: any) => t.lovable_verified).length,
         group.teams.filter((t: any) => t.checked_in).length,
         group.teams.filter((t: any) => t.status === 'disqualified').length,
       ];
@@ -150,14 +147,13 @@ export class RegistrationsPDFExporter {
       registrations.length,
       allMembers.length,
       allMembers.filter((m: any) => m.has_laptop).length,
-      registrations.filter((t: any) => t.lovable_verified).length,
       registrations.filter((t: any) => t.checked_in).length,
       registrations.filter((t: any) => t.status === 'disqualified').length,
     ]);
 
     autoTable(this.doc, {
       startY: this.y,
-      head: [['Institution', 'Teams', 'Members', 'Laptops', 'Lovable ✓', 'Checked In', 'Disqualified']],
+      head: [['Institution', 'Teams', 'Members', 'Laptops', 'Checked In', 'Disqualified']],
       body: summaryRows,
       theme: 'grid',
       headStyles: { fillColor: [15, 23, 42], textColor: 255, fontStyle: 'bold', fontSize: 8 },
@@ -216,7 +212,6 @@ export class RegistrationsPDFExporter {
         leader?.full_name || (reg as any).owner?.full_name || '—',
         members.length,
         `${laptopCount}/${members.length}`,
-        (reg as any).lovable_verified ? '✓' : '—',
         (reg as any).checked_in ? 'Checked In' : reg.status === 'disqualified' ? 'Disqualified' : 'Registered',
         (reg as any).problem_idea
           ? this.doc.splitTextToSize((reg as any).problem_idea, 55).slice(0, 2).join(' ').slice(0, 80)
@@ -226,7 +221,7 @@ export class RegistrationsPDFExporter {
 
     autoTable(this.doc, {
       startY: this.y,
-      head: [['#', 'Code', 'Team Name', 'Leader', 'Members', 'Laptops', 'Lovable', 'Status', 'Problem / Idea']],
+      head: [['#', 'Code', 'Team Name', 'Leader', 'Members', 'Laptops', 'Status', 'Problem / Idea']],
       body: rows,
       theme: 'striped',
       headStyles: { fillColor: [51, 65, 85], textColor: 255, fontSize: 7.5, fontStyle: 'bold' },
@@ -239,9 +234,8 @@ export class RegistrationsPDFExporter {
         3: { cellWidth: 38 },
         4: { cellWidth: 16, halign: 'center' },
         5: { cellWidth: 18, halign: 'center' },
-        6: { cellWidth: 16, halign: 'center' },
-        7: { cellWidth: 24 },
-        8: { cellWidth: 'auto' },
+        6: { cellWidth: 28 },
+        7: { cellWidth: 'auto' },
       },
       margin: { left: this.margin, right: this.margin },
     });

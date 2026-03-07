@@ -53,9 +53,6 @@ export interface EventRegistration {
   problem_idea: string;
   owner_id: string;
   institution_id: string;
-  lovable_verified: boolean;
-  lovable_verified_at: string | null;
-  lovable_verified_by: string | null;
   checked_in: boolean;
   checked_in_at: string | null;
   checked_in_by: string | null;
@@ -307,7 +304,6 @@ export interface RegistrationFilters {
   search?: string;
   institution_id?: string;
   checked_in?: boolean;
-  lovable_verified?: boolean;
   page?: number;
   limit?: number;
 }
@@ -404,6 +400,22 @@ export interface MarkAttendanceDto {
   day_type: DayType;
   status: AttendanceStatus;
   notes?: string;
+}
+
+// -- Learner Participation Stats --
+
+export interface LearnerParticipationStats {
+  total_learners: number;
+  participated: number;
+  not_participated: number;
+}
+
+export interface LearnerParticipationFilters {
+  institution_id?: string;
+  degree_id?: string;
+  department_id?: string;
+  program_id?: string;
+  semester_id?: string;
 }
 
 // -- Pending Invitation View --

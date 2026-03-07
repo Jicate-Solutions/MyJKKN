@@ -27,16 +27,18 @@ import {
   useEventRegistrations,
   useEventRegistrationsPaginated,
   useToggleCheckIn,
-  useToggleLovableVerified,
   useUpdateRegistrationStatus,
   useDeleteRegistration,
 } from '@/hooks/startup-studio/use-event-registrations';
-import { useEventStats } from '@/hooks/startup-studio/use-events';
+import { useEventStats, useLearnerParticipationStats } from '@/hooks/startup-studio/use-events';
+import { useStudentSearchFilterOptions } from '@/hooks/startup-studio/use-event-registrations';
+import { useRouter } from 'next/navigation';
 import {
   ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight,
-  Laptop, Search, Users, Loader2, CheckCircle2,
+  Hash, Laptop, Search, Users, Loader2, CheckCircle2,
   MoreHorizontal, ShieldX, ShieldCheck, Trash2,
   SlidersHorizontal, X, Building2, UserCheck, Download,
+  GraduationCap, UserX, BookOpen, ChevronDown, ChevronUp,
 } from 'lucide-react';
 import { EventRegistrationService } from '@/lib/services/startup-studio/event-registration-service';
 import { exportRegistrationsPDF } from '@/lib/utils/pdf-export/registrations-pdf';
@@ -63,12 +65,6 @@ const LAPTOP_OPTIONS = [
   { value: 'all', label: 'All Teams' },
   { value: 'has_laptop', label: 'Has Laptop' },
   { value: 'no_laptop', label: 'No Laptop' },
-];
-
-const LOVABLE_OPTIONS = [
-  { value: 'all', label: 'All Teams' },
-  { value: 'verified', label: 'Lovable Verified' },
-  { value: 'not_verified', label: 'Not Verified' },
 ];
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50];
@@ -109,11 +105,11 @@ function StatCard({
 }
 
 export function RegistrationsTable({ eventId, isSuperAdmin, eventName }: { eventId: string; isSuperAdmin: boolean; eventName?: string }) {
+  const router = useRouter();
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [institutionFilter, setInstitutionFilter] = useState('all');
-  const [lovableFilter, setLovableFilter] = useState('all');
   const [laptopFilter, setLaptopFilter] = useState('all');
   const [membersFilter, setMembersFilter] = useState('all');
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -123,29 +119,62 @@ export function RegistrationsTable({ eventId, isSuperAdmin, eventName }: { event
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
   const [exportLoading, setExportLoading] = useState(false);
 
+  // Learner participation filter state (independent from team filters)
+  const [showLearnerFilters, setShowLearnerFilters] = useState(false);
+  const [learnerInstFilter, setLearnerInstFilter] = useState('');
+  const [learnerDegreeFilter, setLearnerDegreeFilter] = useState('');
+  const [learnerDeptFilter, setLearnerDeptFilter] = useState('');
+  const [learnerProgramFilter, setLearnerProgramFilter] = useState('');
+  const [learnerSemesterFilter, setLearnerSemesterFilter] = useState('');
+
   const { data: institutions = [] } = useInstitutions();
 
   // Determine if any filter is active — drives stats source
   const serverFilters = {
     status: statusFilter !== 'all' ? statusFilter as RegistrationStatus : undefined,
     institution_id: institutionFilter !== 'all' ? institutionFilter : undefined,
-    lovable_verified: lovableFilter === 'verified' ? true : lovableFilter === 'not_verified' ? false : undefined,
     search: debouncedSearch || undefined,
   };
   const isFiltered =
     statusFilter !== 'all' ||
     institutionFilter !== 'all' ||
-    lovableFilter !== 'all' ||
     laptopFilter !== 'all' ||
     membersFilter !== 'all' ||
     debouncedSearch !== '';
 
   const activeAdvancedCount = [
     institutionFilter !== 'all',
-    lovableFilter !== 'all',
     laptopFilter !== 'all',
     membersFilter !== 'all',
   ].filter(Boolean).length;
+
+  // Learner participation filters object
+  const learnerFilters = {
+    institution_id: learnerInstFilter    || undefined,
+    degree_id:      learnerDegreeFilter  || undefined,
+    department_id:  learnerDeptFilter    || undefined,
+    program_id:     learnerProgramFilter || undefined,
+    semester_id:    learnerSemesterFilter|| undefined,
+  };
+
+  // Cascading dropdown options for learner filters
+  const { data: learnerFilterOptions } = useStudentSearchFilterOptions({
+    institution_id: learnerInstFilter    || undefined,
+    degree_id:      learnerDegreeFilter  || undefined,
+    department_id:  learnerDeptFilter    || undefined,
+    program_id:     learnerProgramFilter || undefined,
+  });
+
+  // Learner participation stats (always active, separate filter scope)
+  const { data: learnerStats, isLoading: learnerStatsLoading } = useLearnerParticipationStats(
+    eventId,
+    learnerFilters
+  );
+
+  const hasLearnerFilters = !!(
+    learnerInstFilter || learnerDegreeFilter || learnerDeptFilter ||
+    learnerProgramFilter || learnerSemesterFilter
+  );
 
   // Global stats (no filter active)
   const { data: globalStats, isLoading: statsLoading } = useEventStats(isFiltered ? undefined : eventId);
@@ -167,7 +196,6 @@ export function RegistrationsTable({ eventId, isSuperAdmin, eventName }: { event
   });
 
   const toggleCheckIn = useToggleCheckIn();
-  const toggleLovable = useToggleLovableVerified();
   const updateStatus = useUpdateRegistrationStatus();
   const deleteRegistration = useDeleteRegistration();
 
@@ -190,7 +218,6 @@ export function RegistrationsTable({ eventId, isSuperAdmin, eventName }: { event
       total_teams: teams.length,
       total_members: allMembers.length,
       members_with_laptops: allMembers.filter((m: any) => m.has_laptop).length,
-      lovable_verified_teams: teams.filter((r: any) => r.lovable_verified).length,
       checked_in_teams: teams.filter((r: any) => r.checked_in).length,
     };
   }, [filteredForStats, isFiltered]);
@@ -212,12 +239,10 @@ export function RegistrationsTable({ eventId, isSuperAdmin, eventName }: { event
 
   const handleStatusChange = (value: string) => { setStatusFilter(value); setPage(1); };
   const handleInstitutionChange = (value: string) => { setInstitutionFilter(value); setPage(1); };
-  const handleLovableChange = (value: string) => { setLovableFilter(value); setPage(1); };
   const handlePageSizeChange = (value: string) => { setPageSize(Number(value)); setPage(1); };
 
   const clearAdvancedFilters = () => {
     setInstitutionFilter('all');
-    setLovableFilter('all');
     setLaptopFilter('all');
     setMembersFilter('all');
     setPage(1);
@@ -236,7 +261,6 @@ export function RegistrationsTable({ eventId, isSuperAdmin, eventName }: { event
         institution: institutionFilter !== 'all'
           ? institutions.find((i) => i.id === institutionFilter)?.name
           : undefined,
-        lovable: lovableFilter !== 'all' ? lovableFilter : undefined,
         search: debouncedSearch || undefined,
       });
     } catch (err) {
@@ -283,19 +307,199 @@ export function RegistrationsTable({ eventId, isSuperAdmin, eventName }: { event
             loading={statsIsLoading}
           />
           <StatCard
-            icon={<ShieldCheck className="h-4 w-4 text-purple-500" />}
-            label="Lovable Verified"
-            value={statsData?.lovable_verified_teams ?? 0}
-            color="bg-purple-50 dark:bg-purple-950/20"
-            loading={statsIsLoading}
-          />
-          <StatCard
             icon={<CheckCircle2 className="h-4 w-4 text-green-500" />}
             label="Checked In"
             value={statsData?.checked_in_teams ?? 0}
             color="bg-green-50 dark:bg-green-950/20"
             loading={statsIsLoading}
           />
+        </div>
+
+        {/* Learner Participation Section */}
+        <div className="border rounded-lg p-3 space-y-3 bg-muted/20">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <GraduationCap className="h-4 w-4 text-muted-foreground" />
+              <span className="text-sm font-medium">Learner Participation</span>
+              {hasLearnerFilters && (
+                <Badge variant="outline" className="text-xs text-muted-foreground gap-1">
+                  <SlidersHorizontal className="h-3 w-3" />
+                  Filtered
+                </Badge>
+              )}
+            </div>
+            <div className="flex items-center gap-1">
+              {hasLearnerFilters && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 gap-1 text-xs text-muted-foreground hover:text-destructive"
+                  onClick={() => {
+                    setLearnerInstFilter('');
+                    setLearnerDegreeFilter('');
+                    setLearnerDeptFilter('');
+                    setLearnerProgramFilter('');
+                    setLearnerSemesterFilter('');
+                  }}
+                >
+                  <X className="h-3 w-3" /> Reset
+                </Button>
+              )}
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 gap-1 text-xs"
+                onClick={() => setShowLearnerFilters((v) => !v)}
+              >
+                {showLearnerFilters ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                {showLearnerFilters ? 'Hide Filters' : 'Filter by Class'}
+              </Button>
+            </div>
+          </div>
+
+          {/* Learner filter dropdowns */}
+          {showLearnerFilters && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2 pt-1">
+              {/* Institution */}
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-muted-foreground">Institution</label>
+                <Select value={learnerInstFilter || 'all'} onValueChange={(v) => {
+                  setLearnerInstFilter(v === 'all' ? '' : v);
+                  setLearnerDegreeFilter('');
+                  setLearnerDeptFilter('');
+                  setLearnerProgramFilter('');
+                  setLearnerSemesterFilter('');
+                }}>
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue placeholder="All Institutions" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Institutions</SelectItem>
+                    {(learnerFilterOptions?.institutions || institutions).map((i) => (
+                      <SelectItem key={i.id} value={i.id}>{i.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Degree */}
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-muted-foreground">Degree</label>
+                <Select
+                  value={learnerDegreeFilter || 'all'}
+                  disabled={!learnerInstFilter}
+                  onValueChange={(v) => {
+                    setLearnerDegreeFilter(v === 'all' ? '' : v);
+                    setLearnerDeptFilter('');
+                    setLearnerProgramFilter('');
+                    setLearnerSemesterFilter('');
+                  }}
+                >
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue placeholder="All Degrees" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Degrees</SelectItem>
+                    {(learnerFilterOptions?.degrees || []).map((d) => (
+                      <SelectItem key={d.id} value={d.id}>{d.degree_name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Department */}
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-muted-foreground">Department</label>
+                <Select
+                  value={learnerDeptFilter || 'all'}
+                  disabled={!learnerDegreeFilter}
+                  onValueChange={(v) => {
+                    setLearnerDeptFilter(v === 'all' ? '' : v);
+                    setLearnerProgramFilter('');
+                    setLearnerSemesterFilter('');
+                  }}
+                >
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue placeholder="All Departments" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Departments</SelectItem>
+                    {(learnerFilterOptions?.departments || []).map((d) => (
+                      <SelectItem key={d.id} value={d.id}>{d.department_name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Program */}
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-muted-foreground">Program</label>
+                <Select
+                  value={learnerProgramFilter || 'all'}
+                  disabled={!learnerDeptFilter}
+                  onValueChange={(v) => {
+                    setLearnerProgramFilter(v === 'all' ? '' : v);
+                    setLearnerSemesterFilter('');
+                  }}
+                >
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue placeholder="All Programs" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Programs</SelectItem>
+                    {(learnerFilterOptions?.programs || []).map((p) => (
+                      <SelectItem key={p.id} value={p.id}>{p.program_name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Semester */}
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-muted-foreground">Semester</label>
+                <Select
+                  value={learnerSemesterFilter || 'all'}
+                  disabled={!learnerProgramFilter}
+                  onValueChange={(v) => setLearnerSemesterFilter(v === 'all' ? '' : v)}
+                >
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue placeholder="All Semesters" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Semesters</SelectItem>
+                    {(learnerFilterOptions?.semesters || []).map((s) => (
+                      <SelectItem key={s.id} value={s.id}>{s.semester_name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          )}
+
+          {/* Learner stat cards */}
+          <div className="grid grid-cols-3 gap-3">
+            <StatCard
+              icon={<BookOpen className="h-4 w-4 text-indigo-500" />}
+              label="Total Learners"
+              value={learnerStats?.total_learners ?? 0}
+              color="bg-indigo-50 dark:bg-indigo-950/20"
+              loading={learnerStatsLoading}
+            />
+            <StatCard
+              icon={<GraduationCap className="h-4 w-4 text-teal-500" />}
+              label="Participated"
+              value={learnerStats?.participated ?? 0}
+              color="bg-teal-50 dark:bg-teal-950/20"
+              loading={learnerStatsLoading}
+            />
+            <StatCard
+              icon={<UserX className="h-4 w-4 text-orange-500" />}
+              label="Not Participated"
+              value={learnerStats?.not_participated ?? 0}
+              color="bg-orange-50 dark:bg-orange-950/20"
+              loading={learnerStatsLoading}
+            />
+          </div>
         </div>
       </CardHeader>
 
@@ -382,23 +586,6 @@ export function RegistrationsTable({ eventId, isSuperAdmin, eventName }: { event
                 </Select>
               </div>
 
-              {/* Lovable */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
-                  <CheckCircle2 className="h-3 w-3" /> Lovable
-                </label>
-                <Select value={lovableFilter} onValueChange={handleLovableChange}>
-                  <SelectTrigger className="h-9 text-sm">
-                    <SelectValue placeholder="All Teams" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {LOVABLE_OPTIONS.map((opt) => (
-                      <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
               {/* Laptops */}
               <div className="space-y-1.5">
                 <label className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
@@ -447,14 +634,6 @@ export function RegistrationsTable({ eventId, isSuperAdmin, eventName }: { event
                       </button>
                     </Badge>
                   )}
-                  {lovableFilter !== 'all' && (
-                    <Badge variant="secondary" className="gap-1 text-xs pr-1">
-                      {LOVABLE_OPTIONS.find((o) => o.value === lovableFilter)?.label}
-                      <button onClick={() => setLovableFilter('all')} className="ml-0.5 hover:text-destructive">
-                        <X className="h-3 w-3" />
-                      </button>
-                    </Badge>
-                  )}
                   {laptopFilter !== 'all' && (
                     <Badge variant="secondary" className="gap-1 text-xs pr-1">
                       {LAPTOP_OPTIONS.find((o) => o.value === laptopFilter)?.label}
@@ -491,11 +670,11 @@ export function RegistrationsTable({ eventId, isSuperAdmin, eventName }: { event
                     <Checkbox aria-label="Select all" disabled />
                   </TableHead>
                   <TableHead className="min-w-[160px]">Team Name</TableHead>
+                  <TableHead className="min-w-[100px]">Team Code</TableHead>
                   <TableHead className="min-w-[80px]">Members</TableHead>
                   <TableHead className="min-w-[140px]">Institution</TableHead>
                   <TableHead className="min-w-[200px]">Problem Idea</TableHead>
                   <TableHead className="text-center min-w-[80px]">Laptops</TableHead>
-                  <TableHead className="text-center min-w-[80px]">Lovable</TableHead>
                   <TableHead className="text-center min-w-[100px]">Status</TableHead>
                   <TableHead className="w-10" />
                 </TableRow>
@@ -519,9 +698,23 @@ export function RegistrationsTable({ eventId, isSuperAdmin, eventName }: { event
                         </TableCell>
                         <TableCell>
                           <div>
-                            <p className="font-medium text-sm">{reg.team_name}</p>
+                            <button
+                              className="font-medium text-sm text-left hover:text-primary hover:underline transition-colors"
+                              onClick={() => router.push(`/startup-studio/events/${eventId}/registrations/${reg.id}`)}
+                            >
+                              {reg.team_name}
+                            </button>
                             <p className="text-xs text-muted-foreground">{reg.owner?.full_name || reg.owner?.email}</p>
                           </div>
+                        </TableCell>
+                        <TableCell>
+                          {reg.team_code ? (
+                            <span className="inline-flex items-center gap-1 text-xs font-mono bg-muted px-2 py-0.5 rounded border text-muted-foreground">
+                              <Hash className="h-3 w-3" />{reg.team_code}
+                            </span>
+                          ) : (
+                            <span className="text-xs text-muted-foreground italic">—</span>
+                          )}
                         </TableCell>
                         <TableCell>
                           <div className="flex items-center gap-1 text-sm">
@@ -542,14 +735,6 @@ export function RegistrationsTable({ eventId, isSuperAdmin, eventName }: { event
                             <Laptop className="h-3.5 w-3.5 text-muted-foreground" />
                             <span>{laptopCount}</span>
                           </div>
-                        </TableCell>
-                        <TableCell className="text-center">
-                          <Checkbox
-                            checked={reg.lovable_verified}
-                            onCheckedChange={(checked) => {
-                              toggleLovable.mutate({ registrationId: reg.id, verified: !!checked });
-                            }}
-                          />
                         </TableCell>
                         <TableCell className="text-center">
                           <StatusBadge

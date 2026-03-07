@@ -397,11 +397,6 @@ export default function MyTeamPage({ params }: { params: Promise<{ id: string }>
                   : registration.status
                 }
               </Badge>
-              {registration.lovable_verified && (
-                <Badge className="bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400 border-0 gap-1.5">
-                  <CheckCircle2 className="h-3 w-3" /> Lovable Verified
-                </Badge>
-              )}
             </div>
           </div>
         </div>

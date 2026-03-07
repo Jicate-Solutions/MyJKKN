@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import {
   useReactTable,
@@ -46,13 +47,6 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from '@/components/ui/sheet';
-import {
   Table,
   TableBody,
   TableCell,
@@ -77,7 +71,6 @@ import {
   Plus,
   Search,
   Trash2,
-  UserPlus,
   Users,
   Wand2,
   X,
@@ -88,26 +81,12 @@ import {
   useAddVenue,
   useUpdateVenue,
   useRemoveVenue,
-  useAssignStaff,
-  useRemoveStaff,
   useAutoAllocateTeams,
-  useManualAllocate,
-  useRemoveAllocation,
-  useStaffList,
   useEventAttendanceMap,
 } from '@/hooks/startup-studio/use-event-venues';
-import { VenueAttendanceSheet } from './venue-attendance-sheet';
 import { useEventRegistrations } from '@/hooks/startup-studio/use-event-registrations';
 import { useAuth } from '@/hooks/use-auth';
-import type { DayType, StaffRole, EventVenueAssignment } from '@/types/startup-studio';
-
-const STAFF_ROLES: { value: StaffRole; label: string }[] = [
-  { value: 'mentor', label: 'Mentor' },
-  { value: 'lead_mentor', label: 'Lead Mentor' },
-  { value: 'judge', label: 'Judge' },
-  { value: 'panel_chair', label: 'Panel Chair' },
-  { value: 'evaluator', label: 'Evaluator' },
-];
+import type { DayType, EventVenueAssignment } from '@/types/startup-studio';
 
 function useInstitutions() {
   return useQuery({
@@ -281,12 +260,11 @@ function VenuesDataTable({ venues, eventId, dayType, isSuperAdmin, unallocatedTe
   isSuperAdmin: boolean;
   unallocatedTeamsCount: number;
 }) {
+  const router = useRouter();
   const removeVenue = useRemoveVenue();
   const [globalFilter, setGlobalFilter] = useState('');
   const [sorting, setSorting] = useState<SortingState>([]);
-  const [detailVenue, setDetailVenue] = useState<EventVenueAssignment | null>(null);
   const [editVenue, setEditVenue] = useState<EventVenueAssignment | null>(null);
-  const [attendanceVenue, setAttendanceVenue] = useState<EventVenueAssignment | null>(null);
   const [showAvailableOnly, setShowAvailableOnly] = useState(false);
 
   const { data: attendanceMap = {} } = useEventAttendanceMap(eventId, dayType);
@@ -453,14 +431,22 @@ function VenuesDataTable({ venues, eventId, dayType, isSuperAdmin, unallocatedTe
               <DropdownMenuContent align="end" className="w-52">
                 <DropdownMenuItem
                   className="gap-2 cursor-pointer"
-                  onSelect={() => setDetailVenue(venue)}
+                  onSelect={() =>
+                    router.push(
+                      `/startup-studio/events/${eventId}/venues/${venue.id}?day=${dayType}`
+                    )
+                  }
                 >
                   <Eye className="h-3.5 w-3.5 text-muted-foreground" />
                   View Details
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   className="gap-2 cursor-pointer"
-                  onSelect={() => setAttendanceVenue(venue)}
+                  onSelect={() =>
+                    router.push(
+                      `/startup-studio/events/${eventId}/venues/${venue.id}?day=${dayType}&tab=attendance`
+                    )
+                  }
                 >
                   <CheckCircle2 className="h-3.5 w-3.5 text-muted-foreground" />
                   Mark Attendance
@@ -618,24 +604,6 @@ function VenuesDataTable({ venues, eventId, dayType, isSuperAdmin, unallocatedTe
         </div>
       </Card>
 
-      {/* Details sheet */}
-      <VenueDetailsSheet
-        venue={detailVenue}
-        eventId={eventId}
-        dayType={dayType}
-        venues={venues}
-        onClose={() => setDetailVenue(null)}
-      />
-
-      {/* Attendance sheet */}
-      <VenueAttendanceSheet
-        venue={attendanceVenue}
-        eventId={eventId}
-        dayType={dayType}
-        open={!!attendanceVenue}
-        onClose={() => setAttendanceVenue(null)}
-      />
-
       {/* Edit dialog — controlled, not trigger-based (avoids Radix focus trap conflicts with dropdown) */}
       {editVenue && (
         <EditVenueDialog
@@ -648,199 +616,8 @@ function VenuesDataTable({ venues, eventId, dayType, isSuperAdmin, unallocatedTe
   );
 }
 
-// ── Venue details sheet ───────────────────────────────────────────────────────
-function VenueDetailsSheet({ venue, eventId, dayType, venues, onClose }: {
-  venue: EventVenueAssignment | null;
-  eventId: string;
-  dayType: DayType;
-  venues: EventVenueAssignment[];
-  onClose: () => void;
-}) {
-  const removeStaff = useRemoveStaff();
-  const removeAllocation = useRemoveAllocation();
-
-  // Always reflect latest cache data
-  const liveVenue = venue ? (venues.find((v) => v.id === venue.id) ?? venue) : null;
-  if (!liveVenue) return null;
-
-  const allocated = liveVenue.team_allocations?.length || 0;
-  const capacity = liveVenue.capacity_override || 0;
-  const fillPercent = capacity > 0 ? Math.round((allocated / capacity) * 100) : 0;
-
-  return (
-    <Sheet open={!!venue} onOpenChange={(open) => { if (!open) onClose(); }}>
-      <SheetContent className="w-full sm:max-w-xl overflow-y-auto">
-        <SheetHeader className="pb-4">
-          <SheetTitle className="flex items-center gap-2">
-            <Building2 className="h-5 w-5 text-primary" />
-            {liveVenue.manual_name || liveVenue.resource?.name || 'Unnamed Venue'}
-          </SheetTitle>
-          <SheetDescription>
-            {liveVenue.institution?.name || 'Unknown institution'} · {dayType === 'build_day' ? 'Build Day' : 'Demo Day'}
-          </SheetDescription>
-        </SheetHeader>
-
-        {/* Info grid */}
-        <div className="grid grid-cols-2 gap-4 mb-6">
-          <InfoItem label="Building" value={liveVenue.manual_building || '—'} />
-          <InfoItem label="Room" value={liveVenue.manual_room ? `Room ${liveVenue.manual_room}` : '—'} />
-          <InfoItem
-            label="Capacity"
-            value={capacity > 0
-              ? `${allocated} / ${capacity} (${fillPercent}%)`
-              : allocated > 0 ? `${allocated} (unlimited)` : 'Unlimited'}
-          />
-          <InfoItem label="Institution" value={liveVenue.institution?.name || 'Unknown'} />
-        </div>
-
-        {/* Capacity bar */}
-        {capacity > 0 && (
-          <div className="mb-6">
-            <div className="w-full bg-muted rounded-full h-2">
-              <div
-                className={cn('h-2 rounded-full transition-all duration-300',
-                  fillPercent >= 100 ? 'bg-green-500' : fillPercent >= 75 ? 'bg-amber-500' : 'bg-primary'
-                )}
-                style={{ width: `${Math.min(fillPercent, 100)}%` }}
-              />
-            </div>
-          </div>
-        )}
-
-        <Separator className="mb-6" />
-
-        {/* Staff */}
-        <section className="mb-6">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-semibold flex items-center gap-2">
-              <UserPlus className="h-4 w-4 text-muted-foreground" />
-              Staff Assignments
-              <Badge variant="outline" className="text-[10px] h-5 px-1.5">
-                {liveVenue.staff_assignments?.length || 0}
-              </Badge>
-            </h3>
-            <AddStaffDialog eventId={eventId} venueId={liveVenue.id} dayType={dayType} />
-          </div>
-
-          {(liveVenue.staff_assignments?.length || 0) === 0 ? (
-            <p className="text-xs text-muted-foreground py-4 text-center border rounded-md bg-muted/20">
-              No staff assigned yet.
-            </p>
-          ) : (
-            <div className="border rounded-md overflow-hidden">
-              <Table>
-                <TableHeader>
-                  <TableRow className="bg-muted/40 hover:bg-muted/40">
-                    <TableHead className="px-4 py-2.5 text-xs">Name</TableHead>
-                    <TableHead className="px-4 py-2.5 text-xs hidden sm:table-cell">Email</TableHead>
-                    <TableHead className="px-4 py-2.5 text-xs">Role</TableHead>
-                    <TableHead className="w-10" />
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {(liveVenue.staff_assignments || []).map((sa: any) => {
-                    const staffName = sa.staff ? `${sa.staff.first_name} ${sa.staff.last_name}` : 'Unknown';
-                    const roleLabel = STAFF_ROLES.find((r) => r.value === sa.role)?.label || sa.role;
-                    return (
-                      <TableRow key={sa.id} className="border-b last:border-0">
-                        <TableCell className="px-4 py-2.5 text-xs font-medium">{staffName}</TableCell>
-                        <TableCell className="px-4 py-2.5 text-xs text-muted-foreground hidden sm:table-cell">
-                          {sa.staff?.email || '—'}
-                        </TableCell>
-                        <TableCell className="px-4 py-2.5">
-                          <Badge variant="secondary" className="text-[10px]">{roleLabel}</Badge>
-                        </TableCell>
-                        <TableCell className="px-2 py-2.5">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-6 w-6 text-muted-foreground hover:text-destructive"
-                            onClick={() => removeStaff.mutate(sa.id)}
-                            disabled={removeStaff.isPending}
-                          >
-                            <X className="h-3 w-3" />
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
-            </div>
-          )}
-        </section>
-
-        <Separator className="mb-6" />
-
-        {/* Teams */}
-        <section>
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-semibold flex items-center gap-2">
-              <Users className="h-4 w-4 text-muted-foreground" />
-              Team Allocations
-              <Badge variant="outline" className="text-[10px] h-5 px-1.5">
-                {allocated}
-              </Badge>
-            </h3>
-            <AssignTeamDialog eventId={eventId} venueId={liveVenue.id} dayType={dayType} />
-          </div>
-
-          {allocated === 0 ? (
-            <p className="text-xs text-muted-foreground py-4 text-center border rounded-md bg-muted/20">
-              No teams allocated yet.
-            </p>
-          ) : (
-            <div className="border rounded-md overflow-hidden">
-              <Table>
-                <TableHeader>
-                  <TableRow className="bg-muted/40 hover:bg-muted/40">
-                    <TableHead className="px-4 py-2.5 text-xs">#</TableHead>
-                    <TableHead className="px-4 py-2.5 text-xs">Team Name</TableHead>
-                    <TableHead className="w-10" />
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {(liveVenue.team_allocations || []).map((alloc: any, idx: number) => (
-                    <TableRow key={alloc.id} className="border-b last:border-0">
-                      <TableCell className="px-4 py-2.5 text-xs text-muted-foreground tabular-nums">
-                        {idx + 1}
-                      </TableCell>
-                      <TableCell className="px-4 py-2.5 text-xs font-medium">
-                        {alloc.registration?.team_name || 'Unknown'}
-                      </TableCell>
-                      <TableCell className="px-2 py-2.5">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-6 w-6 text-muted-foreground hover:text-destructive"
-                          onClick={() => removeAllocation.mutate(alloc.id)}
-                          disabled={removeAllocation.isPending}
-                        >
-                          <X className="h-3 w-3" />
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          )}
-        </section>
-      </SheetContent>
-    </Sheet>
-  );
-}
 
 // ── Helper components ─────────────────────────────────────────────────────────
-function InfoItem({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground mb-0.5">{label}</p>
-      <p className="text-sm">{value}</p>
-    </div>
-  );
-}
-
 function MiniStat({ icon, label, value, color, hint }: {
   icon: React.ReactNode; label: string; value: number | string; color?: string; hint?: string;
 }) {
@@ -1062,151 +839,3 @@ function EditVenueDialog({ venue, open, onOpenChange }: {
   );
 }
 
-// ── Assign team dialog ────────────────────────────────────────────────────────
-function AssignTeamDialog({ eventId, venueId, dayType }: { eventId: string; venueId: string; dayType: DayType }) {
-  const { data: registrations = [] } = useEventRegistrations({ event_id: eventId });
-  const { data: venues = [] } = useEventVenues(eventId, dayType);
-  const manualAllocate = useManualAllocate();
-  const [open, setOpen] = useState(false);
-  const [selectedTeam, setSelectedTeam] = useState('');
-
-  const allocatedRegIds = new Set(
-    venues.flatMap((v) => (v.team_allocations || []).map((a: any) => a.registration_id))
-  );
-  const unallocatedTeams = registrations.filter((r) => !allocatedRegIds.has(r.id));
-
-  const handleAssign = () => {
-    if (!selectedTeam) return;
-    manualAllocate.mutate(
-      { eventId, registrationId: selectedTeam, venueAssignmentId: venueId, dayType },
-      { onSuccess: () => { setOpen(false); setSelectedTeam(''); } }
-    );
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <Button variant="outline" size="sm" className="h-7 gap-1 text-xs" onClick={() => setOpen(true)}>
-        <Plus className="h-3 w-3" /> Assign Team
-      </Button>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Assign Team to Venue</DialogTitle>
-          <DialogDescription>
-            Select a team for {dayType === 'build_day' ? 'Build Day' : 'Demo Day'}.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="space-y-4 pt-2">
-          <div className="space-y-2">
-            <Label htmlFor="team-select" className="text-sm font-medium">
-              Team <span className="text-red-500">*</span>
-            </Label>
-            <Select value={selectedTeam} onValueChange={setSelectedTeam}>
-              <SelectTrigger id="team-select">
-                <SelectValue placeholder="Select a team..." />
-              </SelectTrigger>
-              <SelectContent>
-                {unallocatedTeams.length === 0 ? (
-                  <SelectItem value="_none" disabled>All teams are already allocated</SelectItem>
-                ) : (
-                  unallocatedTeams.map((r) => (
-                    <SelectItem key={r.id} value={r.id}>{r.team_name}</SelectItem>
-                  ))
-                )}
-              </SelectContent>
-            </Select>
-            {unallocatedTeams.length > 0 && (
-              <p className="text-xs text-muted-foreground">
-                {unallocatedTeams.length} unallocated team{unallocatedTeams.length !== 1 ? 's' : ''} available
-              </p>
-            )}
-          </div>
-          <Button
-            onClick={handleAssign}
-            disabled={!selectedTeam || manualAllocate.isPending}
-            className="w-full gap-1.5"
-          >
-            {manualAllocate.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-            {manualAllocate.isPending ? 'Assigning...' : 'Assign Team'}
-          </Button>
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-// ── Add staff dialog ──────────────────────────────────────────────────────────
-function AddStaffDialog({ eventId, venueId, dayType }: { eventId: string; venueId: string; dayType: DayType }) {
-  const { data: staffList = [] } = useStaffList();
-  const assignStaff = useAssignStaff();
-  const [open, setOpen] = useState(false);
-  const [selectedStaff, setSelectedStaff] = useState('');
-  const [selectedRole, setSelectedRole] = useState<StaffRole>('mentor');
-
-  const handleAssign = () => {
-    if (!selectedStaff) return;
-    assignStaff.mutate(
-      { eventId, venueAssignmentId: venueId, staffId: selectedStaff, role: selectedRole, dayType },
-      { onSuccess: () => { setOpen(false); setSelectedStaff(''); setSelectedRole('mentor'); } }
-    );
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <Button variant="outline" size="sm" className="h-7 gap-1 text-xs" onClick={() => setOpen(true)}>
-        <UserPlus className="h-3 w-3" /> Add Staff
-      </Button>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Assign Staff</DialogTitle>
-          <DialogDescription>Select a staff member and their role for this venue.</DialogDescription>
-        </DialogHeader>
-        <div className="space-y-4 pt-2">
-          <div className="space-y-2">
-            <Label htmlFor="staff-member" className="text-sm font-medium">
-              Staff Member <span className="text-red-500">*</span>
-            </Label>
-            <Select value={selectedStaff} onValueChange={setSelectedStaff}>
-              <SelectTrigger id="staff-member">
-                <SelectValue placeholder="Select staff member..." />
-              </SelectTrigger>
-              <SelectContent>
-                {staffList.length === 0 ? (
-                  <SelectItem value="_none" disabled>No staff available</SelectItem>
-                ) : (
-                  staffList.map((s) => (
-                    <SelectItem key={s.id} value={s.id}>
-                      {s.first_name} {s.last_name} ({s.email})
-                    </SelectItem>
-                  ))
-                )}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="staff-role" className="text-sm font-medium">
-              Role <span className="text-red-500">*</span>
-            </Label>
-            <Select value={selectedRole} onValueChange={(v) => setSelectedRole(v as StaffRole)}>
-              <SelectTrigger id="staff-role">
-                <SelectValue placeholder="Select role..." />
-              </SelectTrigger>
-              <SelectContent>
-                {STAFF_ROLES.map((r) => (
-                  <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <Button
-            onClick={handleAssign}
-            disabled={!selectedStaff || assignStaff.isPending}
-            className="w-full gap-1.5"
-          >
-            {assignStaff.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />}
-            {assignStaff.isPending ? 'Assigning...' : 'Assign Staff'}
-          </Button>
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
