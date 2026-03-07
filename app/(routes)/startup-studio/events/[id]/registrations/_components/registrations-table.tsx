@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { Badge } from '@/components/ui/badge';
@@ -24,18 +24,21 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import {
+  useEventRegistrations,
   useEventRegistrationsPaginated,
   useToggleCheckIn,
   useToggleLovableVerified,
   useUpdateRegistrationStatus,
   useDeleteRegistration,
 } from '@/hooks/startup-studio/use-event-registrations';
+import { useEventStats } from '@/hooks/startup-studio/use-events';
 import {
   ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight,
   Laptop, Search, Users, Loader2, CheckCircle2,
   MoreHorizontal, ShieldX, ShieldCheck, Trash2,
-  SlidersHorizontal, X, Building2,
+  SlidersHorizontal, X, Building2, UserCheck,
 } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import type { RegistrationStatus } from '@/types/startup-studio';
 
 const STATUS_OPTIONS: { value: string; label: string }[] = [
@@ -80,6 +83,29 @@ function useInstitutions() {
   });
 }
 
+// Stat card used inside the table
+function StatCard({
+  icon, label, value, color, loading,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: number | string;
+  color: string;
+  loading?: boolean;
+}) {
+  return (
+    <div className={cn('rounded-lg border p-3 flex flex-col items-center text-center gap-1', color)}>
+      {icon}
+      {loading ? (
+        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+      ) : (
+        <span className="text-xl font-bold">{value}</span>
+      )}
+      <span className="text-xs text-muted-foreground leading-tight">{label}</span>
+    </div>
+  );
+}
+
 export function RegistrationsTable({ eventId, isSuperAdmin }: { eventId: string; isSuperAdmin: boolean }) {
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -96,7 +122,21 @@ export function RegistrationsTable({ eventId, isSuperAdmin }: { eventId: string;
 
   const { data: institutions = [] } = useInstitutions();
 
-  // Count active advanced filters for badge
+  // Determine if any filter is active — drives stats source
+  const serverFilters = {
+    status: statusFilter !== 'all' ? statusFilter as RegistrationStatus : undefined,
+    institution_id: institutionFilter !== 'all' ? institutionFilter : undefined,
+    lovable_verified: lovableFilter === 'verified' ? true : lovableFilter === 'not_verified' ? false : undefined,
+    search: debouncedSearch || undefined,
+  };
+  const isFiltered =
+    statusFilter !== 'all' ||
+    institutionFilter !== 'all' ||
+    lovableFilter !== 'all' ||
+    laptopFilter !== 'all' ||
+    membersFilter !== 'all' ||
+    debouncedSearch !== '';
+
   const activeAdvancedCount = [
     institutionFilter !== 'all',
     lovableFilter !== 'all',
@@ -104,12 +144,21 @@ export function RegistrationsTable({ eventId, isSuperAdmin }: { eventId: string;
     membersFilter !== 'all',
   ].filter(Boolean).length;
 
-  const { data: result, isLoading } = useEventRegistrationsPaginated({
+  // Global stats (no filter active)
+  const { data: globalStats, isLoading: statsLoading } = useEventStats(isFiltered ? undefined : eventId);
+
+  // Non-paginated filtered registrations (only fires when filters are active)
+  const { data: filteredAll = [], isLoading: filteredLoading } = useEventRegistrations({
     event_id: eventId,
-    search: debouncedSearch || undefined,
-    status: statusFilter !== 'all' ? statusFilter as RegistrationStatus : undefined,
-    institution_id: institutionFilter !== 'all' ? institutionFilter : undefined,
-    lovable_verified: lovableFilter === 'verified' ? true : lovableFilter === 'not_verified' ? false : undefined,
+    ...serverFilters,
+    // enabled guard is inside the hook; we pass a sentinel to disable when not filtered
+    ...(isFiltered ? {} : { event_id: '' }),
+  });
+
+  // Paginated results for the table
+  const { data: result, isLoading: tableLoading } = useEventRegistrationsPaginated({
+    event_id: eventId,
+    ...serverFilters,
     page,
     limit: pageSize,
   });
@@ -119,26 +168,32 @@ export function RegistrationsTable({ eventId, isSuperAdmin }: { eventId: string;
   const updateStatus = useUpdateRegistrationStatus();
   const deleteRegistration = useDeleteRegistration();
 
-  // Apply client-side filters for members count and laptop (join-based — can't paginate server-side)
+  // Client-side filter applied to paginated page results (for table display)
   const allTeams = result?.data || [];
-  const teams = allTeams.filter((reg) => {
-    const members = (reg.team_members || []).filter((m: any) => m.status === 'accepted');
-    const memberCount = members.length;
-    const hasLaptop = members.some((m: any) => m.has_laptop);
+  const teams = allTeams.filter((reg) => applyClientFilters(reg, laptopFilter, membersFilter));
 
-    if (laptopFilter === 'has_laptop' && !hasLaptop) return false;
-    if (laptopFilter === 'no_laptop' && hasLaptop) return false;
+  // Client-side filter applied to full non-paginated results (for stats)
+  const filteredForStats = useMemo(
+    () => filteredAll.filter((reg) => applyClientFilters(reg, laptopFilter, membersFilter)),
+    [filteredAll, laptopFilter, membersFilter]
+  );
 
-    if (membersFilter !== 'all') {
-      if (membersFilter === '5') {
-        if (memberCount < 5) return false;
-      } else {
-        if (memberCount !== parseInt(membersFilter)) return false;
-      }
-    }
+  // Compute filtered stats
+  const filteredStats = useMemo(() => {
+    if (!isFiltered) return null;
+    const teams = filteredForStats;
+    const allMembers = teams.flatMap((r: any) => (r.team_members || []).filter((m: any) => m.status === 'accepted'));
+    return {
+      total_teams: teams.length,
+      total_members: allMembers.length,
+      members_with_laptops: allMembers.filter((m: any) => m.has_laptop).length,
+      lovable_verified_teams: teams.filter((r: any) => r.lovable_verified).length,
+      checked_in_teams: teams.filter((r: any) => r.checked_in).length,
+    };
+  }, [filteredForStats, isFiltered]);
 
-    return true;
-  });
+  const statsData = isFiltered ? filteredStats : globalStats;
+  const statsIsLoading = isFiltered ? filteredLoading : statsLoading;
 
   const pagination = result?.pagination || { page: 1, limit: 10, total_items: 0, total_pages: 0 };
 
@@ -168,8 +223,56 @@ export function RegistrationsTable({ eventId, isSuperAdmin }: { eventId: string;
   return (
     <Card>
       <CardHeader className="pb-4">
-        <CardTitle className="text-lg">Teams</CardTitle>
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-lg">Teams</CardTitle>
+          {isFiltered && (
+            <Badge variant="outline" className="text-xs text-muted-foreground gap-1">
+              <SlidersHorizontal className="h-3 w-3" />
+              Filtered stats
+            </Badge>
+          )}
+        </div>
+
+        {/* Stats row — updates with filters */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 pt-2">
+          <StatCard
+            icon={<Users className="h-4 w-4 text-blue-500" />}
+            label="Total Teams"
+            value={statsData?.total_teams ?? 0}
+            color="bg-blue-50 dark:bg-blue-950/20"
+            loading={statsIsLoading}
+          />
+          <StatCard
+            icon={<UserCheck className="h-4 w-4 text-emerald-500" />}
+            label="Total Members"
+            value={statsData?.total_members ?? 0}
+            color="bg-emerald-50 dark:bg-emerald-950/20"
+            loading={statsIsLoading}
+          />
+          <StatCard
+            icon={<Laptop className="h-4 w-4 text-amber-500" />}
+            label="Laptops Confirmed"
+            value={statsData?.members_with_laptops ?? 0}
+            color="bg-amber-50 dark:bg-amber-950/20"
+            loading={statsIsLoading}
+          />
+          <StatCard
+            icon={<ShieldCheck className="h-4 w-4 text-purple-500" />}
+            label="Lovable Verified"
+            value={statsData?.lovable_verified_teams ?? 0}
+            color="bg-purple-50 dark:bg-purple-950/20"
+            loading={statsIsLoading}
+          />
+          <StatCard
+            icon={<CheckCircle2 className="h-4 w-4 text-green-500" />}
+            label="Checked In"
+            value={statsData?.checked_in_teams ?? 0}
+            color="bg-green-50 dark:bg-green-950/20"
+            loading={statsIsLoading}
+          />
+        </div>
       </CardHeader>
+
       <CardContent className="space-y-4">
         {/* Toolbar Row 1: Search + Status + Advanced Toggle */}
         <div className="flex flex-col sm:flex-row gap-3">
@@ -335,7 +438,7 @@ export function RegistrationsTable({ eventId, isSuperAdmin }: { eventId: string;
         )}
 
         {/* Table */}
-        {isLoading ? (
+        {tableLoading ? (
           <div className="flex justify-center py-12">
             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
           </div>
@@ -404,20 +507,18 @@ export function RegistrationsTable({ eventId, isSuperAdmin }: { eventId: string;
                           <Checkbox
                             checked={reg.lovable_verified}
                             onCheckedChange={(checked) => {
-                              toggleLovable.mutate({
-                                registrationId: reg.id,
-                                verified: !!checked,
-                              });
+                              toggleLovable.mutate({ registrationId: reg.id, verified: !!checked });
                             }}
                           />
                         </TableCell>
                         <TableCell className="text-center">
-                          <StatusBadge status={reg.status} checkedIn={reg.checked_in} onToggleCheckIn={() => {
-                            toggleCheckIn.mutate({
-                              registrationId: reg.id,
-                              checked_in: !reg.checked_in,
-                            });
-                          }} />
+                          <StatusBadge
+                            status={reg.status}
+                            checkedIn={reg.checked_in}
+                            onToggleCheckIn={() => {
+                              toggleCheckIn.mutate({ registrationId: reg.id, checked_in: !reg.checked_in });
+                            }}
+                          />
                         </TableCell>
                         <TableCell>
                           <DropdownMenu>
@@ -490,43 +591,19 @@ export function RegistrationsTable({ eventId, isSuperAdmin }: { eventId: string;
           </div>
 
           <div className="flex items-center gap-1">
-            <Button
-              variant="outline"
-              size="icon"
-              className="h-8 w-8"
-              onClick={() => setPage(1)}
-              disabled={page <= 1}
-            >
+            <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setPage(1)} disabled={page <= 1}>
               <ChevronsLeft className="h-4 w-4" />
             </Button>
-            <Button
-              variant="outline"
-              size="icon"
-              className="h-8 w-8"
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              disabled={page <= 1}
-            >
+            <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1}>
               <ChevronLeft className="h-4 w-4" />
             </Button>
             <span className="text-sm px-3 text-muted-foreground">
               Page {page} of {pagination.total_pages || 1}
             </span>
-            <Button
-              variant="outline"
-              size="icon"
-              className="h-8 w-8"
-              onClick={() => setPage((p) => Math.min(pagination.total_pages, p + 1))}
-              disabled={page >= pagination.total_pages}
-            >
+            <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setPage((p) => Math.min(pagination.total_pages, p + 1))} disabled={page >= pagination.total_pages}>
               <ChevronRight className="h-4 w-4" />
             </Button>
-            <Button
-              variant="outline"
-              size="icon"
-              className="h-8 w-8"
-              onClick={() => setPage(pagination.total_pages)}
-              disabled={page >= pagination.total_pages}
-            >
+            <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setPage(pagination.total_pages)} disabled={page >= pagination.total_pages}>
               <ChevronsRight className="h-4 w-4" />
             </Button>
           </div>
@@ -562,6 +639,26 @@ export function RegistrationsTable({ eventId, isSuperAdmin }: { eventId: string;
   );
 }
 
+// Shared client-side filter predicate used for both table rows and stats computation
+function applyClientFilters(reg: any, laptopFilter: string, membersFilter: string): boolean {
+  const members = (reg.team_members || []).filter((m: any) => m.status === 'accepted');
+  const memberCount = members.length;
+  const hasLaptop = members.some((m: any) => m.has_laptop);
+
+  if (laptopFilter === 'has_laptop' && !hasLaptop) return false;
+  if (laptopFilter === 'no_laptop' && hasLaptop) return false;
+
+  if (membersFilter !== 'all') {
+    if (membersFilter === '5') {
+      if (memberCount < 5) return false;
+    } else {
+      if (memberCount !== parseInt(membersFilter)) return false;
+    }
+  }
+
+  return true;
+}
+
 function StatusBadge({ status, checkedIn, onToggleCheckIn }: {
   status: RegistrationStatus; checkedIn: boolean; onToggleCheckIn: () => void;
 }) {
@@ -582,11 +679,7 @@ function StatusBadge({ status, checkedIn, onToggleCheckIn }: {
   }
 
   return (
-    <Badge
-      variant="secondary"
-      className="cursor-pointer hover:bg-primary/10"
-      onClick={onToggleCheckIn}
-    >
+    <Badge variant="secondary" className="cursor-pointer hover:bg-primary/10" onClick={onToggleCheckIn}>
       {status === 'registered' ? 'Registered' : status}
     </Badge>
   );
