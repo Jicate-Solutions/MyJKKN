@@ -4489,13 +4489,16 @@ $$;
 -- =====================================================
 -- STARTUP STUDIO: generate_team_code
 -- Updated: 2026-03-07 - Fix duplicate key bug: use MAX-based sequence + retry loop
---   Previous: COUNT(*)+1 produced duplicates when registrations were deleted (gaps)
---   Now: MAX(numeric_suffix)+1 is immune to gaps; retry loop handles race conditions
+-- Updated: 2026-03-07 - Add SECURITY DEFINER: without it, student callers see only
+--   their own registrations (RLS), MAX returns NULL, sequence resets to 1 every time
+--   → always collides with the existing -001 code. SECURITY DEFINER gives global view.
 -- Generates a unique team code like "JKKN-001" per event per institution
 -- =====================================================
 CREATE OR REPLACE FUNCTION generate_team_code(p_event_id UUID, p_institution_id UUID)
 RETURNS TEXT
 LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
 AS $$
 DECLARE
   v_inst_prefix TEXT;
