@@ -11,20 +11,22 @@ const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 const isValidUUID = (id: string | undefined): boolean => !!id && UUID_REGEX.test(id);
 
 export function useEventRegistrations(filters: RegistrationFilters) {
+  const { isLoading: authLoading } = useAuth();
   return useQuery({
     queryKey: ['event-registrations', filters],
     queryFn: () => EventRegistrationService.getRegistrations(filters),
-    enabled: isValidUUID(filters.event_id),
+    enabled: !authLoading && isValidUUID(filters.event_id),
     staleTime: 15 * 1000,
     retry: 3,
   });
 }
 
 export function useEventRegistrationsPaginated(filters: RegistrationFilters) {
+  const { isLoading: authLoading } = useAuth();
   return useQuery({
     queryKey: ['event-registrations-paginated', filters],
     queryFn: () => EventRegistrationService.getRegistrationsPaginated(filters),
-    enabled: isValidUUID(filters.event_id),
+    enabled: !authLoading && isValidUUID(filters.event_id),
     staleTime: 15 * 1000,
     retry: 3,
   });
