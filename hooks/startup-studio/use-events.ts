@@ -5,6 +5,11 @@ import { EventService } from '@/lib/services/startup-studio/event-service';
 import type { EventFilters, UpdateEventDto, CreateEventDto } from '@/types/startup-studio';
 import { toast } from 'sonner';
 
+// Guards against Next.js 15 Dynamic Route Prefetching placeholders like "%%drp:id:abc%%"
+// that are passed as route params during speculative prefetch — they are not real UUIDs
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const isValidUUID = (id: string | undefined): boolean => !!id && UUID_REGEX.test(id);
+
 export function useEvents(filters?: EventFilters) {
   return useQuery({
     queryKey: ['startup-events', filters],
@@ -17,11 +22,8 @@ export function useEvents(filters?: EventFilters) {
 export function useEvent(id: string | undefined) {
   return useQuery({
     queryKey: ['startup-event', id],
-    queryFn: () => {
-      if (!id) return null;
-      return EventService.getEvent(id);
-    },
-    enabled: !!id,
+    queryFn: () => EventService.getEvent(id!),
+    enabled: isValidUUID(id),
     staleTime: 30 * 1000,
     retry: 3,
   });
@@ -30,11 +32,8 @@ export function useEvent(id: string | undefined) {
 export function useEventStats(eventId: string | undefined) {
   return useQuery({
     queryKey: ['startup-event-stats', eventId],
-    queryFn: () => {
-      if (!eventId) return null;
-      return EventService.getEventStats(eventId);
-    },
-    enabled: !!eventId,
+    queryFn: () => EventService.getEventStats(eventId!),
+    enabled: isValidUUID(eventId),
     staleTime: 15 * 1000,
     retry: 3,
   });

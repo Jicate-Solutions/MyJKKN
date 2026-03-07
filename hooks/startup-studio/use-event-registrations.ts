@@ -6,10 +6,15 @@ import { StudentSearchService } from '@/lib/services/startup-studio/student-sear
 import { useAuth } from '@/hooks/use-auth';
 import type { CreateRegistrationDto, RegistrationFilters, StudentSearchFilters } from '@/types/startup-studio';
 
+// Guards against Next.js 15 DRP placeholders like "%%drp:id:abc%%" passed as route params
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const isValidUUID = (id: string | undefined): boolean => !!id && UUID_REGEX.test(id);
+
 export function useEventRegistrations(filters: RegistrationFilters) {
   return useQuery({
     queryKey: ['event-registrations', filters],
     queryFn: () => EventRegistrationService.getRegistrations(filters),
+    enabled: isValidUUID(filters.event_id),
     staleTime: 15 * 1000,
     retry: 3,
   });
@@ -19,6 +24,7 @@ export function useEventRegistrationsPaginated(filters: RegistrationFilters) {
   return useQuery({
     queryKey: ['event-registrations-paginated', filters],
     queryFn: () => EventRegistrationService.getRegistrationsPaginated(filters),
+    enabled: isValidUUID(filters.event_id),
     staleTime: 15 * 1000,
     retry: 3,
   });
@@ -28,11 +34,8 @@ export function useMyRegistration(eventId: string | undefined) {
   const { profile } = useAuth();
   return useQuery({
     queryKey: ['my-registration', eventId, profile?.id],
-    queryFn: () => {
-      if (!eventId || !profile?.id) return null;
-      return EventRegistrationService.getMyRegistration(eventId, profile.id);
-    },
-    enabled: !!eventId && !!profile?.id,
+    queryFn: () => EventRegistrationService.getMyRegistration(eventId!, profile!.id),
+    enabled: isValidUUID(eventId) && !!profile?.id,
     staleTime: 15 * 1000,
     retry: 3,
   });
@@ -43,11 +46,10 @@ export function useMyTeamMembers(eventId: string | undefined) {
   return useQuery({
     queryKey: ['my-team-members', eventId, profile?.id],
     queryFn: async () => {
-      if (!eventId || !profile?.id) return [];
-      const { data } = await EventRegistrationService.getMyTeamMembers(eventId, profile.id);
+      const { data } = await EventRegistrationService.getMyTeamMembers(eventId!, profile!.id);
       return (data as any[]) ?? [];
     },
-    enabled: !!eventId && !!profile?.id,
+    enabled: isValidUUID(eventId) && !!profile?.id,
     staleTime: 15 * 1000,
     retry: 2,
   });
@@ -58,11 +60,10 @@ export function useMyAcceptedMembership(eventId: string | undefined) {
   return useQuery({
     queryKey: ['my-accepted-membership', eventId, profile?.id],
     queryFn: async () => {
-      if (!eventId || !profile?.id) return null;
-      const { data } = await EventRegistrationService.getMyAcceptedMembership(eventId, profile.id);
+      const { data } = await EventRegistrationService.getMyAcceptedMembership(eventId!, profile!.id);
       return (data as any[])?.[0] ?? null;
     },
-    enabled: !!eventId && !!profile?.id,
+    enabled: isValidUUID(eventId) && !!profile?.id,
     staleTime: 15 * 1000,
     retry: 2,
   });
@@ -127,6 +128,34 @@ export function useToggleLovableVerified() {
   });
 }
 
+
+export function useUpdateRegistrationStatus() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ registrationId, status }: { registrationId: string; status: string }) =>
+      EventRegistrationService.updateRegistrationStatus(registrationId, status),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['event-registrations'] });
+      queryClient.invalidateQueries({ queryKey: ['startup-event-stats'] });
+      toast.success('Status updated');
+    },
+    onError: (error: any) => toast.error(error.message || 'Failed to update status'),
+  });
+}
+
+export function useDeleteRegistration() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (registrationId: string) =>
+      EventRegistrationService.deleteRegistration(registrationId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['event-registrations'] });
+      queryClient.invalidateQueries({ queryKey: ['startup-event-stats'] });
+      toast.success('Team deleted');
+    },
+    onError: (error: any) => toast.error(error.message || 'Failed to delete team'),
+  });
+}
 
 export function useUpdateMemberLaptop() {
   const queryClient = useQueryClient();

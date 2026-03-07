@@ -6,6 +6,7 @@ import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { Button } from '@/components/ui/button';
 import { useEvent, useEventStats } from '@/hooks/startup-studio/use-events';
+import { useAuth } from '@/hooks/use-auth';
 import { RegistrationsTable } from './_components/registrations-table';
 import { ArrowLeft, CheckCircle2, Laptop, Loader2, ShieldCheck, Users, UserCheck } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
@@ -14,8 +15,10 @@ import { cn } from '@/lib/utils';
 export default function AdminRegistrationsPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const router = useRouter();
+  const { profile } = useAuth();
   const { data: event, isLoading } = useEvent(id);
   const { data: stats } = useEventStats(id);
+  const isSuperAdmin = profile?.is_super_admin === true;
 
   if (isLoading) {
     return (
@@ -67,7 +70,7 @@ export default function AdminRegistrationsPage({ params }: { params: Promise<{ i
           </div>
         )}
 
-        <RegistrationsTable eventId={id} />
+        <RegistrationsTable eventId={id} isSuperAdmin={isSuperAdmin} />
       </div>
     </ContentLayout>
   );

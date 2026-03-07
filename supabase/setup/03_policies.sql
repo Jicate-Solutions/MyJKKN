@@ -2744,6 +2744,13 @@ CREATE POLICY "event_registrations_update" ON event_registrations
         OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND (is_super_admin = true OR role IN ('admin', 'administrator')))
     );
 
+-- Updated: 2026-03-07 - Only super admins can delete team registrations
+-- Regular admins use disqualify (status update) instead of hard delete
+CREATE POLICY "event_registrations_delete" ON event_registrations
+    FOR DELETE TO authenticated USING (
+        EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND is_super_admin = true)
+    );
+
 -- event_team_members: owner of registration can manage
 CREATE POLICY "event_team_members_select" ON event_team_members
     FOR SELECT TO authenticated USING (

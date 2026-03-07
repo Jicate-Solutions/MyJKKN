@@ -13,13 +13,24 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
 import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem,
+  DropdownMenuSeparator, DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import {
   useEventRegistrationsPaginated,
   useToggleCheckIn,
   useToggleLovableVerified,
+  useUpdateRegistrationStatus,
+  useDeleteRegistration,
 } from '@/hooks/startup-studio/use-event-registrations';
 import {
   ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight,
   Laptop, Search, Users, Loader2, CheckCircle2,
+  MoreHorizontal, ShieldX, ShieldCheck, Trash2,
 } from 'lucide-react';
 import type { RegistrationStatus } from '@/types/startup-studio';
 
@@ -32,13 +43,14 @@ const STATUS_OPTIONS: { value: string; label: string }[] = [
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50];
 
-export function RegistrationsTable({ eventId }: { eventId: string }) {
+export function RegistrationsTable({ eventId, isSuperAdmin }: { eventId: string; isSuperAdmin: boolean }) {
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [searchTimer, setSearchTimer] = useState<ReturnType<typeof setTimeout> | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
 
   const { data: result, isLoading } = useEventRegistrationsPaginated({
     event_id: eventId,
@@ -50,6 +62,8 @@ export function RegistrationsTable({ eventId }: { eventId: string }) {
 
   const toggleCheckIn = useToggleCheckIn();
   const toggleLovable = useToggleLovableVerified();
+  const updateStatus = useUpdateRegistrationStatus();
+  const deleteRegistration = useDeleteRegistration();
 
   const teams = result?.data || [];
   const pagination = result?.pagination || { page: 1, limit: 10, total_items: 0, total_pages: 0 };
@@ -123,12 +137,13 @@ export function RegistrationsTable({ eventId }: { eventId: string }) {
                   <TableHead className="text-center min-w-[80px]">Laptops</TableHead>
                   <TableHead className="text-center min-w-[80px]">Lovable</TableHead>
                   <TableHead className="text-center min-w-[100px]">Status</TableHead>
+                  <TableHead className="w-10" />
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {teams.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-center py-12 text-muted-foreground">
+                    <TableCell colSpan={9} className="text-center py-12 text-muted-foreground">
                       No registrations found.
                     </TableCell>
                   </TableRow>
@@ -186,6 +201,46 @@ export function RegistrationsTable({ eventId }: { eventId: string }) {
                               checked_in: !reg.checked_in,
                             });
                           }} />
+                        </TableCell>
+                        <TableCell>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="icon" className="h-8 w-8">
+                                <MoreHorizontal className="h-4 w-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              {reg.status === 'disqualified' ? (
+                                <DropdownMenuItem
+                                  className="gap-2"
+                                  onClick={() => updateStatus.mutate({ registrationId: reg.id, status: 'registered' })}
+                                >
+                                  <ShieldCheck className="h-4 w-4 text-green-600" />
+                                  Reinstate Team
+                                </DropdownMenuItem>
+                              ) : (
+                                <DropdownMenuItem
+                                  className="gap-2 text-amber-600 focus:text-amber-600"
+                                  onClick={() => updateStatus.mutate({ registrationId: reg.id, status: 'disqualified' })}
+                                >
+                                  <ShieldX className="h-4 w-4" />
+                                  Disqualify Team
+                                </DropdownMenuItem>
+                              )}
+                              {isSuperAdmin && (
+                                <>
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuItem
+                                    className="gap-2 text-destructive focus:text-destructive"
+                                    onClick={() => setDeleteTarget({ id: reg.id, name: reg.team_name })}
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                    Delete Team
+                                  </DropdownMenuItem>
+                                </>
+                              )}
+                            </DropdownMenuContent>
+                          </DropdownMenu>
                         </TableCell>
                       </TableRow>
                     );
@@ -260,6 +315,32 @@ export function RegistrationsTable({ eventId }: { eventId: string }) {
           </div>
         </div>
       </CardContent>
+
+      {/* Delete confirmation — super admin only */}
+      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Team</AlertDialogTitle>
+            <AlertDialogDescription>
+              Permanently delete <strong>{deleteTarget?.name}</strong>? This will remove all team members and submissions and cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                if (deleteTarget) {
+                  deleteRegistration.mutate(deleteTarget.id);
+                  setDeleteTarget(null);
+                }
+              }}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Card>
   );
 }

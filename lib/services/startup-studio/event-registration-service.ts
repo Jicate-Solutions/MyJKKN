@@ -512,6 +512,30 @@ export class EventRegistrationService {
     }
   }
 
+  static async updateRegistrationStatus(registrationId: string, status: string): Promise<void> {
+    const { error } = await this.supabase
+      .from('event_registrations')
+      .update({ status, updated_at: new Date().toISOString() })
+      .eq('id', registrationId);
+
+    if (error) {
+      console.error('[startup/registration] updateRegistrationStatus failed:', error);
+      throw new Error('Failed to update registration status. Please try again.');
+    }
+  }
+
+  static async deleteRegistration(registrationId: string): Promise<void> {
+    const { error } = await this.supabase
+      .from('event_registrations')
+      .delete()
+      .eq('id', registrationId);
+
+    if (error) {
+      console.error('[startup/registration] deleteRegistration failed:', error);
+      throw new Error('Failed to delete registration. Please try again.');
+    }
+  }
+
   static async toggleCheckIn(registrationId: string, userId: string, checked_in: boolean): Promise<void> {
     const { error } = await this.supabase
       .from('event_registrations')
