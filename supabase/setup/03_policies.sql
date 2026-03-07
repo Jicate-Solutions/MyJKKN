@@ -2725,14 +2725,15 @@ CREATE POLICY "startup_events_update_admin" ON startup_events
         EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND (is_super_admin = true OR role IN ('admin', 'administrator')))
     );
 
--- event_registrations: owner or admin/staff can read
+-- event_registrations: owner or admin/staff/faculty/hod/principal can read
 -- Updated: 2026-03-06 — removed event_team_members subquery to break mutual RLS recursion
 -- (event_registrations_select ↔ event_team_members_select caused infinite 42P17 cycle)
+-- Updated: 2026-03-07 — added faculty, hod, principal to allow registrations page visibility
 -- Invited members access registration data via SECURITY DEFINER function get_my_pending_invitations()
 CREATE POLICY "event_registrations_select" ON event_registrations
     FOR SELECT TO authenticated USING (
         owner_id = auth.uid()
-        OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND (is_super_admin = true OR role IN ('admin', 'administrator', 'staff')))
+        OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND (is_super_admin = true OR role IN ('admin', 'administrator', 'staff', 'faculty', 'hod', 'principal')))
     );
 
 CREATE POLICY "event_registrations_insert" ON event_registrations
@@ -2751,12 +2752,13 @@ CREATE POLICY "event_registrations_delete" ON event_registrations
         EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND is_super_admin = true)
     );
 
--- event_team_members: owner of registration can manage
+-- event_team_members: owner of registration or admin/staff/faculty/hod/principal can read
+-- Updated: 2026-03-07 — added faculty, hod, principal to match event_registrations_select
 CREATE POLICY "event_team_members_select" ON event_team_members
     FOR SELECT TO authenticated USING (
         EXISTS (SELECT 1 FROM event_registrations WHERE id = event_team_members.registration_id AND (
             owner_id = auth.uid()
-            OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND (is_super_admin = true OR role IN ('admin', 'administrator', 'staff')))
+            OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND (is_super_admin = true OR role IN ('admin', 'administrator', 'staff', 'faculty', 'hod', 'principal')))
         ))
     );
 
