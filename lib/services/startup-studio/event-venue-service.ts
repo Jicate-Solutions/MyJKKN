@@ -114,49 +114,51 @@ export class EventVenueService {
     eventId: string,
     dayType: DayType,
     userId: string
-  ): Promise<{ allocated: number; unallocated: number }> {
-    // Get all venues for this event + day_type
-    const { data: venues, error: venuesError } = await this.supabase
-      .from('event_venue_assignments')
-      .select('id, institution_id, capacity_override')
-      .eq('event_id', eventId)
-      .eq('day_type', dayType);
+  ): Promise<{ allocated: number; overflow: number; unallocated: number }> {
+    // Fetch venues, registrations, and existing allocations in parallel
+    const [
+      { data: venues, error: venuesError },
+      { data: registrations, error: regError },
+      { data: existingAllocations, error: allocError },
+    ] = await Promise.all([
+      this.supabase
+        .from('event_venue_assignments')
+        .select('id, institution_id, capacity_override')
+        .eq('event_id', eventId)
+        .eq('day_type', dayType),
+      this.supabase
+        .from('event_registrations')
+        .select('id, institution_id')
+        .eq('event_id', eventId),
+      this.supabase
+        .from('event_team_venue_allocations')
+        .select('id, registration_id, venue_assignment_id')
+        .eq('event_id', eventId)
+        .eq('day_type', dayType),
+    ]);
 
     if (venuesError) {
       console.error('[startup/venues] autoAllocateTeams getVenues failed:', venuesError);
       throw venuesError;
     }
-
-    // Get all registrations for this event
-    const { data: registrations, error: regError } = await this.supabase
-      .from('event_registrations')
-      .select('id, institution_id')
-      .eq('event_id', eventId);
-
     if (regError) {
       console.error('[startup/venues] autoAllocateTeams getRegistrations failed:', regError);
       throw regError;
     }
-
-    // Get existing allocations for this event + day_type
-    const { data: existingAllocations, error: allocError } = await this.supabase
-      .from('event_team_venue_allocations')
-      .select('id, registration_id, venue_assignment_id')
-      .eq('event_id', eventId)
-      .eq('day_type', dayType);
-
     if (allocError) {
       console.error('[startup/venues] autoAllocateTeams getExisting failed:', allocError);
       throw allocError;
     }
 
-    const allocatedRegIds = new Set((existingAllocations || []).map(a => a.registration_id));
-    const unallocatedRegs = (registrations || []).filter(r => !allocatedRegIds.has(r.id));
+    // Track which teams are already placed
+    const allocatedRegIds = new Set((existingAllocations || []).map((a: any) => a.registration_id));
+    let remainingRegs = (registrations || []).filter((r: any) => !allocatedRegIds.has(r.id));
 
-    // Count current allocations per venue
+    // Track live allocation counts per venue (updated as we build toInsert)
     const venueAllocCounts: Record<string, number> = {};
     for (const alloc of existingAllocations || []) {
-      venueAllocCounts[alloc.venue_assignment_id] = (venueAllocCounts[alloc.venue_assignment_id] || 0) + 1;
+      venueAllocCounts[(alloc as any).venue_assignment_id] =
+        (venueAllocCounts[(alloc as any).venue_assignment_id] || 0) + 1;
     }
 
     const toInsert: Array<{
@@ -167,24 +169,51 @@ export class EventVenueService {
       allocated_by: string;
     }> = [];
 
-    for (const reg of unallocatedRegs) {
-      // Find a venue matching institution_id with remaining capacity
-      const matchingVenue = (venues || []).find(v => {
-        if (v.institution_id !== reg.institution_id) return false;
-        const currentCount = venueAllocCounts[v.id] || 0;
-        const capacity = v.capacity_override || 0;
-        return capacity > currentCount;
-      });
+    // Helper: remaining capacity for a venue
+    const remainingCapacity = (v: any) =>
+      Math.max(0, (v.capacity_override || 0) - (venueAllocCounts[v.id] || 0));
 
-      if (matchingVenue) {
-        toInsert.push({
-          event_id: eventId,
-          registration_id: reg.id,
-          venue_assignment_id: matchingVenue.id,
-          day_type: dayType,
-          allocated_by: userId,
-        });
-        venueAllocCounts[matchingVenue.id] = (venueAllocCounts[matchingVenue.id] || 0) + 1;
+    const placeTeam = (regId: string, venue: any) => {
+      toInsert.push({
+        event_id: eventId,
+        registration_id: regId,
+        venue_assignment_id: venue.id,
+        day_type: dayType,
+        allocated_by: userId,
+      });
+      venueAllocCounts[venue.id] = (venueAllocCounts[venue.id] || 0) + 1;
+    };
+
+    // ── PASS 1: Same-institution matching ──────────────────────────────────
+    // Allocate each team to a venue belonging to the same institution.
+    // Venues with the most remaining capacity are preferred so space is used evenly.
+    const stillUnallocated: typeof remainingRegs = [];
+
+    for (const reg of remainingRegs) {
+      const sameInstVenues = (venues || [])
+        .filter((v: any) => v.institution_id === reg.institution_id && remainingCapacity(v) > 0)
+        .sort((a: any, b: any) => remainingCapacity(b) - remainingCapacity(a));
+
+      if (sameInstVenues.length > 0) {
+        placeTeam(reg.id, sameInstVenues[0]);
+      } else {
+        stillUnallocated.push(reg);
+      }
+    }
+
+    // ── PASS 2: Overflow — any venue with remaining capacity ───────────────
+    // Teams that had no same-institution venue (or all were full) are placed
+    // in any venue that still has space, prioritising venues with most capacity.
+    let overflowCount = 0;
+
+    for (const reg of stillUnallocated) {
+      const anyVenue = (venues || [])
+        .filter((v: any) => remainingCapacity(v) > 0)
+        .sort((a: any, b: any) => remainingCapacity(b) - remainingCapacity(a));
+
+      if (anyVenue.length > 0) {
+        placeTeam(reg.id, anyVenue[0]);
+        overflowCount++;
       }
     }
 
@@ -199,9 +228,11 @@ export class EventVenueService {
       }
     }
 
+    const totalAllocated = toInsert.length;
     return {
-      allocated: toInsert.length,
-      unallocated: unallocatedRegs.length - toInsert.length,
+      allocated: totalAllocated - overflowCount,  // same-institution placements
+      overflow: overflowCount,                      // cross-institution overflow placements
+      unallocated: remainingRegs.length - totalAllocated,
     };
   }
 

@@ -88,7 +88,17 @@ export function useAutoAllocateTeams() {
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['event-venues'] });
       queryClient.invalidateQueries({ queryKey: ['event-registrations'] });
-      toast.success(`Allocated ${data.allocated} teams (${data.unallocated} unallocated)`);
+      const parts: string[] = [];
+      if (data.allocated > 0) parts.push(`${data.allocated} same-institution`);
+      if (data.overflow > 0) parts.push(`${data.overflow} overflow`);
+      const total = data.allocated + data.overflow;
+      if (total === 0) {
+        toast.success('All teams already allocated');
+      } else if (data.unallocated > 0) {
+        toast.success(`Allocated ${total} teams (${parts.join(', ')}) — ${data.unallocated} unallocated (no venue capacity)`);
+      } else {
+        toast.success(`Allocated ${total} teams (${parts.join(', ')})`);
+      }
     },
     onError: (error: any) => toast.error(error.message || 'Failed to auto-allocate teams'),
   });
