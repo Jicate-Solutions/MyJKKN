@@ -381,19 +381,24 @@ export async function POST(request: Request) {
             );
           }
 
-          // Find the orphaned auth user by email
-          const { data: listData, error: listError } = await supabaseAdmin.auth.admin.listUsers({
+          // Find the orphaned auth user by email.
+          // Note: do NOT destructure the result — destructuring breaks TypeScript's
+          // discriminated union narrowing, causing listData.users to remain `never[]`.
+          const listResult = await supabaseAdmin.auth.admin.listUsers({
             page: 1,
             perPage: 1000,
           });
 
-          if (listError || !listData?.users) {
+          if (listResult.error || !listResult.data?.users) {
             throw new Error(
-              `Auth conflict for ${learner.college_email} but could not list auth users: ${listError?.message}`
+              `Auth conflict for ${learner.college_email} but could not list auth users: ${listResult.error?.message}`
             );
           }
 
-          const existingAuthUser = listData.users.find(
+          // Type assertion needed: Supabase's listUsers generic doesn't narrow
+          // users[] away from `never[]` even after an error guard in some TS versions.
+          type AuthUserMin = { id: string; email?: string | undefined };
+          const existingAuthUser = (listResult.data.users as AuthUserMin[]).find(
             (u) => u.email?.toLowerCase() === emailLower
           );
 
