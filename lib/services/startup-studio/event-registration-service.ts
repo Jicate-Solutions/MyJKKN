@@ -16,20 +16,24 @@ export class EventRegistrationService {
   }
 
   static async validateRegistration(eventId: string, userId: string): Promise<ValidationResult> {
-    const { data: event, error: eventError } = await this.supabase
-      .from('startup_events')
-      .select('id, status, registration_deadline, config')
-      .eq('id', eventId)
-      .single();
+    const [{ data: event, error: eventError }, { data: userProfile }] = await Promise.all([
+      this.supabase.from('startup_events').select('id, status, registration_deadline, config').eq('id', eventId).single(),
+      this.supabase.from('profiles').select('is_super_admin, role').eq('id', userId).maybeSingle(),
+    ]);
 
     if (eventError || !event) {
       return { valid: false, error: 'Event not found' };
     }
-    if (event.status !== 'registration_open') {
-      return { valid: false, error: 'Registration is not open for this event' };
-    }
-    if (event.registration_deadline && new Date(event.registration_deadline) < new Date()) {
-      return { valid: false, error: 'Registration deadline has passed' };
+
+    const isAdmin = userProfile?.is_super_admin || ['super_admin', 'admin', 'administrator'].includes(userProfile?.role || '');
+
+    if (!isAdmin) {
+      if (event.status !== 'registration_open') {
+        return { valid: false, error: 'Registration is not open for this event' };
+      }
+      if (event.registration_deadline && new Date(event.registration_deadline) < new Date()) {
+        return { valid: false, error: 'Registration deadline has passed' };
+      }
     }
 
     // Check if user already owns a team for this event

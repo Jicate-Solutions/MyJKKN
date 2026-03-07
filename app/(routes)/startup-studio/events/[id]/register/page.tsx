@@ -4,12 +4,14 @@ import { use } from 'react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { useEvent } from '@/hooks/startup-studio/use-events';
+import { useAuth } from '@/hooks/use-auth';
 import { RegistrationForm } from './_components/registration-form';
 import { Loader2 } from 'lucide-react';
 
 export default function RegisterPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const { data: event, isLoading } = useEvent(id);
+  const { profile } = useAuth();
 
   if (isLoading) {
     return (
@@ -29,11 +31,12 @@ export default function RegisterPage({ params }: { params: Promise<{ id: string 
     );
   }
 
+  const isAdmin = (profile as any)?.is_super_admin || ['super_admin', 'admin', 'administrator'].includes(profile?.role || '');
   const isOpen = event.status === 'registration_open' &&
     event.registration_deadline &&
     new Date(event.registration_deadline) > new Date();
 
-  if (!isOpen) {
+  if (!isOpen && !isAdmin) {
     return (
       <ContentLayout title="Register">
         <div className="text-center py-20 text-muted-foreground">

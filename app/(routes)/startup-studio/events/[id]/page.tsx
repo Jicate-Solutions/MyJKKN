@@ -157,7 +157,7 @@ export default function EventDetailPage({ params }: { params: Promise<{ id: stri
 
               {/* Quick Action Buttons */}
               <div className="shrink-0 flex flex-col gap-3 min-w-[200px]">
-                {isRegistrationOpen && !isInATeam && (
+                {(isRegistrationOpen || isAdmin) && !isInATeam && (
                   <Link href={`/startup-studio/events/${id}/register`} className="w-full">
                     <Button size="lg" className="w-full gap-2 shadow-md hover:shadow-lg transition-all bg-primary hover:bg-primary/90">
                       <Rocket className="h-4 w-4" /> Register Team
@@ -337,7 +337,7 @@ export default function EventDetailPage({ params }: { params: Promise<{ id: stri
         {/* Action Banners */}
         <div className="grid gap-6">
           {/* Registration CTA */}
-          {isRegistrationOpen && !isInATeam && (
+          {(isRegistrationOpen || isAdmin) && !isInATeam && (
             <div className="relative overflow-hidden rounded-xl bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-950/30 dark:to-teal-950/30 border border-emerald-100 dark:border-emerald-900/50 p-6 md:p-8">
               <div className="flex flex-col md:flex-row items-center justify-between gap-6 relative z-10">
                 <div className="flex items-start gap-4">

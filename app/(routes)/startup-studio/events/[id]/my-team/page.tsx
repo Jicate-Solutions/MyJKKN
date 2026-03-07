@@ -47,8 +47,8 @@ export default function MyTeamPage({ params }: { params: Promise<{ id: string }>
   const { id } = use(params);
   const { profile, isLoading: authLoading } = useAuth();
   const { data: event } = useEvent(id);
-  const { data: registration, isLoading: regLoading } = useMyRegistration(id);
-  const { data: membership, isLoading: memberLoading } = useMyAcceptedMembership(id);
+  const { data: registration, isLoading: regLoading, isFetching: regFetching } = useMyRegistration(id);
+  const { data: membership, isLoading: memberLoading, isFetching: memberFetching } = useMyAcceptedMembership(id);
   const { data: teamMembers = [] } = useMyTeamMembers(id);
   const { data: pendingInvitations = [] } = useMyPendingInvitations();
   const removeMember = useRemoveTeamMember();
@@ -63,7 +63,10 @@ export default function MyTeamPage({ params }: { params: Promise<{ id: string }>
   const [nameDraft, setNameDraft] = useState('');
   const [codeCopied, setCodeCopied] = useState(false);
 
-  const isLoading = authLoading || regLoading || memberLoading;
+  // Also wait when both queries are still fetching with no resolved data yet
+  // (guards against stale-null flash on browser back navigation or slow networks)
+  const bothStillFetching = (regFetching && registration == null) && (memberFetching && membership == null);
+  const isLoading = authLoading || regLoading || memberLoading || bothStillFetching;
 
   const membershipAny = membership as any;
   const submissionRegistrationId = registration?.id ?? membershipAny?.registration_id;

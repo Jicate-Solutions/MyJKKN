@@ -79,8 +79,9 @@ export function useRegisterTeam() {
       return EventRegistrationService.registerTeam(dto, profile.id);
     },
     onSuccess: (data) => {
+      // Pre-populate cache so My Team page has data on first render (no stale-null flash)
+      queryClient.setQueryData(['my-registration', data.event_id, profile?.id], data);
       queryClient.invalidateQueries({ queryKey: ['event-registrations'] });
-      queryClient.invalidateQueries({ queryKey: ['my-registration'] });
       queryClient.invalidateQueries({ queryKey: ['startup-event-stats'] });
       toast.success('Team registered successfully!');
       router.push(`/startup-studio/events/${data.event_id}/my-team`);

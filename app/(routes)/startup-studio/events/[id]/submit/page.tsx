@@ -1,6 +1,6 @@
 'use client';
 
-import { use, useMemo } from 'react';
+import { use, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -60,6 +60,21 @@ const metricsSchema = z.object({
 
 type ProjectFormValues = z.infer<typeof projectSchema>;
 type MetricsFormValues = z.infer<typeof metricsSchema>;
+
+// ── Draft persistence helpers ─────────────────────────────────────────────
+function readDraft<T>(key: string): Partial<T> | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const s = sessionStorage.getItem(key);
+    return s ? (JSON.parse(s) as Partial<T>) : null;
+  } catch { return null; }
+}
+function saveDraft(key: string, values: unknown) {
+  try { sessionStorage.setItem(key, JSON.stringify(values)); } catch {}
+}
+function clearDraft(key: string) {
+  try { sessionStorage.removeItem(key); } catch {}
+}
 
 const TIER_NAMES: Record<number, string> = {
   0: 'No Submission',
@@ -149,6 +164,7 @@ export default function SubmitPage({ params }: { params: Promise<{ id: string }>
           submission={submission}
           locked={metricsLocked}
           config={event?.config as EventConfig}
+          eventId={id}
         />
       </div>
     </ContentLayout>
@@ -168,29 +184,37 @@ function ProjectSection({
   const updateSubmission = useUpdateSubmission();
   const router = useRouter();
 
+  const draftKey = `startup-submit-${eventId}`;
+  const draft = !locked ? readDraft<ProjectFormValues>(draftKey) : null;
+
   const form = useForm<ProjectFormValues>({
     resolver: zodResolver(projectSchema),
     defaultValues: {
-      app_name: submission?.app_name || '',
-      category: submission?.category || '',
-      problem_statement: submission?.problem_statement || '',
-      solution_summary: submission?.solution_summary || '',
-      elevator_pitch: submission?.elevator_pitch || '',
-      live_app_url: submission?.live_app_url || '',
-      lovable_url: submission?.lovable_url || '',
-      github_url: submission?.github_url || '',
-      demo_video_url: submission?.demo_video_url || '',
+      app_name: draft?.app_name ?? submission?.app_name ?? '',
+      category: draft?.category ?? submission?.category ?? '',
+      problem_statement: draft?.problem_statement ?? submission?.problem_statement ?? '',
+      solution_summary: draft?.solution_summary ?? submission?.solution_summary ?? '',
+      elevator_pitch: draft?.elevator_pitch ?? submission?.elevator_pitch ?? '',
+      live_app_url: draft?.live_app_url ?? submission?.live_app_url ?? '',
+      lovable_url: draft?.lovable_url ?? submission?.lovable_url ?? '',
+      github_url: draft?.github_url ?? submission?.github_url ?? '',
+      demo_video_url: draft?.demo_video_url ?? submission?.demo_video_url ?? '',
     },
   });
+
+  // Save draft on every field change (skip when locked — nothing to draft)
+  useEffect(() => {
+    if (locked) return;
+    const subscription = form.watch((values) => saveDraft(draftKey, values));
+    return () => subscription.unsubscribe();
+  }, [form, draftKey, locked]);
 
   const redirectToTeam = () => router.push(`/startup-studio/events/${eventId}/my-team`);
 
   const onSubmit = (values: ProjectFormValues) => {
+    const onSuccess = () => { clearDraft(draftKey); redirectToTeam(); };
     if (submission) {
-      updateSubmission.mutate(
-        { id: submission.id, dto: values },
-        { onSuccess: redirectToTeam }
-      );
+      updateSubmission.mutate({ id: submission.id, dto: values }, { onSuccess });
     } else {
       submitProject.mutate(
         {
@@ -206,7 +230,7 @@ function ProjectSection({
           demo_video_url: values.demo_video_url || undefined,
           category: values.category || undefined,
         },
-        { onSuccess: redirectToTeam }
+        { onSuccess }
       );
     }
   };
@@ -361,7 +385,7 @@ function ProjectSection({
             <Button
               type="button"
               variant="outline"
-              onClick={() => router.back()}
+              onClick={() => { clearDraft(draftKey); router.back(); }}
               disabled={isPending}
             >
               Cancel
@@ -378,23 +402,34 @@ function ProjectSection({
 }
 
 function MetricsSection({
-  submission, locked, config,
+  submission, locked, config, eventId,
 }: {
   submission: any;
   locked: boolean;
   config: EventConfig;
+  eventId: string;
 }) {
   const updateMetrics = useUpdateMetrics();
+
+  const draftKey = `startup-metrics-${eventId}`;
+  const draft = !locked ? readDraft<MetricsFormValues>(draftKey) : null;
 
   const form = useForm<MetricsFormValues>({
     resolver: zodResolver(metricsSchema),
     defaultValues: {
-      mrr_amount: submission?.mrr_amount || 0,
-      paying_users_count: submission?.paying_users_count || 0,
-      user_count: submission?.user_count || 0,
-      proof_urls: submission?.proof_urls?.join(', ') || '',
+      mrr_amount: draft?.mrr_amount ?? submission?.mrr_amount ?? 0,
+      paying_users_count: draft?.paying_users_count ?? submission?.paying_users_count ?? 0,
+      user_count: draft?.user_count ?? submission?.user_count ?? 0,
+      proof_urls: draft?.proof_urls ?? (submission?.proof_urls?.join(', ') || ''),
     },
   });
+
+  // Save metrics draft on every change
+  useEffect(() => {
+    if (locked) return;
+    const subscription = form.watch((values) => saveDraft(draftKey, values));
+    return () => subscription.unsubscribe();
+  }, [form, draftKey, locked]);
 
   const watchedValues = form.watch();
 
@@ -416,16 +451,19 @@ function MetricsSection({
     const proofUrls = values.proof_urls
       ? values.proof_urls.split(',').map((u) => u.trim()).filter(Boolean)
       : [];
-    updateMetrics.mutate({
-      id: submission.id,
-      dto: {
-        mrr_amount: values.mrr_amount,
-        paying_users_count: values.paying_users_count,
-        user_count: values.user_count,
-        proof_urls: proofUrls,
+    updateMetrics.mutate(
+      {
+        id: submission.id,
+        dto: {
+          mrr_amount: values.mrr_amount,
+          paying_users_count: values.paying_users_count,
+          user_count: values.user_count,
+          proof_urls: proofUrls,
+        },
+        config,
       },
-      config,
-    });
+      { onSuccess: () => clearDraft(draftKey) }
+    );
   };
 
   if (!submission) {
