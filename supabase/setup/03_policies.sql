@@ -2924,3 +2924,51 @@ CREATE POLICY "event_checklist_completions_insert" ON event_checklist_completion
 -- Updated: 2026-03-06 - Grant execute on facilitator attendance stats RPC
 GRANT EXECUTE ON FUNCTION get_facilitator_attendance_stats(UUID, DATE, DATE, UUID, UUID)
   TO authenticated;
+
+-- ── event_team_attendance (startup studio attendance) — Added 2026-03-07 ──────
+
+-- All authenticated users can read
+CREATE POLICY "event_team_attendance_select" ON event_team_attendance
+    FOR SELECT TO authenticated USING (true);
+
+-- Admins OR staff assigned to the venue can insert
+CREATE POLICY "event_team_attendance_insert" ON event_team_attendance
+    FOR INSERT TO authenticated WITH CHECK (
+        EXISTS (
+            SELECT 1 FROM profiles
+            WHERE id = auth.uid()
+            AND (is_super_admin = true OR role IN ('admin', 'administrator'))
+        )
+        OR EXISTS (
+            SELECT 1 FROM event_staff_assignments esa
+            JOIN staff s ON esa.staff_id = s.id
+            JOIN profiles p ON p.email = s.email
+            WHERE p.id = auth.uid()
+            AND esa.venue_assignment_id = event_team_attendance.venue_assignment_id
+            AND esa.event_id = event_team_attendance.event_id
+        )
+    );
+
+-- Admins OR assigned staff can update
+CREATE POLICY "event_team_attendance_update" ON event_team_attendance
+    FOR UPDATE TO authenticated USING (
+        EXISTS (
+            SELECT 1 FROM profiles
+            WHERE id = auth.uid()
+            AND (is_super_admin = true OR role IN ('admin', 'administrator'))
+        )
+        OR EXISTS (
+            SELECT 1 FROM event_staff_assignments esa
+            JOIN staff s ON esa.staff_id = s.id
+            JOIN profiles p ON p.email = s.email
+            WHERE p.id = auth.uid()
+            AND esa.venue_assignment_id = event_team_attendance.venue_assignment_id
+            AND esa.event_id = event_team_attendance.event_id
+        )
+    );
+
+-- Only super admins can delete
+CREATE POLICY "event_team_attendance_delete" ON event_team_attendance
+    FOR DELETE TO authenticated USING (
+        EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND is_super_admin = true)
+    );

@@ -94,7 +94,9 @@ import {
   useManualAllocate,
   useRemoveAllocation,
   useStaffList,
+  useEventAttendanceMap,
 } from '@/hooks/startup-studio/use-event-venues';
+import { VenueAttendanceSheet } from './venue-attendance-sheet';
 import { useEventRegistrations } from '@/hooks/startup-studio/use-event-registrations';
 import { useAuth } from '@/hooks/use-auth';
 import type { DayType, StaffRole, EventVenueAssignment } from '@/types/startup-studio';
@@ -284,7 +286,10 @@ function VenuesDataTable({ venues, eventId, dayType, isSuperAdmin, unallocatedTe
   const [sorting, setSorting] = useState<SortingState>([]);
   const [detailVenue, setDetailVenue] = useState<EventVenueAssignment | null>(null);
   const [editVenue, setEditVenue] = useState<EventVenueAssignment | null>(null);
+  const [attendanceVenue, setAttendanceVenue] = useState<EventVenueAssignment | null>(null);
   const [showAvailableOnly, setShowAvailableOnly] = useState(false);
+
+  const { data: attendanceMap = {} } = useEventAttendanceMap(eventId, dayType);
 
   // Pre-filter data before TanStack sees it — "available" = has remaining capacity
   const tableData = useMemo(() =>
@@ -391,6 +396,46 @@ function VenuesDataTable({ venues, eventId, dayType, isSuperAdmin, unallocatedTe
       },
     },
     {
+      id: 'attendance',
+      accessorFn: (row) => attendanceMap[row.id]?.total || 0,
+      header: ({ column }) => <SortableHeader column={column} label="Attendance" />,
+      cell: ({ row }) => {
+        const v = row.original;
+        const att = attendanceMap[v.id];
+        const teams = v.team_allocations?.length || 0;
+        if (teams === 0) return <span className="text-xs text-muted-foreground">—</span>;
+        if (!att || att.total === 0) {
+          return (
+            <span className="text-xs text-muted-foreground italic">Not started</span>
+          );
+        }
+        return (
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {att.present > 0 && (
+              <span className="text-[10px] font-medium text-green-600 bg-green-100 dark:bg-green-950/40 rounded px-1.5 py-0.5">
+                ✓{att.present}
+              </span>
+            )}
+            {att.absent > 0 && (
+              <span className="text-[10px] font-medium text-red-600 bg-red-100 dark:bg-red-950/40 rounded px-1.5 py-0.5">
+                ✗{att.absent}
+              </span>
+            )}
+            {att.late > 0 && (
+              <span className="text-[10px] font-medium text-amber-600 bg-amber-100 dark:bg-amber-950/40 rounded px-1.5 py-0.5">
+                ⏱{att.late}
+              </span>
+            )}
+            {(teams - att.total) > 0 && (
+              <span className="text-[10px] text-muted-foreground">
+                ?{teams - att.total}
+              </span>
+            )}
+          </div>
+        );
+      },
+    },
+    {
       id: 'actions',
       header: '',
       enableSorting: false,
@@ -405,13 +450,20 @@ function VenuesDataTable({ venues, eventId, dayType, isSuperAdmin, unallocatedTe
                   <span className="sr-only">Open menu</span>
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-44">
+              <DropdownMenuContent align="end" className="w-52">
                 <DropdownMenuItem
                   className="gap-2 cursor-pointer"
                   onSelect={() => setDetailVenue(venue)}
                 >
                   <Eye className="h-3.5 w-3.5 text-muted-foreground" />
                   View Details
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  className="gap-2 cursor-pointer"
+                  onSelect={() => setAttendanceVenue(venue)}
+                >
+                  <CheckCircle2 className="h-3.5 w-3.5 text-muted-foreground" />
+                  Mark Attendance
                 </DropdownMenuItem>
                 {isSuperAdmin && (
                   <DropdownMenuItem
@@ -573,6 +625,15 @@ function VenuesDataTable({ venues, eventId, dayType, isSuperAdmin, unallocatedTe
         dayType={dayType}
         venues={venues}
         onClose={() => setDetailVenue(null)}
+      />
+
+      {/* Attendance sheet */}
+      <VenueAttendanceSheet
+        venue={attendanceVenue}
+        eventId={eventId}
+        dayType={dayType}
+        open={!!attendanceVenue}
+        onClose={() => setAttendanceVenue(null)}
       />
 
       {/* Edit dialog — controlled, not trigger-based (avoids Radix focus trap conflicts with dropdown) */}

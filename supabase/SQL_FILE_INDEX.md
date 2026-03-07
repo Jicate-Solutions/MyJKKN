@@ -75,7 +75,7 @@ When updating any SQL file:
 | Child App Auth  | ~~child_app_analytics, child_app_auth_codes_bucket, child_app_unified_sessions~~ (REMOVED 2025-01-20)                                                                                                     | 0     | ❌ Dropped - moved to auth server                          |
 | LTI Integration | lti_tools, lti_launches, lti_grades                                                                                                                                                                                         | 3     | ✅ Complete - MATLAB integration |
 | **Service Requests** | **service_types, service_type_fields, service_request_approval_steps, service_requests, service_request_approvals, service_request_timeline, service_request_attachments** | **7** | **✅ NEW - Dynamic configurable service request system** |
-| **Startup Studio** | **startup_events, event_registrations, event_team_members, event_venue_assignments, event_team_venue_allocations, event_staff_assignments, event_demo_slots, event_submissions, event_checklists, event_checklist_items, event_checklist_completions** | **11** | **NEW - Generic event platform for hackathons/competitions** |
+| **Startup Studio** | **startup_events, event_registrations, event_team_members, event_venue_assignments, event_team_venue_allocations, event_staff_assignments, event_demo_slots, event_submissions, event_checklists, event_checklist_items, event_checklist_completions, event_team_attendance** | **12** | **NEW - Generic event platform for hackathons/competitions** |
 | Other           | applications (with parent auth + LTI), categories, subcategories, employment_categories, user_activity_logs, activity_stats, institution_departments, migration_log                                                           | 8     | ✅ Updated with auth + LTI  |
 
 ### Functions (244 total - Updated 2026-02-09)
@@ -201,6 +201,28 @@ When updating any SQL file:
   **Purpose**: Aggregates `student_attendance.marked_by` counts per staff member to power the live facilitator attendance dashboard at `/attendance/consolidation/facilitators`. Returns summary totals, per-facilitator detail with weekly trend and daily heatmap data, and department-level breakdown — all as a single JSONB response.
 
   **Function signature**: `get_facilitator_attendance_stats(p_institution_id UUID, p_date_from DATE, p_date_to DATE, p_department_id UUID DEFAULT NULL, p_program_id UUID DEFAULT NULL, p_semester_id UUID DEFAULT NULL, p_facilitator_id UUID DEFAULT NULL) → JSONB`
+
+---
+
+### 2026-03-07: Startup Studio — Per-Venue Team Attendance
+
+- **Files Updated**:
+  - `supabase/setup/01_tables.sql` — Added `event_team_attendance` table with 3 indexes and RLS enabled
+  - `supabase/setup/03_policies.sql` — Added 4 RLS policies for `event_team_attendance`
+  - `supabase/migrations/20260307000000_add_event_team_attendance.sql` — Applied migration ✅
+
+  **Purpose**: Track per-team attendance for each day type (build_day / demo_day) at a given venue. Enforces a unique attendance record per `(event_id, registration_id, day_type)`. Insert/update restricted to admins or staff assigned to that venue; delete restricted to super admins.
+
+**event_team_attendance** — New table:
+- `event_id` → `startup_events.id`
+- `registration_id` → `event_registrations.id`
+- `venue_assignment_id` → `event_venue_assignments.id`
+- `day_type TEXT` — `'build_day'` or `'demo_day'`
+- `status TEXT` — `'present'` | `'absent'` | `'late'` (default `'present'`)
+- `marked_by` → `profiles.id`
+- `marked_at TIMESTAMPTZ`
+- `notes TEXT`
+- UNIQUE constraint on `(event_id, registration_id, day_type)`
 
 ---
 

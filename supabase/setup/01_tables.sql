@@ -2072,6 +2072,26 @@ ALTER TABLE event_checklist_completions ENABLE ROW LEVEL SECURITY;
 -- event_team_members: added learner_id UUID (→ learners_profiles), status TEXT (pending/accepted/declined/removed),
 --                     is_leader BOOLEAN, responded_at TIMESTAMPTZ
 
+-- ── event_team_attendance (startup studio attendance) — Added 2026-03-07 ──────
+CREATE TABLE IF NOT EXISTS public.event_team_attendance (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    event_id UUID NOT NULL REFERENCES startup_events(id) ON DELETE CASCADE,
+    registration_id UUID NOT NULL REFERENCES event_registrations(id) ON DELETE CASCADE,
+    venue_assignment_id UUID NOT NULL REFERENCES event_venue_assignments(id) ON DELETE CASCADE,
+    day_type TEXT NOT NULL CHECK (day_type IN ('build_day', 'demo_day')),
+    status TEXT NOT NULL DEFAULT 'present' CHECK (status IN ('present', 'absent', 'late')),
+    marked_by UUID NOT NULL REFERENCES profiles(id),
+    marked_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    notes TEXT,
+    UNIQUE(event_id, registration_id, day_type)
+);
+
+CREATE INDEX IF NOT EXISTS idx_event_team_attendance_event ON event_team_attendance(event_id);
+CREATE INDEX IF NOT EXISTS idx_event_team_attendance_venue ON event_team_attendance(venue_assignment_id);
+CREATE INDEX IF NOT EXISTS idx_event_team_attendance_registration ON event_team_attendance(registration_id);
+
+ALTER TABLE public.event_team_attendance ENABLE ROW LEVEL SECURITY;
+
 -- =====================================================
 -- END OF TABLE DEFINITIONS
 -- =====================================================

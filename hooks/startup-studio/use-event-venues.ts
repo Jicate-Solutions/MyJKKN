@@ -2,7 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import { EventVenueService } from '@/lib/services/startup-studio/event-venue-service';
 import { useAuth } from '@/hooks/use-auth';
-import type { CreateVenueDto, UpdateVenueDto, DayType, StaffRole } from '@/types/startup-studio';
+import type { CreateVenueDto, UpdateVenueDto, DayType, StaffRole, MarkAttendanceDto, EventTeamAttendance } from '@/types/startup-studio';
 
 export function useEventVenues(eventId: string, dayType?: DayType) {
   return useQuery({
@@ -164,5 +164,52 @@ export function useStaffList(institutionId?: string) {
     queryFn: () => EventVenueService.getStaffList(institutionId),
     staleTime: 60 * 1000,
     retry: 3,
+  });
+}
+
+export function useEventAttendanceMap(eventId: string, dayType: DayType) {
+  return useQuery({
+    queryKey: ['event-attendance-map', eventId, dayType],
+    queryFn: () => EventVenueService.getEventAttendanceMap(eventId, dayType),
+    enabled: !!eventId,
+    staleTime: 10 * 1000,
+    retry: 3,
+  });
+}
+
+export function useStaffVenues(eventId: string, staffEmail: string, dayType?: DayType) {
+  return useQuery({
+    queryKey: ['event-venues-staff', eventId, staffEmail, dayType],
+    queryFn: () => EventVenueService.getVenuesForStaff(eventId, staffEmail, dayType),
+    enabled: !!eventId && !!staffEmail,
+    staleTime: 15 * 1000,
+    retry: 3,
+  });
+}
+
+export function useVenueAttendance(eventId: string, venueAssignmentId: string, dayType: DayType) {
+  return useQuery({
+    queryKey: ['venue-attendance', eventId, venueAssignmentId, dayType],
+    queryFn: () => EventVenueService.getVenueAttendance(eventId, venueAssignmentId, dayType),
+    enabled: !!eventId && !!venueAssignmentId,
+    staleTime: 10 * 1000,
+    retry: 3,
+  });
+}
+
+export function useMarkAttendance() {
+  const queryClient = useQueryClient();
+  const { profile } = useAuth();
+
+  return useMutation({
+    mutationFn: (dto: MarkAttendanceDto) => {
+      if (!profile?.id) throw new Error('Not authenticated');
+      return EventVenueService.markAttendance(dto, profile.id);
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['venue-attendance', variables.event_id] });
+      toast.success('Attendance marked');
+    },
+    onError: (error: any) => toast.error(error.message || 'Failed to mark attendance'),
   });
 }

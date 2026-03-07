@@ -376,6 +376,36 @@ export interface StudentSearchResult {
   semester_name: string | null;
 }
 
+// -- Attendance --
+
+export type AttendanceStatus = 'present' | 'absent' | 'late' | 'excused';
+
+export interface EventTeamAttendance {
+  id: string;
+  event_id: string;
+  registration_id: string;
+  venue_assignment_id: string;
+  day_type: DayType;
+  status: AttendanceStatus;
+  notes: string | null;
+  marked_by: string | null;
+  marked_at: string | null;
+  created_at: string;
+  updated_at: string;
+  // Relations
+  registration?: Pick<EventRegistration, 'id' | 'team_name' | 'institution_id'>;
+  marker?: { id: string; full_name: string | null; email: string | null };
+}
+
+export interface MarkAttendanceDto {
+  event_id: string;
+  registration_id: string;
+  venue_assignment_id: string;
+  day_type: DayType;
+  status: AttendanceStatus;
+  notes?: string;
+}
+
 // -- Pending Invitation View --
 
 export interface PendingInvitation {

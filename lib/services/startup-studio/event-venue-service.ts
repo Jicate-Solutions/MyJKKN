@@ -310,4 +310,141 @@ export class EventVenueService {
     }
     return (data || []) as Array<{ id: string; first_name: string; last_name: string; email: string; department_id: string | null }>;
   }
+
+  static async getVenuesForStaff(eventId: string, staffEmail: string, dayType?: DayType): Promise<EventVenueAssignment[]> {
+    // Look up staff record by email
+    const { data: staffRecord, error: staffError } = await this.supabase
+      .from('staff')
+      .select('id')
+      .eq('email', staffEmail)
+      .maybeSingle();
+
+    if (staffError) {
+      console.error('[startup/venues] getVenuesForStaff staff lookup failed:', staffError);
+      throw staffError;
+    }
+    if (!staffRecord) return [];
+
+    // Get venue IDs where this staff member is assigned
+    let assignmentQuery = this.supabase
+      .from('event_staff_assignments')
+      .select('venue_assignment_id')
+      .eq('event_id', eventId)
+      .eq('staff_id', staffRecord.id);
+
+    if (dayType) {
+      assignmentQuery = assignmentQuery.eq('day_type', dayType);
+    }
+
+    const { data: assignments, error: assignError } = await assignmentQuery;
+    if (assignError) {
+      console.error('[startup/venues] getVenuesForStaff assignments failed:', assignError);
+      throw assignError;
+    }
+    if (!assignments || assignments.length === 0) return [];
+
+    const venueIds = [...new Set(assignments.map((a: any) => a.venue_assignment_id))];
+
+    // Fetch full venue data for those IDs (same joins as getVenues)
+    let query = this.supabase
+      .from('event_venue_assignments')
+      .select(`
+        *,
+        institution:institutions(id, name),
+        staff_assignments:event_staff_assignments(id, staff_id, role, day_type, staff:staff(id, first_name, last_name, email)),
+        team_allocations:event_team_venue_allocations(id, registration_id, registration:event_registrations(id, team_name, institution_id))
+      `)
+      .in('id', venueIds)
+      .eq('event_id', eventId)
+      .order('created_at', { ascending: true });
+
+    if (dayType) {
+      query = query.eq('day_type', dayType);
+    }
+
+    const { data, error } = await query;
+    if (error) {
+      console.error('[startup/venues] getVenuesForStaff venues failed:', error);
+      throw error;
+    }
+    return (data || []) as unknown as EventVenueAssignment[];
+  }
+
+  static async getVenueAttendance(
+    eventId: string,
+    venueAssignmentId: string,
+    dayType: DayType
+  ): Promise<import('@/types/startup-studio').EventTeamAttendance[]> {
+    const { data, error } = await this.supabase
+      .from('event_team_attendance')
+      .select(`
+        *,
+        registration:event_registrations(id, team_name, institution_id),
+        marker:profiles!event_team_attendance_marked_by_fkey(id, full_name, email)
+      `)
+      .eq('event_id', eventId)
+      .eq('venue_assignment_id', venueAssignmentId)
+      .eq('day_type', dayType)
+      .order('marked_at', { ascending: true });
+
+    if (error) {
+      console.error('[startup/venues] getVenueAttendance failed:', error);
+      throw error;
+    }
+    return (data || []) as unknown as import('@/types/startup-studio').EventTeamAttendance[];
+  }
+
+  static async getEventAttendanceMap(
+    eventId: string,
+    dayType: DayType
+  ): Promise<Record<string, { present: number; absent: number; late: number; excused: number; total: number }>> {
+    const { data, error } = await this.supabase
+      .from('event_team_attendance')
+      .select('venue_assignment_id, status')
+      .eq('event_id', eventId)
+      .eq('day_type', dayType);
+
+    if (error) {
+      console.error('[startup/venues] getEventAttendanceMap failed:', error);
+      throw error;
+    }
+
+    const map: Record<string, { present: number; absent: number; late: number; excused: number; total: number }> = {};
+    for (const record of data || []) {
+      const key = record.venue_assignment_id;
+      if (!map[key]) map[key] = { present: 0, absent: 0, late: 0, excused: 0, total: 0 };
+      map[key][record.status as 'present' | 'absent' | 'late' | 'excused']++;
+      map[key].total++;
+    }
+    return map;
+  }
+
+  static async markAttendance(
+    dto: import('@/types/startup-studio').MarkAttendanceDto,
+    userId: string
+  ): Promise<import('@/types/startup-studio').EventTeamAttendance> {
+    const { data, error } = await this.supabase
+      .from('event_team_attendance')
+      .upsert(
+        {
+          event_id: dto.event_id,
+          registration_id: dto.registration_id,
+          venue_assignment_id: dto.venue_assignment_id,
+          day_type: dto.day_type,
+          status: dto.status,
+          notes: dto.notes || null,
+          marked_by: userId,
+          marked_at: new Date().toISOString(),
+        },
+        { onConflict: 'event_id,registration_id,day_type' }
+      )
+      .select()
+      .single();
+
+    if (error) {
+      console.error('[startup/venues] markAttendance failed:', error);
+      throw error;
+    }
+    return data as unknown as import('@/types/startup-studio').EventTeamAttendance;
+  }
 }
