@@ -284,7 +284,7 @@ export function RegistrationsTable({ eventId, isSuperAdmin, eventName }: { event
         </div>
 
         {/* Stats row — updates with filters */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 pt-2">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 pt-2">
           <StatCard
             icon={<Users className="h-4 w-4 text-blue-500" />}
             label="Total Teams"

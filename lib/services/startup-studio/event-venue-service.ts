@@ -294,14 +294,15 @@ export class EventVenueService {
     }
   }
 
-  static async getStaffList(institutionId?: string): Promise<Array<{ id: string; first_name: string; last_name: string; email: string; department_id: string | null }>> {
+  static async getStaffList(institutionId?: string, departmentId?: string): Promise<Array<{ id: string; first_name: string; last_name: string; email: string; department_id: string | null }>> {
     let query = this.supabase
       .from('staff')
-      .select('id, first_name, last_name, email, department_id');
+      .select('id, first_name, last_name, email, department_id')
+      .eq('is_active', true)
+      .order('first_name');
 
-    if (institutionId) {
-      query = query.eq('institution_id', institutionId);
-    }
+    if (institutionId) query = query.eq('institution_id', institutionId);
+    if (departmentId)  query = query.eq('department_id', departmentId);
 
     const { data, error } = await query;
     if (error) {

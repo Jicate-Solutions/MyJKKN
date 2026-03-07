@@ -172,10 +172,10 @@ export function useRemoveAllocation() {
   });
 }
 
-export function useStaffList(institutionId?: string) {
+export function useStaffList(institutionId?: string, departmentId?: string) {
   return useQuery({
-    queryKey: ['staff-list', institutionId],
-    queryFn: () => EventVenueService.getStaffList(institutionId),
+    queryKey: ['staff-list', institutionId, departmentId],
+    queryFn: () => EventVenueService.getStaffList(institutionId, departmentId),
     staleTime: 60 * 1000,
     retry: 3,
   });

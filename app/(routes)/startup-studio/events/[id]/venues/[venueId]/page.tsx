@@ -63,6 +63,38 @@ import {
   useMarkAttendance,
 } from '@/hooks/startup-studio/use-event-venues';
 import { useEventRegistrations } from '@/hooks/startup-studio/use-event-registrations';
+import { useQuery } from '@tanstack/react-query';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
+
+function useInstitutionsList() {
+  return useQuery({
+    queryKey: ['institutions-list'],
+    queryFn: async () => {
+      const supabase = createClientSupabaseClient();
+      const { data } = await supabase.from('institutions').select('id, name').eq('is_active', true).order('name');
+      return (data || []) as Array<{ id: string; name: string }>;
+    },
+    staleTime: 60 * 1000,
+  });
+}
+
+function useDepartmentsList(institutionId: string) {
+  return useQuery({
+    queryKey: ['departments-list', institutionId],
+    queryFn: async () => {
+      const supabase = createClientSupabaseClient();
+      const { data } = await supabase
+        .from('departments')
+        .select('id, department_name')
+        .eq('institution_id', institutionId)
+        .eq('is_active', true)
+        .order('department_name');
+      return (data || []) as Array<{ id: string; department_name: string }>;
+    },
+    enabled: !!institutionId,
+    staleTime: 60 * 1000,
+  });
+}
 import type { AttendanceStatus, DayType, StaffRole } from '@/types/startup-studio';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -194,7 +226,7 @@ export default function VenueDetailPage({
                     <TabsList>
                       <TabsTrigger value="staff" className="gap-1.5">
                         <UserPlus className="h-3.5 w-3.5" />
-                        Staff
+                        In-Charge Orchestrators
                         <Badge variant="outline" className="text-[10px] h-4 px-1 ml-0.5">
                           {(venue.staff_assignments || []).filter((sa: any) => sa.day_type === day).length}
                         </Badge>
@@ -322,7 +354,7 @@ function StaffSection({
         <div className="flex items-center justify-between">
           <CardTitle className="text-base flex items-center gap-2">
             <UserPlus className="h-4 w-4 text-muted-foreground" />
-            Staff Assignments
+            In-Charge Orchestrators
             <Badge variant="outline" className="text-[10px] h-5 px-1.5 font-normal">
               {staffForDay.length}
             </Badge>
@@ -334,7 +366,7 @@ function StaffSection({
               className="h-7 gap-1 text-xs"
               onClick={() => setAddOpen(true)}
             >
-              <Plus className="h-3 w-3" /> Add Staff
+              <Plus className="h-3 w-3" /> Add Orchestrator
             </Button>
           )}
         </div>
@@ -343,10 +375,10 @@ function StaffSection({
         {staffForDay.length === 0 ? (
           <div className="text-center py-8 border rounded-md bg-muted/20">
             <UserPlus className="h-8 w-8 mx-auto text-muted-foreground/40 mb-2" />
-            <p className="text-sm text-muted-foreground">No staff assigned for this day.</p>
+            <p className="text-sm text-muted-foreground">No orchestrators assigned for this day.</p>
             {isAdmin && (
               <p className="text-xs text-muted-foreground mt-1">
-                Click &ldquo;Add Staff&rdquo; to assign someone.
+                Click &ldquo;Add Orchestrator&rdquo; to assign someone.
               </p>
             )}
           </div>
@@ -665,10 +697,27 @@ function AddStaffDialog({
   venueId: string;
   dayType: DayType;
 }) {
-  const { data: staffList = [] } = useStaffList();
-  const assignStaff = useAssignStaff();
+  const [instFilter, setInstFilter] = useState('');
+  const [deptFilter, setDeptFilter] = useState('');
   const [selectedStaff, setSelectedStaff] = useState('');
   const [selectedRole, setSelectedRole] = useState<StaffRole>('mentor');
+
+  const { data: institutions = [] } = useInstitutionsList();
+  const { data: departments = [] } = useDepartmentsList(instFilter);
+  const { data: staffList = [] } = useStaffList(instFilter || undefined, deptFilter || undefined);
+
+  const assignStaff = useAssignStaff();
+
+  const handleInstChange = (val: string) => {
+    setInstFilter(val === 'all' ? '' : val);
+    setDeptFilter('');
+    setSelectedStaff('');
+  };
+
+  const handleDeptChange = (val: string) => {
+    setDeptFilter(val === 'all' ? '' : val);
+    setSelectedStaff('');
+  };
 
   const handleAssign = () => {
     if (!selectedStaff) return;
@@ -677,6 +726,8 @@ function AddStaffDialog({
       {
         onSuccess: () => {
           onOpenChange(false);
+          setInstFilter('');
+          setDeptFilter('');
           setSelectedStaff('');
           setSelectedRole('mentor');
         },
@@ -688,55 +739,97 @@ function AddStaffDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Assign Staff</DialogTitle>
+          <DialogTitle>Assign In-Charge Orchestrator</DialogTitle>
           <DialogDescription>
-            Select a staff member and their role for this venue.
+            Filter by institution and department, then select an orchestrator and role.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4 pt-2">
-          <div className="space-y-2">
+
+          {/* Institution filter */}
+          <div className="space-y-1.5">
+            <Label className="text-xs font-medium text-muted-foreground">Institution</Label>
+            <Select value={instFilter || 'all'} onValueChange={handleInstChange}>
+              <SelectTrigger className="h-9 text-sm">
+                <SelectValue placeholder="All Institutions" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Institutions</SelectItem>
+                {institutions.map((i) => (
+                  <SelectItem key={i.id} value={i.id}>{i.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Department filter */}
+          <div className="space-y-1.5">
+            <Label className="text-xs font-medium text-muted-foreground">Department</Label>
+            <Select
+              value={deptFilter || 'all'}
+              disabled={!instFilter}
+              onValueChange={handleDeptChange}
+            >
+              <SelectTrigger className="h-9 text-sm">
+                <SelectValue placeholder={instFilter ? 'All Departments' : 'Select institution first'} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Departments</SelectItem>
+                {departments.map((d) => (
+                  <SelectItem key={d.id} value={d.id}>{d.department_name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <Separator />
+
+          {/* Staff member */}
+          <div className="space-y-1.5">
             <Label htmlFor="staff-member" className="text-sm font-medium">
-              Staff Member <span className="text-red-500">*</span>
+              Orchestrator <span className="text-red-500">*</span>
             </Label>
             <Select value={selectedStaff} onValueChange={setSelectedStaff}>
               <SelectTrigger id="staff-member">
-                <SelectValue placeholder="Select staff member..." />
+                <SelectValue placeholder="Select orchestrator..." />
               </SelectTrigger>
               <SelectContent>
                 {staffList.length === 0 ? (
                   <SelectItem value="_none" disabled>
-                    No staff available
+                    No active orchestrators found
                   </SelectItem>
                 ) : (
                   staffList.map((s) => (
                     <SelectItem key={s.id} value={s.id}>
-                      {s.first_name} {s.last_name} ({s.email})
+                      {s.first_name} {s.last_name}
+                      <span className="text-muted-foreground ml-1 text-xs">({s.email})</span>
                     </SelectItem>
                   ))
                 )}
               </SelectContent>
             </Select>
+            {staffList.length > 0 && (
+              <p className="text-xs text-muted-foreground">{staffList.length} orchestrator{staffList.length !== 1 ? 's' : ''} found</p>
+            )}
           </div>
-          <div className="space-y-2">
+
+          {/* Role */}
+          <div className="space-y-1.5">
             <Label htmlFor="staff-role" className="text-sm font-medium">
               Role <span className="text-red-500">*</span>
             </Label>
-            <Select
-              value={selectedRole}
-              onValueChange={(v) => setSelectedRole(v as StaffRole)}
-            >
+            <Select value={selectedRole} onValueChange={(v) => setSelectedRole(v as StaffRole)}>
               <SelectTrigger id="staff-role">
                 <SelectValue placeholder="Select role..." />
               </SelectTrigger>
               <SelectContent>
                 {STAFF_ROLES.map((r) => (
-                  <SelectItem key={r.value} value={r.value}>
-                    {r.label}
-                  </SelectItem>
+                  <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </div>
+
           <Button
             onClick={handleAssign}
             disabled={!selectedStaff || assignStaff.isPending}
@@ -747,7 +840,7 @@ function AddStaffDialog({
             ) : (
               <UserPlus className="h-4 w-4" />
             )}
-            {assignStaff.isPending ? 'Assigning...' : 'Assign Staff'}
+            {assignStaff.isPending ? 'Assigning...' : 'Assign Orchestrator'}
           </Button>
         </div>
       </DialogContent>
