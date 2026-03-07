@@ -255,6 +255,14 @@ export interface CreateVenueDto {
   capacity_override?: number;
 }
 
+export interface UpdateVenueDto {
+  institution_id?: string;
+  manual_name?: string;
+  manual_building?: string;
+  manual_room?: string;
+  capacity_override?: number | null;
+}
+
 export interface SubmitProjectDto {
   event_id: string;
   registration_id: string;

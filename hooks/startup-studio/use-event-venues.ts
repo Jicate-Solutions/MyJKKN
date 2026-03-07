@@ -2,7 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import { EventVenueService } from '@/lib/services/startup-studio/event-venue-service';
 import { useAuth } from '@/hooks/use-auth';
-import type { CreateVenueDto, DayType, StaffRole } from '@/types/startup-studio';
+import type { CreateVenueDto, UpdateVenueDto, DayType, StaffRole } from '@/types/startup-studio';
 
 export function useEventVenues(eventId: string, dayType?: DayType) {
   return useQuery({
@@ -24,6 +24,19 @@ export function useAddVenue() {
       toast.success('Venue added');
     },
     onError: (error: any) => toast.error(error.message || 'Failed to add venue'),
+  });
+}
+
+export function useUpdateVenue() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ venueId, dto }: { venueId: string; dto: UpdateVenueDto }) =>
+      EventVenueService.updateVenue(venueId, dto),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['event-venues'] });
+      toast.success('Venue updated');
+    },
+    onError: (error: any) => toast.error(error.message || 'Failed to update venue'),
   });
 }
 

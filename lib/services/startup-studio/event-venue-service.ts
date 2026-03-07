@@ -3,6 +3,7 @@ import type {
   EventVenueAssignment,
   EventStaffAssignment,
   CreateVenueDto,
+  UpdateVenueDto,
   DayType,
   StaffRole,
 } from '@/types/startup-studio';
@@ -55,6 +56,28 @@ export class EventVenueService {
 
     if (error) {
       console.error('[startup/venues] addVenue failed:', error);
+      throw error;
+    }
+    return data as unknown as EventVenueAssignment;
+  }
+
+  static async updateVenue(venueId: string, dto: UpdateVenueDto): Promise<EventVenueAssignment> {
+    const update: Record<string, any> = {};
+    if (dto.institution_id !== undefined) update.institution_id = dto.institution_id;
+    if (dto.manual_name !== undefined) update.manual_name = dto.manual_name || null;
+    if (dto.manual_building !== undefined) update.manual_building = dto.manual_building || null;
+    if (dto.manual_room !== undefined) update.manual_room = dto.manual_room || null;
+    if (dto.capacity_override !== undefined) update.capacity_override = dto.capacity_override ?? null;
+
+    const { data, error } = await this.supabase
+      .from('event_venue_assignments')
+      .update(update)
+      .eq('id', venueId)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('[startup/venues] updateVenue failed:', error);
       throw error;
     }
     return data as unknown as EventVenueAssignment;

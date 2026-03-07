@@ -31,13 +31,14 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 import {
-  Building2, Hash, Loader2, MapPin, Plus, Trash2,
+  Building2, Hash, Loader2, MapPin, Pencil, Plus, Trash2,
   UserPlus, Users, Wand2, X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
   useEventVenues,
   useAddVenue,
+  useUpdateVenue,
   useRemoveVenue,
   useAssignStaff,
   useRemoveStaff,
@@ -47,6 +48,7 @@ import {
   useStaffList,
 } from '@/hooks/startup-studio/use-event-venues';
 import { useEventRegistrations } from '@/hooks/startup-studio/use-event-registrations';
+import { useAuth } from '@/hooks/use-auth';
 import type { DayType, StaffRole, EventVenueAssignment } from '@/types/startup-studio';
 
 const STAFF_ROLES: { value: StaffRole; label: string }[] = [
@@ -78,6 +80,8 @@ interface VenuesPanelProps {
 }
 
 export function VenuesPanel({ eventId }: VenuesPanelProps) {
+  const { profile } = useAuth();
+  const isSuperAdmin = profile?.is_super_admin === true;
   const [dayType, setDayType] = useState<DayType>('build_day');
 
   return (
@@ -88,16 +92,16 @@ export function VenuesPanel({ eventId }: VenuesPanelProps) {
       </TabsList>
 
       <TabsContent value="build_day">
-        <VenuesDayPanel eventId={eventId} dayType="build_day" />
+        <VenuesDayPanel eventId={eventId} dayType="build_day" isSuperAdmin={isSuperAdmin} />
       </TabsContent>
       <TabsContent value="demo_day">
-        <VenuesDayPanel eventId={eventId} dayType="demo_day" />
+        <VenuesDayPanel eventId={eventId} dayType="demo_day" isSuperAdmin={isSuperAdmin} />
       </TabsContent>
     </Tabs>
   );
 }
 
-function VenuesDayPanel({ eventId, dayType }: { eventId: string; dayType: DayType }) {
+function VenuesDayPanel({ eventId, dayType, isSuperAdmin }: { eventId: string; dayType: DayType; isSuperAdmin: boolean }) {
   const { data: venues = [], isLoading } = useEventVenues(eventId, dayType);
   const autoAllocate = useAutoAllocateTeams();
 
@@ -150,7 +154,7 @@ function VenuesDayPanel({ eventId, dayType }: { eventId: string; dayType: DayTyp
       ) : (
         <div className="grid gap-4 md:grid-cols-2">
           {venues.map((venue) => (
-            <VenueCard key={venue.id} venue={venue} eventId={eventId} dayType={dayType} />
+            <VenueCard key={venue.id} venue={venue} eventId={eventId} dayType={dayType} isSuperAdmin={isSuperAdmin} />
           ))}
         </div>
       )}
@@ -250,9 +254,7 @@ function AddVenueForm({ eventId, dayType }: { eventId: string; dayType: DayType 
         {/* Row 2: Building, Room, Capacity */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div className="space-y-2">
-            <Label htmlFor="building" className="text-sm font-medium">
-              Building
-            </Label>
+            <Label htmlFor="building" className="text-sm font-medium">Building</Label>
             <Input
               id="building"
               placeholder="e.g., Block A"
@@ -261,9 +263,7 @@ function AddVenueForm({ eventId, dayType }: { eventId: string; dayType: DayType 
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="room" className="text-sm font-medium">
-              Room
-            </Label>
+            <Label htmlFor="room" className="text-sm font-medium">Room</Label>
             <Input
               id="room"
               placeholder="e.g., 101"
@@ -308,7 +308,9 @@ function AddVenueForm({ eventId, dayType }: { eventId: string; dayType: DayType 
   );
 }
 
-function VenueCard({ venue, eventId, dayType }: { venue: EventVenueAssignment; eventId: string; dayType: DayType }) {
+function VenueCard({ venue, eventId, dayType, isSuperAdmin }: {
+  venue: EventVenueAssignment; eventId: string; dayType: DayType; isSuperAdmin: boolean;
+}) {
   const removeVenue = useRemoveVenue();
   const removeAllocation = useRemoveAllocation();
   const allocatedCount = venue.team_allocations?.length || 0;
@@ -337,10 +339,14 @@ function VenueCard({ venue, eventId, dayType }: { venue: EventVenueAssignment; e
               {venue.manual_room && <span>Room {venue.manual_room}</span>}
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
             <Badge variant="secondary" className="text-xs">
               {venue.institution?.name || 'Unknown'}
             </Badge>
+            {/* Edit — super admin only */}
+            {isSuperAdmin && (
+              <EditVenueDialog venue={venue} />
+            )}
             <Button
               variant="ghost"
               size="icon"
@@ -436,6 +442,145 @@ function VenueCard({ venue, eventId, dayType }: { venue: EventVenueAssignment; e
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+function EditVenueDialog({ venue }: { venue: EventVenueAssignment }) {
+  const { data: institutions = [] } = useInstitutions();
+  const updateVenue = useUpdateVenue();
+  const [open, setOpen] = useState(false);
+
+  // Form state pre-filled from venue
+  const [name, setName] = useState(venue.manual_name || '');
+  const [building, setBuilding] = useState(venue.manual_building || '');
+  const [room, setRoom] = useState(venue.manual_room || '');
+  const [capacity, setCapacity] = useState(venue.capacity_override ? String(venue.capacity_override) : '');
+  const [institutionId, setInstitutionId] = useState((venue.institution as any)?.id || '');
+
+  const handleOpen = (val: boolean) => {
+    if (val) {
+      // Reset to current venue values each time the dialog opens
+      setName(venue.manual_name || '');
+      setBuilding(venue.manual_building || '');
+      setRoom(venue.manual_room || '');
+      setCapacity(venue.capacity_override ? String(venue.capacity_override) : '');
+      setInstitutionId((venue.institution as any)?.id || '');
+    }
+    setOpen(val);
+  };
+
+  const handleSave = () => {
+    if (!name || !institutionId) return;
+    updateVenue.mutate(
+      {
+        venueId: venue.id,
+        dto: {
+          institution_id: institutionId,
+          manual_name: name,
+          manual_building: building || undefined,
+          manual_room: room || undefined,
+          capacity_override: capacity ? parseInt(capacity) : null,
+        },
+      },
+      { onSuccess: () => setOpen(false) }
+    );
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={handleOpen}>
+      <DialogTrigger asChild>
+        <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-primary">
+          <Pencil className="h-3.5 w-3.5" />
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Edit Venue</DialogTitle>
+          <DialogDescription>Update venue details. Only super admins can edit venues.</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4 pt-2">
+          {/* Name */}
+          <div className="space-y-2">
+            <Label className="text-sm font-medium flex items-center gap-1.5">
+              <Building2 className="h-3.5 w-3.5 text-muted-foreground" />
+              Venue Name <span className="text-red-500">*</span>
+            </Label>
+            <Input
+              placeholder="e.g., Main Auditorium"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
+          </div>
+
+          {/* Institution */}
+          <div className="space-y-2">
+            <Label className="text-sm font-medium flex items-center gap-1.5">
+              <MapPin className="h-3.5 w-3.5 text-muted-foreground" />
+              Institution <span className="text-red-500">*</span>
+            </Label>
+            <Select value={institutionId} onValueChange={setInstitutionId}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select institution..." />
+              </SelectTrigger>
+              <SelectContent>
+                {institutions.map((inst) => (
+                  <SelectItem key={inst.id} value={inst.id}>{inst.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Building & Room */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">Building</Label>
+              <Input
+                placeholder="e.g., Block A"
+                value={building}
+                onChange={(e) => setBuilding(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">Room</Label>
+              <Input
+                placeholder="e.g., 101"
+                value={room}
+                onChange={(e) => setRoom(e.target.value)}
+              />
+            </div>
+          </div>
+
+          {/* Capacity */}
+          <div className="space-y-2">
+            <Label className="text-sm font-medium flex items-center gap-1.5">
+              <Hash className="h-3.5 w-3.5 text-muted-foreground" />
+              Capacity
+            </Label>
+            <Input
+              type="number"
+              placeholder="e.g., 30 (leave blank for unlimited)"
+              value={capacity}
+              onChange={(e) => setCapacity(e.target.value)}
+              min={1}
+            />
+          </div>
+
+          <Separator />
+
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
+            <Button
+              onClick={handleSave}
+              disabled={!name || !institutionId || updateVenue.isPending}
+              className="gap-1.5"
+            >
+              {updateVenue.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              {updateVenue.isPending ? 'Saving...' : 'Save Changes'}
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
