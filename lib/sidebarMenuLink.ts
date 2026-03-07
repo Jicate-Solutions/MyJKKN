@@ -1662,12 +1662,15 @@ export function GetRoleBasedPages(
               return true;
             }
 
-            // Faculty: in startup-studio event submenus, only show Venues & Mentors
-            if (
-              userRole.role_key === 'faculty' &&
-              submenu.href.includes('/startup-studio/events/')
-            ) {
-              return submenu.href.includes('/venues');
+            // Faculty / HOD / Principal: restricted startup-studio submenu access
+            // - All three: Venues & Mentors + Registrations (view only)
+            // - Faculty only: additionally Checklists (can mark items, not add/delete)
+            const isLimitedStaffRole = ['faculty', 'hod', 'principal'].includes(userRole.role_key || '');
+            if (isLimitedStaffRole && submenu.href.includes('/startup-studio/events/')) {
+              if (submenu.href.includes('/venues')) return true;
+              if (submenu.href.includes('/registrations')) return true;
+              if (userRole.role_key === 'faculty' && submenu.href.includes('/checklists')) return true;
+              return false;
             }
 
             const requiredPermission = MENU_PERMISSIONS[normalizeRoute(submenu.href)];
