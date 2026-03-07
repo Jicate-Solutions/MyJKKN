@@ -6,7 +6,7 @@ import { PageBreadcrumb } from '@/components/navigation';
 import { useEvent } from '@/hooks/startup-studio/use-events';
 import { useAuth } from '@/hooks/use-auth';
 import { RegistrationForm } from './_components/registration-form';
-import { Loader2 } from 'lucide-react';
+import { Loader2, ShieldX } from 'lucide-react';
 
 export default function RegisterPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -31,12 +31,27 @@ export default function RegisterPage({ params }: { params: Promise<{ id: string 
     );
   }
 
-  const isAdmin = (profile as any)?.is_super_admin || ['super_admin', 'admin', 'administrator'].includes(profile?.role || '');
+  const isSuperAdmin = (profile as any)?.is_super_admin || profile?.role === 'super_admin';
+  const isStudent = profile?.role === 'student';
+  const canRegister = isStudent || isSuperAdmin;
+
+  if (!canRegister) {
+    return (
+      <ContentLayout title="Register">
+        <div className="flex flex-col items-center justify-center py-20 gap-3 text-muted-foreground">
+          <ShieldX className="h-10 w-10 text-destructive/60" />
+          <p className="text-base font-medium">Registration not available for your account</p>
+          <p className="text-sm">Only students can register teams for this event.</p>
+        </div>
+      </ContentLayout>
+    );
+  }
+
   const isOpen = event.status === 'registration_open' &&
     event.registration_deadline &&
     new Date(event.registration_deadline) > new Date();
 
-  if (!isOpen && !isAdmin) {
+  if (!isOpen && !isSuperAdmin) {
     return (
       <ContentLayout title="Register">
         <div className="text-center py-20 text-muted-foreground">

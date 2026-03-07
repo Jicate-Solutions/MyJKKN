@@ -550,7 +550,20 @@ CREATE TRIGGER update_service_requests_updated_at
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at_column();
 
+-- =====================================================
+-- STARTUP STUDIO: trg_prevent_duplicate_event_member
+-- Added: 2026-03-07
+-- Fires BEFORE INSERT OR UPDATE on event_team_members.
+-- Prevents same learner_id from being accepted in
+-- more than one team per event (DB-level enforcement).
+-- Function: prevent_duplicate_event_member() in 02_functions.sql
+-- =====================================================
+DROP TRIGGER IF EXISTS trg_prevent_duplicate_event_member ON event_team_members;
+CREATE TRIGGER trg_prevent_duplicate_event_member
+BEFORE INSERT OR UPDATE ON event_team_members
+FOR EACH ROW EXECUTE FUNCTION prevent_duplicate_event_member();
+
 -- ================================================================================
 -- End of Triggers File
--- Total Triggers: 77 (Updated: 2026-02-09)
+-- Total Triggers: 78 (Updated: 2026-03-07)
 -- ================================================================================

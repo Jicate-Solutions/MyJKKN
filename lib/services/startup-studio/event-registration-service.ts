@@ -18,16 +18,27 @@ export class EventRegistrationService {
   static async validateRegistration(eventId: string, userId: string): Promise<ValidationResult> {
     const [{ data: event, error: eventError }, { data: userProfile }] = await Promise.all([
       this.supabase.from('startup_events').select('id, status, registration_deadline, config').eq('id', eventId).single(),
-      this.supabase.from('profiles').select('is_super_admin, role').eq('id', userId).maybeSingle(),
+      this.supabase.from('profiles').select('is_super_admin, role, learner_id').eq('id', userId).maybeSingle(),
     ]);
 
     if (eventError || !event) {
       return { valid: false, error: 'Event not found' };
     }
 
-    const isAdmin = userProfile?.is_super_admin || ['super_admin', 'admin', 'administrator'].includes(userProfile?.role || '');
+    const isSuperAdmin = userProfile?.is_super_admin || userProfile?.role === 'super_admin';
+    const isStudent = userProfile?.role === 'student';
 
-    if (!isAdmin) {
+    // Only students and super admins can create teams
+    if (!isStudent && !isSuperAdmin) {
+      return { valid: false, error: 'Only students can register teams. Staff accounts are not permitted.' };
+    }
+
+    // Students must have a learner profile linked
+    if (isStudent && !userProfile?.learner_id) {
+      return { valid: false, error: 'Your profile is not linked to a learner record. Please contact admin.' };
+    }
+
+    if (!isSuperAdmin) {
       if (event.status !== 'registration_open') {
         return { valid: false, error: 'Registration is not open for this event' };
       }

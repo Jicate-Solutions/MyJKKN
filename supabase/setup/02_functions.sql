@@ -4824,3 +4824,44 @@ AS $$
         'not_participated', (SELECT COUNT(*) FROM eligible_learners) - (SELECT COUNT(*) FROM participated)
     );
 $$;
+
+-- =====================================================
+-- STARTUP STUDIO: prevent_duplicate_event_member
+-- Added: 2026-03-07
+-- Trigger function: prevents the same learner_id from
+-- being accepted in more than one team per event.
+-- Called by: trg_prevent_duplicate_event_member (04_triggers.sql)
+-- =====================================================
+CREATE OR REPLACE FUNCTION prevent_duplicate_event_member()
+RETURNS TRIGGER AS $$
+DECLARE
+  v_event_id UUID;
+  v_duplicate_count INT;
+BEGIN
+  IF NEW.status != 'accepted' OR NEW.learner_id IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  SELECT event_id INTO v_event_id
+  FROM event_registrations
+  WHERE id = NEW.registration_id;
+
+  IF v_event_id IS NULL THEN
+    RAISE EXCEPTION 'Registration not found for id %', NEW.registration_id;
+  END IF;
+
+  SELECT COUNT(*) INTO v_duplicate_count
+  FROM event_team_members etm
+  JOIN event_registrations er ON er.id = etm.registration_id
+  WHERE er.event_id = v_event_id
+    AND etm.learner_id = NEW.learner_id
+    AND etm.status = 'accepted'
+    AND etm.id != COALESCE(NEW.id, '00000000-0000-0000-0000-000000000000'::UUID);
+
+  IF v_duplicate_count > 0 THEN
+    RAISE EXCEPTION 'Learner is already accepted in another team for this event';
+  END IF;
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
