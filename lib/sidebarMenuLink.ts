@@ -1662,6 +1662,14 @@ export function GetRoleBasedPages(
               return true;
             }
 
+            // Faculty: in startup-studio event submenus, only show Venues & Mentors
+            if (
+              userRole.role_key === 'faculty' &&
+              submenu.href.includes('/startup-studio/events/')
+            ) {
+              return submenu.href.includes('/venues');
+            }
+
             const requiredPermission = MENU_PERMISSIONS[normalizeRoute(submenu.href)];
             if (!requiredPermission) return false; // Changed to false to be consistent
 
