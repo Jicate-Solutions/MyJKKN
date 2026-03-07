@@ -60,7 +60,7 @@ export default function AdminRegistrationsPage({ params }: { params: Promise<{ i
         </div>
 
         {/* Stats + filters + table are all co-located inside RegistrationsTable */}
-        <RegistrationsTable eventId={id} isSuperAdmin={isSuperAdmin} />
+        <RegistrationsTable eventId={id} isSuperAdmin={isSuperAdmin} eventName={event.name} />
       </div>
     </ContentLayout>
   );

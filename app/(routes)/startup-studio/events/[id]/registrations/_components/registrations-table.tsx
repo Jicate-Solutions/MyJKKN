@@ -36,8 +36,10 @@ import {
   ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight,
   Laptop, Search, Users, Loader2, CheckCircle2,
   MoreHorizontal, ShieldX, ShieldCheck, Trash2,
-  SlidersHorizontal, X, Building2, UserCheck,
+  SlidersHorizontal, X, Building2, UserCheck, Download,
 } from 'lucide-react';
+import { EventRegistrationService } from '@/lib/services/startup-studio/event-registration-service';
+import { exportRegistrationsPDF } from '@/lib/utils/pdf-export/registrations-pdf';
 import { cn } from '@/lib/utils';
 import type { RegistrationStatus } from '@/types/startup-studio';
 
@@ -106,7 +108,7 @@ function StatCard({
   );
 }
 
-export function RegistrationsTable({ eventId, isSuperAdmin }: { eventId: string; isSuperAdmin: boolean }) {
+export function RegistrationsTable({ eventId, isSuperAdmin, eventName }: { eventId: string; isSuperAdmin: boolean; eventName?: string }) {
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -119,6 +121,7 @@ export function RegistrationsTable({ eventId, isSuperAdmin }: { eventId: string;
   const [pageSize, setPageSize] = useState(10);
   const [searchTimer, setSearchTimer] = useState<ReturnType<typeof setTimeout> | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
+  const [exportLoading, setExportLoading] = useState(false);
 
   const { data: institutions = [] } = useInstitutions();
 
@@ -220,6 +223,29 @@ export function RegistrationsTable({ eventId, isSuperAdmin }: { eventId: string;
     setPage(1);
   };
 
+  const handleExportPDF = async () => {
+    setExportLoading(true);
+    try {
+      // Fetch ALL matching registrations (non-paginated) for the export
+      const data = await EventRegistrationService.getRegistrations({
+        event_id: eventId,
+        ...serverFilters,
+      });
+      await exportRegistrationsPDF(data, eventName || 'Event', {
+        status: statusFilter !== 'all' ? statusFilter : undefined,
+        institution: institutionFilter !== 'all'
+          ? institutions.find((i) => i.id === institutionFilter)?.name
+          : undefined,
+        lovable: lovableFilter !== 'all' ? lovableFilter : undefined,
+        search: debouncedSearch || undefined,
+      });
+    } catch (err) {
+      console.error('[startup/registrations] PDF export failed:', err);
+    } finally {
+      setExportLoading(false);
+    }
+  };
+
   return (
     <Card>
       <CardHeader className="pb-4">
@@ -308,6 +334,20 @@ export function RegistrationsTable({ eventId, isSuperAdmin }: { eventId: string;
                 {activeAdvancedCount}
               </Badge>
             )}
+          </Button>
+          <Button
+            variant="outline"
+            size="default"
+            className="gap-2 shrink-0"
+            onClick={handleExportPDF}
+            disabled={exportLoading}
+          >
+            {exportLoading ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Download className="h-4 w-4" />
+            )}
+            {exportLoading ? 'Exporting...' : 'Export PDF'}
           </Button>
         </div>
 
