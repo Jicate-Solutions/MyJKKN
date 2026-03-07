@@ -236,7 +236,7 @@ export default async function ProfilesPage({ searchParams }: ProfilesPageProps) 
           <div className="space-y-4">
             {/* Search & Filters - always visible, never unmounted by Suspense */}
             <ProfilesSearchWrapper />
-            <ProfilesFilters searchParams={profilesSearchParamsSchema.parse(params)} />
+            <ProfilesFilters searchParams={profilesSearchParamsSchema.safeParse(params).data ?? { page: 1, pageSize: 50 }} />
 
             {/* Tabs with data tables inside Suspense */}
             <Tabs defaultValue="active" className="w-full">

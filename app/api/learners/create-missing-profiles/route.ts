@@ -350,6 +350,10 @@ export async function POST(request: Request) {
 
         // Create auth user
         const tempPassword = generateTemporaryPassword();
+        let authUserId: string;
+        let authAction: 'created' | 'updated' = 'created';
+        let usedTempPassword = tempPassword;
+
         const { data: authUser, error: authCreateError } =
           await supabaseAdmin.auth.admin.createUser({
             email: learner.college_email,
@@ -362,14 +366,50 @@ export async function POST(request: Request) {
           });
 
         if (authCreateError) {
-          throw new Error(
-            `Failed to create auth user for ${learner.college_email}: ${authCreateError.message}`
+          // Orphaned auth account: auth user already exists but profiles row is missing.
+          // Look up the existing auth user by email and reuse their ID to create the profile.
+          const emailLower = learner.college_email.toLowerCase();
+          const isEmailConflict =
+            authCreateError.message?.toLowerCase().includes('already') ||
+            authCreateError.message?.toLowerCase().includes('registered') ||
+            authCreateError.message?.toLowerCase().includes('exists') ||
+            (authCreateError as any).code === 'email_exists';
+
+          if (!isEmailConflict) {
+            throw new Error(
+              `Failed to create auth user for ${learner.college_email}: ${authCreateError.message}`
+            );
+          }
+
+          // Find the orphaned auth user by email
+          const { data: listData, error: listError } = await supabaseAdmin.auth.admin.listUsers({
+            page: 1,
+            perPage: 1000,
+          });
+
+          const existingAuthUser = listData?.users?.find(
+            (u) => u.email?.toLowerCase() === emailLower
           );
+
+          if (!existingAuthUser) {
+            throw new Error(
+              `Auth conflict for ${learner.college_email} but could not locate existing auth user`
+            );
+          }
+
+          console.log(
+            `[learner-sync] Orphaned auth account found for ${learner.college_email} (id: ${existingAuthUser.id}), creating missing profile row`
+          );
+          authUserId = existingAuthUser.id;
+          authAction = 'updated';
+          usedTempPassword = 'Existing auth account — password unchanged';
+        } else {
+          authUserId = authUser.user.id;
         }
 
-        // Create profile
+        // Create profile row (either for the newly created auth user or the orphaned one)
         const newProfileData: Record<string, any> = {
-          id: authUser.user.id,
+          id: authUserId,
           email: learner.college_email,
           full_name: fullName,
           phone_number: learner.student_mobile,
@@ -387,21 +427,25 @@ export async function POST(request: Request) {
           .insert(newProfileData);
 
         if (profileInsertError) {
-          // Clean up auth user on profile failure
-          await supabaseAdmin.auth.admin.deleteUser(authUser.user.id);
+          // Only clean up the auth user if WE just created it (not an orphaned account)
+          if (authAction === 'created') {
+            await supabaseAdmin.auth.admin.deleteUser(authUserId);
+          }
           throw new Error(
             `Failed to create profile for ${learner.college_email}: ${profileInsertError.message}`
           );
         }
 
-        createdCount++;
+        if (authAction === 'created') createdCount++;
+        else updatedCount++;
+
         results.push({
           learner_id: learner.id,
           email: learner.college_email,
           full_name: fullName,
-          user_id: authUser.user.id,
-          action: 'created',
-          temp_password: tempPassword,
+          user_id: authUserId,
+          action: authAction,
+          temp_password: usedTempPassword,
           success: true
         });
       } catch (error) {

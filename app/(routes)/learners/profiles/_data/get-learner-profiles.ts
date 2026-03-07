@@ -53,23 +53,25 @@ interface GetLearnerProfilesResult {
  * - Balance between freshness and performance
  * - Cache tags allow targeted invalidation when profiles are created/updated/deleted
  */
+// Whitelist of valid sortable columns to prevent DB errors from URL tampering
+const VALID_SORT_COLUMNS = new Set([
+  'first_name', 'last_name', 'roll_number', 'register_number',
+  'college_email', 'student_email', 'created_at', 'updated_at',
+]);
+
+const EMPTY_RESULT: GetLearnerProfilesResult = {
+  data: [],
+  metadata: { total_items: 0, page: 1, limit: 10, total_pages: 0 },
+};
+
 export async function getLearnerProfiles(
   params: GetLearnerProfilesParams = {}
 ): Promise<GetLearnerProfilesResult> {
+  try {
   // Debug: Log all filter params received
   if (process.env.NODE_ENV === 'development') {
     const activeFilters = Object.entries(params).filter(([_, v]) => v !== undefined && v !== null);
     console.log('[getLearnerProfiles] Filters received:', Object.fromEntries(activeFilters));
-  }
-
-  // Apply cache profile for warm data (5 minutes)
-
-  // Add cache tags for invalidation
-  if (params.lifecycle_status) {
-  }
-  if (params.section_id) {
-  }
-  if (params.institution_id) {
   }
 
   const supabase = await createClient();
@@ -91,10 +93,13 @@ export async function getLearnerProfiles(
     academic_year_id,
     gender,
     is_profile_complete,
-    sortBy = 'first_name',
+    sortBy: rawSortBy = 'first_name',
     sortOrder = 'asc',
     learner_id // Added: For student self-view filtering
   } = params;
+
+  // Validate sortBy against whitelist to prevent DB errors from URL tampering
+  const sortBy = VALID_SORT_COLUMNS.has(rawSortBy) ? rawSortBy : 'first_name';
 
   // Build query with relations
   let query = supabase
@@ -273,4 +278,8 @@ export async function getLearnerProfiles(
       total_pages: totalPages
     }
   };
+  } catch (error) {
+    console.error('[getLearnerProfiles] Unexpected error, returning empty result:', error);
+    return EMPTY_RESULT;
+  }
 }
