@@ -387,7 +387,13 @@ export async function POST(request: Request) {
             perPage: 1000,
           });
 
-          const existingAuthUser = listData?.users?.find(
+          if (listError || !listData?.users) {
+            throw new Error(
+              `Auth conflict for ${learner.college_email} but could not list auth users: ${listError?.message}`
+            );
+          }
+
+          const existingAuthUser = listData.users.find(
             (u) => u.email?.toLowerCase() === emailLower
           );
 
