@@ -4815,7 +4815,7 @@ AS $$
         JOIN event_registrations er ON er.id = etm.registration_id
         WHERE er.event_id  = p_event_id
           AND etm.learner_id IS NOT NULL
-          AND etm.status IN ('accepted', 'pending')
+          AND etm.status = 'accepted'
           AND etm.learner_id IN (SELECT id FROM eligible_learners)
     )
     SELECT jsonb_build_object(
