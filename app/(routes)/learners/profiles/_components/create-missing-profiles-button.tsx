@@ -68,9 +68,13 @@ export function CreateMissingProfilesButton() {
       setIsChecking(true);
       setResult(null);
 
-      const response = await fetch('/api/learners/check-missing-profiles', {
+      // Add timestamp to prevent browser/CDN caching of this GET response.
+      // Without this, a re-check immediately after sync can return the stale
+      // pre-sync response from the HTTP cache.
+      const response = await fetch(`/api/learners/check-missing-profiles?t=${Date.now()}`, {
         method: 'GET',
-        credentials: 'include'
+        credentials: 'include',
+        cache: 'no-store'
       });
 
       const data = await response.json();
@@ -181,6 +185,9 @@ export function CreateMissingProfilesButton() {
           `${data.results.failed} profiles failed. Check details below.`
         );
       }
+
+      // Clear stale check data so re-open fetches fresh state
+      setCheckData(null);
     } catch (error) {
       console.error('Error syncing profiles:', error);
       toast.error(

@@ -49,7 +49,10 @@ export function useLearnerProfile(
   return useQuery<LearnerProfile | null, Error>({
     queryKey: learnerProfileKeys.detail(id),
     queryFn: () => LearnerProfileService.getLearnerProfile(id),
-    enabled: !!id,
+    // Guard against Next.js DRP placeholders (%%drp:id:...%%) that appear during
+    // client-side navigation with PPR enabled. Passing these to Supabase causes
+    // "invalid input syntax for type uuid" errors.
+    enabled: !!id && !id.includes('%%drp:'),
     ...options,
   });
 }

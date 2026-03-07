@@ -100,6 +100,7 @@ export async function POST(request: Request) {
     const selectedLearnerIds: string[] | undefined = body.learner_ids;
 
     // 4. Get all active learners with college emails
+    // Use .limit(10000) to bypass PostgREST's default 1000-row cap
     const { data: allLearners, error: learnersError } = await supabaseAdmin
       .from('learners_profiles')
       .select(`
@@ -117,16 +118,21 @@ export async function POST(request: Request) {
       .eq('lifecycle_status', 'active')
       .eq('is_profile_complete', true)
       .not('college_email', 'is', null)
-      .not('college_email', 'eq', '');
+      .not('college_email', 'eq', '')
+      .limit(10000);
 
     if (learnersError) {
       throw new Error(`Failed to fetch learners: ${learnersError.message}`);
     }
 
-    // 5. Get existing profiles for comparison
+    // 5. Get existing profiles for comparison — use .limit(10000) to bypass PostgREST's
+    //    default 1000-row cap. Cannot use .in('email', learnerEmails) because thousands
+    //    of emails in the URL query string trigger a 414 from Cloudflare.
+    const learnerEmails = allLearners.map((l) => l.college_email.toLowerCase());
     const { data: existingProfiles, error: profilesError } = await supabaseAdmin
       .from('profiles')
-      .select('id, email, role, institution_id, department_id, learner_id, full_name, phone_number, gender, is_active');
+      .select('id, email, role, institution_id, department_id, learner_id, full_name, phone_number, gender, is_active')
+      .limit(10000);
 
     if (profilesError) {
       throw new Error(`Failed to fetch profiles: ${profilesError.message}`);
