@@ -104,29 +104,47 @@ export class EventRegistrationService {
       }
     }
 
-    // Generate institution-wise team code via DB function
-    const { data: codeResult, error: codeError } = await this.supabase
-      .rpc('generate_team_code', { p_event_id: dto.event_id, p_institution_id: institutionId });
+    // Generate institution-wise team code via DB function (MAX-based, race-condition safe)
+    // Retry up to 3 times on duplicate team code (23505) — extremely rare concurrent registrations
+    let registration: any = null;
+    let lastRegError: any = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const { data: codeResult, error: codeError } = await this.supabase
+        .rpc('generate_team_code', { p_event_id: dto.event_id, p_institution_id: institutionId });
 
-    if (codeError) {
-      console.error('[startup/registration] generate_team_code failed:', codeError);
+      if (codeError) {
+        console.error('[startup/registration] generate_team_code failed:', codeError);
+      }
+
+      const { data, error: regError } = await this.supabase
+        .from('event_registrations')
+        .insert({
+          event_id: dto.event_id,
+          team_name: dto.team_name,
+          team_code: codeResult || null,
+          problem_idea: dto.problem_idea || null,
+          owner_id: userId,
+          institution_id: institutionId,
+        })
+        .select()
+        .single();
+
+      if (!regError) {
+        registration = data;
+        break;
+      }
+
+      lastRegError = regError;
+      // Retry only on duplicate team code — any other error is fatal
+      if (regError.code !== '23505' || !regError.message?.includes('team_code')) {
+        console.error('[startup/registration] registerTeam insert failed:', regError);
+        throw new Error('Failed to create team registration. Please try again.');
+      }
+      console.warn(`[startup/registration] Duplicate team code on attempt ${attempt + 1}, retrying...`);
     }
 
-    const { data: registration, error: regError } = await this.supabase
-      .from('event_registrations')
-      .insert({
-        event_id: dto.event_id,
-        team_name: dto.team_name,
-        team_code: codeResult || null,
-        problem_idea: dto.problem_idea || null,
-        owner_id: userId,
-        institution_id: institutionId,
-      })
-      .select()
-      .single();
-
-    if (regError) {
-      console.error('[startup/registration] registerTeam insert failed:', regError);
+    if (!registration) {
+      console.error('[startup/registration] registerTeam failed after retries:', lastRegError);
       throw new Error('Failed to create team registration. Please try again.');
     }
 

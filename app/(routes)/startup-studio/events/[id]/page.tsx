@@ -363,36 +363,43 @@ export default function EventDetailPage({ params }: { params: Promise<{ id: stri
             </div>
           )}
 
-          {/* Registered Banner */}
-          {myRegistration && (
-            <div className="relative overflow-hidden rounded-xl bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/30 dark:to-indigo-950/30 border border-blue-100 dark:border-blue-900/50 p-6">
-              <div className="flex flex-col sm:flex-row items-center justify-between gap-6 relative z-10">
-                <div className="flex items-center gap-4">
-                  <div className="h-10 w-10 rounded-full bg-blue-100 dark:bg-blue-900/50 flex items-center justify-center shrink-0">
-                    <CheckCircle2 className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+          {/* Registered Banner — shown for team leader AND accepted members */}
+          {isInATeam && (() => {
+            const m = myMembership as any;
+            const teamName = myRegistration?.team_name || m?.team_name;
+            const isLeader = !!myRegistration;
+            const memberCount = myRegistration?.team_members?.length || 0;
+            return (
+              <div className="relative overflow-hidden rounded-xl bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/30 dark:to-indigo-950/30 border border-blue-100 dark:border-blue-900/50 p-6">
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-6 relative z-10">
+                  <div className="flex items-center gap-4">
+                    <div className="h-10 w-10 rounded-full bg-blue-100 dark:bg-blue-900/50 flex items-center justify-center shrink-0">
+                      <CheckCircle2 className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                    </div>
+                    <div>
+                      <h3 className="font-semibold text-blue-950 dark:text-blue-50">Registration Confirmed</h3>
+                      <p className="text-sm text-blue-800/80 dark:text-blue-200/80">
+                        You are participating as <span className="font-semibold">{teamName}</span>
+                        {isLeader && ` with ${memberCount} members`}.
+                      </p>
+                    </div>
                   </div>
-                  <div>
-                    <h3 className="font-semibold text-blue-950 dark:text-blue-50">Registration Confirmed</h3>
-                    <p className="text-sm text-blue-800/80 dark:text-blue-200/80">
-                      You are participating as <span className="font-semibold">{myRegistration.team_name}</span> with {myRegistration.team_members?.length || 0} members.
-                    </p>
+                  <div className="flex gap-3 shrink-0">
+                    <Link href={`/startup-studio/events/${id}/my-team`}>
+                      <Button variant="outline" className="bg-white/50 hover:bg-white/80 dark:bg-black/20 dark:hover:bg-black/40 border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 gap-2">
+                        <Users className="h-4 w-4" /> {isLeader ? 'Manage Team' : 'View My Team'}
+                      </Button>
+                    </Link>
+                    <Link href={`/startup-studio/events/${id}/submit`}>
+                      <Button className="bg-blue-600 hover:bg-blue-700 text-white shadow-sm gap-2">
+                        <FileText className="h-4 w-4" /> {isLeader ? 'Submit Project' : 'View Submission'}
+                      </Button>
+                    </Link>
                   </div>
-                </div>
-                <div className="flex gap-3 shrink-0">
-                  <Link href={`/startup-studio/events/${id}/my-team`}>
-                    <Button variant="outline" className="bg-white/50 hover:bg-white/80 dark:bg-black/20 dark:hover:bg-black/40 border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 gap-2">
-                      <Users className="h-4 w-4" /> Manage Team
-                    </Button>
-                  </Link>
-                  <Link href={`/startup-studio/events/${id}/submit`}>
-                    <Button className="bg-blue-600 hover:bg-blue-700 text-white shadow-sm gap-2">
-                      <FileText className="h-4 w-4" /> Submit Project
-                    </Button>
-                  </Link>
                 </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
         </div>
 
         {/* Admin Panel */}

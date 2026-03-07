@@ -27,11 +27,11 @@ import {
   FormLabel,
   FormMessage,
 } from '@/components/ui/form';
-import { Lock, Send, BarChart3, Trophy, Globe, Github, Link2, Video, FileText, Lightbulb, ArrowLeft, Loader2 } from 'lucide-react';
+import { Lock, Send, BarChart3, Trophy, Globe, Github, Link2, Video, FileText, Lightbulb, ArrowLeft, Loader2, ExternalLink } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { useEvent } from '@/hooks/startup-studio/use-events';
-import { useMyRegistration } from '@/hooks/startup-studio/use-event-registrations';
-import { useMySubmission, useSubmitProject, useUpdateSubmission, useUpdateMetrics } from '@/hooks/startup-studio/use-event-submissions';
+import { useMyRegistration, useMyAcceptedMembership } from '@/hooks/startup-studio/use-event-registrations';
+import { useMySubmission, useTeamSubmission, useSubmitProject, useUpdateSubmission, useUpdateMetrics } from '@/hooks/startup-studio/use-event-submissions';
 import { EventSubmissionService } from '@/lib/services/startup-studio/event-submission-service';
 import type { EventConfig } from '@/types/startup-studio';
 import Link from 'next/link';
@@ -90,7 +90,13 @@ export default function SubmitPage({ params }: { params: Promise<{ id: string }>
   const { isLoading: authLoading } = useAuth();
   const { data: event, isLoading: eventLoading } = useEvent(id);
   const { data: registration, isLoading: regLoading } = useMyRegistration(id);
+  const { data: membership, isLoading: memberLoading } = useMyAcceptedMembership(id);
   const { data: submission, isLoading: subLoading } = useMySubmission(id);
+
+  // For accepted members (non-leader): fetch team submission via registration_id from membership
+  const membershipAny = membership as any;
+  const memberRegistrationId = !registration ? membershipAny?.registration_id : undefined;
+  const { data: memberSubmission, isLoading: memberSubLoading } = useTeamSubmission(id, memberRegistrationId);
 
   const now = new Date();
   const submissionLocked = event?.submission_deadline
@@ -100,7 +106,7 @@ export default function SubmitPage({ params }: { params: Promise<{ id: string }>
     ? new Date(event.metrics_deadline) < now
     : false;
 
-  if (authLoading || eventLoading || regLoading || subLoading) {
+  if (authLoading || eventLoading || regLoading || memberLoading || subLoading || memberSubLoading) {
     return (
       <ContentLayout title="Submit Project">
         <div className="flex items-center justify-center min-h-[60vh]">
@@ -110,14 +116,42 @@ export default function SubmitPage({ params }: { params: Promise<{ id: string }>
     );
   }
 
+  const breadcrumb = [
+    { label: 'Home', href: '/' },
+    { label: 'Startup Studio', href: '/startup-studio/events' },
+    { label: event?.name || 'Event', href: `/startup-studio/events/${id}` },
+    { label: 'Submit Project' },
+  ];
+
+  // ── Member (non-leader) view: read-only submission ───────────────────────
+  if (!registration && membership) {
+    const teamName = membershipAny?.team_name;
+    return (
+      <ContentLayout title="Submit Project">
+        <PageBreadcrumb items={breadcrumb} />
+        <div className="space-y-6 max-w-5xl py-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-2xl font-bold">Project Submission</h2>
+              <p className="text-sm text-muted-foreground">{teamName} · {event?.name}</p>
+            </div>
+            <Button variant="outline" size="sm" asChild>
+              <Link href={`/startup-studio/events/${id}/my-team`}>
+                <ArrowLeft className="h-4 w-4 mr-1" /> Back
+              </Link>
+            </Button>
+          </div>
+          <MemberSubmissionView submission={memberSubmission} />
+        </div>
+      </ContentLayout>
+    );
+  }
+
+  // ── Not in any team ──────────────────────────────────────────────────────
   if (!registration) {
     return (
       <ContentLayout title="Submit Project">
-        <PageBreadcrumb items={[
-          { label: 'Startup Studio', href: '/startup-studio/events' },
-          { label: 'Event', href: `/startup-studio/events/${id}` },
-          { label: 'Submit Project' },
-        ]} />
+        <PageBreadcrumb items={breadcrumb} />
         <Card className="max-w-lg mx-auto mt-8">
           <CardContent className="pt-6 text-center space-y-4">
             <p className="text-muted-foreground">You must register a team before submitting a project.</p>
@@ -130,14 +164,10 @@ export default function SubmitPage({ params }: { params: Promise<{ id: string }>
     );
   }
 
+  // ── Leader (owner) view: full submit/edit form ───────────────────────────
   return (
     <ContentLayout title="Submit Project">
-      <PageBreadcrumb items={[
-        { label: 'Home', href: '/' },
-        { label: 'Startup Studio', href: '/startup-studio/events' },
-        { label: event?.name || 'Event', href: `/startup-studio/events/${id}` },
-        { label: 'Submit Project' },
-      ]} />
+      <PageBreadcrumb items={breadcrumb} />
 
       <div className="space-y-6 max-w-5xl py-4">
         <div className="flex items-center justify-between">
@@ -398,6 +428,65 @@ function ProjectSection({
         )}
       </form>
     </Form>
+  );
+}
+
+// ── Read-only view for accepted members (non-leaders) ───────────────────────
+function MemberSubmissionView({ submission }: { submission: any }) {
+  if (!submission) {
+    return (
+      <Card>
+        <CardContent className="py-16 text-center space-y-3">
+          <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center mx-auto">
+            <FileText className="h-6 w-6 text-muted-foreground" />
+          </div>
+          <p className="font-medium">No submission yet</p>
+          <p className="text-sm text-muted-foreground">
+            Your team leader hasn&apos;t submitted the project yet.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const fields: { label: string; value: string | null | undefined; icon: React.ReactNode }[] = [
+    { label: 'App Name', value: submission.app_name, icon: <FileText className="h-4 w-4" /> },
+    { label: 'Category', value: submission.category, icon: <BarChart3 className="h-4 w-4" /> },
+    { label: 'Problem Statement', value: submission.problem_statement, icon: <Lightbulb className="h-4 w-4" /> },
+    { label: 'Solution Summary', value: submission.solution_summary, icon: <Send className="h-4 w-4" /> },
+    { label: 'Elevator Pitch', value: submission.elevator_pitch, icon: <FileText className="h-4 w-4" /> },
+    { label: 'Live App URL', value: submission.live_app_url, icon: <Globe className="h-4 w-4" /> },
+    { label: 'Lovable URL', value: submission.lovable_url, icon: <Link2 className="h-4 w-4" /> },
+    { label: 'GitHub URL', value: submission.github_url, icon: <Github className="h-4 w-4" /> },
+    { label: 'Demo Video URL', value: submission.demo_video_url, icon: <Video className="h-4 w-4" /> },
+  ];
+
+  return (
+    <Card>
+      <CardHeader className="pb-4">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <FileText className="h-4 w-4" /> Project Details
+          <Badge variant="secondary" className="ml-auto text-xs font-normal">Read-only</Badge>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {fields.filter(f => f.value).map(({ label, value, icon }) => (
+          <div key={label} className="space-y-1">
+            <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wide">
+              {icon} {label}
+            </div>
+            {value?.startsWith('http') ? (
+              <a href={value} target="_blank" rel="noopener noreferrer"
+                className="text-sm text-primary hover:underline break-all flex items-center gap-1">
+                {value} <ExternalLink className="h-3 w-3 shrink-0" />
+              </a>
+            ) : (
+              <p className="text-sm leading-relaxed">{value}</p>
+            )}
+          </div>
+        ))}
+      </CardContent>
+    </Card>
   );
 }
 

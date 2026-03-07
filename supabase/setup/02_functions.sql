@@ -4488,7 +4488,9 @@ $$;
 
 -- =====================================================
 -- STARTUP STUDIO: generate_team_code
--- Updated: 2026-03-06
+-- Updated: 2026-03-07 - Fix duplicate key bug: use MAX-based sequence + retry loop
+--   Previous: COUNT(*)+1 produced duplicates when registrations were deleted (gaps)
+--   Now: MAX(numeric_suffix)+1 is immune to gaps; retry loop handles race conditions
 -- Generates a unique team code like "JKKN-001" per event per institution
 -- =====================================================
 CREATE OR REPLACE FUNCTION generate_team_code(p_event_id UUID, p_institution_id UUID)
@@ -4499,6 +4501,7 @@ DECLARE
   v_inst_prefix TEXT;
   v_seq         INT;
   v_code        TEXT;
+  v_try         INT := 0;
 BEGIN
   -- Use counselling_code if available, else first 4 chars of institution name
   SELECT UPPER(COALESCE(
@@ -4513,15 +4516,38 @@ BEGIN
     v_inst_prefix := 'TEAM';
   END IF;
 
-  -- Count existing registrations for this institution+event to derive sequence
-  SELECT COUNT(*) + 1
+  -- MAX-based sequence: extract numeric suffix from existing codes for this prefix
+  -- e.g. 'CET-003' with prefix 'CET' → SUBSTRING from pos 5 → '003' → 3
+  -- COALESCE to 0 when no registrations exist yet
+  SELECT COALESCE(
+    MAX(CAST(SUBSTRING(team_code FROM LENGTH(v_inst_prefix) + 2) AS INT)),
+    0
+  ) + 1
   INTO v_seq
   FROM event_registrations
   WHERE event_id = p_event_id
-    AND institution_id = p_institution_id;
+    AND institution_id = p_institution_id
+    AND team_code LIKE v_inst_prefix || '-%';
 
-  v_code := v_inst_prefix || '-' || LPAD(v_seq::TEXT, 3, '0');
-  RETURN v_code;
+  -- Retry loop: guards against concurrent registrations (race condition)
+  -- Both transactions may read the same MAX before either inserts
+  LOOP
+    v_code := v_inst_prefix || '-' || LPAD(v_seq::TEXT, 3, '0');
+
+    IF NOT EXISTS (
+      SELECT 1 FROM event_registrations
+      WHERE event_id = p_event_id AND team_code = v_code
+    ) THEN
+      RETURN v_code;
+    END IF;
+
+    v_seq := v_seq + 1;
+    v_try := v_try + 1;
+
+    IF v_try >= 10 THEN
+      RAISE EXCEPTION 'Could not generate unique team code after % attempts for prefix %', v_try, v_inst_prefix;
+    END IF;
+  END LOOP;
 END;
 
 -- ============================================================
