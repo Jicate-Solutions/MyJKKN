@@ -7,7 +7,7 @@ export type EventStatus = 'draft' | 'registration_open' | 'registration_closed' 
 export type RegistrationStatus = 'registered' | 'checked_in' | 'disqualified';
 export type StaffRole = 'mentor' | 'lead_mentor' | 'judge' | 'panel_chair' | 'evaluator';
 export type DayType = 'build_day' | 'demo_day';
-export type ChecklistPhase = 'pre_event' | 'on_day' | 'post_event';
+export type ChecklistPhase = 'pre_event' | 'on_day' | 'build_day' | 'demo_day' | 'post_event';
 export type ChecklistTargetRole = 'admin' | 'mentor' | 'team';
 
 // -- Config (stored in startup_events.config JSONB) --

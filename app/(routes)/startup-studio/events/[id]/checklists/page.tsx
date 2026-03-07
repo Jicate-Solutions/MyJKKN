@@ -11,7 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import {
-  ArrowLeft, Clock, ListChecks, ListTodo, Loader2, Plus, Trash2,
+  ArrowLeft, Clock, Hammer, ListChecks, ListTodo, Loader2, Presentation, Plus, Trash2,
 } from 'lucide-react';
 import { useEvent } from '@/hooks/startup-studio/use-events';
 import { useAuth } from '@/hooks/use-auth';
@@ -21,7 +21,8 @@ import type { EventChecklist, ChecklistPhase } from '@/types/startup-studio';
 
 const PHASES: { value: ChecklistPhase; label: string; icon: React.ReactNode }[] = [
   { value: 'pre_event', label: 'Pre-Event', icon: <Clock className="h-4 w-4" /> },
-  { value: 'on_day', label: 'On-Day', icon: <ListChecks className="h-4 w-4" /> },
+  { value: 'build_day', label: 'Build Day', icon: <Hammer className="h-4 w-4" /> },
+  { value: 'demo_day', label: 'Demo Day', icon: <Presentation className="h-4 w-4" /> },
   { value: 'post_event', label: 'Post-Event', icon: <ListTodo className="h-4 w-4" /> },
 ];
 
@@ -99,6 +100,8 @@ export default function ChecklistsPage({ params }: { params: Promise<{ id: strin
   const phaseCounts: Record<ChecklistPhase, { total: number; done: number }> = {
     pre_event: { total: 0, done: 0 },
     on_day: { total: 0, done: 0 },
+    build_day: { total: 0, done: 0 },
+    demo_day: { total: 0, done: 0 },
     post_event: { total: 0, done: 0 },
   };
 
@@ -106,7 +109,7 @@ export default function ChecklistsPage({ params }: { params: Promise<{ id: strin
     id: string; title: string; description: string | null; is_required: boolean;
     completion?: { id: string; completed_at: string } | null;
     checklistTitle: string;
-  }>> = { pre_event: [], on_day: [], post_event: [] };
+  }>> = { pre_event: [], on_day: [], build_day: [], demo_day: [], post_event: [] };
 
   checklists.forEach((cl) => {
     const items = cl.items || [];

@@ -2014,7 +2014,7 @@ CREATE TABLE IF NOT EXISTS public.event_checklists (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     event_id UUID NOT NULL REFERENCES startup_events(id) ON DELETE CASCADE,
     title TEXT NOT NULL,
-    phase TEXT NOT NULL CHECK (phase IN ('pre_event','on_day','post_event')),
+    phase TEXT NOT NULL CHECK (phase IN ('pre_event','on_day','build_day','demo_day','post_event')),
     target_role TEXT NOT NULL CHECK (target_role IN ('admin','mentor','team')),
     order_index INT DEFAULT 0
 );
