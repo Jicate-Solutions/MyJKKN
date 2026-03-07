@@ -1889,7 +1889,7 @@ CREATE TABLE IF NOT EXISTS public.event_registrations (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     event_id UUID NOT NULL REFERENCES startup_events(id) ON DELETE CASCADE,
     team_name TEXT NOT NULL,
-    problem_idea TEXT NOT NULL,
+    problem_idea TEXT, -- nullable: optional field in registration form (updated 2026-03-07)
     owner_id UUID NOT NULL REFERENCES profiles(id),
     institution_id UUID NOT NULL REFERENCES institutions(id),
     lovable_verified BOOLEAN DEFAULT false,

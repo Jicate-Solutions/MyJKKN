@@ -17,6 +17,7 @@ import {
   Settings,
   TabletSmartphone,
   Bug,
+  Rocket,
   LucideIcon
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -45,7 +46,8 @@ const GROUP_ICONS: Record<string, LucideIcon> = {
   'Accounts': FileText,
   'Bugs': Bug,
   'Administration': Bell,
-  'System': Settings
+  'System': Settings,
+  'Startup Studio': Rocket,
 };
 
 // Routes that are parent-only (no actual page, only submenus)

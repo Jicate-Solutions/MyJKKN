@@ -1497,6 +1497,16 @@ export function GetPages(pathname: string): MenuGroup[] {
   ];
 }
 
+// Normalize a route href by replacing UUID segments with [id]
+// Required because GetPages builds submenus with real event UUIDs (activeId),
+// but MENU_PERMISSIONS uses static [id] placeholders as keys.
+// Without this, MENU_PERMISSIONS['/startup-studio/events/572a5836-.../my-team'] = undefined
+// → whole Startup Studio group is filtered out for students navigating inside an event.
+const UUID_SEGMENT_REGEX = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
+function normalizeRoute(href: string): string {
+  return href.replace(UUID_SEGMENT_REGEX, '[id]');
+}
+
 // New function to filter menus based on user role permissions
 export function GetRoleBasedPages(
   pathname: string,
@@ -1606,7 +1616,7 @@ export function GetRoleBasedPages(
           if (menu.submenus.length > 0) {
             // Show parent if any submenu is accessible
             return menu.submenus.some((submenu) => {
-              const requiredPermission = MENU_PERMISSIONS[submenu.href];
+              const requiredPermission = MENU_PERMISSIONS[normalizeRoute(submenu.href)];
               return (
                 requiredPermission &&
                 userRole.permissions[requiredPermission] === true
@@ -1615,7 +1625,7 @@ export function GetRoleBasedPages(
           }
 
           // Check if user has permission for this menu
-          const requiredPermission = MENU_PERMISSIONS[menu.href];
+          const requiredPermission = MENU_PERMISSIONS[normalizeRoute(menu.href)];
 
           // If no specific permission is defined, hide by default (changed behavior)
           if (!requiredPermission) {
@@ -1652,7 +1662,7 @@ export function GetRoleBasedPages(
               return true;
             }
 
-            const requiredPermission = MENU_PERMISSIONS[submenu.href];
+            const requiredPermission = MENU_PERMISSIONS[normalizeRoute(submenu.href)];
             if (!requiredPermission) return false; // Changed to false to be consistent
 
             // Hide "Student Search" submenu for students
