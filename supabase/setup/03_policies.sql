@@ -2711,6 +2711,19 @@ CREATE POLICY "edu_consultants_delete"
 -- Created: 2026-03-05
 -- =====================================================
 
+-- institutions: allow faculty/hod/principal to read ALL institution rows
+-- Added: 2026-03-07 — needed so institution:institutions(id,name) join works
+-- in registrations table for cross-institution data display
+DROP POLICY IF EXISTS "institutions_select_faculty_hod_principal" ON institutions;
+CREATE POLICY "institutions_select_faculty_hod_principal" ON institutions
+    FOR SELECT TO authenticated USING (
+        EXISTS (
+            SELECT 1 FROM profiles p
+            WHERE p.id = auth.uid()
+              AND p.role IN ('faculty', 'hod', 'principal')
+        )
+    );
+
 -- startup_events: visible to all authenticated users
 CREATE POLICY "startup_events_select_all" ON startup_events
     FOR SELECT TO authenticated USING (true);
@@ -2725,11 +2738,10 @@ CREATE POLICY "startup_events_update_admin" ON startup_events
         EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND (is_super_admin = true OR role IN ('admin', 'administrator')))
     );
 
--- event_registrations: owner or admin/staff can read all; faculty/hod/principal own institution only
+-- event_registrations: owner or admin/staff/faculty/hod/principal can read ALL institutions
 -- Updated: 2026-03-06 — removed event_team_members subquery to break mutual RLS recursion
 -- (event_registrations_select ↔ event_team_members_select caused infinite 42P17 cycle)
--- Updated: 2026-03-07 — added faculty/hod/principal scoped to own institution_id
---   (fixes null institution column: institutions RLS only allows reading own institution row)
+-- Updated: 2026-03-07 — faculty/hod/principal see all institutions (cross-institution visibility)
 -- Invited members access registration data via SECURITY DEFINER function get_my_pending_invitations()
 CREATE POLICY "event_registrations_select" ON event_registrations
     FOR SELECT TO authenticated USING (
@@ -2739,11 +2751,7 @@ CREATE POLICY "event_registrations_select" ON event_registrations
             WHERE p.id = auth.uid()
               AND (
                 p.is_super_admin = true
-                OR p.role IN ('admin', 'administrator', 'staff')
-                OR (
-                    p.role IN ('faculty', 'hod', 'principal')
-                    AND p.institution_id = event_registrations.institution_id
-                )
+                OR p.role IN ('admin', 'administrator', 'staff', 'faculty', 'hod', 'principal')
               )
         )
     );
@@ -2764,8 +2772,8 @@ CREATE POLICY "event_registrations_delete" ON event_registrations
         EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND is_super_admin = true)
     );
 
--- event_team_members: mirrors event_registrations_select scoping
--- Updated: 2026-03-07 — faculty/hod/principal scoped to own institution_id via er.institution_id
+-- event_team_members: mirrors event_registrations_select — all institutions for faculty/hod/principal
+-- Updated: 2026-03-07 — faculty/hod/principal see all institutions' team members
 CREATE POLICY "event_team_members_select" ON event_team_members
     FOR SELECT TO authenticated USING (
         EXISTS (
@@ -2778,11 +2786,7 @@ CREATE POLICY "event_team_members_select" ON event_team_members
                     WHERE p.id = auth.uid()
                       AND (
                         p.is_super_admin = true
-                        OR p.role IN ('admin', 'administrator', 'staff')
-                        OR (
-                            p.role IN ('faculty', 'hod', 'principal')
-                            AND p.institution_id = er.institution_id
-                        )
+                        OR p.role IN ('admin', 'administrator', 'staff', 'faculty', 'hod', 'principal')
                       )
                 )
               )
