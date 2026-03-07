@@ -1,11 +1,14 @@
 'use client';
 
 import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
+import { Separator } from '@/components/ui/separator';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
@@ -31,6 +34,7 @@ import {
   ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight,
   Laptop, Search, Users, Loader2, CheckCircle2,
   MoreHorizontal, ShieldX, ShieldCheck, Trash2,
+  SlidersHorizontal, X, Building2,
 } from 'lucide-react';
 import type { RegistrationStatus } from '@/types/startup-studio';
 
@@ -41,21 +45,71 @@ const STATUS_OPTIONS: { value: string; label: string }[] = [
   { value: 'disqualified', label: 'Disqualified' },
 ];
 
+const MEMBER_COUNT_OPTIONS = [
+  { value: 'all', label: 'Any Size' },
+  { value: '1', label: '1 Member' },
+  { value: '2', label: '2 Members' },
+  { value: '3', label: '3 Members' },
+  { value: '4', label: '4 Members' },
+  { value: '5', label: '5+ Members' },
+];
+
+const LAPTOP_OPTIONS = [
+  { value: 'all', label: 'All Teams' },
+  { value: 'has_laptop', label: 'Has Laptop' },
+  { value: 'no_laptop', label: 'No Laptop' },
+];
+
+const LOVABLE_OPTIONS = [
+  { value: 'all', label: 'All Teams' },
+  { value: 'verified', label: 'Lovable Verified' },
+  { value: 'not_verified', label: 'Not Verified' },
+];
+
 const PAGE_SIZE_OPTIONS = [10, 25, 50];
+
+function useInstitutions() {
+  return useQuery({
+    queryKey: ['institutions-list'],
+    queryFn: async () => {
+      const supabase = createClientSupabaseClient();
+      const { data } = await supabase.from('institutions').select('id, name').order('name');
+      return (data || []) as Array<{ id: string; name: string }>;
+    },
+    staleTime: 60 * 1000,
+  });
+}
 
 export function RegistrationsTable({ eventId, isSuperAdmin }: { eventId: string; isSuperAdmin: boolean }) {
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [institutionFilter, setInstitutionFilter] = useState('all');
+  const [lovableFilter, setLovableFilter] = useState('all');
+  const [laptopFilter, setLaptopFilter] = useState('all');
+  const [membersFilter, setMembersFilter] = useState('all');
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [searchTimer, setSearchTimer] = useState<ReturnType<typeof setTimeout> | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
 
+  const { data: institutions = [] } = useInstitutions();
+
+  // Count active advanced filters for badge
+  const activeAdvancedCount = [
+    institutionFilter !== 'all',
+    lovableFilter !== 'all',
+    laptopFilter !== 'all',
+    membersFilter !== 'all',
+  ].filter(Boolean).length;
+
   const { data: result, isLoading } = useEventRegistrationsPaginated({
     event_id: eventId,
     search: debouncedSearch || undefined,
     status: statusFilter !== 'all' ? statusFilter as RegistrationStatus : undefined,
+    institution_id: institutionFilter !== 'all' ? institutionFilter : undefined,
+    lovable_verified: lovableFilter === 'verified' ? true : lovableFilter === 'not_verified' ? false : undefined,
     page,
     limit: pageSize,
   });
@@ -65,7 +119,27 @@ export function RegistrationsTable({ eventId, isSuperAdmin }: { eventId: string;
   const updateStatus = useUpdateRegistrationStatus();
   const deleteRegistration = useDeleteRegistration();
 
-  const teams = result?.data || [];
+  // Apply client-side filters for members count and laptop (join-based — can't paginate server-side)
+  const allTeams = result?.data || [];
+  const teams = allTeams.filter((reg) => {
+    const members = (reg.team_members || []).filter((m: any) => m.status === 'accepted');
+    const memberCount = members.length;
+    const hasLaptop = members.some((m: any) => m.has_laptop);
+
+    if (laptopFilter === 'has_laptop' && !hasLaptop) return false;
+    if (laptopFilter === 'no_laptop' && hasLaptop) return false;
+
+    if (membersFilter !== 'all') {
+      if (membersFilter === '5') {
+        if (memberCount < 5) return false;
+      } else {
+        if (memberCount !== parseInt(membersFilter)) return false;
+      }
+    }
+
+    return true;
+  });
+
   const pagination = result?.pagination || { page: 1, limit: 10, total_items: 0, total_pages: 0 };
 
   const handleSearchChange = (value: string) => {
@@ -78,13 +152,16 @@ export function RegistrationsTable({ eventId, isSuperAdmin }: { eventId: string;
     setSearchTimer(timer);
   };
 
-  const handleStatusChange = (value: string) => {
-    setStatusFilter(value);
-    setPage(1);
-  };
+  const handleStatusChange = (value: string) => { setStatusFilter(value); setPage(1); };
+  const handleInstitutionChange = (value: string) => { setInstitutionFilter(value); setPage(1); };
+  const handleLovableChange = (value: string) => { setLovableFilter(value); setPage(1); };
+  const handlePageSizeChange = (value: string) => { setPageSize(Number(value)); setPage(1); };
 
-  const handlePageSizeChange = (value: string) => {
-    setPageSize(Number(value));
+  const clearAdvancedFilters = () => {
+    setInstitutionFilter('all');
+    setLovableFilter('all');
+    setLaptopFilter('all');
+    setMembersFilter('all');
     setPage(1);
   };
 
@@ -94,12 +171,12 @@ export function RegistrationsTable({ eventId, isSuperAdmin }: { eventId: string;
         <CardTitle className="text-lg">Teams</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
-        {/* Toolbar */}
+        {/* Toolbar Row 1: Search + Status + Advanced Toggle */}
         <div className="flex flex-col sm:flex-row gap-3">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
-              placeholder="Search teams..."
+              placeholder="Search teams or problem idea..."
               value={search}
               onChange={(e) => handleSearchChange(e.target.value)}
               className="pl-9"
@@ -115,7 +192,147 @@ export function RegistrationsTable({ eventId, isSuperAdmin }: { eventId: string;
               ))}
             </SelectContent>
           </Select>
+          <Button
+            variant={showAdvanced ? 'default' : 'outline'}
+            size="default"
+            className="gap-2 shrink-0"
+            onClick={() => setShowAdvanced((v) => !v)}
+          >
+            <SlidersHorizontal className="h-4 w-4" />
+            Filters
+            {activeAdvancedCount > 0 && (
+              <Badge variant="secondary" className="h-5 w-5 p-0 flex items-center justify-center text-[10px] ml-0.5">
+                {activeAdvancedCount}
+              </Badge>
+            )}
+          </Button>
         </div>
+
+        {/* Advanced Filters Panel */}
+        {showAdvanced && (
+          <div className="rounded-lg border bg-muted/30 p-4 space-y-4">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-medium text-muted-foreground">Advanced Filters</span>
+              {activeAdvancedCount > 0 && (
+                <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs" onClick={clearAdvancedFilters}>
+                  <X className="h-3 w-3" /> Clear all
+                </Button>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              {/* Institution */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+                  <Building2 className="h-3 w-3" /> Institution
+                </label>
+                <Select value={institutionFilter} onValueChange={handleInstitutionChange}>
+                  <SelectTrigger className="h-9 text-sm">
+                    <SelectValue placeholder="All Institutions" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Institutions</SelectItem>
+                    {institutions.map((inst) => (
+                      <SelectItem key={inst.id} value={inst.id}>{inst.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Lovable */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+                  <CheckCircle2 className="h-3 w-3" /> Lovable
+                </label>
+                <Select value={lovableFilter} onValueChange={handleLovableChange}>
+                  <SelectTrigger className="h-9 text-sm">
+                    <SelectValue placeholder="All Teams" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {LOVABLE_OPTIONS.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Laptops */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+                  <Laptop className="h-3 w-3" /> Laptops
+                </label>
+                <Select value={laptopFilter} onValueChange={setLaptopFilter}>
+                  <SelectTrigger className="h-9 text-sm">
+                    <SelectValue placeholder="All Teams" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {LAPTOP_OPTIONS.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Members Count */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+                  <Users className="h-3 w-3" /> Team Size
+                </label>
+                <Select value={membersFilter} onValueChange={setMembersFilter}>
+                  <SelectTrigger className="h-9 text-sm">
+                    <SelectValue placeholder="Any Size" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {MEMBER_COUNT_OPTIONS.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {/* Active filter pills */}
+            {activeAdvancedCount > 0 && (
+              <>
+                <Separator />
+                <div className="flex flex-wrap gap-1.5">
+                  {institutionFilter !== 'all' && (
+                    <Badge variant="secondary" className="gap-1 text-xs pr-1">
+                      {institutions.find((i) => i.id === institutionFilter)?.name || 'Institution'}
+                      <button onClick={() => setInstitutionFilter('all')} className="ml-0.5 hover:text-destructive">
+                        <X className="h-3 w-3" />
+                      </button>
+                    </Badge>
+                  )}
+                  {lovableFilter !== 'all' && (
+                    <Badge variant="secondary" className="gap-1 text-xs pr-1">
+                      {LOVABLE_OPTIONS.find((o) => o.value === lovableFilter)?.label}
+                      <button onClick={() => setLovableFilter('all')} className="ml-0.5 hover:text-destructive">
+                        <X className="h-3 w-3" />
+                      </button>
+                    </Badge>
+                  )}
+                  {laptopFilter !== 'all' && (
+                    <Badge variant="secondary" className="gap-1 text-xs pr-1">
+                      {LAPTOP_OPTIONS.find((o) => o.value === laptopFilter)?.label}
+                      <button onClick={() => setLaptopFilter('all')} className="ml-0.5 hover:text-destructive">
+                        <X className="h-3 w-3" />
+                      </button>
+                    </Badge>
+                  )}
+                  {membersFilter !== 'all' && (
+                    <Badge variant="secondary" className="gap-1 text-xs pr-1">
+                      {MEMBER_COUNT_OPTIONS.find((o) => o.value === membersFilter)?.label}
+                      <button onClick={() => setMembersFilter('all')} className="ml-0.5 hover:text-destructive">
+                        <X className="h-3 w-3" />
+                      </button>
+                    </Badge>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        )}
 
         {/* Table */}
         {isLoading ? (
@@ -174,7 +391,7 @@ export function RegistrationsTable({ eventId, isSuperAdmin }: { eventId: string;
                         </TableCell>
                         <TableCell>
                           <p className="text-sm text-muted-foreground line-clamp-2 max-w-[250px]">
-                            {reg.problem_idea}
+                            {reg.problem_idea || <span className="italic">No idea submitted</span>}
                           </p>
                         </TableCell>
                         <TableCell className="text-center">
