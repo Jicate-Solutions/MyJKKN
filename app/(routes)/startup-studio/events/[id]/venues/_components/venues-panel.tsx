@@ -1,7 +1,16 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import {
+  useReactTable,
+  getCoreRowModel,
+  getSortedRowModel,
+  getFilteredRowModel,
+  flexRender,
+  type ColumnDef,
+  type SortingState,
+} from '@tanstack/react-table';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -28,11 +37,50 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from '@/components/ui/dialog';
 import {
-  Building2, Hash, Loader2, MapPin, Pencil, Plus, Trash2,
-  UserPlus, Users, Wand2, X,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from '@/components/ui/sheet';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import {
+  AlertTriangle,
+  ArrowUpDown,
+  Building2,
+  CheckCircle2,
+  ChevronDown,
+  ChevronUp,
+  Eye,
+  Filter,
+  Hash,
+  Loader2,
+  MapPin,
+  MoreHorizontal,
+  Pencil,
+  Plus,
+  Search,
+  Trash2,
+  UserPlus,
+  Users,
+  Wand2,
+  X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -75,11 +123,28 @@ function useInstitutions() {
   });
 }
 
-interface VenuesPanelProps {
-  eventId: string;
+// ── Sortable column header ───────────────────────────────────────────────────
+function SortableHeader({ column, label }: { column: any; label: string }) {
+  const sorted = column.getIsSorted();
+  return (
+    <button
+      className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors select-none group"
+      onClick={() => column.toggleSorting(sorted === 'asc')}
+    >
+      {label}
+      {sorted === 'asc' ? (
+        <ChevronUp className="h-3 w-3" />
+      ) : sorted === 'desc' ? (
+        <ChevronDown className="h-3 w-3" />
+      ) : (
+        <ArrowUpDown className="h-3 w-3 opacity-0 group-hover:opacity-60" />
+      )}
+    </button>
+  );
 }
 
-export function VenuesPanel({ eventId }: VenuesPanelProps) {
+// ── Root panel ───────────────────────────────────────────────────────────────
+export function VenuesPanel({ eventId }: { eventId: string }) {
   const { profile } = useAuth();
   const isSuperAdmin = profile?.is_super_admin === true;
   const [dayType, setDayType] = useState<DayType>('build_day');
@@ -90,7 +155,6 @@ export function VenuesPanel({ eventId }: VenuesPanelProps) {
         <TabsTrigger value="build_day">Build Day</TabsTrigger>
         <TabsTrigger value="demo_day">Demo Day</TabsTrigger>
       </TabsList>
-
       <TabsContent value="build_day">
         <VenuesDayPanel eventId={eventId} dayType="build_day" isSuperAdmin={isSuperAdmin} />
       </TabsContent>
@@ -101,26 +165,73 @@ export function VenuesPanel({ eventId }: VenuesPanelProps) {
   );
 }
 
-function VenuesDayPanel({ eventId, dayType, isSuperAdmin }: { eventId: string; dayType: DayType; isSuperAdmin: boolean }) {
+// ── Day panel ────────────────────────────────────────────────────────────────
+function VenuesDayPanel({ eventId, dayType, isSuperAdmin }: {
+  eventId: string; dayType: DayType; isSuperAdmin: boolean;
+}) {
   const { data: venues = [], isLoading } = useEventVenues(eventId, dayType);
+  const { data: registrations = [] } = useEventRegistrations({ event_id: eventId });
   const autoAllocate = useAutoAllocateTeams();
 
+  // Allocation stats derived from live venue data
+  const allocatedRegIds = useMemo(() =>
+    new Set(venues.flatMap((v) => (v.team_allocations || []).map((a: any) => a.registration_id))),
+    [venues]
+  );
+  const totalTeams = registrations.length;
+  const allocatedTeamsCount = allocatedRegIds.size;
+  const unallocatedTeamsCount = totalTeams - allocatedTeamsCount;
   const totalCapacity = venues.reduce((s, v) => s + (v.capacity_override || 0), 0);
-  const totalAllocated = venues.reduce((s, v) => s + (v.team_allocations?.length || 0), 0);
+  const venuesWithSpace = venues.filter((v) => {
+    const cap = v.capacity_override || 0;
+    return cap === 0 || cap > (v.team_allocations?.length || 0);
+  }).length;
   const totalStaff = venues.reduce((s, v) => s + (v.staff_assignments?.length || 0), 0);
 
   return (
     <div className="space-y-5">
-      {/* Stats Row */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        <MiniStat icon={<Building2 className="h-4 w-4" />} label="Venues" value={venues.length} />
-        <MiniStat icon={<Users className="h-4 w-4" />} label="Teams Allocated" value={totalAllocated} color="text-green-600" />
-        <MiniStat icon={<Hash className="h-4 w-4" />} label="Total Capacity" value={totalCapacity || '∞'} />
-        <MiniStat icon={<UserPlus className="h-4 w-4" />} label="Staff Assigned" value={totalStaff} color="text-blue-600" />
+      {/* Stats — two rows: venues metrics + team allocation metrics */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        <MiniStat
+          icon={<Building2 className="h-4 w-4" />}
+          label="Venues"
+          value={venues.length}
+        />
+        <MiniStat
+          icon={<Hash className="h-4 w-4" />}
+          label="Total Capacity"
+          value={totalCapacity || '∞'}
+        />
+        <MiniStat
+          icon={<Building2 className="h-4 w-4" />}
+          label="Available Venues"
+          value={venuesWithSpace}
+          color={venuesWithSpace === 0 ? 'text-amber-600' : 'text-green-600'}
+          hint={venuesWithSpace === 0 ? 'All venues full' : `${venuesWithSpace} with space`}
+        />
+        <MiniStat
+          icon={<Users className="h-4 w-4" />}
+          label="Total Teams"
+          value={totalTeams}
+        />
+        <MiniStat
+          icon={<CheckCircle2 className="h-4 w-4" />}
+          label="Allocated"
+          value={allocatedTeamsCount}
+          color="text-green-600"
+          hint={totalTeams > 0 ? `${Math.round((allocatedTeamsCount / totalTeams) * 100)}% placed` : undefined}
+        />
+        <MiniStat
+          icon={<AlertTriangle className="h-4 w-4" />}
+          label="Unallocated"
+          value={unallocatedTeamsCount}
+          color={unallocatedTeamsCount > 0 ? 'text-amber-600' : 'text-muted-foreground'}
+          hint={unallocatedTeamsCount === 0 ? 'All placed!' : `${unallocatedTeamsCount} need venues`}
+        />
       </div>
 
-      {/* Action Bar */}
-      <div className="flex items-center justify-end">
+      {/* Auto-allocate */}
+      <div className="flex justify-end">
         <Button
           variant="outline"
           size="sm"
@@ -128,19 +239,15 @@ function VenuesDayPanel({ eventId, dayType, isSuperAdmin }: { eventId: string; d
           disabled={autoAllocate.isPending}
           className="gap-1.5"
         >
-          {autoAllocate.isPending ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <Wand2 className="h-4 w-4" />
-          )}
+          {autoAllocate.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
           {autoAllocate.isPending ? 'Allocating...' : 'Auto-Allocate Teams'}
         </Button>
       </div>
 
-      {/* Add Venue Form */}
+      {/* Add venue form */}
       <AddVenueForm eventId={eventId} dayType={dayType} />
 
-      {/* Venue Cards */}
+      {/* Table */}
       {isLoading ? (
         <div className="flex justify-center py-12">
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -152,18 +259,529 @@ function VenuesDayPanel({ eventId, dayType, isSuperAdmin }: { eventId: string; d
           <p className="text-xs text-muted-foreground mt-1">Use the form above to add a venue.</p>
         </div>
       ) : (
-        <div className="grid gap-4 md:grid-cols-2">
-          {venues.map((venue) => (
-            <VenueCard key={venue.id} venue={venue} eventId={eventId} dayType={dayType} isSuperAdmin={isSuperAdmin} />
-          ))}
-        </div>
+        <VenuesDataTable
+          venues={venues}
+          eventId={eventId}
+          dayType={dayType}
+          isSuperAdmin={isSuperAdmin}
+          unallocatedTeamsCount={unallocatedTeamsCount}
+        />
       )}
     </div>
   );
 }
 
-function MiniStat({ icon, label, value, color }: {
-  icon: React.ReactNode; label: string; value: number | string; color?: string;
+// ── TanStack data table ───────────────────────────────────────────────────────
+function VenuesDataTable({ venues, eventId, dayType, isSuperAdmin, unallocatedTeamsCount }: {
+  venues: EventVenueAssignment[];
+  eventId: string;
+  dayType: DayType;
+  isSuperAdmin: boolean;
+  unallocatedTeamsCount: number;
+}) {
+  const removeVenue = useRemoveVenue();
+  const [globalFilter, setGlobalFilter] = useState('');
+  const [sorting, setSorting] = useState<SortingState>([]);
+  const [detailVenue, setDetailVenue] = useState<EventVenueAssignment | null>(null);
+  const [editVenue, setEditVenue] = useState<EventVenueAssignment | null>(null);
+  const [showAvailableOnly, setShowAvailableOnly] = useState(false);
+
+  // Pre-filter data before TanStack sees it — "available" = has remaining capacity
+  const tableData = useMemo(() =>
+    showAvailableOnly
+      ? venues.filter((v) => {
+          const cap = v.capacity_override || 0;
+          return cap === 0 || cap > (v.team_allocations?.length || 0);
+        })
+      : venues,
+    [venues, showAvailableOnly]
+  );
+
+  const columns = useMemo<ColumnDef<EventVenueAssignment>[]>(() => [
+    {
+      id: 'venue',
+      accessorFn: (row) => [row.manual_name, row.resource?.name, row.manual_building, row.manual_room].filter(Boolean).join(' '),
+      header: ({ column }) => <SortableHeader column={column} label="Venue" />,
+      cell: ({ row }) => {
+        const v = row.original;
+        return (
+          <div className="py-0.5">
+            <p className="font-medium text-sm leading-tight">
+              {v.manual_name || v.resource?.name || 'Unnamed'}
+            </p>
+            {(v.manual_building || v.manual_room) && (
+              <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+                <MapPin className="h-2.5 w-2.5 shrink-0" />
+                {[v.manual_building, v.manual_room ? `Room ${v.manual_room}` : null].filter(Boolean).join(' · ')}
+              </p>
+            )}
+          </div>
+        );
+      },
+    },
+    {
+      id: 'institution',
+      accessorFn: (row) => row.institution?.name || '',
+      header: ({ column }) => <SortableHeader column={column} label="Institution" />,
+      cell: ({ row }) => (
+        <Badge variant="secondary" className="text-xs font-normal whitespace-nowrap">
+          {row.original.institution?.name || 'Unknown'}
+        </Badge>
+      ),
+    },
+    {
+      id: 'capacity',
+      accessorFn: (row) => row.capacity_override || 0,
+      header: ({ column }) => <SortableHeader column={column} label="Capacity" />,
+      cell: ({ row }) => {
+        const v = row.original;
+        const allocated = v.team_allocations?.length || 0;
+        const cap = v.capacity_override || 0;
+        const pct = cap > 0 ? Math.round((allocated / cap) * 100) : 0;
+        return (
+          <div className="min-w-[100px]">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-xs text-muted-foreground tabular-nums">{allocated} / {cap || '∞'}</span>
+              {cap > 0 && (
+                <span className={cn('text-xs font-medium tabular-nums',
+                  pct >= 100 ? 'text-green-600' : pct >= 75 ? 'text-amber-600' : 'text-muted-foreground'
+                )}>
+                  {pct}%
+                </span>
+              )}
+            </div>
+            {cap > 0 && (
+              <div className="w-full bg-muted rounded-full h-1.5">
+                <div
+                  className={cn('h-1.5 rounded-full transition-all duration-300',
+                    pct >= 100 ? 'bg-green-500' : pct >= 75 ? 'bg-amber-500' : 'bg-primary'
+                  )}
+                  style={{ width: `${Math.min(pct, 100)}%` }}
+                />
+              </div>
+            )}
+          </div>
+        );
+      },
+    },
+    {
+      id: 'teams',
+      accessorFn: (row) => row.team_allocations?.length || 0,
+      header: ({ column }) => <SortableHeader column={column} label="Teams" />,
+      cell: ({ row }) => {
+        const count = row.original.team_allocations?.length || 0;
+        return (
+          <Badge variant={count > 0 ? 'default' : 'outline'} className="text-xs tabular-nums">
+            {count}
+          </Badge>
+        );
+      },
+    },
+    {
+      id: 'staff',
+      accessorFn: (row) => row.staff_assignments?.length || 0,
+      header: ({ column }) => <SortableHeader column={column} label="Staff" />,
+      cell: ({ row }) => {
+        const count = row.original.staff_assignments?.length || 0;
+        return (
+          <Badge variant={count > 0 ? 'secondary' : 'outline'} className="text-xs tabular-nums">
+            {count}
+          </Badge>
+        );
+      },
+    },
+    {
+      id: 'actions',
+      header: '',
+      enableSorting: false,
+      cell: ({ row }) => {
+        const venue = row.original;
+        return (
+          <div className="flex justify-end">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-8 w-8 data-[state=open]:bg-muted">
+                  <MoreHorizontal className="h-4 w-4" />
+                  <span className="sr-only">Open menu</span>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-44">
+                <DropdownMenuItem
+                  className="gap-2 cursor-pointer"
+                  onSelect={() => setDetailVenue(venue)}
+                >
+                  <Eye className="h-3.5 w-3.5 text-muted-foreground" />
+                  View Details
+                </DropdownMenuItem>
+                {isSuperAdmin && (
+                  <DropdownMenuItem
+                    className="gap-2 cursor-pointer"
+                    onSelect={() => setEditVenue(venue)}
+                  >
+                    <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
+                    Edit Venue
+                  </DropdownMenuItem>
+                )}
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  className="gap-2 cursor-pointer text-destructive focus:text-destructive"
+                  onSelect={() => removeVenue.mutate(venue.id)}
+                  disabled={removeVenue.isPending}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  Delete Venue
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        );
+      },
+    },
+  ], [isSuperAdmin, removeVenue]);
+
+  const table = useReactTable({
+    data: tableData,
+    columns,
+    state: { sorting, globalFilter },
+    onSortingChange: setSorting,
+    onGlobalFilterChange: setGlobalFilter,
+    getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    getFilteredRowModel: getFilteredRowModel(),
+    globalFilterFn: 'includesString',
+  });
+
+  return (
+    <>
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-2 flex-wrap">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Building2 className="h-4 w-4 text-primary" />
+                Venues
+                <Badge variant="outline" className="text-xs font-normal ml-1">
+                  {table.getFilteredRowModel().rows.length} / {venues.length}
+                </Badge>
+              </CardTitle>
+              {/* Available-only filter toggle */}
+              <Button
+                variant={showAvailableOnly ? 'default' : 'outline'}
+                size="sm"
+                className="h-7 gap-1.5 text-xs"
+                onClick={() => setShowAvailableOnly((p) => !p)}
+              >
+                <Filter className="h-3 w-3" />
+                Available only
+                {showAvailableOnly && (
+                  <Badge className="ml-0.5 h-4 px-1 text-[10px] bg-white/20 hover:bg-white/20">
+                    {tableData.length}
+                  </Badge>
+                )}
+              </Button>
+              {/* Unallocated teams alert */}
+              {unallocatedTeamsCount > 0 && (
+                <Badge variant="outline" className="h-7 px-2.5 gap-1.5 text-xs border-amber-300 text-amber-700 bg-amber-50 dark:border-amber-700 dark:text-amber-400 dark:bg-amber-950/30">
+                  <AlertTriangle className="h-3 w-3" />
+                  {unallocatedTeamsCount} team{unallocatedTeamsCount !== 1 ? 's' : ''} unallocated
+                </Badge>
+              )}
+            </div>
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+              <Input
+                placeholder="Search venues..."
+                value={globalFilter}
+                onChange={(e) => setGlobalFilter(e.target.value)}
+                className="h-8 pl-8 w-full sm:w-[180px] text-sm"
+              />
+            </div>
+          </div>
+        </CardHeader>
+
+        <div className="border-t">
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                {table.getHeaderGroups().map((hg) => (
+                  <TableRow key={hg.id} className="bg-muted/40 hover:bg-muted/40">
+                    {hg.headers.map((header) => (
+                      <TableHead
+                        key={header.id}
+                        className="px-4 py-3 h-auto text-xs font-medium"
+                      >
+                        {header.isPlaceholder
+                          ? null
+                          : flexRender(header.column.columnDef.header, header.getContext())}
+                      </TableHead>
+                    ))}
+                  </TableRow>
+                ))}
+              </TableHeader>
+              <TableBody>
+                {table.getRowModel().rows.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={columns.length} className="h-24 text-center text-sm text-muted-foreground">
+                      No venues match your search.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  table.getRowModel().rows.map((row) => (
+                    <TableRow
+                      key={row.id}
+                      className="group hover:bg-muted/30 border-b last:border-0"
+                    >
+                      {row.getVisibleCells().map((cell) => (
+                        <TableCell key={cell.id} className="px-4 py-3">
+                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="border-t px-4 py-2.5 flex items-center justify-between text-xs text-muted-foreground">
+          <span>
+            Showing {table.getFilteredRowModel().rows.length} of {venues.length} venue{venues.length !== 1 ? 's' : ''}
+            {showAvailableOnly ? ' with available capacity' : ''}
+            {globalFilter ? ` matching "${globalFilter}"` : ''}
+          </span>
+          <div className="flex items-center gap-1">
+            {showAvailableOnly && (
+              <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => setShowAvailableOnly(false)}>
+                <X className="h-3 w-3 mr-1" /> Show all
+              </Button>
+            )}
+            {globalFilter && (
+              <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => setGlobalFilter('')}>
+                <X className="h-3 w-3 mr-1" /> Clear search
+              </Button>
+            )}
+          </div>
+        </div>
+      </Card>
+
+      {/* Details sheet */}
+      <VenueDetailsSheet
+        venue={detailVenue}
+        eventId={eventId}
+        dayType={dayType}
+        venues={venues}
+        onClose={() => setDetailVenue(null)}
+      />
+
+      {/* Edit dialog — controlled, not trigger-based (avoids Radix focus trap conflicts with dropdown) */}
+      {editVenue && (
+        <EditVenueDialog
+          venue={editVenue}
+          open={!!editVenue}
+          onOpenChange={(open) => { if (!open) setEditVenue(null); }}
+        />
+      )}
+    </>
+  );
+}
+
+// ── Venue details sheet ───────────────────────────────────────────────────────
+function VenueDetailsSheet({ venue, eventId, dayType, venues, onClose }: {
+  venue: EventVenueAssignment | null;
+  eventId: string;
+  dayType: DayType;
+  venues: EventVenueAssignment[];
+  onClose: () => void;
+}) {
+  const removeStaff = useRemoveStaff();
+  const removeAllocation = useRemoveAllocation();
+
+  // Always reflect latest cache data
+  const liveVenue = venue ? (venues.find((v) => v.id === venue.id) ?? venue) : null;
+  if (!liveVenue) return null;
+
+  const allocated = liveVenue.team_allocations?.length || 0;
+  const capacity = liveVenue.capacity_override || 0;
+  const fillPercent = capacity > 0 ? Math.round((allocated / capacity) * 100) : 0;
+
+  return (
+    <Sheet open={!!venue} onOpenChange={(open) => { if (!open) onClose(); }}>
+      <SheetContent className="w-full sm:max-w-xl overflow-y-auto">
+        <SheetHeader className="pb-4">
+          <SheetTitle className="flex items-center gap-2">
+            <Building2 className="h-5 w-5 text-primary" />
+            {liveVenue.manual_name || liveVenue.resource?.name || 'Unnamed Venue'}
+          </SheetTitle>
+          <SheetDescription>
+            {liveVenue.institution?.name || 'Unknown institution'} · {dayType === 'build_day' ? 'Build Day' : 'Demo Day'}
+          </SheetDescription>
+        </SheetHeader>
+
+        {/* Info grid */}
+        <div className="grid grid-cols-2 gap-4 mb-6">
+          <InfoItem label="Building" value={liveVenue.manual_building || '—'} />
+          <InfoItem label="Room" value={liveVenue.manual_room ? `Room ${liveVenue.manual_room}` : '—'} />
+          <InfoItem
+            label="Capacity"
+            value={capacity > 0
+              ? `${allocated} / ${capacity} (${fillPercent}%)`
+              : allocated > 0 ? `${allocated} (unlimited)` : 'Unlimited'}
+          />
+          <InfoItem label="Institution" value={liveVenue.institution?.name || 'Unknown'} />
+        </div>
+
+        {/* Capacity bar */}
+        {capacity > 0 && (
+          <div className="mb-6">
+            <div className="w-full bg-muted rounded-full h-2">
+              <div
+                className={cn('h-2 rounded-full transition-all duration-300',
+                  fillPercent >= 100 ? 'bg-green-500' : fillPercent >= 75 ? 'bg-amber-500' : 'bg-primary'
+                )}
+                style={{ width: `${Math.min(fillPercent, 100)}%` }}
+              />
+            </div>
+          </div>
+        )}
+
+        <Separator className="mb-6" />
+
+        {/* Staff */}
+        <section className="mb-6">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold flex items-center gap-2">
+              <UserPlus className="h-4 w-4 text-muted-foreground" />
+              Staff Assignments
+              <Badge variant="outline" className="text-[10px] h-5 px-1.5">
+                {liveVenue.staff_assignments?.length || 0}
+              </Badge>
+            </h3>
+            <AddStaffDialog eventId={eventId} venueId={liveVenue.id} dayType={dayType} />
+          </div>
+
+          {(liveVenue.staff_assignments?.length || 0) === 0 ? (
+            <p className="text-xs text-muted-foreground py-4 text-center border rounded-md bg-muted/20">
+              No staff assigned yet.
+            </p>
+          ) : (
+            <div className="border rounded-md overflow-hidden">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-muted/40 hover:bg-muted/40">
+                    <TableHead className="px-4 py-2.5 text-xs">Name</TableHead>
+                    <TableHead className="px-4 py-2.5 text-xs hidden sm:table-cell">Email</TableHead>
+                    <TableHead className="px-4 py-2.5 text-xs">Role</TableHead>
+                    <TableHead className="w-10" />
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {(liveVenue.staff_assignments || []).map((sa: any) => {
+                    const staffName = sa.staff ? `${sa.staff.first_name} ${sa.staff.last_name}` : 'Unknown';
+                    const roleLabel = STAFF_ROLES.find((r) => r.value === sa.role)?.label || sa.role;
+                    return (
+                      <TableRow key={sa.id} className="border-b last:border-0">
+                        <TableCell className="px-4 py-2.5 text-xs font-medium">{staffName}</TableCell>
+                        <TableCell className="px-4 py-2.5 text-xs text-muted-foreground hidden sm:table-cell">
+                          {sa.staff?.email || '—'}
+                        </TableCell>
+                        <TableCell className="px-4 py-2.5">
+                          <Badge variant="secondary" className="text-[10px]">{roleLabel}</Badge>
+                        </TableCell>
+                        <TableCell className="px-2 py-2.5">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6 text-muted-foreground hover:text-destructive"
+                            onClick={() => removeStaff.mutate(sa.id)}
+                            disabled={removeStaff.isPending}
+                          >
+                            <X className="h-3 w-3" />
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </section>
+
+        <Separator className="mb-6" />
+
+        {/* Teams */}
+        <section>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold flex items-center gap-2">
+              <Users className="h-4 w-4 text-muted-foreground" />
+              Team Allocations
+              <Badge variant="outline" className="text-[10px] h-5 px-1.5">
+                {allocated}
+              </Badge>
+            </h3>
+            <AssignTeamDialog eventId={eventId} venueId={liveVenue.id} dayType={dayType} />
+          </div>
+
+          {allocated === 0 ? (
+            <p className="text-xs text-muted-foreground py-4 text-center border rounded-md bg-muted/20">
+              No teams allocated yet.
+            </p>
+          ) : (
+            <div className="border rounded-md overflow-hidden">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-muted/40 hover:bg-muted/40">
+                    <TableHead className="px-4 py-2.5 text-xs">#</TableHead>
+                    <TableHead className="px-4 py-2.5 text-xs">Team Name</TableHead>
+                    <TableHead className="w-10" />
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {(liveVenue.team_allocations || []).map((alloc: any, idx: number) => (
+                    <TableRow key={alloc.id} className="border-b last:border-0">
+                      <TableCell className="px-4 py-2.5 text-xs text-muted-foreground tabular-nums">
+                        {idx + 1}
+                      </TableCell>
+                      <TableCell className="px-4 py-2.5 text-xs font-medium">
+                        {alloc.registration?.team_name || 'Unknown'}
+                      </TableCell>
+                      <TableCell className="px-2 py-2.5">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6 text-muted-foreground hover:text-destructive"
+                          onClick={() => removeAllocation.mutate(alloc.id)}
+                          disabled={removeAllocation.isPending}
+                        >
+                          <X className="h-3 w-3" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </section>
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+// ── Helper components ─────────────────────────────────────────────────────────
+function InfoItem({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground mb-0.5">{label}</p>
+      <p className="text-sm">{value}</p>
+    </div>
+  );
+}
+
+function MiniStat({ icon, label, value, color, hint }: {
+  icon: React.ReactNode; label: string; value: number | string; color?: string; hint?: string;
 }) {
   return (
     <Card>
@@ -173,11 +791,13 @@ function MiniStat({ icon, label, value, color }: {
           <span className="text-xs font-medium">{label}</span>
         </div>
         <p className={cn('text-2xl font-bold', color)}>{value}</p>
+        {hint && <p className="text-[10px] text-muted-foreground mt-0.5">{hint}</p>}
       </CardContent>
     </Card>
   );
 }
 
+// ── Add venue form ─────────────────────────────────────────────────────────────
 function AddVenueForm({ eventId, dayType }: { eventId: string; dayType: DayType }) {
   const { data: institutions = [] } = useInstitutions();
   const addVenue = useAddVenue();
@@ -211,15 +831,13 @@ function AddVenueForm({ eventId, dayType }: { eventId: string; dayType: DayType 
     <Card>
       <CardHeader className="pb-3">
         <CardTitle className="text-base flex items-center gap-2">
-          <Plus className="h-4 w-4" />
-          Add Venue
+          <Plus className="h-4 w-4" /> Add Venue
         </CardTitle>
         <CardDescription>
           Add a new venue for {dayType === 'build_day' ? 'build day' : 'demo day'} activities.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        {/* Row 1: Name & Institution */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="space-y-2">
             <Label htmlFor="venue-name" className="text-sm font-medium flex items-center gap-1.5">
@@ -250,31 +868,18 @@ function AddVenueForm({ eventId, dayType }: { eventId: string; dayType: DayType 
             </Select>
           </div>
         </div>
-
-        {/* Row 2: Building, Room, Capacity */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div className="space-y-2">
             <Label htmlFor="building" className="text-sm font-medium">Building</Label>
-            <Input
-              id="building"
-              placeholder="e.g., Block A"
-              value={building}
-              onChange={(e) => setBuilding(e.target.value)}
-            />
+            <Input id="building" placeholder="e.g., Block A" value={building} onChange={(e) => setBuilding(e.target.value)} />
           </div>
           <div className="space-y-2">
             <Label htmlFor="room" className="text-sm font-medium">Room</Label>
-            <Input
-              id="room"
-              placeholder="e.g., 101"
-              value={room}
-              onChange={(e) => setRoom(e.target.value)}
-            />
+            <Input id="room" placeholder="e.g., 101" value={room} onChange={(e) => setRoom(e.target.value)} />
           </div>
           <div className="space-y-2">
             <Label htmlFor="capacity" className="text-sm font-medium flex items-center gap-1.5">
-              <Hash className="h-3.5 w-3.5 text-muted-foreground" />
-              Capacity
+              <Hash className="h-3.5 w-3.5 text-muted-foreground" /> Capacity
             </Label>
             <Input
               id="capacity"
@@ -286,20 +891,10 @@ function AddVenueForm({ eventId, dayType }: { eventId: string; dayType: DayType 
             />
           </div>
         </div>
-
         <Separator />
-
         <div className="flex justify-end">
-          <Button
-            onClick={handleSubmit}
-            disabled={!name || !institutionId || addVenue.isPending}
-            className="gap-1.5"
-          >
-            {addVenue.isPending ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Plus className="h-4 w-4" />
-            )}
+          <Button onClick={handleSubmit} disabled={!name || !institutionId || addVenue.isPending} className="gap-1.5">
+            {addVenue.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
             {addVenue.isPending ? 'Adding...' : 'Add Venue'}
           </Button>
         </div>
@@ -308,166 +903,19 @@ function AddVenueForm({ eventId, dayType }: { eventId: string; dayType: DayType 
   );
 }
 
-function VenueCard({ venue, eventId, dayType, isSuperAdmin }: {
-  venue: EventVenueAssignment; eventId: string; dayType: DayType; isSuperAdmin: boolean;
+// ── Edit venue dialog (controlled — no DialogTrigger) ─────────────────────────
+function EditVenueDialog({ venue, open, onOpenChange }: {
+  venue: EventVenueAssignment;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
 }) {
-  const removeVenue = useRemoveVenue();
-  const removeAllocation = useRemoveAllocation();
-  const allocatedCount = venue.team_allocations?.length || 0;
-  const capacity = venue.capacity_override || 0;
-  const fillPercent = capacity > 0 ? Math.round((allocatedCount / capacity) * 100) : 0;
-
-  return (
-    <Card className="overflow-hidden">
-      <div className={cn(
-        'h-1',
-        allocatedCount >= capacity && capacity > 0 ? 'bg-green-500' : 'bg-primary/60'
-      )} />
-      <CardHeader className="pb-3">
-        <div className="flex items-start justify-between">
-          <div>
-            <CardTitle className="text-base flex items-center gap-2">
-              <Building2 className="h-4 w-4 text-primary" />
-              {venue.manual_name || venue.resource?.name || 'Unnamed'}
-            </CardTitle>
-            <div className="flex items-center gap-3 mt-1.5 text-sm text-muted-foreground">
-              {venue.manual_building && (
-                <span className="flex items-center gap-1">
-                  <MapPin className="h-3 w-3" /> {venue.manual_building}
-                </span>
-              )}
-              {venue.manual_room && <span>Room {venue.manual_room}</span>}
-            </div>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <Badge variant="secondary" className="text-xs">
-              {venue.institution?.name || 'Unknown'}
-            </Badge>
-            {/* Edit — super admin only */}
-            {isSuperAdmin && (
-              <EditVenueDialog venue={venue} />
-            )}
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7 text-muted-foreground hover:text-destructive"
-              onClick={() => removeVenue.mutate(venue.id)}
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-            </Button>
-          </div>
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {/* Capacity Bar */}
-        <div>
-          <div className="flex items-center justify-between mb-1.5">
-            <span className="text-xs font-medium text-muted-foreground">Capacity</span>
-            <span className="text-xs font-medium">
-              {allocatedCount} / {capacity || '∞'}
-              {capacity > 0 && ` (${fillPercent}%)`}
-            </span>
-          </div>
-          {capacity > 0 && (
-            <div className="w-full bg-muted rounded-full h-1.5">
-              <div
-                className={cn(
-                  'h-1.5 rounded-full transition-all duration-300',
-                  fillPercent >= 100 ? 'bg-green-500' : fillPercent >= 75 ? 'bg-amber-500' : 'bg-primary'
-                )}
-                style={{ width: `${Math.min(fillPercent, 100)}%` }}
-              />
-            </div>
-          )}
-        </div>
-
-        <Separator />
-
-        {/* Staff Section */}
-        <div>
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-sm font-medium flex items-center gap-1.5">
-              <Users className="h-3.5 w-3.5 text-muted-foreground" />
-              Staff
-              <Badge variant="outline" className="text-[10px] h-5 px-1.5 ml-1">
-                {venue.staff_assignments?.length || 0}
-              </Badge>
-            </span>
-            <AddStaffDialog eventId={eventId} venueId={venue.id} dayType={dayType} />
-          </div>
-          {(venue.staff_assignments?.length || 0) > 0 ? (
-            <div className="flex flex-wrap gap-1.5">
-              {(venue.staff_assignments || []).map((sa: any) => (
-                <StaffBadge key={sa.id} assignment={sa} />
-              ))}
-            </div>
-          ) : (
-            <p className="text-xs text-muted-foreground">No staff assigned yet.</p>
-          )}
-        </div>
-
-        <Separator />
-
-        {/* Teams Section */}
-        <div>
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-sm font-medium flex items-center gap-1.5">
-              <Users className="h-3.5 w-3.5 text-muted-foreground" />
-              Teams
-              <Badge variant="outline" className="text-[10px] h-5 px-1.5 ml-1">
-                {allocatedCount}
-              </Badge>
-            </span>
-            <AssignTeamDialog eventId={eventId} venueId={venue.id} dayType={dayType} />
-          </div>
-          {allocatedCount > 0 ? (
-            <div className="space-y-1">
-              {(venue.team_allocations || []).map((alloc: any) => (
-                <div key={alloc.id} className="flex items-center justify-between text-sm bg-muted/50 rounded-md px-3 py-1.5 group">
-                  <span className="font-medium text-xs">{alloc.registration?.team_name || 'Unknown'}</span>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-6 w-6 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive"
-                    onClick={() => removeAllocation.mutate(alloc.id)}
-                  >
-                    <X className="h-3 w-3" />
-                  </Button>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="text-xs text-muted-foreground">No teams allocated yet. Use the button above to assign teams.</p>
-          )}
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-function EditVenueDialog({ venue }: { venue: EventVenueAssignment }) {
   const { data: institutions = [] } = useInstitutions();
   const updateVenue = useUpdateVenue();
-  const [open, setOpen] = useState(false);
-
-  // Form state pre-filled from venue
   const [name, setName] = useState(venue.manual_name || '');
   const [building, setBuilding] = useState(venue.manual_building || '');
   const [room, setRoom] = useState(venue.manual_room || '');
   const [capacity, setCapacity] = useState(venue.capacity_override ? String(venue.capacity_override) : '');
   const [institutionId, setInstitutionId] = useState((venue.institution as any)?.id || '');
-
-  const handleOpen = (val: boolean) => {
-    if (val) {
-      // Reset to current venue values each time the dialog opens
-      setName(venue.manual_name || '');
-      setBuilding(venue.manual_building || '');
-      setRoom(venue.manual_room || '');
-      setCapacity(venue.capacity_override ? String(venue.capacity_override) : '');
-      setInstitutionId((venue.institution as any)?.id || '');
-    }
-    setOpen(val);
-  };
 
   const handleSave = () => {
     if (!name || !institutionId) return;
@@ -482,37 +930,25 @@ function EditVenueDialog({ venue }: { venue: EventVenueAssignment }) {
           capacity_override: capacity ? parseInt(capacity) : null,
         },
       },
-      { onSuccess: () => setOpen(false) }
+      { onSuccess: () => onOpenChange(false) }
     );
   };
 
   return (
-    <Dialog open={open} onOpenChange={handleOpen}>
-      <DialogTrigger asChild>
-        <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-primary">
-          <Pencil className="h-3.5 w-3.5" />
-        </Button>
-      </DialogTrigger>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Edit Venue</DialogTitle>
           <DialogDescription>Update venue details. Only super admins can edit venues.</DialogDescription>
         </DialogHeader>
         <div className="space-y-4 pt-2">
-          {/* Name */}
           <div className="space-y-2">
             <Label className="text-sm font-medium flex items-center gap-1.5">
               <Building2 className="h-3.5 w-3.5 text-muted-foreground" />
               Venue Name <span className="text-red-500">*</span>
             </Label>
-            <Input
-              placeholder="e.g., Main Auditorium"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-            />
+            <Input placeholder="e.g., Main Auditorium" value={name} onChange={(e) => setName(e.target.value)} />
           </div>
-
-          {/* Institution */}
           <div className="space-y-2">
             <Label className="text-sm font-medium flex items-center gap-1.5">
               <MapPin className="h-3.5 w-3.5 text-muted-foreground" />
@@ -529,32 +965,19 @@ function EditVenueDialog({ venue }: { venue: EventVenueAssignment }) {
               </SelectContent>
             </Select>
           </div>
-
-          {/* Building & Room */}
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-2">
               <Label className="text-sm font-medium">Building</Label>
-              <Input
-                placeholder="e.g., Block A"
-                value={building}
-                onChange={(e) => setBuilding(e.target.value)}
-              />
+              <Input placeholder="e.g., Block A" value={building} onChange={(e) => setBuilding(e.target.value)} />
             </div>
             <div className="space-y-2">
               <Label className="text-sm font-medium">Room</Label>
-              <Input
-                placeholder="e.g., 101"
-                value={room}
-                onChange={(e) => setRoom(e.target.value)}
-              />
+              <Input placeholder="e.g., 101" value={room} onChange={(e) => setRoom(e.target.value)} />
             </div>
           </div>
-
-          {/* Capacity */}
           <div className="space-y-2">
             <Label className="text-sm font-medium flex items-center gap-1.5">
-              <Hash className="h-3.5 w-3.5 text-muted-foreground" />
-              Capacity
+              <Hash className="h-3.5 w-3.5 text-muted-foreground" /> Capacity
             </Label>
             <Input
               type="number"
@@ -564,16 +987,10 @@ function EditVenueDialog({ venue }: { venue: EventVenueAssignment }) {
               min={1}
             />
           </div>
-
           <Separator />
-
           <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
-            <Button
-              onClick={handleSave}
-              disabled={!name || !institutionId || updateVenue.isPending}
-              className="gap-1.5"
-            >
+            <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+            <Button onClick={handleSave} disabled={!name || !institutionId || updateVenue.isPending} className="gap-1.5">
               {updateVenue.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
               {updateVenue.isPending ? 'Saving...' : 'Save Changes'}
             </Button>
@@ -584,27 +1001,7 @@ function EditVenueDialog({ venue }: { venue: EventVenueAssignment }) {
   );
 }
 
-function StaffBadge({ assignment }: { assignment: any }) {
-  const removeStaff = useRemoveStaff();
-  const staffName = assignment.staff
-    ? `${assignment.staff.first_name} ${assignment.staff.last_name}`
-    : 'Unknown';
-  const roleLabel = STAFF_ROLES.find((r) => r.value === assignment.role)?.label || assignment.role;
-
-  return (
-    <Badge variant="outline" className="gap-1.5 pr-1">
-      <span className="font-medium">{staffName}</span>
-      <span className="text-[10px] text-muted-foreground">({roleLabel})</span>
-      <button
-        className="ml-0.5 rounded-full p-0.5 hover:bg-destructive/10 hover:text-destructive transition-colors"
-        onClick={() => removeStaff.mutate(assignment.id)}
-      >
-        <X className="h-3 w-3" />
-      </button>
-    </Badge>
-  );
-}
-
+// ── Assign team dialog ────────────────────────────────────────────────────────
 function AssignTeamDialog({ eventId, venueId, dayType }: { eventId: string; venueId: string; dayType: DayType }) {
   const { data: registrations = [] } = useEventRegistrations({ event_id: eventId });
   const { data: venues = [] } = useEventVenues(eventId, dayType);
@@ -612,7 +1009,6 @@ function AssignTeamDialog({ eventId, venueId, dayType }: { eventId: string; venu
   const [open, setOpen] = useState(false);
   const [selectedTeam, setSelectedTeam] = useState('');
 
-  // Find teams not yet allocated to ANY venue for this day type
   const allocatedRegIds = new Set(
     venues.flatMap((v) => (v.team_allocations || []).map((a: any) => a.registration_id))
   );
@@ -622,26 +1018,21 @@ function AssignTeamDialog({ eventId, venueId, dayType }: { eventId: string; venu
     if (!selectedTeam) return;
     manualAllocate.mutate(
       { eventId, registrationId: selectedTeam, venueAssignmentId: venueId, dayType },
-      {
-        onSuccess: () => {
-          setOpen(false);
-          setSelectedTeam('');
-        },
-      }
+      { onSuccess: () => { setOpen(false); setSelectedTeam(''); } }
     );
   };
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button variant="outline" size="sm" className="h-7 gap-1 text-xs">
-          <Plus className="h-3 w-3" /> Assign Team
-        </Button>
-      </DialogTrigger>
+      <Button variant="outline" size="sm" className="h-7 gap-1 text-xs" onClick={() => setOpen(true)}>
+        <Plus className="h-3 w-3" /> Assign Team
+      </Button>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Assign Team to Venue</DialogTitle>
-          <DialogDescription>Select a team to assign to this venue for {dayType === 'build_day' ? 'Build Day' : 'Demo Day'}.</DialogDescription>
+          <DialogDescription>
+            Select a team for {dayType === 'build_day' ? 'Build Day' : 'Demo Day'}.
+          </DialogDescription>
         </DialogHeader>
         <div className="space-y-4 pt-2">
           <div className="space-y-2">
@@ -673,11 +1064,7 @@ function AssignTeamDialog({ eventId, venueId, dayType }: { eventId: string; venu
             disabled={!selectedTeam || manualAllocate.isPending}
             className="w-full gap-1.5"
           >
-            {manualAllocate.isPending ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Plus className="h-4 w-4" />
-            )}
+            {manualAllocate.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
             {manualAllocate.isPending ? 'Assigning...' : 'Assign Team'}
           </Button>
         </div>
@@ -686,6 +1073,7 @@ function AssignTeamDialog({ eventId, venueId, dayType }: { eventId: string; venu
   );
 }
 
+// ── Add staff dialog ──────────────────────────────────────────────────────────
 function AddStaffDialog({ eventId, venueId, dayType }: { eventId: string; venueId: string; dayType: DayType }) {
   const { data: staffList = [] } = useStaffList();
   const assignStaff = useAssignStaff();
@@ -697,23 +1085,15 @@ function AddStaffDialog({ eventId, venueId, dayType }: { eventId: string; venueI
     if (!selectedStaff) return;
     assignStaff.mutate(
       { eventId, venueAssignmentId: venueId, staffId: selectedStaff, role: selectedRole, dayType },
-      {
-        onSuccess: () => {
-          setOpen(false);
-          setSelectedStaff('');
-          setSelectedRole('mentor');
-        },
-      }
+      { onSuccess: () => { setOpen(false); setSelectedStaff(''); setSelectedRole('mentor'); } }
     );
   };
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button variant="outline" size="sm" className="h-7 gap-1 text-xs">
-          <UserPlus className="h-3 w-3" /> Add Staff
-        </Button>
-      </DialogTrigger>
+      <Button variant="outline" size="sm" className="h-7 gap-1 text-xs" onClick={() => setOpen(true)}>
+        <UserPlus className="h-3 w-3" /> Add Staff
+      </Button>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Assign Staff</DialogTitle>
@@ -761,11 +1141,7 @@ function AddStaffDialog({ eventId, venueId, dayType }: { eventId: string; venueI
             disabled={!selectedStaff || assignStaff.isPending}
             className="w-full gap-1.5"
           >
-            {assignStaff.isPending ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <UserPlus className="h-4 w-4" />
-            )}
+            {assignStaff.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />}
             {assignStaff.isPending ? 'Assigning...' : 'Assign Staff'}
           </Button>
         </div>
