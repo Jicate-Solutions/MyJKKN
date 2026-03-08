@@ -19,7 +19,7 @@ export default function LeaderboardPage({ params }: { params: Promise<{ id: stri
   const router = useRouter();
   const { data: event, isLoading: eventLoading } = useEvent(id);
   const { profile, isLoading: authLoading } = useAuth();
-  const isAdmin = profile?.role === 'super_admin' || profile?.role === 'admin' || profile?.role === 'administrator' || (profile as any)?.is_super_admin;
+  const isAdmin = profile?.role === 'super_admin' || profile?.role === 'admin' || profile?.role === 'administrator';
   const isFrozen = !!event?.metrics_frozen_at;
   const isPublished = !!event?.is_results_published;
 

@@ -32,11 +32,12 @@ export class EventSubmissionService {
   }
 
   static async createSubmission(dto: SubmitProjectDto, userId: string): Promise<EventSubmission> {
-    const { data: event } = await this.supabase
+    const { data: event, error: eventError } = await this.supabase
       .from('startup_events')
       .select('submission_deadline')
       .eq('id', dto.event_id)
       .single();
+    if (eventError) throw eventError;
 
     if (event?.submission_deadline && new Date(event.submission_deadline) < new Date()) {
       throw new Error('Submission deadline has passed');
@@ -78,11 +79,12 @@ export class EventSubmissionService {
 
     if (!sub) throw new Error('Submission not found');
 
-    const { data: event } = await this.supabase
+    const { data: event, error: eventError } = await this.supabase
       .from('startup_events')
       .select('submission_deadline')
       .eq('id', sub.event_id)
       .single();
+    if (eventError) throw eventError;
 
     if (event?.submission_deadline && new Date(event.submission_deadline) < new Date()) {
       throw new Error('Submission deadline has passed');
@@ -126,11 +128,12 @@ export class EventSubmissionService {
 
     if (!existingSubmission) throw new Error('Submission not found');
 
-    const { data: event } = await this.supabase
+    const { data: event, error: eventError } = await this.supabase
       .from('startup_events')
       .select('metrics_deadline, metrics_frozen_at')
       .eq('id', existingSubmission.event_id)
       .single();
+    if (eventError) throw eventError;
 
     if (event?.metrics_deadline && new Date(event.metrics_deadline) < new Date()) {
       throw new Error('Metrics deadline has passed');

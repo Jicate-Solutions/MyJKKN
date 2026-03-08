@@ -31,12 +31,11 @@ import {
 import { Lock, Send, BarChart3, Trophy, Globe, Github, Link2, Video, FileText, Lightbulb, ArrowLeft, Loader2, ExternalLink } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { useEvent } from '@/hooks/startup-studio/use-events';
-import { useMyRegistration, useMyAcceptedMembership } from '@/hooks/startup-studio/use-event-registrations';
+import { useMyRegistration, useMyAcceptedMembership, useMyTeamMembers } from '@/hooks/startup-studio/use-event-registrations';
 import { useMySubmission, useTeamSubmission, useSubmitProject, useUpdateSubmission, useUpdateMetrics } from '@/hooks/startup-studio/use-event-submissions';
 import { EventSubmissionService } from '@/lib/services/startup-studio/event-submission-service';
-import type { EventConfig } from '@/types/startup-studio';
+import type { EventConfig, EventSubmission } from '@/types/startup-studio';
 import Link from 'next/link';
-import { useMyTeamMembers } from '@/hooks/startup-studio/use-event-registrations';
 import { RoleCardSection } from './_components/role-card-section';
 
 const projectSchema = z.object({
@@ -244,7 +243,7 @@ function ProjectSection({
 }: {
   eventId: string;
   registrationId: string;
-  submission: any;
+  submission: EventSubmission | null;
   locked: boolean;
   categories: string[];
 }) {
@@ -470,7 +469,7 @@ function ProjectSection({
 }
 
 // ── Read-only view for accepted members (non-leaders) ───────────────────────
-function MemberSubmissionView({ submission }: { submission: any }) {
+function MemberSubmissionView({ submission }: { submission: EventSubmission | null }) {
   if (!submission) {
     return (
       <Card>
@@ -531,7 +530,7 @@ function MemberSubmissionView({ submission }: { submission: any }) {
 function MetricsSection({
   submission, locked, config, eventId,
 }: {
-  submission: any;
+  submission: EventSubmission | null;
   locked: boolean;
   config: EventConfig;
   eventId: string;
@@ -572,7 +571,7 @@ function MetricsSection({
       },
       config
     );
-  }, [watchedValues.mrr_amount, watchedValues.paying_users_count, watchedValues.user_count, watchedValues.active_users_count, submission?.live_app_url, config]);
+  }, [watchedValues.mrr_amount, watchedValues.paying_users_count, watchedValues.user_count, submission?.live_app_url, config]);
 
   const onSubmit = (values: MetricsFormValues) => {
     if (!submission) return;

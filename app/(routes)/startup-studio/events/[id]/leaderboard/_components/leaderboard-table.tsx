@@ -23,7 +23,9 @@ import { Eye, EyeOff, Loader2, Medal, Trophy, Users } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useLeaderboard, usePublishResults } from '@/hooks/startup-studio/use-event-leaderboard';
 import { useEvent } from '@/hooks/startup-studio/use-events';
-import type { LeaderboardEntry } from '@/types/startup-studio';
+import type { LeaderboardEntry, VerifiedLeaderboardEntry } from '@/types/startup-studio';
+
+type AnyLeaderboardEntry = LeaderboardEntry & Partial<Pick<VerifiedLeaderboardEntry, 'college_rank' | 'verification_status' | 'verified_tier'>>;
 
 const TIER_NAMES: Record<number, string> = {
   0: 'None',
@@ -62,7 +64,8 @@ interface LeaderboardTableProps {
 }
 
 export function LeaderboardTable({ eventId, isAdmin, isPublished, isFrozen }: LeaderboardTableProps) {
-  const { data: entries = [], isLoading } = useLeaderboard(eventId);
+  const { data: rawEntries = [], isLoading } = useLeaderboard(eventId);
+  const entries = rawEntries as AnyLeaderboardEntry[];
   const { data: event } = useEvent(eventId);
   const publishResults = usePublishResults();
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
@@ -166,7 +169,11 @@ export function LeaderboardTable({ eventId, isAdmin, isPublished, isFrozen }: Le
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filtered.map((entry) => (
+                {filtered.map((entry) => {
+                  const verifiedTierLabel = isPublished
+                    ? VERIFIED_TIER_LABELS[entry.verified_tier ?? entry.tier_level] || VERIFIED_TIER_LABELS[0]
+                    : null;
+                  return (
                   <TableRow key={entry.submission_id} className={cn(RANK_STYLES[entry.rank] || '', 'group')}>
                     <TableCell className="text-center">
                       {entry.rank <= 3 ? (
@@ -180,12 +187,12 @@ export function LeaderboardTable({ eventId, isAdmin, isPublished, isFrozen }: Le
                     </TableCell>
                     {isPublished && isAdmin && (
                       <TableCell className="text-center text-xs text-muted-foreground">
-                        #{(entry as any).college_rank ?? '—'}
+                        #{entry.college_rank ?? '—'}
                       </TableCell>
                     )}
                     <TableCell>
                       <span className="font-medium text-sm">{entry.team_name}</span>
-                      {isPublished && (entry as any).verification_status === 'disqualified' && (
+                      {isPublished && entry.verification_status === 'disqualified' && (
                         <Badge variant="destructive" className="text-xs ml-1">DQ</Badge>
                       )}
                     </TableCell>
@@ -203,15 +210,10 @@ export function LeaderboardTable({ eventId, isAdmin, isPublished, isFrozen }: Le
                       <span className="text-xs text-muted-foreground">{entry.institution_name || '—'}</span>
                     </TableCell>
                     <TableCell className="text-center">
-                      {isPublished ? (
-                        (() => {
-                          const vt = VERIFIED_TIER_LABELS[(entry as any).verified_tier ?? entry.tier_level] || VERIFIED_TIER_LABELS[0]
-                          return (
-                            <Badge variant="secondary" className={cn('text-xs', vt.className)}>
-                              {vt.label}
-                            </Badge>
-                          )
-                        })()
+                      {isPublished && verifiedTierLabel ? (
+                        <Badge variant="secondary" className={cn('text-xs', verifiedTierLabel.className)}>
+                          {verifiedTierLabel.label}
+                        </Badge>
                       ) : (
                         <Badge variant="secondary" className="text-xs">
                           T{entry.tier_level} — {TIER_NAMES[entry.tier_level] || ''}
@@ -237,7 +239,8 @@ export function LeaderboardTable({ eventId, isAdmin, isPublished, isFrozen }: Le
                       </div>
                     </TableCell>
                   </TableRow>
-                ))}
+                  );
+                })}
               </TableBody>
             </Table>
           </div>
