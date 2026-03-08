@@ -114,9 +114,15 @@ export default function ChecklistsPage({ params }: { params: Promise<{ id: strin
   checklists.forEach((cl) => {
     const items = cl.items || [];
     items.forEach((item) => {
-      // Supabase returns completion as array, extract first element
+      // Supabase returns completions as an array (one-to-many).
+      // The admin event-level view must ONLY track global (null registration_id)
+      // completions — team-scoped completions are per-team progress and must not
+      // pollute this view or be accidentally deleted when an admin "unchecks".
       const rawCompletion = item.completion as any;
-      const comp = Array.isArray(rawCompletion) ? rawCompletion[0] : rawCompletion;
+      const completionsArray = Array.isArray(rawCompletion)
+        ? rawCompletion
+        : rawCompletion ? [rawCompletion] : [];
+      const comp = completionsArray.find((c: any) => !c.registration_id) || null;
 
       phaseCounts[cl.phase].total++;
       if (comp) phaseCounts[cl.phase].done++;
