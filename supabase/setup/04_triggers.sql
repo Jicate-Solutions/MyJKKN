@@ -63,6 +63,9 @@ CREATE TRIGGER update_staff_plans_updated_at BEFORE UPDATE ON staff_plans
 CREATE TRIGGER update_staff_plan_courses_updated_at BEFORE UPDATE ON staff_plan_courses
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+CREATE TRIGGER update_class_incharges_updated_at BEFORE UPDATE ON class_incharges
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
 -- ================================================================================
 -- SECTION 2: ADMISSION MODULE TRIGGERS
 -- ================================================================================
