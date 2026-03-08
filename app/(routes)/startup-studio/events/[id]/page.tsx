@@ -57,11 +57,16 @@ function formatTime(dateStr: string | null): string {
 
 function getDaysUntil(dateStr: string | null): string | null {
   if (!dateStr) return null;
-  const diff = Math.ceil((new Date(dateStr).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
-  if (diff < 0) return null;
-  if (diff === 0) return 'Today';
-  if (diff === 1) return 'Tomorrow';
-  return `${diff} days left`;
+  const target = new Date(dateStr);
+  const now = new Date();
+  // Compare calendar dates in local timezone (strip time component)
+  const targetDay = new Date(target.getFullYear(), target.getMonth(), target.getDate());
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const diffDays = Math.round((targetDay.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+  if (diffDays < 0) return null;
+  if (diffDays === 0) return 'Today';
+  if (diffDays === 1) return 'Tomorrow';
+  return `${diffDays} days left`;
 }
 
 export default function EventDetailPage({ params }: { params: Promise<{ id: string }> }) {
