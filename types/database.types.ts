@@ -1602,6 +1602,64 @@ export type Database = {
         }
         Relationships: []
       }
+      class_incharges: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          id: string
+          institution_id: string
+          is_active: boolean
+          section_id: string
+          staff_id: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          institution_id: string
+          is_active?: boolean
+          section_id: string
+          staff_id: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          institution_id?: string
+          is_active?: boolean
+          section_id?: string
+          staff_id?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "class_incharges_institution_id_fkey"
+            columns: ["institution_id"]
+            isOneToOne: false
+            referencedRelation: "institutions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "class_incharges_section_id_fkey"
+            columns: ["section_id"]
+            isOneToOne: false
+            referencedRelation: "sections"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "class_incharges_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       course_mappings: {
         Row: {
           course_id: string
