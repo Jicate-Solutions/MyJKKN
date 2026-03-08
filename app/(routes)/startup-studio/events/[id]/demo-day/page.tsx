@@ -27,7 +27,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import {
   ArrowLeft, Calendar, CalendarClock, Clock, Download, Eye, Flag,
-  Hash, Loader2, Lock, MapPin, Monitor, Plus, Settings, Timer, Users, X,
+  Hash, Loader2, Lock, MapPin, Monitor, Plus, Settings, Timer, Users, Vote, X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useEvent } from '@/hooks/startup-studio/use-events';
@@ -47,6 +47,7 @@ import {
   useAdminUpdateVerification,
   useEvaluatorProgress,
 } from '@/hooks/startup-studio/use-appathon-verifications';
+import { useOpenVoting, useCloseVoting } from '@/hooks/startup-studio/use-audience-votes';
 import {
   AlertDialog,
   AlertDialogTrigger,
@@ -64,7 +65,8 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 export default function DemoDayPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const router = useRouter();
-  const { isLoading: authLoading } = useAuth();
+  const { isLoading: authLoading, profile } = useAuth();
+  const isSuperAdmin = !!(profile?.is_super_admin || profile?.role === 'super_admin');
   const { data: event } = useEvent(id);
   const { data: venues = [] } = useEventVenues(id, 'demo_day');
   const { data: registrations = [] } = useEventRegistrations({ event_id: id });
@@ -75,6 +77,8 @@ export default function DemoDayPage({ params }: { params: Promise<{ id: string }
   const unassignSlot = useUnassignSlot();
   const freezeMetrics = useFreezeMetrics(id);
   const publishResults = usePublishVerifiedResults(id);
+  const openVoting = useOpenVoting(id);
+  const closeVoting = useCloseVoting(id);
   const { data: flaggedVerifications } = useFlaggedVerifications(id);
   const adminUpdate = useAdminUpdateVerification(id);
   const { data: evaluatorProgressData } = useEvaluatorProgress(id);
@@ -243,6 +247,72 @@ export default function DemoDayPage({ params }: { params: Promise<{ id: string }
                 </AlertDialog>
               )}
             </div>
+
+            {/* Audience Voting */}
+            {isSuperAdmin && (() => {
+              const votingOpen = !!event?.voting_opened_at && !event?.voting_closed_at;
+              const votingClosed = !!event?.voting_closed_at;
+              return (
+                <div className="flex items-center justify-between p-3 rounded-lg border">
+                  <div>
+                    <p className="text-sm font-medium">Audience Voting</p>
+                    <p className="text-xs text-muted-foreground">
+                      {votingOpen
+                        ? `Opened at ${new Date(event!.voting_opened_at!).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`
+                        : votingClosed
+                        ? `Closed at ${new Date(event!.voting_closed_at!).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`
+                        : 'Allow audience to vote on startup pitches.'}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {votingOpen ? (
+                      <Badge className="bg-green-500 gap-1">
+                        <Vote className="h-3 w-3" /> Voting Open
+                      </Badge>
+                    ) : votingClosed ? (
+                      <Badge variant="secondary" className="gap-1 text-muted-foreground">
+                        <Vote className="h-3 w-3" /> Voting Closed
+                      </Badge>
+                    ) : (
+                      <Badge variant="outline" className="gap-1 text-muted-foreground">
+                        <Vote className="h-3 w-3" /> Not Started
+                      </Badge>
+                    )}
+                    {votingOpen ? (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="gap-1.5"
+                        disabled={closeVoting.isPending}
+                        onClick={() => closeVoting.mutate()}
+                      >
+                        {closeVoting.isPending ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Vote className="h-3.5 w-3.5" />
+                        )}
+                        Close Voting
+                      </Button>
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="gap-1.5"
+                        disabled={openVoting.isPending}
+                        onClick={() => openVoting.mutate()}
+                      >
+                        {openVoting.isPending ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Vote className="h-3.5 w-3.5" />
+                        )}
+                        Open Voting
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* CSV Export */}
             <div className="flex items-center justify-between p-3 rounded-lg border">
