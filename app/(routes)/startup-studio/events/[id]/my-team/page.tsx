@@ -826,7 +826,7 @@ export default function MyTeamPage({ params }: { params: Promise<{ id: string }>
         {teamSubmission?.metrics_updated_at && acceptedMembers.length > 1 && (
           <TeamRoleCardsOverview
             members={acceptedMembers}
-            cards={teamRoleCards as any}
+            cards={teamRoleCards}
             myProfileId={profile?.id ?? ''}
           />
         )}
