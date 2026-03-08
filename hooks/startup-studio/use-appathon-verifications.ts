@@ -72,7 +72,9 @@ export function useUpsertVerification(eventId: string, profileId: string) {
       AppathonVerificationService.upsertVerification(dto, profileId),
     onSuccess: () => {
       toast.success('Verification saved')
-      qc.invalidateQueries({ queryKey: verificationKeys.evaluatorTeams(eventId, profileId) })
+      // Invalidate all evaluator-teams queries for this event (covers both regular evaluator
+      // and super_admin venue-specific keys) using prefix matching
+      qc.invalidateQueries({ queryKey: ['evaluator-teams', eventId] })
       qc.invalidateQueries({ queryKey: verificationKeys.evaluatorProgress(eventId) })
       qc.invalidateQueries({ queryKey: verificationKeys.verifiedLeaderboard(eventId) })
     },

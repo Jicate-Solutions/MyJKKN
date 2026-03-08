@@ -67,7 +67,7 @@ export function Menu({ isOpen }: MenuProps) {
   };
 
   return (
-    <div className='overflow-y-auto h-full'>
+    <div className='overflow-y-auto h-full custom-scrollbar'>
       <nav className='mt-8 h-full w-full'>
         {permissionsLoading ? (
           <div className='flex justify-center items-center py-4'>

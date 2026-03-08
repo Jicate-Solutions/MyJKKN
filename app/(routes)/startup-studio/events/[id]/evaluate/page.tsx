@@ -24,7 +24,7 @@ import {
   useUpsertVerification,
 } from '@/hooks/startup-studio/use-appathon-verifications'
 import { useEventVenues } from '@/hooks/startup-studio/use-event-venues'
-import { VerificationCard } from './_components/verification-card'
+import { VerificationTable } from './_components/verification-table'
 import { EvaluatorProgressBar } from './_components/evaluator-progress-bar'
 import type { EvaluatorTeamCard, VerificationStatus } from '@/types/startup-studio'
 
@@ -71,7 +71,7 @@ export default function EvaluatePage({ params }: { params: Promise<{ id: string 
   if (!event.metrics_frozen_at) {
     return (
       <ContentLayout title="Demo Day Evaluation">
-        <div className="max-w-md mx-auto p-6 text-center space-y-4 pt-12">
+        <div className="mx-auto p-6 text-center space-y-4 pt-12">
           <Lock className="h-12 w-12 text-muted-foreground mx-auto" />
           <h2 className="text-lg font-semibold">Evaluation Not Open Yet</h2>
           <p className="text-sm text-muted-foreground">
@@ -135,7 +135,7 @@ export default function EvaluatePage({ params }: { params: Promise<{ id: string 
         { label: 'Evaluate' },
       ]} />
 
-      <div className="space-y-4 max-w-2xl mt-4 pb-10">
+      <div className="space-y-4 mt-4 pb-10">
         <div className="flex items-center gap-3">
           <Link href={`/startup-studio/events/${id}`}>
             <Button variant="ghost" size="icon" className="h-8 w-8">
@@ -221,7 +221,7 @@ export default function EvaluatePage({ params }: { params: Promise<{ id: string 
               </TabsList>
 
               {(['pending', 'verified', 'flagged', 'all'] as TabValue[]).map(tabKey => (
-                <TabsContent key={tabKey} value={tabKey} className="space-y-3 mt-3">
+                <TabsContent key={tabKey} value={tabKey} className="mt-3">
                   {displayLoading ? (
                     <div className="flex justify-center p-8">
                       <Loader2 className="h-5 w-5 animate-spin" />
@@ -231,16 +231,11 @@ export default function EvaluatePage({ params }: { params: Promise<{ id: string 
                       No teams in this category
                     </div>
                   ) : (
-                    tabTeams[tabKey].map(team => (
-                      <VerificationCard
-                        key={team.registration_id}
-                        team={team}
-                        onVerify={(status, data, flagReason) =>
-                          handleVerify(team, status, data, flagReason)
-                        }
-                        isSubmitting={isPending}
-                      />
-                    ))
+                    <VerificationTable
+                      teams={tabTeams[tabKey]}
+                      onVerify={handleVerify}
+                      isSubmitting={isPending}
+                    />
                   )}
                 </TabsContent>
               ))}
