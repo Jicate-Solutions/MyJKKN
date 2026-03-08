@@ -31,7 +31,7 @@ export function useSubmitRoleCard() {
   return useMutation({
     mutationFn: (dto: CreateRoleCardDto) => RoleCardService.createRoleCard(dto),
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['my-role-card', variables.submission_id] });
+      queryClient.invalidateQueries({ queryKey: ['my-role-card', variables.submission_id, variables.profile_id] });
       queryClient.invalidateQueries({ queryKey: ['team-role-cards', variables.submission_id] });
     },
   });
