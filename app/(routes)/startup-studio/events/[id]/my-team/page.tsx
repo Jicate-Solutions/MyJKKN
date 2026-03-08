@@ -25,6 +25,7 @@ import {
 } from '@/hooks/startup-studio/use-event-registrations';
 import { useAuth } from '@/hooks/use-auth';
 import { useTeamSubmission } from '@/hooks/startup-studio/use-event-submissions';
+import { useRegistrationVenueAllocations } from '@/hooks/startup-studio/use-event-venues';
 import { StudentSearchDialog } from './_components/student-search-dialog';
 import {
   CheckCircle2, Clock, Laptop, MapPin, User, Users, Loader2,
@@ -71,6 +72,12 @@ export default function MyTeamPage({ params }: { params: Promise<{ id: string }>
   const membershipAny = membership as any;
   const submissionRegistrationId = registration?.id ?? membershipAny?.registration_id;
   const { data: teamSubmission } = useTeamSubmission(id, submissionRegistrationId);
+
+  // For team members (non-leaders): fetch venue allocations directly using the
+  // registration_id from their membership. Leaders already get this via useMyRegistration.
+  const { data: memberVenueAllocations = [] } = useRegistrationVenueAllocations(
+    !registration && membership ? membershipAny?.registration_id : null
+  );
 
   const isLeader = registration?.owner_id === profile?.id;
   const acceptedMembers = (registration?.team_members || []).filter(
@@ -258,6 +265,28 @@ export default function MyTeamPage({ params }: { params: Promise<{ id: string }>
               </CardContent>
             </Card>
           )}
+
+          {/* Venue Assignments (member view) */}
+          {(() => {
+            const buildDay = memberVenueAllocations.find((v: any) => v.day_type === 'build_day');
+            const demoDay  = memberVenueAllocations.find((v: any) => v.day_type === 'demo_day');
+            return (
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+                    <div className="h-6 w-6 rounded-md bg-rose-50 dark:bg-rose-950/30 flex items-center justify-center">
+                      <MapPin className="h-3.5 w-3.5 text-rose-500" />
+                    </div>
+                    Venue Assignments
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <VenueCard dayType="Build Day" venue={buildDay} />
+                  <VenueCard dayType="Demo Day" venue={demoDay} />
+                </CardContent>
+              </Card>
+            );
+          })()}
 
           <SubmissionReadOnlyCard submission={teamSubmission} />
         </div>

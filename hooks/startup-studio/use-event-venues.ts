@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import { EventVenueService } from '@/lib/services/startup-studio/event-venue-service';
 import { useAuth } from '@/hooks/use-auth';
+import { createClientSupabaseClient } from '@/lib/supabase/client';
 import type { CreateVenueDto, UpdateVenueDto, DayType, StaffRole, MarkAttendanceDto, EventTeamAttendance } from '@/types/startup-studio';
 
 export function useVenue(venueId: string) {
@@ -230,5 +231,42 @@ export function useMarkAttendance() {
       toast.success('Attendance marked');
     },
     onError: (error: any) => toast.error(error.message || 'Failed to mark attendance'),
+  });
+}
+
+// Fetches venue allocations for a specific registration (team).
+// Used by team members (non-leaders) who don't have an event_registrations row
+// of their own — they only have a registration_id via their team membership.
+// RLS: event_team_venue_allocations allows SELECT for all authenticated users.
+export function useRegistrationVenueAllocations(registrationId: string | null | undefined) {
+  const { isLoading: authLoading } = useAuth();
+  return useQuery({
+    queryKey: ['registration-venue-allocations', registrationId],
+    queryFn: async () => {
+      const supabase = createClientSupabaseClient();
+      const { data, error } = await (supabase as any)
+        .from('event_team_venue_allocations')
+        .select(`
+          id, day_type,
+          venue_assignment:event_venue_assignments(
+            id, manual_name, manual_building, manual_room, day_type, capacity_override,
+            resource:resources(id, name, building_number, room_number),
+            staff_assignments:event_staff_assignments(
+              id, role,
+              staff:staff(id, first_name, last_name, email)
+            )
+          )
+        `)
+        .eq('registration_id', registrationId!);
+
+      if (error) {
+        console.error('[startup/venues] useRegistrationVenueAllocations failed:', error);
+        throw error;
+      }
+      return (data ?? []) as any[];
+    },
+    enabled: !authLoading && !!registrationId,
+    staleTime: 15 * 1000,
+    retry: 2,
   });
 }
