@@ -3,7 +3,6 @@
 import { useState, useMemo } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 import {
   Select,
   SelectContent,
@@ -19,9 +18,9 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { Eye, EyeOff, Loader2, Medal, Trophy, Users } from 'lucide-react';
+import { Loader2, Medal, Trophy } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useLeaderboard, usePublishResults } from '@/hooks/startup-studio/use-event-leaderboard';
+import { useLeaderboard } from '@/hooks/startup-studio/use-event-leaderboard';
 import { useEvent } from '@/hooks/startup-studio/use-events';
 import type { LeaderboardEntry, VerifiedLeaderboardEntry } from '@/types/startup-studio';
 
@@ -67,7 +66,6 @@ export function LeaderboardTable({ eventId, isAdmin, isPublished, isFrozen }: Le
   const { data: rawEntries = [], isLoading } = useLeaderboard(eventId);
   const entries = rawEntries as AnyLeaderboardEntry[];
   const { data: event } = useEvent(eventId);
-  const publishResults = usePublishResults();
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
 
   const categories = useMemo(() => {
@@ -121,24 +119,6 @@ export function LeaderboardTable({ eventId, isAdmin, isPublished, isFrozen }: Le
                   ))}
                 </SelectContent>
               </Select>
-            )}
-            {isAdmin && (
-              <Button
-                variant={event?.is_results_published ? 'destructive' : 'default'}
-                size="sm"
-                onClick={() => publishResults.mutate({ eventId, publish: !event?.is_results_published })}
-                disabled={publishResults.isPending}
-                className="gap-1.5"
-              >
-                {publishResults.isPending ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : event?.is_results_published ? (
-                  <EyeOff className="h-4 w-4" />
-                ) : (
-                  <Eye className="h-4 w-4" />
-                )}
-                {event?.is_results_published ? 'Unpublish' : 'Publish Results'}
-              </Button>
             )}
           </div>
         </div>
