@@ -148,7 +148,8 @@ export async function GET(request: NextRequest) {
                 is_active: emailProfile.is_active ?? true,
                 is_pre_registered: false,
                 bio: emailProfile.bio ?? null,
-                avatar_url: emailProfile.avatar_url ?? null
+                avatar_url: emailProfile.avatar_url ?? null,
+                learner_id: (emailProfile as any).learner_id ?? null
               };
 
               const { data: newProfile, error: insertError } =
@@ -183,28 +184,56 @@ export async function GET(request: NextRequest) {
             );
 
             try {
-              // Step 1: Save user_roles for migration (if they exist)
-              const { data: userRoles } = await adminClient
-                .from('user_roles')
-                .select('*')
-                .eq('user_id', emailProfile.id);
+              const oldProfileId = emailProfile.id;
 
-              console.log(`Found ${userRoles?.length || 0} user role(s) to migrate`);
+              // Step 1: Detach NO ACTION FK references before deleting old profile.
+              // These tables reference profiles.id with ON DELETE NO ACTION which blocks deletion.
 
-              // Step 2: Delete the old profile to avoid unique constraint violation
-              // This will cascade delete user_roles due to foreign key constraint
-              console.log(`Deleting old profile with ID: ${emailProfile.id}`);
+              // 1a. Delete bug_report_participants (participation log - safe to lose on migration)
+              const { error: brrError } = await adminClient
+                .from('bug_report_participants')
+                .delete()
+                .eq('user_id', oldProfileId);
+              if (brrError) console.warn(`[Auth Migration] Could not delete bug_report_participants:`, brrError);
+
+              // 1b. Null out event_registrations.owner_id (preserve the registration, just unlink)
+              const { data: affectedRegs } = await adminClient
+                .from('event_registrations')
+                .select('id')
+                .eq('owner_id', oldProfileId);
+              if (affectedRegs && affectedRegs.length > 0) {
+                await adminClient
+                  .from('event_registrations')
+                  .update({ owner_id: null } as any)
+                  .eq('owner_id', oldProfileId);
+              }
+
+              // 1c. Null out event_team_members.profile_id (preserve membership, just unlink)
+              const { data: affectedMembers } = await adminClient
+                .from('event_team_members')
+                .select('id')
+                .eq('profile_id', oldProfileId);
+              if (affectedMembers && affectedMembers.length > 0) {
+                await adminClient
+                  .from('event_team_members')
+                  .update({ profile_id: null } as any)
+                  .eq('profile_id', oldProfileId);
+              }
+
+              // Step 2: Delete the old profile (CASCADE drops user_roles, activity_logs, etc.)
+              console.log(`[Auth Migration] Deleting old profile: ${oldProfileId}`);
               const { error: deleteError } = await adminClient
                 .from('profiles')
                 .delete()
-                .eq('id', emailProfile.id);
+                .eq('id', oldProfileId);
 
               if (deleteError) {
-                console.error('Delete old profile failed:', deleteError);
+                console.error('[Auth Migration] Delete old profile failed:', deleteError);
                 throw deleteError;
               }
 
               // Step 3: Create new profile with Google auth user ID (preserving all fields)
+              // Note: learner_id included so trigger auto_assign_student_role fires correctly
               const legacyProfileData = {
                 id: user.id,
                 email: emailProfile.email ?? null,
@@ -219,39 +248,36 @@ export async function GET(request: NextRequest) {
                 is_active: emailProfile.is_active ?? true,
                 is_pre_registered: false,
                 bio: emailProfile.bio ?? null,
-                avatar_url: emailProfile.avatar_url ?? null
+                avatar_url: emailProfile.avatar_url ?? null,
+                learner_id: (emailProfile as any).learner_id ?? null
               };
 
-              console.log(`Creating new profile with Google auth ID: ${user.id}`);
+              console.log(`[Auth Migration] Creating new profile with auth ID: ${user.id}`);
               const { error: insertError } = await adminClient
                 .from('profiles')
                 .insert(legacyProfileData as any);
 
               if (insertError) {
-                console.error('Insert new profile failed:', insertError);
+                console.error('[Auth Migration] Insert new profile failed:', insertError);
                 throw insertError;
               }
 
-              // Step 4: Recreate user_roles for new profile (if they existed)
-              if (userRoles && userRoles.length > 0) {
-                console.log(`Recreating ${userRoles.length} user role(s) for new profile`);
-
-                const newUserRoles = userRoles.map((role: any) => ({
-                  user_id: user.id, // New Google auth user ID
-                  role_id: role.role_id,
-                  is_primary: role.is_primary,
-                  assigned_by: role.assigned_by,
-                  assigned_at: role.assigned_at
-                }));
-
-                const { error: rolesInsertError } = await adminClient
-                  .from('user_roles')
-                  .insert(newUserRoles);
-
-                if (rolesInsertError) {
-                  console.error('Failed to recreate user_roles:', rolesInsertError);
-                  // Don't fail the whole migration if roles fail
-                }
+              // Step 4: Re-link event records to the new profile ID
+              if (affectedRegs && affectedRegs.length > 0) {
+                const regIds = affectedRegs.map((r: any) => r.id);
+                await adminClient
+                  .from('event_registrations')
+                  .update({ owner_id: user.id } as any)
+                  .in('id', regIds);
+                console.log(`[Auth Migration] Re-linked ${regIds.length} event registration(s)`);
+              }
+              if (affectedMembers && affectedMembers.length > 0) {
+                const memberIds = affectedMembers.map((m: any) => m.id);
+                await adminClient
+                  .from('event_team_members')
+                  .update({ profile_id: user.id } as any)
+                  .in('id', memberIds);
+                console.log(`[Auth Migration] Re-linked ${memberIds.length} event team member(s)`);
               }
 
               migratedProfile = {
