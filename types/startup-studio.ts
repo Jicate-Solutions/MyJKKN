@@ -418,6 +418,36 @@ export interface LearnerParticipationFilters {
   semester_id?: string;
 }
 
+export interface NotParticipatedLearner {
+  id: string;
+  first_name: string;
+  last_name: string;
+  roll_number: string | null;
+  college_email: string | null;
+  student_email: string | null;
+  institution_id: string | null;
+  degree_id: string | null;
+  department_id: string | null;
+  program_id: string | null;
+  semester_id: string | null;
+  institution_name: string | null;
+  degree_name: string | null;
+  department_name: string | null;
+  program_name: string | null;
+  semester_name: string | null;
+}
+
+export interface NotParticipatedLearnersResult {
+  total: number;
+  data: NotParticipatedLearner[];
+}
+
+export interface NotParticipatedFilters extends LearnerParticipationFilters {
+  search?: string;
+  page?: number;
+  limit?: number;
+}
+
 // -- Pending Invitation View --
 
 export interface PendingInvitation {

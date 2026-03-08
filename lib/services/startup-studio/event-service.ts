@@ -9,6 +9,8 @@ import type {
   EventStatus,
   LearnerParticipationStats,
   LearnerParticipationFilters,
+  NotParticipatedFilters,
+  NotParticipatedLearnersResult,
 } from '@/types/startup-studio';
 
 export class EventService {
@@ -159,5 +161,32 @@ export class EventService {
     }
 
     return data as LearnerParticipationStats;
+  }
+
+  static async getNotParticipatedLearners(
+    eventId: string,
+    filters: NotParticipatedFilters = {}
+  ): Promise<NotParticipatedLearnersResult> {
+    const limit = filters.limit ?? 50;
+    const page  = filters.page  ?? 1;
+
+    const { data, error } = await this.supabase.rpc('get_not_participated_learners', {
+      p_event_id:       eventId,
+      p_institution_id: filters.institution_id ?? null,
+      p_degree_id:      filters.degree_id       ?? null,
+      p_department_id:  filters.department_id   ?? null,
+      p_program_id:     filters.program_id      ?? null,
+      p_semester_id:    filters.semester_id     ?? null,
+      p_search:         filters.search          ?? null,
+      p_limit:          limit,
+      p_offset:         (page - 1) * limit,
+    });
+
+    if (error) {
+      console.error('[startup/events] getNotParticipatedLearners failed:', error);
+      throw error;
+    }
+
+    return data as NotParticipatedLearnersResult;
   }
 }

@@ -4826,6 +4826,102 @@ AS $$
 $$;
 
 -- =====================================================
+-- STARTUP STUDIO: get_not_participated_learners
+-- Added: 2026-03-08
+-- Returns paginated list of active learners who have NOT participated
+-- (i.e. not accepted into any team) for the given event.
+-- Mirrors the CTEs in get_learner_participation_stats but returns rows.
+-- Supports optional class hierarchy filters and text search.
+-- SECURITY DEFINER: bypasses RLS so admin can read all institution learners.
+-- =====================================================
+CREATE OR REPLACE FUNCTION get_not_participated_learners(
+    p_event_id        UUID,
+    p_institution_id  UUID    DEFAULT NULL,
+    p_degree_id       UUID    DEFAULT NULL,
+    p_department_id   UUID    DEFAULT NULL,
+    p_program_id      UUID    DEFAULT NULL,
+    p_semester_id     UUID    DEFAULT NULL,
+    p_search          TEXT    DEFAULT NULL,
+    p_limit           INT     DEFAULT 50,
+    p_offset          INT     DEFAULT 0
+)
+RETURNS jsonb
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+    WITH eligible_learners AS (
+        SELECT
+            lp.id,
+            lp.first_name,
+            lp.last_name,
+            lp.roll_number,
+            lp.college_email,
+            lp.student_email,
+            lp.institution_id,
+            lp.degree_id,
+            lp.department_id,
+            lp.program_id,
+            lp.semester_id,
+            i.name                   AS institution_name,
+            deg.degree_name,
+            dept.department_name,
+            prog.program_name,
+            sem.semester_name
+        FROM   learners_profiles lp
+        LEFT JOIN institutions  i    ON i.id    = lp.institution_id
+        LEFT JOIN degrees       deg  ON deg.id  = lp.degree_id
+        LEFT JOIN departments   dept ON dept.id = lp.department_id
+        LEFT JOIN programs      prog ON prog.id = lp.program_id
+        LEFT JOIN semesters     sem  ON sem.id  = lp.semester_id
+        WHERE  lp.lifecycle_status = 'active'
+          AND (p_institution_id IS NULL OR lp.institution_id = p_institution_id)
+          AND (p_degree_id      IS NULL OR lp.degree_id      = p_degree_id)
+          AND (p_department_id  IS NULL OR lp.department_id  = p_department_id)
+          AND (p_program_id     IS NULL OR lp.program_id     = p_program_id)
+          AND (p_semester_id    IS NULL OR lp.semester_id    = p_semester_id)
+    ),
+    participated AS (
+        SELECT DISTINCT etm.learner_id
+        FROM   event_team_members etm
+        JOIN   event_registrations er ON er.id = etm.registration_id
+        WHERE  er.event_id      = p_event_id
+          AND  etm.learner_id   IS NOT NULL
+          AND  etm.status       = 'accepted'
+          AND  etm.learner_id   IN (SELECT id FROM eligible_learners)
+    ),
+    not_participated AS (
+        SELECT el.*
+        FROM   eligible_learners el
+        WHERE  el.id NOT IN (SELECT learner_id FROM participated)
+          AND  (
+                p_search IS NULL
+                OR el.first_name   ILIKE '%' || p_search || '%'
+                OR el.last_name    ILIKE '%' || p_search || '%'
+                OR (el.first_name || ' ' || el.last_name) ILIKE '%' || p_search || '%'
+                OR el.roll_number  ILIKE '%' || p_search || '%'
+                OR el.college_email ILIKE '%' || p_search || '%'
+               )
+    )
+    SELECT jsonb_build_object(
+        'total', (SELECT COUNT(*) FROM not_participated),
+        'data',  COALESCE(
+            (
+                SELECT jsonb_agg(row_to_json(np))
+                FROM (
+                    SELECT *
+                    FROM   not_participated
+                    ORDER  BY institution_name, semester_name, last_name, first_name
+                    LIMIT  p_limit
+                    OFFSET p_offset
+                ) np
+            ),
+            '[]'::jsonb
+        )
+    );
+$$;
+
+-- =====================================================
 -- STARTUP STUDIO: prevent_duplicate_event_member
 -- Added: 2026-03-07
 -- Updated: 2026-03-08 — SECURITY DEFINER so trigger can read event_registrations
