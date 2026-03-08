@@ -655,6 +655,27 @@ CREATE TABLE IF NOT EXISTS public.staff_plan_courses (
     updated_at TIMESTAMPTZ DEFAULT now()
 );
 
+-- Class Incharges
+-- Added: 2026-03-08 - Assigns one or more staff as class incharges per section
+CREATE TABLE IF NOT EXISTS public.class_incharges (
+    id             UUID        PRIMARY KEY DEFAULT uuid_generate_v4(),
+    institution_id UUID        NOT NULL REFERENCES public.institutions(id),
+    section_id     UUID        NOT NULL REFERENCES public.sections(id) ON DELETE CASCADE,
+    staff_id       UUID        NOT NULL REFERENCES public.staff(id) ON DELETE CASCADE,
+    is_active      BOOLEAN     NOT NULL DEFAULT true,
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+    created_by     UUID        REFERENCES public.profiles(id),
+    updated_by     UUID        REFERENCES public.profiles(id),
+    CONSTRAINT class_incharges_unique_assignment UNIQUE (section_id, staff_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_class_incharges_institution_id ON public.class_incharges(institution_id);
+CREATE INDEX IF NOT EXISTS idx_class_incharges_section_id     ON public.class_incharges(section_id);
+CREATE INDEX IF NOT EXISTS idx_class_incharges_staff_id       ON public.class_incharges(staff_id);
+
+ALTER TABLE public.class_incharges ENABLE ROW LEVEL SECURITY;
+
 -- =====================================================
 -- SECTION 6: ATTENDANCE MANAGEMENT
 -- =====================================================
