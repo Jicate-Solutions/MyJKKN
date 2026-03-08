@@ -3158,6 +3158,7 @@ CREATE POLICY "peer_tags_insert" ON appathon_peer_tags FOR INSERT WITH CHECK (
 ALTER TABLE appathon_verifications ENABLE ROW LEVEL SECURITY;
 
 -- Evaluators see their own; admins see all
+-- Updated: 2026-03-08 - Added is_super_admin check for consistency with peer_tags_select pattern
 CREATE POLICY "appathon_verifications_select"
     ON appathon_verifications FOR SELECT
     USING (
@@ -3167,6 +3168,7 @@ CREATE POLICY "appathon_verifications_select"
             WHERE p.id = auth.uid()
             AND p.role IN ('admin', 'super_admin', 'administrator')
         )
+        OR (SELECT is_super_admin FROM profiles WHERE id = auth.uid())
     );
 
 -- Evaluators can create their own verifications
@@ -3187,6 +3189,7 @@ CREATE POLICY "appathon_verifications_insert"
     );
 
 -- Evaluators update their own; admins update any
+-- Updated: 2026-03-08 - Added is_super_admin check for consistency with peer_tags_select pattern
 CREATE POLICY "appathon_verifications_update"
     ON appathon_verifications FOR UPDATE
     USING (
@@ -3196,4 +3199,5 @@ CREATE POLICY "appathon_verifications_update"
             WHERE p.id = auth.uid()
             AND p.role IN ('admin', 'super_admin', 'administrator')
         )
+        OR (SELECT is_super_admin FROM profiles WHERE id = auth.uid())
     );

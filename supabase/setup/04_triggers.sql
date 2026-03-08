@@ -566,7 +566,12 @@ CREATE TRIGGER trg_prevent_duplicate_event_member
 BEFORE INSERT OR UPDATE ON event_team_members
 FOR EACH ROW EXECUTE FUNCTION prevent_duplicate_event_member();
 
+-- Added: 2026-03-08 - Auto-update updated_at on appathon_verifications
+CREATE TRIGGER update_appathon_verifications_updated_at
+    BEFORE UPDATE ON appathon_verifications
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
 -- ================================================================================
 -- End of Triggers File
--- Total Triggers: 78 (Updated: 2026-03-07)
+-- Total Triggers: 79 (Updated: 2026-03-08)
 -- ================================================================================
