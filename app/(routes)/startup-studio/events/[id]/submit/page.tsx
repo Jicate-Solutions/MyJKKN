@@ -8,6 +8,7 @@ import * as z from 'zod';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -107,9 +108,9 @@ export default function SubmitPage({ params }: { params: Promise<{ id: string }>
   const submissionLocked = event?.submission_deadline
     ? new Date(event.submission_deadline) < now
     : false;
-  const metricsLocked = event?.metrics_deadline
+  const metricsLocked = (event?.metrics_deadline
     ? new Date(event.metrics_deadline) < now
-    : false;
+    : false) || !!event?.metrics_frozen_at;
 
   if (authLoading || eventLoading || regLoading || memberLoading || subLoading || memberSubLoading || memberTeamLoading) {
     return (
@@ -204,6 +205,15 @@ export default function SubmitPage({ params }: { params: Promise<{ id: string }>
           locked={submissionLocked}
           categories={event?.config?.categories || []}
         />
+
+        {event?.metrics_frozen_at && (
+          <Alert className="border-amber-400 bg-amber-50 dark:bg-amber-950/20">
+            <Lock className="h-4 w-4 text-amber-600" />
+            <AlertDescription className="text-amber-700 text-sm">
+              Metrics are locked for Demo Day evaluation. If you need a correction, contact the organizer.
+            </AlertDescription>
+          </Alert>
+        )}
 
         <MetricsSection
           submission={submission}

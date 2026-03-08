@@ -128,12 +128,16 @@ export class EventSubmissionService {
 
     const { data: event } = await this.supabase
       .from('startup_events')
-      .select('metrics_deadline')
+      .select('metrics_deadline, metrics_frozen_at')
       .eq('id', existingSubmission.event_id)
       .single();
 
     if (event?.metrics_deadline && new Date(event.metrics_deadline) < new Date()) {
       throw new Error('Metrics deadline has passed');
+    }
+
+    if (event?.metrics_frozen_at) {
+      throw new Error('Metrics have been frozen for Demo Day evaluation. No further updates are allowed.');
     }
 
     const score = this.calculateScore(

@@ -7,11 +7,12 @@ import { PageBreadcrumb } from '@/components/navigation';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent } from '@/components/ui/card';
-import { ArrowLeft, Loader2, Trophy } from 'lucide-react';
+import { ArrowLeft, Loader2, Trophy, Info } from 'lucide-react';
 import { useEvent } from '@/hooks/startup-studio/use-events';
 import { useAuth } from '@/hooks/use-auth';
 import { LeaderboardTable } from './_components/leaderboard-table';
 import { MrrVerificationQueue } from './_components/mrr-verification-queue';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 
 export default function LeaderboardPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -19,6 +20,8 @@ export default function LeaderboardPage({ params }: { params: Promise<{ id: stri
   const { data: event, isLoading: eventLoading } = useEvent(id);
   const { profile, isLoading: authLoading } = useAuth();
   const isAdmin = profile?.role === 'super_admin' || profile?.role === 'admin' || profile?.role === 'administrator' || (profile as any)?.is_super_admin;
+  const isFrozen = !!event?.metrics_frozen_at;
+  const isPublished = !!event?.is_results_published;
 
   const breadcrumbs = [
     { label: 'Home', href: '/' },
@@ -87,6 +90,26 @@ export default function LeaderboardPage({ params }: { params: Promise<{ id: stri
           <p className="text-sm text-muted-foreground mt-1">{event?.name || 'Event'}</p>
         </div>
 
+        {/* State banner */}
+        {!isPublished && !isFrozen && (
+          <Alert>
+            <Info className="h-4 w-4" />
+            <AlertDescription className="text-sm">
+              <strong>Preliminary</strong> — Based on team-reported metrics.
+              Final rankings will be shown after evaluator verification.
+            </AlertDescription>
+          </Alert>
+        )}
+        {!isPublished && isFrozen && (
+          <Alert className="border-amber-400 bg-amber-50 dark:bg-amber-950/20">
+            <Loader2 className="h-4 w-4 animate-spin text-amber-600" />
+            <AlertDescription className="text-amber-700 text-sm">
+              <strong>Verification in progress...</strong> Results will be published
+              after all teams are verified. Check back at 2:00 PM.
+            </AlertDescription>
+          </Alert>
+        )}
+
         {/* Content */}
         {isAdmin ? (
           <Tabs defaultValue="leaderboard" className="space-y-5">
@@ -95,14 +118,14 @@ export default function LeaderboardPage({ params }: { params: Promise<{ id: stri
               <TabsTrigger value="mrr-queue">MRR Verification</TabsTrigger>
             </TabsList>
             <TabsContent value="leaderboard">
-              <LeaderboardTable eventId={id} isAdmin={true} />
+              <LeaderboardTable eventId={id} isAdmin={true} isPublished={isPublished} isFrozen={isFrozen} />
             </TabsContent>
             <TabsContent value="mrr-queue">
               <MrrVerificationQueue eventId={id} />
             </TabsContent>
           </Tabs>
         ) : (
-          <LeaderboardTable eventId={id} isAdmin={false} />
+          <LeaderboardTable eventId={id} isAdmin={false} isPublished={isPublished} isFrozen={isFrozen} />
         )}
       </div>
     </ContentLayout>

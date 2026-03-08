@@ -46,12 +46,22 @@ const RANK_STYLES: Record<number, string> = {
   3: 'border-l-4 border-l-amber-600 bg-amber-50/50 dark:bg-amber-950/20',
 };
 
+const VERIFIED_TIER_LABELS: Record<number, { label: string; className: string }> = {
+  0: { label: 'No Points', className: 'text-muted-foreground' },
+  1: { label: 'Lv 1 — Live', className: 'text-blue-600 bg-blue-50' },
+  2: { label: 'Lv 2 — 5+ Users', className: 'text-purple-600 bg-purple-50' },
+  3: { label: 'Lv 3 — 10+ Active', className: 'text-orange-600 bg-orange-50' },
+  4: { label: 'Lv 4 — 25+ Active', className: 'text-green-700 bg-green-50' },
+};
+
 interface LeaderboardTableProps {
   eventId: string;
   isAdmin: boolean;
+  isPublished: boolean;
+  isFrozen: boolean;
 }
 
-export function LeaderboardTable({ eventId, isAdmin }: LeaderboardTableProps) {
+export function LeaderboardTable({ eventId, isAdmin, isPublished, isFrozen }: LeaderboardTableProps) {
   const { data: entries = [], isLoading } = useLeaderboard(eventId);
   const { data: event } = useEvent(eventId);
   const publishResults = usePublishResults();
@@ -143,6 +153,9 @@ export function LeaderboardTable({ eventId, isAdmin }: LeaderboardTableProps) {
               <TableHeader>
                 <TableRow className="bg-muted/30">
                   <TableHead className="w-16 text-center">Rank</TableHead>
+                  {isPublished && isAdmin && (
+                    <TableHead className="text-center w-20">College #</TableHead>
+                  )}
                   <TableHead className="min-w-[140px]">Team</TableHead>
                   <TableHead className="min-w-[120px]">App</TableHead>
                   <TableHead className="min-w-[100px]">Category</TableHead>
@@ -165,8 +178,16 @@ export function LeaderboardTable({ eventId, isAdmin }: LeaderboardTableProps) {
                         <span className="font-semibold text-muted-foreground">{entry.rank}</span>
                       )}
                     </TableCell>
+                    {isPublished && isAdmin && (
+                      <TableCell className="text-center text-xs text-muted-foreground">
+                        #{(entry as any).college_rank ?? '—'}
+                      </TableCell>
+                    )}
                     <TableCell>
                       <span className="font-medium text-sm">{entry.team_name}</span>
+                      {isPublished && (entry as any).verification_status === 'disqualified' && (
+                        <Badge variant="destructive" className="text-xs ml-1">DQ</Badge>
+                      )}
                     </TableCell>
                     <TableCell>
                       <span className="text-sm text-muted-foreground">{entry.app_name || '—'}</span>
@@ -182,9 +203,20 @@ export function LeaderboardTable({ eventId, isAdmin }: LeaderboardTableProps) {
                       <span className="text-xs text-muted-foreground">{entry.institution_name || '—'}</span>
                     </TableCell>
                     <TableCell className="text-center">
-                      <Badge variant="secondary" className="text-xs">
-                        T{entry.tier_level} — {TIER_NAMES[entry.tier_level] || ''}
-                      </Badge>
+                      {isPublished ? (
+                        (() => {
+                          const vt = VERIFIED_TIER_LABELS[(entry as any).verified_tier ?? entry.tier_level] || VERIFIED_TIER_LABELS[0]
+                          return (
+                            <Badge variant="secondary" className={cn('text-xs', vt.className)}>
+                              {vt.label}
+                            </Badge>
+                          )
+                        })()
+                      ) : (
+                        <Badge variant="secondary" className="text-xs">
+                          T{entry.tier_level} — {TIER_NAMES[entry.tier_level] || ''}
+                        </Badge>
+                      )}
                     </TableCell>
                     <TableCell className="text-right">
                       <span className="font-mono text-sm">
