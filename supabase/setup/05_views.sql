@@ -369,6 +369,97 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_mv_lifecycle_dashboard_inst_module
     ON mv_lifecycle_dashboard(institution_id, module);
 
 -- ================================================================================
+-- SECTION 6: STARTUP STUDIO / DEMO DAY VIEWS
+-- Added: 2026-03-08
+-- ================================================================================
+
+-- ─── View: appathon_leaderboard ───────────────────────────────────────────
+-- Added: 2026-03-08 - Unified leaderboard using verified scores when available.
+-- Pre-verification: COALESCE falls back to self-reported scores.
+-- Post-verification: verified data from appathon_verifications takes precedence.
+CREATE OR REPLACE VIEW appathon_leaderboard AS
+SELECT
+    es.id AS submission_id,
+    er.id AS team_id,
+    er.team_name,
+    er.institution_id,
+    er.event_id,
+    es.app_name,
+    es.live_app_url,
+    es.category,
+    -- Verified tier OR self-reported tier as fallback
+    COALESCE(av.verified_tier, es.tier_level)           AS verified_tier,
+    CASE COALESCE(av.verified_tier, es.tier_level)
+        WHEN 4 THEN 50
+        WHEN 3 THEN 40
+        WHEN 2 THEN 25
+        WHEN 1 THEN 10
+        ELSE 0
+    END                                                  AS tier_points,
+    COALESCE(av.revenue_bonus, es.mrr_bonus_points)     AS revenue_bonus,
+    COALESCE(av.total_score, es.total_score)            AS total_score,
+    COALESCE(av.verified_users, es.user_count)          AS verified_users,
+    COALESCE(av.verified_active_users, es.active_users_count) AS verified_active_users,
+    COALESCE(av.verified_revenue, es.mrr_amount)        AS verified_revenue,
+    av.verification_status,
+    av.presented,
+    av.evaluator_id,
+    eva.manual_name                                      AS venue_name,
+    -- College rank (within same institution, tiebreaker: active users then revenue)
+    RANK() OVER (
+        PARTITION BY er.institution_id
+        ORDER BY
+            COALESCE(av.total_score, es.total_score) DESC,
+            COALESCE(av.verified_active_users, es.active_users_count) DESC,
+            COALESCE(av.verified_revenue, es.mrr_amount) DESC
+    ) AS college_rank,
+    -- Overall rank (across all institutions)
+    RANK() OVER (
+        ORDER BY
+            COALESCE(av.total_score, es.total_score) DESC,
+            COALESCE(av.verified_active_users, es.active_users_count) DESC,
+            COALESCE(av.verified_revenue, es.mrr_amount) DESC
+    ) AS overall_rank
+FROM event_submissions es
+JOIN event_registrations er ON es.registration_id = er.id
+LEFT JOIN appathon_verifications av ON av.submission_id = es.id
+LEFT JOIN event_venue_assignments eva ON av.venue_id = eva.id
+WHERE es.submitted_at IS NOT NULL;
+
+-- ─── View: evaluator_progress ─────────────────────────────────────────────
+-- Added: 2026-03-08 - Tracks verification completion per evaluator per venue.
+-- Used by admin on the demo-day page to monitor progress.
+CREATE OR REPLACE VIEW evaluator_progress AS
+SELECT
+    esa.staff_id,
+    s.profile_id                                 AS evaluator_profile_id,
+    p.full_name                                  AS evaluator_name,
+    esa.venue_assignment_id                      AS venue_id,
+    eva.manual_name                              AS venue_name,
+    esa.event_id,
+    COUNT(DISTINCT etva.registration_id)         AS total_teams,
+    COUNT(DISTINCT av.submission_id)             AS verified_count,
+    COUNT(DISTINCT etva.registration_id)
+        - COUNT(DISTINCT av.submission_id)       AS remaining
+FROM event_staff_assignments esa
+JOIN staff s ON esa.staff_id = s.id
+JOIN profiles p ON s.profile_id = p.id
+JOIN event_venue_assignments eva ON esa.venue_assignment_id = eva.id
+JOIN event_team_venue_allocations etva
+    ON etva.venue_assignment_id = esa.venue_assignment_id
+    AND etva.day_type = 'demo_day'
+LEFT JOIN event_submissions es ON es.registration_id = etva.registration_id
+LEFT JOIN appathon_verifications av
+    ON av.submission_id = es.id
+    AND av.evaluator_id = s.profile_id
+    AND av.verification_status IN ('verified', 'flagged', 'disqualified')
+WHERE eva.day_type = 'demo_day'
+  AND esa.role IN ('judge', 'panel_chair', 'evaluator')
+  AND esa.day_type = 'demo_day'
+GROUP BY esa.staff_id, s.profile_id, p.full_name,
+         esa.venue_assignment_id, eva.manual_name, esa.event_id;
+
+-- ================================================================================
 -- End of Views File
--- Total Views: 10 (7 original + 2 compatibility views + 1 lifecycle materialized view)
+-- Total Views: 12 (7 original + 2 compatibility views + 1 lifecycle materialized view + 2 demo-day views)
 -- ================================================================================
