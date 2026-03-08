@@ -36,8 +36,8 @@ export interface StartupEvent {
   submission_deadline: string | null;
   metrics_deadline: string | null;
   is_results_published: boolean;
-  metrics_frozen_at: string | null      // ISO timestamp when admin froze metrics
-  results_published_at: string | null   // ISO timestamp when results were published
+  metrics_frozen_at: string | null;      // ISO timestamp when admin froze metrics
+  results_published_at: string | null;   // ISO timestamp when results were published
   config: EventConfig;
   created_by: string | null;
   created_at: string;
