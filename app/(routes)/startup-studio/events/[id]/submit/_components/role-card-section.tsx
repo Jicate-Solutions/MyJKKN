@@ -24,14 +24,14 @@ import {
   FormLabel,
   FormMessage,
 } from '@/components/ui/form';
-import { Users, CheckCircle2, Star, Loader2 } from 'lucide-react';
+import { Users, CheckCircle2, Star, Loader2, Clock } from 'lucide-react';
 import { APPATHON_ROLES } from '@/lib/constants/startup-studio/roles';
 import {
   useMyRoleCard,
   useTeamRoleCards,
   useSubmitRoleCard,
 } from '@/hooks/startup-studio/use-role-cards';
-import type { EventTeamMember } from '@/types/startup-studio';
+import type { EventTeamMember, RoleCard } from '@/types/startup-studio';
 
 // ── Zod schema ────────────────────────────────────────────────────────────────
 
@@ -125,47 +125,6 @@ export function RoleCardSection({
     );
   }
 
-  // ── Already submitted: success summary ─────────────────────────────────────
-  if (myCard) {
-    return (
-      <Card className="border-green-200 bg-green-50/40 dark:border-green-900/40 dark:bg-green-950/20">
-        <CardHeader className="pb-3">
-          <CardTitle className="flex items-center justify-between text-base">
-            <span className="flex items-center gap-2">
-              <CheckCircle2 className="h-4 w-4 text-green-600" />
-              Your Role Card is submitted!
-            </span>
-            <ProgressBadge completed={completedCount} total={totalCount} />
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div>
-            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1.5">
-              Your roles
-            </p>
-            <div className="flex flex-wrap gap-1.5">
-              {myCard.self_roles.map((roleId) => {
-                const role = APPATHON_ROLES.find((r) => r.id === roleId);
-                return (
-                  <Badge key={roleId} variant="secondary">
-                    {role?.label ?? roleId}
-                  </Badge>
-                );
-              })}
-            </div>
-          </div>
-          <div>
-            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">
-              Most proud of
-            </p>
-            <p className="text-sm leading-relaxed">{myCard.proud_of}</p>
-          </div>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  // ── Form ───────────────────────────────────────────────────────────────────
   const watchedRoles = form.watch('self_roles');
   const watchedProudOf = form.watch('proud_of');
 
@@ -173,7 +132,6 @@ export function RoleCardSection({
     const peer_tags = Object.entries(values.peer_tags).map(
       ([tagged_profile_id, tagged_role]) => ({ tagged_profile_id, tagged_role })
     );
-
     submitRoleCard.mutate(
       {
         submission_id: submissionId,
@@ -189,159 +147,207 @@ export function RoleCardSection({
   };
 
   return (
-    <Card>
-      <CardHeader className="pb-3">
-        <CardTitle className="flex items-center justify-between text-base">
-          <span className="flex items-center gap-2">
-            <Star className="h-4 w-4 text-yellow-500" />
-            Your Role Card
-          </span>
-          <ProgressBadge completed={completedCount} total={totalCount} />
-        </CardTitle>
-        <p className="text-sm text-muted-foreground mt-1">
-          Team submission complete! Now each team member fills their individual Role Card.
-        </p>
-      </CardHeader>
+    <div className="space-y-4">
 
-      <CardContent>
-        <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+      {/* ── Own Role Card: success summary or form ───────────────────────── */}
+      <Card className={myCard
+        ? 'border-green-200 bg-green-50/40 dark:border-green-900/40 dark:bg-green-950/20'
+        : ''
+      }>
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center justify-between text-base">
+            <span className="flex items-center gap-2">
+              {myCard
+                ? <CheckCircle2 className="h-4 w-4 text-green-600" />
+                : <Star className="h-4 w-4 text-yellow-500" />
+              }
+              {myCard ? 'Your Role Card is submitted!' : 'Your Role Card'}
+            </span>
+            <ProgressBadge completed={completedCount} total={totalCount} />
+          </CardTitle>
+          {!myCard && (
+            <p className="text-sm text-muted-foreground mt-1">
+              Team submission complete! Now each team member fills their individual Role Card.
+            </p>
+          )}
+        </CardHeader>
 
-            {/* Field 1: Self Roles */}
-            <FormField
-              control={form.control}
-              name="self_roles"
-              render={() => (
-                <FormItem>
-                  <FormLabel>
-                    What was your main role in the team? Pick 1–2.{' '}
-                    <span className="text-destructive">*</span>
-                  </FormLabel>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
-                    {APPATHON_ROLES.map((role) => {
-                      const checked = watchedRoles.includes(role.id);
-                      const disabled = !checked && watchedRoles.length >= 2;
-                      return (
-                        <label
-                          key={role.id}
-                          className={[
-                            'flex items-start gap-2.5 p-3 rounded-lg border cursor-pointer transition-colors',
-                            checked
-                              ? 'border-green-500 bg-green-50/50 dark:bg-green-950/20'
-                              : 'border-border hover:border-muted-foreground/40',
-                            disabled ? 'opacity-40 cursor-not-allowed' : '',
-                          ].join(' ')}
-                        >
-                          <Checkbox
-                            checked={checked}
-                            disabled={disabled}
-                            onCheckedChange={(chk) => {
-                              const current = form.getValues('self_roles');
-                              form.setValue(
-                                'self_roles',
-                                chk
-                                  ? [...current, role.id]
-                                  : current.filter((r) => r !== role.id),
-                                { shouldValidate: true }
-                              );
-                            }}
-                            className="mt-0.5 shrink-0"
-                          />
-                          <div>
-                            <p className="text-sm font-medium leading-none">{role.label}</p>
-                            <p className="text-xs text-muted-foreground mt-0.5">
-                              {role.description}
-                            </p>
-                          </div>
-                        </label>
-                      );
-                    })}
-                  </div>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            {/* Field 2: Proud Of */}
-            <FormField
-              control={form.control}
-              name="proud_of"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>
-                    In one sentence, what are you most proud of from this Appathon?{' '}
-                    <span className="text-destructive">*</span>
-                  </FormLabel>
-                  <FormControl>
-                    <Input
-                      {...field}
-                      placeholder="e.g., I got 15 classmates to sign up and use the app"
-                      maxLength={150}
-                    />
-                  </FormControl>
-                  <div className="flex items-center justify-between mt-1">
-                    <FormMessage />
-                    <span className="text-xs text-muted-foreground ml-auto">
-                      {watchedProudOf.length}/150
-                    </span>
-                  </div>
-                </FormItem>
-              )}
-            />
-
-            {/* Field 3: Peer Tags */}
-            {otherMembers.length > 0 && (
-              <div className="space-y-3">
-                <p className="text-sm font-medium">Tag your teammates</p>
-                {otherMembers.map((member) => (
-                  <FormField
-                    key={member.profile_id}
-                    control={form.control}
-                    name={`peer_tags.${member.profile_id}`}
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel className="text-sm font-normal">
-                          What was{' '}
-                          <span className="font-medium">
-                            {member.full_name ?? member.email}
-                          </span>
-                          &apos;s biggest contribution?{' '}
-                          <span className="text-destructive">*</span>
-                        </FormLabel>
-                        <Select onValueChange={field.onChange} value={field.value}>
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select a role" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            {APPATHON_ROLES.map((role) => (
-                              <SelectItem key={role.id} value={role.id}>
-                                {role.label}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                ))}
+        <CardContent>
+          {myCard ? (
+            <div className="space-y-4">
+              <div>
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1.5">
+                  Your roles
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {myCard.self_roles.map((roleId) => {
+                    const role = APPATHON_ROLES.find((r) => r.id === roleId);
+                    return (
+                      <Badge key={roleId} variant="secondary">
+                        {role?.label ?? roleId}
+                      </Badge>
+                    );
+                  })}
+                </div>
               </div>
-            )}
+              <div>
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">
+                  Most proud of
+                </p>
+                <p className="text-sm leading-relaxed">{myCard.proud_of}</p>
+              </div>
+            </div>
+          ) : (
+            <Form {...form}>
+              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
 
-            <Button
-              type="submit"
-              disabled={submitRoleCard.isPending || submitRoleCard.isSuccess}
-              className="w-full sm:w-auto gap-2"
-            >
-              <CheckCircle2 className="h-4 w-4" />
-              {submitRoleCard.isPending ? 'Submitting...' : 'Submit Role Card'}
-            </Button>
-          </form>
-        </Form>
-      </CardContent>
-    </Card>
+                {/* Field 1: Self Roles */}
+                <FormField
+                  control={form.control}
+                  name="self_roles"
+                  render={() => (
+                    <FormItem>
+                      <FormLabel>
+                        What was your main role in the team? Pick 1–2.{' '}
+                        <span className="text-destructive">*</span>
+                      </FormLabel>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
+                        {APPATHON_ROLES.map((role) => {
+                          const checked = watchedRoles.includes(role.id);
+                          const disabled = !checked && watchedRoles.length >= 2;
+                          return (
+                            <label
+                              key={role.id}
+                              className={[
+                                'flex items-start gap-2.5 p-3 rounded-lg border cursor-pointer transition-colors',
+                                checked
+                                  ? 'border-green-500 bg-green-50/50 dark:bg-green-950/20'
+                                  : 'border-border hover:border-muted-foreground/40',
+                                disabled ? 'opacity-40 cursor-not-allowed' : '',
+                              ].join(' ')}
+                            >
+                              <Checkbox
+                                checked={checked}
+                                disabled={disabled}
+                                onCheckedChange={(chk) => {
+                                  const current = form.getValues('self_roles');
+                                  form.setValue(
+                                    'self_roles',
+                                    chk
+                                      ? [...current, role.id]
+                                      : current.filter((r) => r !== role.id),
+                                    { shouldValidate: true }
+                                  );
+                                }}
+                                className="mt-0.5 shrink-0"
+                              />
+                              <div>
+                                <p className="text-sm font-medium leading-none">{role.label}</p>
+                                <p className="text-xs text-muted-foreground mt-0.5">
+                                  {role.description}
+                                </p>
+                              </div>
+                            </label>
+                          );
+                        })}
+                      </div>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                {/* Field 2: Proud Of */}
+                <FormField
+                  control={form.control}
+                  name="proud_of"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>
+                        In one sentence, what are you most proud of from this Appathon?{' '}
+                        <span className="text-destructive">*</span>
+                      </FormLabel>
+                      <FormControl>
+                        <Input
+                          {...field}
+                          placeholder="e.g., I got 15 classmates to sign up and use the app"
+                          maxLength={150}
+                        />
+                      </FormControl>
+                      <div className="flex items-center justify-between mt-1">
+                        <FormMessage />
+                        <span className="text-xs text-muted-foreground ml-auto">
+                          {watchedProudOf.length}/150
+                        </span>
+                      </div>
+                    </FormItem>
+                  )}
+                />
+
+                {/* Field 3: Peer Tags */}
+                {otherMembers.length > 0 && (
+                  <div className="space-y-3">
+                    <p className="text-sm font-medium">Tag your teammates</p>
+                    {otherMembers.map((member) => (
+                      <FormField
+                        key={member.profile_id}
+                        control={form.control}
+                        name={`peer_tags.${member.profile_id}`}
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel className="text-sm font-normal">
+                              What was{' '}
+                              <span className="font-medium">
+                                {member.full_name ?? member.email}
+                              </span>
+                              &apos;s biggest contribution?{' '}
+                              <span className="text-destructive">*</span>
+                            </FormLabel>
+                            <Select onValueChange={field.onChange} value={field.value}>
+                              <FormControl>
+                                <SelectTrigger>
+                                  <SelectValue placeholder="Select a role" />
+                                </SelectTrigger>
+                              </FormControl>
+                              <SelectContent>
+                                {APPATHON_ROLES.map((role) => (
+                                  <SelectItem key={role.id} value={role.id}>
+                                    {role.label}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    ))}
+                  </div>
+                )}
+
+                <Button
+                  type="submit"
+                  disabled={submitRoleCard.isPending || submitRoleCard.isSuccess}
+                  className="w-full sm:w-auto gap-2"
+                >
+                  <CheckCircle2 className="h-4 w-4" />
+                  {submitRoleCard.isPending ? 'Submitting...' : 'Submit Role Card'}
+                </Button>
+              </form>
+            </Form>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* ── Team Role Cards Overview (visible to all members) ────────────── */}
+      {acceptedMembers.length > 1 && (
+        <TeamRoleCardsOverview
+          members={acceptedMembers}
+          cards={teamCards ?? []}
+          myProfileId={profileId}
+        />
+      )}
+
+    </div>
   );
 }
 
@@ -356,5 +362,76 @@ function ProgressBadge({ completed, total }: { completed: number; total: number 
       <Users className="h-3 w-3" />
       {completed} of {total} completed
     </Badge>
+  );
+}
+
+// ── Team Role Cards Overview ──────────────────────────────────────────────────
+
+function TeamRoleCardsOverview({
+  members,
+  cards,
+  myProfileId,
+}: {
+  members: EventTeamMember[];
+  cards: RoleCard[];
+  myProfileId: string;
+}) {
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Users className="h-4 w-4" />
+          Team Role Cards
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {members.map((member) => {
+          const card = cards.find((c) => c.profile_id === member.profile_id);
+          const isMe = member.profile_id === myProfileId;
+          const name = member.full_name ?? member.email;
+          return (
+            <div
+              key={member.profile_id ?? member.email}
+              className="p-3 rounded-lg border bg-muted/30 space-y-2"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-sm font-medium">
+                  {name}
+                  {isMe && (
+                    <span className="text-xs text-muted-foreground font-normal ml-1">(you)</span>
+                  )}
+                </p>
+                {card ? (
+                  <Badge variant="default" className="gap-1 text-xs shrink-0">
+                    <CheckCircle2 className="h-3 w-3" /> Submitted
+                  </Badge>
+                ) : (
+                  <Badge variant="secondary" className="gap-1 text-xs shrink-0">
+                    <Clock className="h-3 w-3" /> Pending
+                  </Badge>
+                )}
+              </div>
+              {card && (
+                <>
+                  <div className="flex flex-wrap gap-1">
+                    {card.self_roles.map((roleId) => {
+                      const role = APPATHON_ROLES.find((r) => r.id === roleId);
+                      return (
+                        <Badge key={roleId} variant="outline" className="text-xs">
+                          {role?.label ?? roleId}
+                        </Badge>
+                      );
+                    })}
+                  </div>
+                  <p className="text-xs text-muted-foreground italic leading-relaxed">
+                    &ldquo;{card.proud_of}&rdquo;
+                  </p>
+                </>
+              )}
+            </div>
+          );
+        })}
+      </CardContent>
+    </Card>
   );
 }
