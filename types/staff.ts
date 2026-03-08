@@ -322,3 +322,76 @@ export interface IncompleteStaffResponse {
   total: number;
   limit: number;
 }
+
+// =============================================
+// CLASS INCHARGES TYPES
+// Added: 2026-03-08
+// =============================================
+
+export interface ClassInchargeStaff {
+  id: string;
+  first_name: string;
+  last_name: string;
+  designation: string;
+  profile_picture: string | null;
+}
+
+export interface ClassIncharge {
+  id: string;
+  institution_id: string;
+  section_id: string;
+  staff_id: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+  updated_by: string | null;
+  // Relations (populated via Supabase select joins)
+  staff?: ClassInchargeStaff;
+}
+
+export interface SectionWithIncharges {
+  id: string;
+  section_name: string;
+  institution_id: string;
+  degree_id: string;
+  department_id: string;
+  program_id: string;
+  semester_id: string;
+  is_active: boolean;
+  // Joined relations
+  degree?: { id: string; degree_name: string };
+  department?: { id: string; department_name: string };
+  program?: { id: string; program_name: string };
+  semester?: { id: string; semester_name: string; semester_code: string };
+  // Embedded incharges
+  class_incharges?: ClassIncharge[];
+}
+
+export interface ClassInchargeFilters {
+  institution_id?: string;
+  degree_id?: string;
+  department_id?: string;
+  program_id?: string;
+  semester_id?: string;
+  section_id?: string;
+  is_active?: boolean;
+  page?: number;
+  limit?: number;
+}
+
+export interface AssignInchargeDto {
+  institution_id: string;
+  section_id: string;
+  staff_id: string;
+}
+
+export interface SectionWithInchargesResponse {
+  data: SectionWithIncharges[];
+  metadata: {
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+  };
+}
