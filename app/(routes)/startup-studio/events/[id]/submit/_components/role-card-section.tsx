@@ -142,9 +142,9 @@ export function RoleCardSection({
   const watchedProudOf = form.watch('proud_of');
 
   const onSubmit = (values: RoleCardFormValues) => {
-    const peer_tags = Object.entries(values.peer_tags)
-      .filter(([, role]) => role)
-      .map(([tagged_profile_id, tagged_role]) => ({ tagged_profile_id, tagged_role }));
+    const peer_tags = Object.entries(values.peer_tags).map(
+      ([tagged_profile_id, tagged_role]) => ({ tagged_profile_id, tagged_role })
+    );
 
     submitRoleCard.mutate({
       submission_id: submissionId,
