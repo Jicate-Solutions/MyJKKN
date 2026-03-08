@@ -406,6 +406,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/startup-studio/events/[id]/my-team': 'startup_studio.events.view',
   '/startup-studio/events/[id]/my-assignment': 'startup_studio.venues.manage',
   '/startup-studio/events/[id]/demo-day': 'startup_studio.demo_day.manage',
+  '/startup-studio/events/[id]/evaluate': 'startup_studio.evaluations.manage',
   '/startup-studio/events/[id]/leaderboard': 'startup_studio.leaderboard.view',
   '/startup-studio/events/[id]/checklists': 'startup_studio.checklists.manage',
 };
@@ -1439,6 +1440,11 @@ export function GetPages(pathname: string): MenuGroup[] {
                 active: pathname.includes('/demo-day')
               },
               {
+                href: `/startup-studio/events/${activeId}/evaluate`,
+                label: 'Evaluate Teams',
+                active: pathname.includes('/evaluate')
+              },
+              {
                 href: `/startup-studio/events/${activeId}/leaderboard`,
                 label: 'Leaderboard',
                 active: pathname.includes('/leaderboard')
@@ -1668,6 +1674,12 @@ export function GetRoleBasedPages(
             // But All Bug Reports (admin page) requires permission
             if (submenu.href === '/my-bug-reports' || submenu.href === '/bug-leaderboard') {
               return true;
+            }
+
+            // Judge / panel_chair / evaluator: can only see the Evaluate Teams submenu
+            const isEvaluatorRole = ['judge', 'panel_chair', 'evaluator'].includes(userRole.role_key || '');
+            if (isEvaluatorRole && submenu.href.includes('/startup-studio/events/')) {
+              return submenu.href.includes('/evaluate');
             }
 
             // Faculty / HOD / Principal: restricted startup-studio submenu access

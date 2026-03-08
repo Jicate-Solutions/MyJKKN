@@ -11,6 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { useEvent, useEventStats } from '@/hooks/startup-studio/use-events';
 import { useMyRegistration, useMyAcceptedMembership } from '@/hooks/startup-studio/use-event-registrations';
+import { useIsEventEvaluator } from '@/hooks/startup-studio/use-appathon-verifications';
 import { useAuth } from '@/hooks/use-auth';
 import { EventStatusBadge } from '../_components/event-status-badge';
 import { EditEventDialog } from './_components/edit-event-dialog';
@@ -79,6 +80,7 @@ export default function EventDetailPage({ params }: { params: Promise<{ id: stri
   const { data: myMembership } = useMyAcceptedMembership(id);
   const isInATeam = !!myRegistration || !!myMembership;
   const { profile, isLoading: authLoading } = useAuth();
+  const { data: isEventEvaluator } = useIsEventEvaluator(id, profile?.id);
   const [editOpen, setEditOpen] = useState(false);
   const isLoading = authLoading || eventLoading;
 
@@ -422,6 +424,24 @@ export default function EventDetailPage({ params }: { params: Promise<{ id: stri
             );
           })()}
         </div>
+
+        {/* Evaluator Panel — shown to judges/evaluators/panel_chairs who are not admins */}
+        {!isAdmin && isEventEvaluator && (
+          <Card className="border-dashed border-2 shadow-none bg-muted/10">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base flex items-center gap-2 text-muted-foreground">
+                <ClipboardCheck className="h-4 w-4" />
+                Evaluator Controls
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid gap-4 grid-cols-2 sm:grid-cols-3">
+                <AdminLink href={`/startup-studio/events/${id}/evaluate`} icon={<ClipboardCheck className="h-5 w-5" />} label="Evaluate Teams" />
+                <AdminLink href={`/startup-studio/events/${id}/leaderboard`} icon={<Trophy className="h-5 w-5" />} label="Leaderboard" />
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Admin Panel */}
         {isAdmin && (

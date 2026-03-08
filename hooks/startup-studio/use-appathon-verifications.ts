@@ -20,6 +20,28 @@ export const verificationKeys = {
 
 // ─── Evaluator Hooks ─────────────────────────────────────────────────────────
 
+/** Check if the current profile is assigned as judge/panel_chair/evaluator for this event */
+export function useIsEventEvaluator(eventId: string, profileId: string | undefined) {
+  return useQuery({
+    queryKey: ['is-event-evaluator', eventId, profileId],
+    queryFn: async () => {
+      const { createClientSupabaseClient } = await import('@/lib/supabase/client')
+      const supabase = createClientSupabaseClient()
+      const { data, error } = await supabase
+        .from('event_staff_assignments')
+        .select('id, staff!inner(profile_id)')
+        .eq('event_id', eventId)
+        .in('role', ['judge', 'panel_chair', 'evaluator'])
+        .eq('staff.profile_id', profileId as string)
+        .limit(1)
+      if (error) throw error
+      return (data?.length ?? 0) > 0
+    },
+    staleTime: 60_000,
+    enabled: !!eventId && !!profileId,
+  })
+}
+
 /** Get all teams in evaluator's demo day venue with verification status */
 export function useEvaluatorTeams(eventId: string, profileId: string) {
   return useQuery({
