@@ -350,8 +350,8 @@ function TeamChecklistSheet({ eventId, registrationId, teamName, dayType, open, 
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-full sm:max-w-md overflow-y-auto">
-        <SheetHeader className="mb-4">
+      <SheetContent side="right" className="w-full sm:max-w-md flex flex-col">
+        <SheetHeader className="mb-4 shrink-0">
           <SheetTitle className="flex items-center gap-2">
             <ListChecks className="h-5 w-5 text-primary" />
             {teamName}
@@ -361,72 +361,74 @@ function TeamChecklistSheet({ eventId, registrationId, teamName, dayType, open, 
           </p>
         </SheetHeader>
 
-        {isLoading ? (
-          <div className="flex justify-center py-12">
-            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-          </div>
-        ) : items.length === 0 ? (
-          <div className="text-center py-12 text-muted-foreground">
-            <ListChecks className="h-8 w-8 mx-auto mb-2 opacity-30" />
-            <p className="text-sm">No checklist items for {dayType === 'build_day' ? 'Build Day' : 'Demo Day'}.</p>
-            <p className="text-xs mt-1">Ask admin to add items in the Checklists page.</p>
-          </div>
-        ) : (
-          <div className="space-y-4">
-            {/* Progress */}
-            <div>
-              <div className="flex justify-between text-xs text-muted-foreground mb-1.5">
-                <span>Progress</span>
-                <span className="font-medium tabular-nums">{doneCount}/{items.length} ({pct}%)</span>
-              </div>
-              <div className="w-full bg-muted rounded-full h-2">
-                <div
-                  className={cn('h-2 rounded-full transition-all duration-300', pct === 100 ? 'bg-green-500' : 'bg-primary')}
-                  style={{ width: `${pct}%` }}
-                />
-              </div>
+        <div className="flex-1 overflow-y-auto">
+          {isLoading ? (
+            <div className="flex justify-center py-12">
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
             </div>
+          ) : items.length === 0 ? (
+            <div className="text-center py-12 text-muted-foreground">
+              <ListChecks className="h-8 w-8 mx-auto mb-2 opacity-30" />
+              <p className="text-sm">No checklist items for {dayType === 'build_day' ? 'Build Day' : 'Demo Day'}.</p>
+              <p className="text-xs mt-1">Ask admin to add items in the Checklists page.</p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {/* Progress */}
+              <div>
+                <div className="flex justify-between text-xs text-muted-foreground mb-1.5">
+                  <span>Progress</span>
+                  <span className="font-medium tabular-nums">{doneCount}/{items.length} ({pct}%)</span>
+                </div>
+                <div className="w-full bg-muted rounded-full h-2">
+                  <div
+                    className={cn('h-2 rounded-full transition-all duration-300', pct === 100 ? 'bg-green-500' : 'bg-primary')}
+                    style={{ width: `${pct}%` }}
+                  />
+                </div>
+              </div>
 
-            <Separator />
+              <Separator />
 
-            {/* Items */}
-            <div className="divide-y">
-              {items.map((item) => {
-                const isCompleted = !!item.completion;
-                const isPending = completeItem.isPending || uncompleteItem.isPending;
-                return (
-                  <div key={item.id} className="flex items-start gap-3 py-3">
-                    <Checkbox
-                      checked={isCompleted}
-                      disabled={isPending}
-                      onCheckedChange={(checked) => {
-                        if (checked) completeItem.mutate(item.id);
-                        else if (item.completion) uncompleteItem.mutate(item.completion.id);
-                      }}
-                      className={cn('mt-0.5', isCompleted && 'data-[state=checked]:bg-green-500 data-[state=checked]:border-green-500')}
-                    />
-                    <div className="flex-1 min-w-0">
-                      <p className={cn('text-sm', isCompleted && 'line-through text-muted-foreground')}>
-                        {item.title}
-                        {item.is_required && <span className="text-red-500 ml-1">*</span>}
-                      </p>
-                      {item.description && !isCompleted && (
-                        <p className="text-xs text-muted-foreground mt-0.5">{item.description}</p>
-                      )}
-                      {isCompleted && item.completion?.completed_at && (
-                        <p className="text-xs text-muted-foreground mt-0.5">
-                          {new Date(item.completion.completed_at).toLocaleString('en-IN', {
-                            day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
-                          })}
+              {/* Items */}
+              <div className="divide-y">
+                {items.map((item) => {
+                  const isCompleted = !!item.completion;
+                  const isPending = completeItem.isPending || uncompleteItem.isPending;
+                  return (
+                    <div key={item.id} className="flex items-start gap-3 py-3">
+                      <Checkbox
+                        checked={isCompleted}
+                        disabled={isPending}
+                        onCheckedChange={(checked) => {
+                          if (checked) completeItem.mutate(item.id);
+                          else if (item.completion) uncompleteItem.mutate(item.completion.id);
+                        }}
+                        className={cn('mt-0.5', isCompleted && 'data-[state=checked]:bg-green-500 data-[state=checked]:border-green-500')}
+                      />
+                      <div className="flex-1 min-w-0">
+                        <p className={cn('text-sm', isCompleted && 'line-through text-muted-foreground')}>
+                          {item.title}
+                          {item.is_required && <span className="text-red-500 ml-1">*</span>}
                         </p>
-                      )}
+                        {item.description && !isCompleted && (
+                          <p className="text-xs text-muted-foreground mt-0.5">{item.description}</p>
+                        )}
+                        {isCompleted && item.completion?.completed_at && (
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            {new Date(item.completion.completed_at).toLocaleString('en-IN', {
+                              day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
+                            })}
+                          </p>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </SheetContent>
     </Sheet>
   );
