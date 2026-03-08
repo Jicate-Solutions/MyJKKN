@@ -21,6 +21,7 @@ import {
   CalendarCheck,
   CalendarClock,
   CheckCircle2,
+  ClipboardCheck,
   ClipboardList,
   FileText,
   Laptop,
@@ -436,6 +437,7 @@ export default function EventDetailPage({ params }: { params: Promise<{ id: stri
                 <AdminLink href={`/startup-studio/events/${id}/registrations`} icon={<ClipboardList className="h-5 w-5" />} label="Registrations" count={stats?.total_teams} />
                 <AdminLink href={`/startup-studio/events/${id}/venues`} icon={<MapPin className="h-5 w-5" />} label="Venues" />
                 <AdminLink href={`/startup-studio/events/${id}/demo-day`} icon={<Presentation className="h-5 w-5" />} label="Demo Day" />
+                <AdminLink href={`/startup-studio/events/${id}/evaluate`} icon={<ClipboardCheck className="h-5 w-5" />} label="Evaluate" />
                 <AdminLink href={`/startup-studio/events/${id}/leaderboard`} icon={<Trophy className="h-5 w-5" />} label="Leaderboard" />
                 <AdminLink href={`/startup-studio/events/${id}/checklists`} icon={<CheckCircle2 className="h-5 w-5" />} label="Checklists" />
               </div>
