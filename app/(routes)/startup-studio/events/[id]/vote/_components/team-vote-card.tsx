@@ -79,9 +79,9 @@ export function TeamVoteCard({
               key={star}
               type="button"
               disabled={!votingOpen || isSubmitting}
-              onClick={() => onVote(star)}
-              onMouseEnter={() => setHovered(star)}
-              onMouseLeave={() => setHovered(0)}
+              onClick={() => { onVote(star); setHovered(0) }}
+              onMouseEnter={() => { if (votingOpen && !isSubmitting) setHovered(star) }}
+              onMouseLeave={() => { if (votingOpen && !isSubmitting) setHovered(0) }}
               className={cn(
                 'p-0.5 rounded transition-transform',
                 votingOpen && !isSubmitting
