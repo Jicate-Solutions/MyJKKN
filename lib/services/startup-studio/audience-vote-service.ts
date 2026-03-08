@@ -45,6 +45,9 @@ export class AudienceVoteService {
     if (eventErr || !event) throw new Error('Event not found')
     if (!event.voting_opened_at) throw new Error('Voting has not opened yet')
     if (event.voting_closed_at) throw new Error('Voting has closed')
+    // Note: window check and upsert are separate round-trips — a concurrent
+    // closeVoting() call between them could allow a late vote to land.
+    // Acceptable for this use case; a DB-level trigger would be needed for strict enforcement.
 
     const payload = {
       event_id: params.eventId,
