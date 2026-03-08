@@ -39,14 +39,17 @@ import {
   useAssignTeamToSlot,
   useUnassignSlot,
 } from '@/hooks/startup-studio/use-event-leaderboard';
+import { useAuth } from '@/hooks/use-auth';
 
 export default function DemoDayPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const router = useRouter();
+  const { isLoading: authLoading } = useAuth();
   const { data: event } = useEvent(id);
   const { data: venues = [] } = useEventVenues(id, 'demo_day');
   const { data: registrations = [] } = useEventRegistrations({ event_id: id });
-  const { data: slots = [], isLoading } = useDemoSlots(id);
+  const { data: slots = [], isLoading: slotsLoading } = useDemoSlots(id);
+  const isLoading = authLoading || slotsLoading;
   const generateSlots = useGenerateDemoSlots();
   const assignTeam = useAssignTeamToSlot();
   const unassignSlot = useUnassignSlot();

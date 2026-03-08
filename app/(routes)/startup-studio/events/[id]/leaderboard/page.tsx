@@ -16,8 +16,8 @@ import { MrrVerificationQueue } from './_components/mrr-verification-queue';
 export default function LeaderboardPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const router = useRouter();
-  const { data: event, isLoading } = useEvent(id);
-  const { profile } = useAuth();
+  const { data: event, isLoading: eventLoading } = useEvent(id);
+  const { profile, isLoading: authLoading } = useAuth();
   const isAdmin = profile?.role === 'super_admin' || profile?.role === 'admin' || profile?.role === 'administrator' || (profile as any)?.is_super_admin;
 
   const breadcrumbs = [
@@ -27,7 +27,7 @@ export default function LeaderboardPage({ params }: { params: Promise<{ id: stri
     { label: 'Leaderboard' },
   ];
 
-  if (isLoading) {
+  if (authLoading || eventLoading) {
     return (
       <ContentLayout title="Leaderboard">
         <PageBreadcrumb items={breadcrumbs} />

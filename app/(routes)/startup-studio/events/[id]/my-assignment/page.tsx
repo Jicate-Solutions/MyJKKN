@@ -111,9 +111,10 @@ export default function MyAssignmentPage({ params }: { params: Promise<{ id: str
   const { id } = use(params);
   const router = useRouter();
   const { data: event } = useEvent(id);
-  const { profile } = useAuth();
+  const { profile, isLoading: authLoading } = useAuth();
   const isAdmin = profile?.role === 'super_admin' || profile?.role === 'admin' || profile?.role === 'administrator' || (profile as any)?.is_super_admin;
-  const { data: assignments = [], isLoading } = useStaffAssignments(id, !!isAdmin, profile?.email);
+  const { data: assignments = [], isLoading: assignmentsLoading } = useStaffAssignments(id, !!isAdmin, profile?.email);
+  const isLoading = authLoading || assignmentsLoading;
 
   // Group assignments by day type
   const grouped = useMemo(() => {

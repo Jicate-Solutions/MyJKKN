@@ -67,19 +67,31 @@ function getDaysUntil(dateStr: string | null): string | null {
 export default function EventDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const router = useRouter();
-  const { data: event, isLoading } = useEvent(id);
+  const { data: event, isLoading: eventLoading, isError, refetch } = useEvent(id);
   const { data: stats } = useEventStats(id);
   const { data: myRegistration } = useMyRegistration(id);
   const { data: myMembership } = useMyAcceptedMembership(id);
   const isInATeam = !!myRegistration || !!myMembership;
-  const { profile } = useAuth();
+  const { profile, isLoading: authLoading } = useAuth();
   const [editOpen, setEditOpen] = useState(false);
+  const isLoading = authLoading || eventLoading;
 
   if (isLoading) {
     return (
       <ContentLayout title="Event">
         <div className="flex items-center justify-center py-20">
           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </div>
+      </ContentLayout>
+    );
+  }
+
+  if (isError) {
+    return (
+      <ContentLayout title="Event">
+        <div className="flex flex-col items-center gap-4 py-20 text-muted-foreground">
+          <p>Failed to load event. Please check your connection and try again.</p>
+          <Button variant="outline" onClick={() => refetch()}>Retry</Button>
         </div>
       </ContentLayout>
     );

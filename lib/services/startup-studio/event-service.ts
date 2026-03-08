@@ -54,13 +54,13 @@ export class EventService {
         creator:profiles!startup_events_created_by_fkey(id, full_name, email)
       `)
       .eq('id', id)
-      .single();
+      .maybeSingle();
 
     if (error) {
       console.error('[startup/events] getEvent failed:', error);
       throw error;
     }
-    return data as unknown as StartupEvent;
+    return data as unknown as StartupEvent | null;
   }
 
   static async createEvent(dto: CreateEventDto, userId: string): Promise<StartupEvent> {

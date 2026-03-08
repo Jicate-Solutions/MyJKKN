@@ -37,7 +37,7 @@ export default function ChecklistsPage({ params }: { params: Promise<{ id: strin
   const { id } = use(params);
   const router = useRouter();
   const { data: event } = useEvent(id);
-  const { profile } = useAuth();
+  const { profile, isLoading: authLoading } = useAuth();
   const queryClient = useQueryClient();
   const isAdmin = profile?.is_super_admin || profile?.role === 'super_admin' || profile?.role === 'admin' || profile?.role === 'administrator';
 
@@ -48,7 +48,7 @@ export default function ChecklistsPage({ params }: { params: Promise<{ id: strin
   const { data: checklists = [], isLoading } = useQuery({
     queryKey: ['event-checklists', id],
     queryFn: () => EventChecklistService.getChecklists(id),
-    enabled: !!id,
+    enabled: !authLoading && !!id,
     staleTime: 15 * 1000,
   });
 

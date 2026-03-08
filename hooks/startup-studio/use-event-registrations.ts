@@ -11,10 +11,11 @@ const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 const isValidUUID = (id: string | undefined): boolean => !!id && UUID_REGEX.test(id);
 
 export function useRegistration(registrationId: string | undefined) {
+  const { isLoading: authLoading } = useAuth();
   return useQuery({
     queryKey: ['registration', registrationId],
     queryFn: () => EventRegistrationService.getRegistrationById(registrationId!),
-    enabled: !!registrationId,
+    enabled: !authLoading && !!registrationId,
     staleTime: 15 * 1000,
     retry: 3,
   });

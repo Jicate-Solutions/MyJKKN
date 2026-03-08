@@ -19,13 +19,14 @@ export function useMySubmission(eventId: string | undefined) {
 }
 
 export function useTeamSubmission(eventId: string | undefined, registrationId: string | undefined) {
+  const { isLoading: authLoading } = useAuth();
   return useQuery({
     queryKey: ['team-submission', eventId, registrationId],
     queryFn: () => {
       if (!eventId || !registrationId) return null;
       return EventSubmissionService.getSubmission(eventId, registrationId);
     },
-    enabled: !!eventId && !!registrationId,
+    enabled: !authLoading && !!eventId && !!registrationId,
     staleTime: 15 * 1000,
     retry: 2,
   });

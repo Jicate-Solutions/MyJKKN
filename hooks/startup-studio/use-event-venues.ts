@@ -5,20 +5,22 @@ import { useAuth } from '@/hooks/use-auth';
 import type { CreateVenueDto, UpdateVenueDto, DayType, StaffRole, MarkAttendanceDto, EventTeamAttendance } from '@/types/startup-studio';
 
 export function useVenue(venueId: string) {
+  const { isLoading: authLoading } = useAuth();
   return useQuery({
     queryKey: ['event-venue', venueId],
     queryFn: () => EventVenueService.getVenueById(venueId),
-    enabled: !!venueId,
+    enabled: !authLoading && !!venueId,
     staleTime: 15 * 1000,
     retry: 3,
   });
 }
 
 export function useEventVenues(eventId: string, dayType?: DayType) {
+  const { isLoading: authLoading } = useAuth();
   return useQuery({
     queryKey: ['event-venues', eventId, dayType],
     queryFn: () => EventVenueService.getVenues(eventId, dayType),
-    enabled: !!eventId,
+    enabled: !authLoading && !!eventId,
     staleTime: 15 * 1000,
     retry: 3,
   });
@@ -182,30 +184,33 @@ export function useStaffList(institutionId?: string, departmentId?: string) {
 }
 
 export function useEventAttendanceMap(eventId: string, dayType: DayType) {
+  const { isLoading: authLoading } = useAuth();
   return useQuery({
     queryKey: ['event-attendance-map', eventId, dayType],
     queryFn: () => EventVenueService.getEventAttendanceMap(eventId, dayType),
-    enabled: !!eventId,
+    enabled: !authLoading && !!eventId,
     staleTime: 10 * 1000,
     retry: 3,
   });
 }
 
 export function useStaffVenues(eventId: string, staffEmail: string, dayType?: DayType) {
+  const { isLoading: authLoading } = useAuth();
   return useQuery({
     queryKey: ['event-venues-staff', eventId, staffEmail, dayType],
     queryFn: () => EventVenueService.getVenuesForStaff(eventId, staffEmail, dayType),
-    enabled: !!eventId && !!staffEmail,
+    enabled: !authLoading && !!eventId && !!staffEmail,
     staleTime: 15 * 1000,
     retry: 3,
   });
 }
 
 export function useVenueAttendance(eventId: string, venueAssignmentId: string, dayType: DayType) {
+  const { isLoading: authLoading } = useAuth();
   return useQuery({
     queryKey: ['venue-attendance', eventId, venueAssignmentId, dayType],
     queryFn: () => EventVenueService.getVenueAttendance(eventId, venueAssignmentId, dayType),
-    enabled: !!eventId && !!venueAssignmentId,
+    enabled: !authLoading && !!eventId && !!venueAssignmentId,
     staleTime: 10 * 1000,
     retry: 3,
   });

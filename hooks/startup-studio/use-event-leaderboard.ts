@@ -4,10 +4,11 @@ import { EventLeaderboardService } from '@/lib/services/startup-studio/event-lea
 import { useAuth } from '@/hooks/use-auth';
 
 export function useLeaderboard(eventId: string) {
+  const { isLoading: authLoading } = useAuth();
   return useQuery({
     queryKey: ['event-leaderboard', eventId],
     queryFn: () => EventLeaderboardService.getLeaderboard(eventId),
-    enabled: !!eventId,
+    enabled: !authLoading && !!eventId,
     staleTime: 15 * 1000,
     retry: 3,
   });
@@ -31,10 +32,11 @@ export function usePublishResults() {
 }
 
 export function useMrrVerificationQueue(eventId: string) {
+  const { isLoading: authLoading } = useAuth();
   return useQuery({
     queryKey: ['mrr-queue', eventId],
     queryFn: () => EventLeaderboardService.getMrrVerificationQueue(eventId),
-    enabled: !!eventId,
+    enabled: !authLoading && !!eventId,
     staleTime: 15 * 1000,
     retry: 3,
   });
@@ -77,10 +79,11 @@ export function useRejectMrr() {
 }
 
 export function useDemoSlots(eventId: string) {
+  const { isLoading: authLoading } = useAuth();
   return useQuery({
     queryKey: ['demo-slots', eventId],
     queryFn: () => EventLeaderboardService.getDemoSlots(eventId),
-    enabled: !!eventId,
+    enabled: !authLoading && !!eventId,
     staleTime: 15 * 1000,
     retry: 3,
   });

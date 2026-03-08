@@ -47,8 +47,9 @@ export default function TeamDetailPage({
   const router = useRouter();
 
   const { data: event } = useEvent(eventId);
-  const { data: reg, isLoading } = useRegistration(registrationId);
-  const { profile } = useAuth();
+  const { data: reg, isLoading: regLoading } = useRegistration(registrationId);
+  const { profile, isLoading: authLoading } = useAuth();
+  const isLoading = authLoading || regLoading;
 
   const isAdmin =
     profile?.is_super_admin === true ||

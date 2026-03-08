@@ -4828,12 +4828,18 @@ $$;
 -- =====================================================
 -- STARTUP STUDIO: prevent_duplicate_event_member
 -- Added: 2026-03-07
+-- Updated: 2026-03-08 — SECURITY DEFINER so trigger can read event_registrations
+--   even when invoked by an invited member (student) who doesn't own the registration.
+--   Without this, RLS blocks the SELECT and raises 'Registration not found'.
 -- Trigger function: prevents the same learner_id from
 -- being accepted in more than one team per event.
 -- Called by: trg_prevent_duplicate_event_member (04_triggers.sql)
 -- =====================================================
 CREATE OR REPLACE FUNCTION prevent_duplicate_event_member()
-RETURNS TRIGGER AS $$
+RETURNS TRIGGER
+SECURITY DEFINER
+SET search_path = ''
+AS $$
 DECLARE
   v_event_id UUID;
   v_duplicate_count INT;

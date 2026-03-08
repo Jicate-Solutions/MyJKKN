@@ -13,11 +13,11 @@ import { ArrowLeft, Loader2 } from 'lucide-react';
 export default function AdminRegistrationsPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const router = useRouter();
-  const { profile } = useAuth();
-  const { data: event, isLoading } = useEvent(id);
+  const { profile, isLoading: authLoading } = useAuth();
+  const { data: event, isLoading: eventLoading } = useEvent(id);
   const isSuperAdmin = profile?.is_super_admin === true;
 
-  if (isLoading) {
+  if (authLoading || eventLoading) {
     return (
       <ContentLayout title="Registrations">
         <div className="flex items-center justify-center py-20">

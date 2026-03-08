@@ -32,6 +32,7 @@ import {
 } from '@/hooks/startup-studio/use-event-registrations';
 import { useEventStats, useLearnerParticipationStats } from '@/hooks/startup-studio/use-events';
 import { useStudentSearchFilterOptions } from '@/hooks/startup-studio/use-event-registrations';
+import { useAuth } from '@/hooks/use-auth';
 import { useRouter } from 'next/navigation';
 import {
   ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight,
@@ -106,6 +107,7 @@ function StatCard({
 
 export function RegistrationsTable({ eventId, isSuperAdmin, eventName }: { eventId: string; isSuperAdmin: boolean; eventName?: string }) {
   const router = useRouter();
+  const { isLoading: authLoading } = useAuth();
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -657,7 +659,7 @@ export function RegistrationsTable({ eventId, isSuperAdmin, eventName }: { event
         )}
 
         {/* Table */}
-        {tableLoading ? (
+        {(authLoading || tableLoading) ? (
           <div className="flex justify-center py-12">
             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
           </div>
