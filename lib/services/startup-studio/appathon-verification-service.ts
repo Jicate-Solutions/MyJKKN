@@ -93,15 +93,16 @@ export class AppathonVerificationService {
       })
       .filter(Boolean)
 
-    const { data: verifications } = await supabase
-      .from('appathon_verifications')
-      .select('*')
-      .in('submission_id', submissionIds)
-      .eq('evaluator_id', evaluatorProfileId)
+    const verificationMap = new Map<string, any>()
+    if (submissionIds.length > 0) {
+      const { data: verifications } = await supabase
+        .from('appathon_verifications')
+        .select('*')
+        .in('submission_id', submissionIds)
+        .eq('evaluator_id', evaluatorProfileId)
 
-    const verificationMap = new Map(
-      (verifications ?? []).map(v => [v.submission_id, v])
-    )
+      ;(verifications ?? []).forEach(v => verificationMap.set(v.submission_id, v))
+    }
 
     // 4. Get demo slots (for presentation order)
     const { data: demoSlots } = await supabase
@@ -165,11 +166,13 @@ export class AppathonVerificationService {
     })
 
     // Copy claimed values from submission at upsert time
-    const { data: sub } = await supabase
+    const { data: sub, error: subErr } = await supabase
       .from('event_submissions')
       .select('user_count, active_users_count, mrr_amount')
       .eq('id', dto.submission_id)
       .single()
+
+    if (subErr || !sub) throw new Error(`Submission not found: ${dto.submission_id}`)
 
     const payload = {
       submission_id: dto.submission_id,
@@ -210,7 +213,7 @@ export class AppathonVerificationService {
     const supabase = createClientSupabaseClient()
 
     // Recompute score if numeric fields changed
-    let scoreUpdate: Partial<AppathonVerification> = {}
+    let scoreUpdate: { verified_tier?: number; revenue_bonus?: number; total_score?: number } = {}
     if (
       dto.verified_users !== undefined ||
       dto.verified_active_users !== undefined ||
@@ -234,13 +237,18 @@ export class AppathonVerificationService {
           verified_tier: score.tier,
           revenue_bonus: score.revenue_bonus,
           total_score: score.total_score,
-        } as any
+        }
       }
     }
 
+    // Strip undefined values — spreading undefined fields would serialize as null and overwrite DB data
+    const safeDto = Object.fromEntries(
+      Object.entries(dto).filter(([, v]) => v !== undefined)
+    )
+
     const { data, error } = await supabase
       .from('appathon_verifications')
-      .update({ ...dto, ...scoreUpdate, updated_at: new Date().toISOString() })
+      .update({ ...safeDto, ...scoreUpdate, updated_at: new Date().toISOString() })
       .eq('id', verificationId)
       .select()
       .single()
