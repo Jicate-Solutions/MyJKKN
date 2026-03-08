@@ -3,7 +3,7 @@
 
 import { useEffect } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { toast } from 'sonner'
+import toast from 'react-hot-toast'
 import { createClientSupabaseClient } from '@/lib/supabase/client'
 import { AudienceVoteService } from '@/lib/services/startup-studio/audience-vote-service'
 

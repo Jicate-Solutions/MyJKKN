@@ -7,6 +7,7 @@ import { ContentLayout } from '@/components/layout/content-layout'
 import { PageBreadcrumb } from '@/components/navigation'
 import { Button } from '@/components/ui/button'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import { useState } from 'react'
 import { useAuth } from '@/hooks/use-auth'
 import { useEvent } from '@/hooks/startup-studio/use-events'
 import { useEventRegistrations, useEventDemoSlots } from '@/hooks/startup-studio/use-event-registrations'
@@ -23,12 +24,14 @@ export default function VotePage({ params }: { params: Promise<{ id: string }> }
   const { profile } = useAuth()
   const profileId = profile?.id ?? ''
 
+  const [submittingId, setSubmittingId] = useState<string | null>(null)
+
   const { data: event, isLoading: eventLoading } = useEvent(id)
   const { data: registrations = [], isLoading: regsLoading } = useEventRegistrations({ event_id: id })
   const { data: demoSlots = [] } = useEventDemoSlots(id)
   const { data: summaries = [] } = useVoteSummaries(id)
   const { data: myVotes = [] } = useMyVotes(id, profileId)
-  const { mutate: castVote, isPending } = useCastVote(id, profileId)
+  const { mutate: castVote } = useCastVote(id, profileId)
 
   // Subscribe to live vote updates
   useAudienceVotesRealtime(id)
@@ -143,10 +146,13 @@ export default function VotePage({ params }: { params: Promise<{ id: string }> }
                   totalVotes={voteSummary?.total_votes ?? 0}
                   averageRating={voteSummary?.average_rating ?? 0}
                   myRating={myRating}
-                  onVote={(rating) =>
-                    castVote({ submissionId, rating })
-                  }
-                  isSubmitting={isPending}
+                  onVote={(rating) => {
+                    setSubmittingId(submissionId)
+                    castVote({ submissionId, rating }, {
+                      onSettled: () => setSubmittingId(null),
+                    })
+                  }}
+                  isSubmitting={submittingId === submissionId}
                   votingOpen={votingOpen}
                 />
               )

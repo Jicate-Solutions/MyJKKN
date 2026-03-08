@@ -555,6 +555,8 @@ export class EventRegistrationService {
       .eq('event_id', eventId);
 
     if (error) {
+      // Soft failure: if slot data is unavailable, the vote page falls back to
+      // registration order rather than blocking the voting experience.
       console.error('[startup/registration] getDemoSlots failed:', error);
       return [];
     }
