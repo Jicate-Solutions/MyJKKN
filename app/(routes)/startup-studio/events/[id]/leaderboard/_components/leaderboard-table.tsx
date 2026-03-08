@@ -60,11 +60,15 @@ interface LeaderboardTableProps {
   isAdmin: boolean;
   isPublished: boolean;
   isFrozen: boolean;
+  /** When provided, use this data instead of fetching via useLeaderboard */
+  entriesOverride?: AnyLeaderboardEntry[];
+  isLoadingOverride?: boolean;
 }
 
-export function LeaderboardTable({ eventId, isAdmin, isPublished, isFrozen }: LeaderboardTableProps) {
-  const { data: rawEntries = [], isLoading } = useLeaderboard(eventId);
-  const entries = rawEntries as AnyLeaderboardEntry[];
+export function LeaderboardTable({ eventId, isAdmin, isPublished, isFrozen, entriesOverride, isLoadingOverride }: LeaderboardTableProps) {
+  const { data: rawEntries = [], isLoading: leaderboardLoading } = useLeaderboard(eventId);
+  const isLoading = isLoadingOverride ?? leaderboardLoading;
+  const entries = (entriesOverride ?? rawEntries) as AnyLeaderboardEntry[];
   const { data: event } = useEvent(eventId);
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
 

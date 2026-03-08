@@ -10,6 +10,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { ArrowLeft, Loader2, Trophy, Info } from 'lucide-react';
 import { useEvent } from '@/hooks/startup-studio/use-events';
 import { useAuth } from '@/hooks/use-auth';
+import { useVerifiedLeaderboard } from '@/hooks/startup-studio/use-appathon-verifications';
 import { LeaderboardTable } from './_components/leaderboard-table';
 import { MrrVerificationQueue } from './_components/mrr-verification-queue';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -22,6 +23,8 @@ export default function LeaderboardPage({ params }: { params: Promise<{ id: stri
   const isAdmin = profile?.role === 'super_admin' || profile?.role === 'admin' || profile?.role === 'administrator';
   const isFrozen = !!event?.metrics_frozen_at;
   const isPublished = !!event?.is_results_published;
+
+  const { data: verifiedEntries, isLoading: verifiedLoading } = useVerifiedLeaderboard(id);
 
   const breadcrumbs = [
     { label: 'Home', href: '/' },
@@ -118,14 +121,28 @@ export default function LeaderboardPage({ params }: { params: Promise<{ id: stri
               <TabsTrigger value="mrr-queue">MRR Verification</TabsTrigger>
             </TabsList>
             <TabsContent value="leaderboard">
-              <LeaderboardTable eventId={id} isAdmin={true} isPublished={isPublished} isFrozen={isFrozen} />
+              <LeaderboardTable
+                eventId={id}
+                isAdmin={true}
+                isPublished={isPublished}
+                isFrozen={isFrozen}
+                entriesOverride={isPublished ? verifiedEntries : undefined}
+                isLoadingOverride={isPublished ? verifiedLoading : undefined}
+              />
             </TabsContent>
             <TabsContent value="mrr-queue">
               <MrrVerificationQueue eventId={id} />
             </TabsContent>
           </Tabs>
         ) : (
-          <LeaderboardTable eventId={id} isAdmin={false} isPublished={isPublished} isFrozen={isFrozen} />
+          <LeaderboardTable
+            eventId={id}
+            isAdmin={false}
+            isPublished={isPublished}
+            isFrozen={isFrozen}
+            entriesOverride={isPublished ? verifiedEntries : undefined}
+            isLoadingOverride={isPublished ? verifiedLoading : undefined}
+          />
         )}
       </div>
     </ContentLayout>
