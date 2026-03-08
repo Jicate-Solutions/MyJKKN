@@ -82,7 +82,7 @@ function InchargeAvatars({ incharges }: { incharges: ClassIncharge[] }) {
 
 export function getClassInchargeColumns(
   actions: ClassInchargeColumnActions
-): PermissionColumnDef<SectionWithIncharges, unknown>[] {
+): PermissionColumnDef<SectionWithIncharges>[] {
   return [
     {
       accessorKey: 'section_name',

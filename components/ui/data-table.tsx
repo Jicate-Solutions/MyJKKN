@@ -56,10 +56,10 @@ import {
 } from '@/components/ui/alert-dialog';
 import { toast } from 'react-hot-toast';
 
-// Extended column definition with permission settings
-export interface PermissionColumnDef<TData, TValue>
-  extends Omit<ColumnDef<TData, TValue>, 'id'> {
-  id?: string;
+// Extended column definition with permission settings.
+// Uses intersection (not extends Omit) to preserve the full ColumnDef union,
+// so variant-specific properties like accessorKey remain accessible.
+export type PermissionColumnDef<TData, TValue = unknown> = ColumnDef<TData, TValue> & {
   /**
    * Required permission module and action to view this column
    * Example: { module: 'users', action: 'view' }
@@ -69,7 +69,7 @@ export interface PermissionColumnDef<TData, TValue>
     module: string;
     action: string;
   };
-}
+};
 
 interface DataTablePermissions {
   /**
