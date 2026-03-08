@@ -1676,7 +1676,7 @@ export function GetRoleBasedPages(
               return true;
             }
 
-            // Judge / panel_chair / evaluator: can only see the Evaluate Teams submenu
+            // Evaluator roles are staff-assigned (not permission-assigned) — bypass RBAC and show only the evaluate submenu
             const isEvaluatorRole = ['judge', 'panel_chair', 'evaluator'].includes(userRole.role_key || '');
             if (isEvaluatorRole && submenu.href.includes('/startup-studio/events/')) {
               return submenu.href.includes('/evaluate');

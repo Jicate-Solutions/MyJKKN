@@ -8,6 +8,8 @@ import type { CreateVerificationDto, UpdateVerificationDto } from '@/types/start
 
 // ─── Query Keys ─────────────────────────────────────────────────────────────
 export const verificationKeys = {
+  isEvaluator: (eventId: string, profileId: string | undefined) =>
+    ['is-event-evaluator', eventId, profileId] as const,
   evaluatorTeams: (eventId: string, profileId: string) =>
     ['evaluator-teams', eventId, profileId] as const,
   flaggedVerifications: (eventId: string) =>
@@ -23,7 +25,7 @@ export const verificationKeys = {
 /** Check if the current profile is assigned as judge/panel_chair/evaluator for this event */
 export function useIsEventEvaluator(eventId: string, profileId: string | undefined) {
   return useQuery({
-    queryKey: ['is-event-evaluator', eventId, profileId],
+    queryKey: verificationKeys.isEvaluator(eventId, profileId),
     queryFn: async () => {
       const { createClientSupabaseClient } = await import('@/lib/supabase/client')
       const supabase = createClientSupabaseClient()
@@ -32,7 +34,7 @@ export function useIsEventEvaluator(eventId: string, profileId: string | undefin
         .select('id, staff!inner(profile_id)')
         .eq('event_id', eventId)
         .in('role', ['judge', 'panel_chair', 'evaluator'])
-        .eq('staff.profile_id', profileId as string)
+        .eq('staff.profile_id', profileId!)
         .limit(1)
       if (error) throw error
       return (data?.length ?? 0) > 0
