@@ -1962,7 +1962,7 @@ CREATE TABLE IF NOT EXISTS public.event_demo_slots (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     event_id UUID NOT NULL REFERENCES startup_events(id) ON DELETE CASCADE,
     venue_assignment_id UUID NOT NULL REFERENCES event_venue_assignments(id) ON DELETE CASCADE,
-    registration_id UUID REFERENCES event_registrations(id),
+    registration_id UUID REFERENCES event_registrations(id) ON DELETE CASCADE,
     start_time TIMESTAMPTZ,
     duration_minutes INT DEFAULT 5,
     room_label TEXT,
@@ -2034,7 +2034,7 @@ CREATE TABLE IF NOT EXISTS public.event_checklist_completions (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     checklist_item_id UUID NOT NULL REFERENCES event_checklist_items(id) ON DELETE CASCADE,
     completed_by UUID NOT NULL REFERENCES profiles(id),
-    registration_id UUID REFERENCES event_registrations(id),
+    registration_id UUID REFERENCES event_registrations(id) ON DELETE CASCADE,
     staff_assignment_id UUID REFERENCES event_staff_assignments(id),
     completed_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
