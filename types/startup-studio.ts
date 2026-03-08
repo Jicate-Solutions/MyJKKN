@@ -38,6 +38,8 @@ export interface StartupEvent {
   is_results_published: boolean;
   metrics_frozen_at: string | null;      // ISO timestamp when admin froze metrics
   results_published_at: string | null;   // ISO timestamp when results were published
+  voting_opened_at: string | null;       // ISO timestamp when admin opened audience voting
+  voting_closed_at: string | null;       // ISO timestamp when admin closed audience voting
   config: EventConfig;
   created_by: string | null;
   created_at: string;
@@ -616,4 +618,23 @@ export interface EvaluatorProgress {
   total_teams: number;
   verified_count: number;
   remaining: number;
+}
+
+// ── Audience Voting ──────────────────────────────────────────────────────────
+
+export interface AudienceVote {
+  id: string;
+  event_id: string;
+  submission_id: string;
+  voter_profile_id: string;
+  rating: number;        // 1–5
+  voted_at: string;
+  updated_at: string;
+}
+
+export interface VoteSummary {
+  submission_id: string;
+  event_id: string;
+  total_votes: number;
+  average_rating: number;  // e.g. 4.2
 }
