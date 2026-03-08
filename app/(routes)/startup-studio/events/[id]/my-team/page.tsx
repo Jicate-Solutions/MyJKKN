@@ -333,7 +333,7 @@ export default function MyTeamPage({ params }: { params: Promise<{ id: string }>
 
                 <div className="space-y-1.5">
                   {memberAccepted.map((tm: any) => {
-                    const hasCard = (teamRoleCards as any[]).some((rc: any) => rc.profile_id === tm.profile_id)
+                    const hasCard = teamRoleCards.some((rc) => rc.profile_id === tm.profile_id)
                     return (
                       <div key={tm.member_id} className="flex items-center justify-between text-sm">
                         <span className="text-sm">
@@ -375,7 +375,7 @@ export default function MyTeamPage({ params }: { params: Promise<{ id: string }>
           {teamSubmission?.metrics_updated_at && memberAccepted.length > 1 && (
             <TeamRoleCardsOverview
               members={memberAccepted as any}
-              cards={teamRoleCards as any}
+              cards={teamRoleCards}
               myProfileId={profile?.id ?? ''}
             />
           )}
@@ -739,7 +739,7 @@ export default function MyTeamPage({ params }: { params: Promise<{ id: string }>
 
               <div className="space-y-1.5">
                 {acceptedMembers.map((member: EventTeamMember) => {
-                  const hasCard = (teamRoleCards as any[]).some((rc: any) => rc.profile_id === member.profile_id)
+                  const hasCard = teamRoleCards.some((rc) => rc.profile_id === member.profile_id)
                   return (
                     <div key={member.id} className="flex items-center justify-between text-sm">
                       <span className="text-sm">
