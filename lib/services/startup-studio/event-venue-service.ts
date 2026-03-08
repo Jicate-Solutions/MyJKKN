@@ -21,7 +21,7 @@ export class EventVenueService {
         *,
         institution:institutions(id, name),
         staff_assignments:event_staff_assignments(id, staff_id, role, day_type, staff:staff(id, first_name, last_name, email)),
-        team_allocations:event_team_venue_allocations(id, registration_id, registration:event_registrations(id, team_name, institution_id))
+        team_allocations:event_team_venue_allocations(id, registration_id, registration:event_registrations(id, team_name, institution_id, institution:institutions(id, name), team_members:event_team_members(id, is_leader, learner:learners_profiles(id, department:departments(id, department_name), semester:semesters(id, semester_name)))))
       `)
       .eq('event_id', eventId)
       .order('created_at', { ascending: true });
@@ -353,7 +353,7 @@ export class EventVenueService {
         *,
         institution:institutions(id, name),
         staff_assignments:event_staff_assignments(id, staff_id, role, day_type, staff:staff(id, first_name, last_name, email)),
-        team_allocations:event_team_venue_allocations(id, registration_id, registration:event_registrations(id, team_name, institution_id))
+        team_allocations:event_team_venue_allocations(id, registration_id, registration:event_registrations(id, team_name, institution_id, institution:institutions(id, name), team_members:event_team_members(id, is_leader, learner:learners_profiles(id, department:departments(id, department_name), semester:semesters(id, semester_name)))))
       `)
       .in('id', venueIds)
       .eq('event_id', eventId)
@@ -380,7 +380,7 @@ export class EventVenueService {
         *,
         institution:institutions(id, name),
         staff_assignments:event_staff_assignments(id, staff_id, role, day_type, staff:staff(id, first_name, last_name, email)),
-        team_allocations:event_team_venue_allocations(id, registration_id, registration:event_registrations(id, team_name, institution_id))
+        team_allocations:event_team_venue_allocations(id, registration_id, registration:event_registrations(id, team_name, institution_id, institution:institutions(id, name), team_members:event_team_members(id, is_leader, learner:learners_profiles(id, department:departments(id, department_name), semester:semesters(id, semester_name)))))
       `)
       .eq('event_id', eventId)
       .order('created_at', { ascending: true });
@@ -453,7 +453,7 @@ export class EventVenueService {
         *,
         institution:institutions(id, name),
         staff_assignments:event_staff_assignments(id, staff_id, role, day_type, staff:staff(id, first_name, last_name, email)),
-        team_allocations:event_team_venue_allocations(id, registration_id, registration:event_registrations(id, team_name, institution_id))
+        team_allocations:event_team_venue_allocations(id, registration_id, registration:event_registrations(id, team_name, institution_id, institution:institutions(id, name), team_members:event_team_members(id, is_leader, learner:learners_profiles(id, department:departments(id, department_name), semester:semesters(id, semester_name)))))
       `)
       .eq('id', venueId)
       .maybeSingle();

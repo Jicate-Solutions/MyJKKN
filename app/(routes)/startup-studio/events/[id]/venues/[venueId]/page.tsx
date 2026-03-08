@@ -603,6 +603,8 @@ function AttendanceSection({
                             </Badge>
                           )}
                         </div>
+                        {/* Institution / Department / Semester meta */}
+                        <TeamMeta registration={alloc.registration} />
                         {rec && (
                           <p className="text-[10px] text-muted-foreground mt-1 ml-7">
                             Marked by{' '}
@@ -678,6 +680,41 @@ function AttendanceSection({
           venueId={venue.id}
           dayType={dayType}
         />
+      )}
+    </div>
+  );
+}
+
+// ── Team meta (institution / department / semester) ───────────────────────────
+function TeamMeta({ registration }: { registration: any }) {
+  if (!registration) return null;
+
+  const institutionName = registration.institution?.name;
+
+  // Prefer team leader's learner profile, fall back to first member
+  const members: any[] = registration.team_members || [];
+  const leader = members.find((m: any) => m.is_leader) ?? members[0];
+  const departmentName = leader?.learner?.department?.department_name;
+  const semesterName = leader?.learner?.semester?.semester_name;
+
+  const parts = [institutionName, departmentName, semesterName].filter(Boolean);
+  if (parts.length === 0) return null;
+
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 mt-1 ml-7">
+      {institutionName && (
+        <Badge variant="secondary" className="text-[10px] h-4 px-1.5 font-normal">
+          {institutionName}
+        </Badge>
+      )}
+      {departmentName && (
+        <span className="text-[10px] text-muted-foreground">{departmentName}</span>
+      )}
+      {semesterName && (
+        <>
+          <span className="text-[10px] text-muted-foreground">·</span>
+          <span className="text-[10px] text-muted-foreground">{semesterName}</span>
+        </>
       )}
     </div>
   );
