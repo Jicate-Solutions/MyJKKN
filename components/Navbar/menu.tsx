@@ -12,7 +12,6 @@ import {
   TooltipProvider
 } from '@/components/ui/tooltip';
 import { CollapseMenuButton } from './CollapseMenuButton';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { GetRoleBasedPages, RolePermissionData } from '@/lib/sidebarMenuLink';
 import { AuthService } from '@/lib/auth/auth-service';
 import { useMemo } from 'react';
@@ -68,7 +67,7 @@ export function Menu({ isOpen }: MenuProps) {
   };
 
   return (
-    <ScrollArea className='[&>div>div[style]]:!block'>
+    <div className='overflow-y-auto h-full'>
       <nav className='mt-8 h-full w-full'>
         {permissionsLoading ? (
           <div className='flex justify-center items-center py-4'>
@@ -193,6 +192,6 @@ export function Menu({ isOpen }: MenuProps) {
           </ul>
         )}
       </nav>
-    </ScrollArea>
+    </div>
   );
 }
