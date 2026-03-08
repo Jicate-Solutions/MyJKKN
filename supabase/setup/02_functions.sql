@@ -4545,13 +4545,15 @@ $$;
 
 -- =====================================================
 -- STARTUP STUDIO: get_my_team_members
--- Updated: 2026-03-06
+-- Updated: 2026-03-08 — added profile_id column so Role Card overview
+--          can cross-reference submitted cards by profile_id.
 -- Returns all accepted/pending members of the team the caller belongs to.
 -- Security: caller must be an accepted member of the team.
 -- =====================================================
 CREATE OR REPLACE FUNCTION get_my_team_members(p_profile_id uuid, p_event_id uuid)
 RETURNS TABLE (
     member_id   uuid,
+    profile_id  uuid,
     full_name   text,
     email       text,
     student_id  text,
@@ -4565,6 +4567,7 @@ SET search_path = public
 AS $$
     SELECT
         etm.id,
+        etm.profile_id,
         etm.full_name,
         etm.email,
         etm.student_id,
