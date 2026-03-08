@@ -425,81 +425,25 @@ export class EventRegistrationService {
     profileId: string,
     accept: boolean
   ): Promise<void> {
-    const { data: member, error: fetchError } = await this.supabase
-      .from('event_team_members')
-      .select('id, status, profile_id, registration_id')
-      .eq('id', memberId)
-      .single();
+    // Uses a SECURITY DEFINER RPC to bypass RLS — necessary because some invitation rows
+    // have profile_id = null (student had no linked auth account when invited). The direct
+    // .update() approach was also silently failing (count=0, no error) when RLS blocked it.
+    // The RPC validates ownership by profile_id OR email, backfills profile_id, and
+    // enforces the one-team rule server-side.
+    const { data, error } = await this.supabase
+      .rpc('respond_to_invitation', {
+        p_member_id:  memberId,
+        p_profile_id: profileId,
+        p_accept:     accept,
+      });
 
-    if (fetchError || !member) {
-      throw new Error('Invitation not found');
-    }
-    if ((member as any).profile_id !== profileId) {
-      throw new Error('This invitation does not belong to you');
-    }
-    if ((member as any).status !== 'pending') {
-      throw new Error('This invitation has already been responded to');
-    }
-
-    if (accept) {
-      // Get the event_id for this registration
-      const { data: reg } = await this.supabase
-        .from('event_registrations')
-        .select('event_id')
-        .eq('id', (member as any).registration_id)
-        .single();
-
-      const eventId = (reg as any)?.event_id;
-
-      if (eventId) {
-        // One-team rule: check if invitee is already a team owner
-        const { data: alreadyOwner } = await this.supabase
-          .from('event_registrations')
-          .select('id')
-          .eq('event_id', eventId)
-          .eq('owner_id', profileId)
-          .maybeSingle();
-
-        if (alreadyOwner) {
-          throw new Error('You are already a team leader for this event');
-        }
-
-        // One-team rule: check if invitee is already accepted in another team
-        const { data: eventRegs } = await this.supabase
-          .from('event_registrations')
-          .select('id')
-          .eq('event_id', eventId);
-
-        const regIds = (eventRegs || []).map((r: any) => r.id);
-
-        if (regIds.length > 0) {
-          const { data: alreadyMember } = await this.supabase
-            .from('event_team_members')
-            .select('id')
-            .in('registration_id', regIds)
-            .eq('profile_id', profileId)
-            .eq('status', 'accepted')
-            .neq('id', memberId)
-            .maybeSingle();
-
-          if (alreadyMember) {
-            throw new Error('You are already part of another team for this event');
-          }
-        }
-      }
-    }
-
-    const { error: updateError } = await this.supabase
-      .from('event_team_members')
-      .update({
-        status: accept ? 'accepted' : 'declined',
-        responded_at: new Date().toISOString(),
-      })
-      .eq('id', memberId);
-
-    if (updateError) {
-      console.error('[startup/registration] respondToInvitation failed:', updateError);
+    if (error) {
+      console.error('[startup/registration] respondToInvitation rpc failed:', error);
       throw new Error('Failed to update invitation. Please try again.');
+    }
+
+    if (data?.error) {
+      throw new Error(data.error);
     }
   }
 

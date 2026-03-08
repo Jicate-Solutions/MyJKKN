@@ -4355,10 +4355,12 @@ $$;
 
 -- =====================================================
 -- STARTUP STUDIO: get_my_pending_invitations
+-- Updated: 2026-03-08 — added email fallback for invitations where profile_id is null
 -- Updated: 2026-03-06
 -- SECURITY DEFINER: bypasses RLS on event_registrations/startup_events/profiles
 -- to avoid 42P17 mutual recursion between event_registrations_select and
--- event_team_members_select. Students can only retrieve rows for their own profile_id.
+-- event_team_members_select. Matches by profile_id OR by email (fallback for students
+-- whose learner record was not linked to an auth profile when the invite was created).
 -- =====================================================
 CREATE OR REPLACE FUNCTION get_my_pending_invitations(p_profile_id uuid)
 RETURNS TABLE (
@@ -4388,9 +4390,103 @@ AS $$
     JOIN event_registrations er ON er.id = etm.registration_id
     JOIN startup_events      se ON se.id = er.event_id
     LEFT JOIN profiles       p  ON p.id  = er.owner_id
-    WHERE etm.profile_id = p_profile_id
+    WHERE (
+        etm.profile_id = p_profile_id
+        OR (
+            etm.profile_id IS NULL
+            AND etm.email = (SELECT email FROM profiles WHERE id = p_profile_id LIMIT 1)
+        )
+    )
       AND etm.status = 'pending'
     ORDER BY etm.added_at DESC;
+$$;
+
+-- =====================================================
+-- STARTUP STUDIO: respond_to_invitation
+-- Updated: 2026-03-08
+-- SECURITY DEFINER: bypasses RLS so invitations with profile_id = null (student had
+-- no linked auth account when invited) can still be accepted/declined.
+-- Validates ownership by profile_id match OR email match (same as get_my_pending_invitations).
+-- Backfills profile_id on the row when it was null so future queries work correctly.
+-- Enforces the one-team rule and status guard server-side.
+-- =====================================================
+CREATE OR REPLACE FUNCTION respond_to_invitation(
+    p_member_id  uuid,
+    p_profile_id uuid,
+    p_accept     boolean
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    v_member        RECORD;
+    v_profile_email text;
+    v_event_id      uuid;
+BEGIN
+    -- Fetch the invitation row (bypasses RLS)
+    SELECT id, status, profile_id, email, registration_id
+      INTO v_member
+      FROM event_team_members
+     WHERE id = p_member_id;
+
+    IF NOT FOUND THEN
+        RETURN jsonb_build_object('error', 'Invitation not found');
+    END IF;
+
+    IF v_member.status != 'pending' THEN
+        RETURN jsonb_build_object('error', 'This invitation has already been responded to');
+    END IF;
+
+    -- Resolve caller email for ownership validation
+    SELECT email INTO v_profile_email FROM profiles WHERE id = p_profile_id LIMIT 1;
+
+    -- Verify ownership: profile_id match OR email match (handles null profile_id rows)
+    IF v_member.profile_id IS NOT NULL AND v_member.profile_id != p_profile_id THEN
+        RETURN jsonb_build_object('error', 'This invitation does not belong to you');
+    END IF;
+    IF v_member.profile_id IS NULL AND v_member.email != v_profile_email THEN
+        RETURN jsonb_build_object('error', 'This invitation does not belong to you');
+    END IF;
+
+    -- One-team rule (accept only)
+    IF p_accept THEN
+        SELECT er.event_id INTO v_event_id
+          FROM event_registrations er
+         WHERE er.id = v_member.registration_id;
+
+        -- Check: already a team owner for this event
+        IF EXISTS (
+            SELECT 1 FROM event_registrations
+             WHERE event_id = v_event_id AND owner_id = p_profile_id
+        ) THEN
+            RETURN jsonb_build_object('error', 'You are already a team leader for this event');
+        END IF;
+
+        -- Check: already accepted in another team for this event
+        IF EXISTS (
+            SELECT 1
+              FROM event_team_members etm
+              JOIN event_registrations er ON er.id = etm.registration_id
+             WHERE er.event_id = v_event_id
+               AND (etm.profile_id = p_profile_id OR etm.email = v_profile_email)
+               AND etm.status = 'accepted'
+               AND etm.id != p_member_id
+        ) THEN
+            RETURN jsonb_build_object('error', 'You are already part of another team for this event');
+        END IF;
+    END IF;
+
+    -- Update status and backfill profile_id if it was null
+    UPDATE event_team_members
+       SET status       = CASE WHEN p_accept THEN 'accepted' ELSE 'declined' END,
+           responded_at = now(),
+           profile_id   = COALESCE(v_member.profile_id, p_profile_id)
+     WHERE id = p_member_id;
+
+    RETURN jsonb_build_object('success', true);
+END;
 $$;
 
 -- =====================================================
