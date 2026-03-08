@@ -7,14 +7,23 @@ import { ArrowLeft, Loader2, Lock } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { ContentLayout } from '@/components/layout/content-layout'
 import { PageBreadcrumb } from '@/components/navigation'
 import { useAuth } from '@/hooks/use-auth'
 import { useEvent } from '@/hooks/startup-studio/use-events'
 import {
   useEvaluatorTeams,
+  useTeamsForVenue,
   useUpsertVerification,
 } from '@/hooks/startup-studio/use-appathon-verifications'
+import { useEventVenues } from '@/hooks/startup-studio/use-event-venues'
 import { VerificationCard } from './_components/verification-card'
 import { EvaluatorProgressBar } from './_components/evaluator-progress-bar'
 import type { EvaluatorTeamCard, VerificationStatus } from '@/types/startup-studio'
@@ -25,11 +34,21 @@ export default function EvaluatePage({ params }: { params: Promise<{ id: string 
   const { id } = use(params)
   const { profile } = useAuth()
   const profileId = profile?.id ?? ''
+  const isSuperAdmin = profile?.role === 'super_admin'
+
+  const [tab, setTab] = useState<TabValue>('pending')
+  const [selectedVenueId, setSelectedVenueId] = useState('')
 
   const { data: event, isLoading: eventLoading } = useEvent(id)
   const { data: teams = [], isLoading: teamsLoading } = useEvaluatorTeams(id, profileId)
+  const { data: allVenues = [] } = useEventVenues(id, 'demo_day')
+  const { data: adminTeams = [], isLoading: adminTeamsLoading } = useTeamsForVenue(
+    id, selectedVenueId, profileId
+  )
   const { mutateAsync: upsertVerification, isPending } = useUpsertVerification(id, profileId)
-  const [tab, setTab] = useState<TabValue>('pending')
+
+  const displayTeams = isSuperAdmin ? adminTeams : teams
+  const displayLoading = isSuperAdmin ? adminTeamsLoading : teamsLoading
 
   if (eventLoading) {
     return (
@@ -62,11 +81,11 @@ export default function EvaluatePage({ params }: { params: Promise<{ id: string 
     )
   }
 
-  const pendingTeams = teams.filter(
+  const pendingTeams = displayTeams.filter(
     t => !t.verification || t.verification.verification_status === 'pending'
   )
-  const verifiedTeams = teams.filter(t => t.verification?.verification_status === 'verified')
-  const flaggedTeams = teams.filter(
+  const verifiedTeams = displayTeams.filter(t => t.verification?.verification_status === 'verified')
+  const flaggedTeams = displayTeams.filter(
     t =>
       t.verification?.verification_status === 'flagged' ||
       t.verification?.verification_status === 'disqualified'
@@ -97,7 +116,7 @@ export default function EvaluatePage({ params }: { params: Promise<{ id: string 
     pending: pendingTeams,
     verified: verifiedTeams,
     flagged: flaggedTeams,
-    all: teams,
+    all: displayTeams,
   }
 
   return (
@@ -122,7 +141,30 @@ export default function EvaluatePage({ params }: { params: Promise<{ id: string 
           </div>
         </div>
 
-        {teams.length === 0 && !teamsLoading && (
+        {isSuperAdmin && (
+          <div className="mb-4">
+            <Select value={selectedVenueId} onValueChange={setSelectedVenueId}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select a venue to evaluate" />
+              </SelectTrigger>
+              <SelectContent>
+                {allVenues.map((v: any) => (
+                  <SelectItem key={v.id} value={v.id}>
+                    {v.manual_name ?? v.resource?.name ?? 'Unnamed Venue'}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+
+        {isSuperAdmin && !selectedVenueId && (
+          <p className="text-sm text-muted-foreground text-center py-6">
+            Select a venue above to begin evaluation.
+          </p>
+        )}
+
+        {!isSuperAdmin && displayTeams.length === 0 && !displayLoading && (
           <Alert>
             <AlertDescription>
               No teams assigned to your venue for Demo Day, or you are not assigned as a judge/evaluator for this event.
@@ -130,10 +172,18 @@ export default function EvaluatePage({ params }: { params: Promise<{ id: string 
           </Alert>
         )}
 
-        {teams.length > 0 && (
+        {isSuperAdmin && selectedVenueId && displayTeams.length === 0 && !displayLoading && (
+          <Alert>
+            <AlertDescription>
+              No teams are allocated to this venue for Demo Day.
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {displayTeams.length > 0 && (
           <>
             <EvaluatorProgressBar
-              total={teams.length}
+              total={displayTeams.length}
               verified={verifiedTeams.length}
               flagged={flaggedTeams.length}
             />
@@ -148,12 +198,12 @@ export default function EvaluatePage({ params }: { params: Promise<{ id: string 
                 >
                   Flagged ({flaggedTeams.length})
                 </TabsTrigger>
-                <TabsTrigger value="all">All ({teams.length})</TabsTrigger>
+                <TabsTrigger value="all">All ({displayTeams.length})</TabsTrigger>
               </TabsList>
 
               {(['pending', 'verified', 'flagged', 'all'] as TabValue[]).map(tabKey => (
                 <TabsContent key={tabKey} value={tabKey} className="space-y-3 mt-3">
-                  {teamsLoading ? (
+                  {displayLoading ? (
                     <div className="flex justify-center p-8">
                       <Loader2 className="h-5 w-5 animate-spin" />
                     </div>

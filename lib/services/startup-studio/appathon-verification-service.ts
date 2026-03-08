@@ -146,6 +146,101 @@ export class AppathonVerificationService {
       .sort((a, b) => (a.demo_slot ?? 999) - (b.demo_slot ?? 999))
   }
 
+  // ─── Super Admin: Get Teams for a Specific Venue ─────────────────────────
+  /**
+   * Returns all teams in a specific venue for super_admin bypassing staff assignment lookup.
+   * Identical to getEvaluatorTeams except venue comes from the caller, not event_staff_assignments.
+   */
+  static async getTeamsForVenue(
+    eventId: string,
+    venueId: string,
+    evaluatorProfileId: string
+  ): Promise<EvaluatorTeamCard[]> {
+    const supabase = createClientSupabaseClient() as any
+
+    // 1. Get teams allocated to the given venue for demo day
+    const { data: allocations, error: allocErr } = await supabase
+      .from('event_team_venue_allocations')
+      .select(`
+        registration_id,
+        venue_assignment_id,
+        event_registrations!inner(
+          id,
+          team_name,
+          institution_id,
+          institutions!inner(name),
+          event_submissions(
+            id, app_name, live_app_url, github_url,
+            user_count, active_users_count, mrr_amount, proof_urls
+          )
+        )
+      `)
+      .eq('venue_assignment_id', venueId)
+      .eq('day_type', 'demo_day')
+
+    if (allocErr) throw allocErr
+
+    // 2. Get this evaluator's existing verifications
+    const submissionIds = (allocations ?? [])
+      .flatMap(a => {
+        const reg = a.event_registrations as any
+        return (reg?.event_submissions ?? []).map((s: any) => s.id)
+      })
+      .filter(Boolean)
+
+    const verificationMap = new Map<string, any>()
+    if (submissionIds.length > 0) {
+      const { data: verifications } = await supabase
+        .from('appathon_verifications')
+        .select('*')
+        .in('submission_id', submissionIds)
+        .eq('evaluator_id', evaluatorProfileId)
+
+      ;(verifications ?? []).forEach(v => verificationMap.set(v.submission_id, v))
+    }
+
+    // 3. Get demo slots (for presentation order)
+    const { data: demoSlots } = await supabase
+      .from('event_demo_slots')
+      .select('registration_id, slot_order')
+      .eq('event_id', eventId)
+      .eq('venue_assignment_id', venueId)
+
+    const slotMap = new Map(
+      (demoSlots ?? []).map(s => [s.registration_id, s.slot_order])
+    )
+
+    // 4. Build EvaluatorTeamCard[]
+    return (allocations ?? [])
+      .map(a => {
+        const reg = a.event_registrations as any
+        const submission = reg?.event_submissions?.[0] ?? null
+        return {
+          registration_id: a.registration_id,
+          team_name: reg?.team_name ?? '',
+          institution_name: reg?.institutions?.name ?? '',
+          demo_slot: (slotMap.get(a.registration_id) as number | undefined) ?? null,
+          venue_id: a.venue_assignment_id,
+          submission: submission
+            ? {
+                id: submission.id,
+                app_name: submission.app_name,
+                live_app_url: submission.live_app_url,
+                github_url: submission.github_url,
+                user_count: submission.user_count ?? 0,
+                active_users_count: submission.active_users_count ?? 0,
+                mrr_amount: Number(submission.mrr_amount ?? 0),
+                proof_urls: submission.proof_urls ?? [],
+              }
+            : null,
+          verification: submission
+            ? (verificationMap.get(submission.id) ?? null)
+            : null,
+        } satisfies EvaluatorTeamCard
+      })
+      .sort((a, b) => (a.demo_slot ?? 999) - (b.demo_slot ?? 999))
+  }
+
   // ─── Evaluator: Upsert Verification ──────────────────────────────────────
   /**
    * Create or update a verification. Server recomputes score to prevent tampering.

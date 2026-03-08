@@ -54,6 +54,16 @@ export function useEvaluatorTeams(eventId: string, profileId: string) {
   })
 }
 
+/** Super admin: get all teams in a specific venue (bypasses staff assignment) */
+export function useTeamsForVenue(eventId: string, venueId: string, profileId: string) {
+  return useQuery({
+    queryKey: verificationKeys.evaluatorTeams(eventId, profileId + ':' + venueId),
+    queryFn: () => AppathonVerificationService.getTeamsForVenue(eventId, venueId, profileId),
+    enabled: !!eventId && !!venueId && !!profileId,
+    staleTime: 30_000,
+  })
+}
+
 /** Submit or update a verification (upsert) */
 export function useUpsertVerification(eventId: string, profileId: string) {
   const qc = useQueryClient()
