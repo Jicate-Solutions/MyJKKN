@@ -16,7 +16,7 @@ export async function GET(
 
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
-      .select('role')
+      .select('role, institution_id')
       .eq('id', user.id)
       .single()
 
@@ -29,14 +29,14 @@ export async function GET(
     }
 
     // Fetch verification data with joined info
-    const { data, error } = await supabase
+    let query = supabase
       .from('appathon_verifications')
       .select(`
         *,
         event_submissions(
           event_id, app_name, live_app_url,
           event_registrations(
-            team_name,
+            team_name, institution_id,
             institutions(name)
           )
         ),
@@ -44,6 +44,16 @@ export async function GET(
       `)
       .eq('event_submissions.event_id', id)
       .order('total_score', { ascending: false })
+
+    // Scope to own institution for administrator role
+    if (profile.role === 'administrator') {
+      if (!profile.institution_id) {
+        return NextResponse.json({ error: 'Administrator has no institution assigned' }, { status: 403 })
+      }
+      query = query.eq('event_submissions.event_registrations.institution_id', profile.institution_id)
+    }
+
+    const { data, error } = await query
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
