@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useCallback } from 'react';
+import * as XLSX from 'xlsx';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -38,6 +39,7 @@ import {
 } from 'lucide-react';
 import { useNotParticipatedLearners, useNotParticipatedByInstitution } from '@/hooks/startup-studio/use-events';
 import { useStudentSearchFilterOptions } from '@/hooks/startup-studio/use-event-registrations';
+import { EventService } from '@/lib/services/startup-studio/event-service';
 import { useQuery } from '@tanstack/react-query';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import type { NotParticipatedLearner, LearnerParticipationFilters } from '@/types/startup-studio';
@@ -58,32 +60,49 @@ function useInstitutions() {
   });
 }
 
-function exportCSV(rows: NotParticipatedLearner[], eventName?: string) {
-  const headers = [
-    'Roll Number', 'First Name', 'Last Name', 'College Email', 'Student Email',
-    'Institution', 'Degree', 'Department', 'Program', 'Semester',
-  ];
-  const csvRows = rows.map((r) => [
-    r.roll_number   ?? '',
-    r.first_name,
-    r.last_name,
-    r.college_email ?? '',
-    r.student_email ?? '',
-    r.institution_name  ?? '',
-    r.degree_name       ?? '',
-    r.department_name   ?? '',
-    r.program_name      ?? '',
-    r.semester_name     ?? '',
-  ].map((v) => `"${String(v).replace(/"/g, '""')}"`).join(','));
+async function exportExcel(
+  eventId: string,
+  filters: LearnerParticipationFilters & { search?: string },
+  eventName?: string
+): Promise<void> {
+  // Fetch ALL matching records — no pagination limit for export
+  const result = await EventService.getNotParticipatedLearners(eventId, {
+    ...filters,
+    page: 1,
+    limit: 99999,
+  });
 
-  const content = [headers.join(','), ...csvRows].join('\n');
-  const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
-  const url  = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href     = url;
-  link.download = `not-participated-${eventName ?? 'event'}.csv`;
-  link.click();
-  URL.revokeObjectURL(url);
+  const allRows = result?.data ?? [];
+  if (allRows.length === 0) return;
+
+  const sheetData = allRows.map((r: NotParticipatedLearner) => ({
+    'Roll Number':    r.roll_number       ?? '',
+    'First Name':     r.first_name        ?? '',
+    'Last Name':      r.last_name         ?? '',
+    'College Email':  r.college_email     ?? '',
+    'Student Email':  r.student_email     ?? '',
+    'Institution':    r.institution_name  ?? '',
+    'Degree':         r.degree_name       ?? '',
+    'Department':     r.department_name   ?? '',
+    'Program':        r.program_name      ?? '',
+    'Semester':       r.semester_name     ?? '',
+  }));
+
+  const worksheet  = XLSX.utils.json_to_sheet(sheetData);
+  const workbook   = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Not Participated');
+
+  // Auto-fit column widths based on content
+  const colWidths = Object.keys(sheetData[0]).map((key) => ({
+    wch: Math.max(
+      key.length,
+      ...sheetData.map((row: any) => String(row[key] ?? '').length)
+    ) + 2,
+  }));
+  worksheet['!cols'] = colWidths;
+
+  const safeName = (eventName ?? 'event').replace(/[^a-z0-9_-]/gi, '_');
+  XLSX.writeFile(workbook, `not-participated-${safeName}.xlsx`);
 }
 
 export function NotParticipatedTable({
@@ -104,8 +123,9 @@ export function NotParticipatedTable({
   const [programFilter,    setProgramFilter]    = useState('');
   const [semesterFilter,   setSemesterFilter]   = useState('');
 
-  const [page,     setPage]     = useState(1);
-  const [pageSize, setPageSize] = useState(25);
+  const [page,        setPage]        = useState(1);
+  const [pageSize,    setPageSize]    = useState(25);
+  const [isExporting, setIsExporting] = useState(false);
 
   const { data: institutions = [] } = useInstitutions();
 
@@ -185,11 +205,31 @@ export function NotParticipatedTable({
             variant="outline"
             size="sm"
             className="gap-1.5 text-xs"
-            disabled={rows.length === 0}
-            onClick={() => exportCSV(rows, eventName)}
+            disabled={totalCount === 0 || isExporting}
+            onClick={async () => {
+              setIsExporting(true);
+              try {
+                await exportExcel(
+                  eventId,
+                  {
+                    institution_id: instFilter    || undefined,
+                    degree_id:      degreeFilter  || undefined,
+                    department_id:  deptFilter    || undefined,
+                    program_id:     programFilter || undefined,
+                    semester_id:    semesterFilter|| undefined,
+                    search:         debouncedSearch || undefined,
+                  },
+                  eventName
+                );
+              } finally {
+                setIsExporting(false);
+              }
+            }}
           >
-            <Download className="h-3.5 w-3.5" />
-            Export CSV
+            {isExporting
+              ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Exporting...</>
+              : <><Download className="h-3.5 w-3.5" /> Export Excel</>
+            }
           </Button>
         </div>
 
