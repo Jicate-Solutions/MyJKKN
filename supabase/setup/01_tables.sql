@@ -2146,6 +2146,8 @@ CREATE INDEX IF NOT EXISTS idx_appathon_role_cards_submission  ON appathon_role_
 CREATE INDEX IF NOT EXISTS idx_appathon_role_cards_team        ON appathon_role_cards(team_id);
 CREATE INDEX IF NOT EXISTS idx_appathon_role_cards_profile     ON appathon_role_cards(profile_id);
 CREATE INDEX IF NOT EXISTS idx_appathon_role_cards_learner     ON appathon_role_cards(learner_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_appathon_role_cards_learner_unique
+  ON appathon_role_cards(submission_id, learner_id) WHERE learner_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_appathon_peer_tags_role_card    ON appathon_peer_tags(role_card_id);
 CREATE INDEX IF NOT EXISTS idx_appathon_peer_tags_tagged       ON appathon_peer_tags(tagged_profile_id);
 CREATE INDEX IF NOT EXISTS idx_appathon_peer_tags_tagged_role  ON appathon_peer_tags(tagged_role);
