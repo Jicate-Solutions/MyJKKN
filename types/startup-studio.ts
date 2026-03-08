@@ -342,6 +342,7 @@ export interface LeaderboardEntry {
   total_score: number;
   paying_users_count: number;
   user_count: number;
+  active_users_count: number;
   registration_id: string;
   submission_id: string;
 }

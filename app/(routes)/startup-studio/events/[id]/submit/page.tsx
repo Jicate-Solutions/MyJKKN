@@ -562,7 +562,7 @@ function MetricsSection({
       },
       config
     );
-  }, [watchedValues.mrr_amount, watchedValues.paying_users_count, watchedValues.user_count, submission?.live_app_url, config]);
+  }, [watchedValues.mrr_amount, watchedValues.paying_users_count, watchedValues.user_count, watchedValues.active_users_count, submission?.live_app_url, config]);
 
   const onSubmit = (values: MetricsFormValues) => {
     if (!submission) return;
