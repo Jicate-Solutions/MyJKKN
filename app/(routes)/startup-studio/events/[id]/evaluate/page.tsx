@@ -1,6 +1,6 @@
 'use client'
 
-import { use, useState } from 'react'
+import { use, useState, useEffect } from 'react'
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, Loader2, Lock } from 'lucide-react'
@@ -46,6 +46,13 @@ export default function EvaluatePage({ params }: { params: Promise<{ id: string 
     id, selectedVenueId, profileId
   )
   const { mutateAsync: upsertVerification, isPending } = useUpsertVerification(id, profileId)
+
+  // Auto-select the first venue when venues load (super_admin only)
+  useEffect(() => {
+    if (isSuperAdmin && !selectedVenueId && allVenues.length > 0) {
+      setSelectedVenueId(allVenues[0].id)
+    }
+  }, [isSuperAdmin, allVenues, selectedVenueId])
 
   const displayTeams = isSuperAdmin ? adminTeams : teams
   const displayLoading = isSuperAdmin ? adminTeamsLoading : teamsLoading
@@ -158,7 +165,19 @@ export default function EvaluatePage({ params }: { params: Promise<{ id: string 
           </div>
         )}
 
-        {isSuperAdmin && !selectedVenueId && (
+        {isSuperAdmin && !selectedVenueId && allVenues.length === 0 && (
+          <Alert>
+            <AlertDescription>
+              No Demo Day venues found. Go to the{' '}
+              <Link href={`/startup-studio/events/${id}/venues`} className="underline font-medium">
+                Venues page
+              </Link>{' '}
+              and create a venue with Day Type = Demo Day first.
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {isSuperAdmin && !selectedVenueId && allVenues.length > 0 && (
           <p className="text-sm text-muted-foreground text-center py-6">
             Select a venue above to begin evaluation.
           </p>
