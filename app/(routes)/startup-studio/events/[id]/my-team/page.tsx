@@ -37,6 +37,8 @@ import {
 import { useAuth } from '@/hooks/use-auth';
 import { useTeamSubmission } from '@/hooks/startup-studio/use-event-submissions';
 import { useRegistrationVenueAllocations } from '@/hooks/startup-studio/use-event-venues';
+import { useTeamRoleCards } from '@/hooks/startup-studio/use-role-cards';
+import { TeamRoleCardsOverview } from '../submit/_components/role-card-section';
 import { StudentSearchDialog } from './_components/student-search-dialog';
 import {
   CheckCircle2, Clock, Laptop, MapPin, User, Users, Loader2,
@@ -86,6 +88,7 @@ export default function MyTeamPage({ params }: { params: Promise<{ id: string }>
   const membershipAny = membership as any;
   const submissionRegistrationId = registration?.id ?? membershipAny?.registration_id;
   const { data: teamSubmission } = useTeamSubmission(id, submissionRegistrationId);
+  const { data: teamRoleCards = [] } = useTeamRoleCards(teamSubmission?.id);
 
   // For team members (non-leaders): fetch venue allocations directly using the
   // registration_id from their membership. Leaders already get this via useMyRegistration.
@@ -303,6 +306,14 @@ export default function MyTeamPage({ params }: { params: Promise<{ id: string }>
           })()}
 
           <SubmissionReadOnlyCard submission={teamSubmission} />
+
+          {teamSubmission?.metrics_updated_at && memberAccepted.length > 1 && (
+            <TeamRoleCardsOverview
+              members={memberAccepted as any}
+              cards={teamRoleCards as any}
+              myProfileId={profile?.id ?? ''}
+            />
+          )}
         </div>
       </ContentLayout>
     );
@@ -683,6 +694,14 @@ export default function MyTeamPage({ params }: { params: Promise<{ id: string }>
 
         {(teamSubmission || !isLeader) && (
           <SubmissionReadOnlyCard submission={teamSubmission} />
+        )}
+
+        {teamSubmission?.metrics_updated_at && acceptedMembers.length > 1 && (
+          <TeamRoleCardsOverview
+            members={acceptedMembers}
+            cards={teamRoleCards as any}
+            myProfileId={profile?.id ?? ''}
+          />
         )}
 
         {/* ── Danger Zone ── */}

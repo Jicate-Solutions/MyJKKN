@@ -367,7 +367,7 @@ function ProgressBadge({ completed, total }: { completed: number; total: number 
 
 // ── Team Role Cards Overview ──────────────────────────────────────────────────
 
-function TeamRoleCardsOverview({
+export function TeamRoleCardsOverview({
   members,
   cards,
   myProfileId,
