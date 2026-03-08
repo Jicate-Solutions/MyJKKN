@@ -61,6 +61,7 @@ import {
   useStaffList,
   useVenueAttendance,
   useMarkAttendance,
+  useTeamAcademicDetails,
 } from '@/hooks/startup-studio/use-event-venues';
 import { useEventRegistrations } from '@/hooks/startup-studio/use-event-registrations';
 import { useQuery } from '@tanstack/react-query';
@@ -472,6 +473,9 @@ function AttendanceSection({
     attendanceRecords.map((a) => [a.registration_id, a])
   );
 
+  const registrationIds = teams.map((t: any) => t.registration_id).filter(Boolean);
+  const { data: academicDetails = {} } = useTeamAcademicDetails(registrationIds);
+
   const counts = { present: 0, absent: 0, late: 0, excused: 0, unmarked: 0 };
   for (const team of teams) {
     const rec = attendanceByReg[(team as any).registration_id];
@@ -604,7 +608,7 @@ function AttendanceSection({
                           )}
                         </div>
                         {/* Institution / Department / Semester meta */}
-                        <TeamMeta registration={alloc.registration} />
+                        <TeamMeta registration={alloc.registration} academic={academicDetails[regId]} />
                         {rec && (
                           <p className="text-[10px] text-muted-foreground mt-1 ml-7">
                             Marked by{' '}
@@ -686,19 +690,18 @@ function AttendanceSection({
 }
 
 // ── Team meta (institution / department / semester) ───────────────────────────
-function TeamMeta({ registration }: { registration: any }) {
-  if (!registration) return null;
+function TeamMeta({
+  registration,
+  academic,
+}: {
+  registration: any;
+  academic?: { department?: string; semester?: string };
+}) {
+  const institutionName = registration?.institution?.name;
+  const departmentName = academic?.department;
+  const semesterName = academic?.semester;
 
-  const institutionName = registration.institution?.name;
-
-  // Prefer team leader's learner profile, fall back to first member
-  const members: any[] = registration.team_members || [];
-  const leader = members.find((m: any) => m.is_leader) ?? members[0];
-  const departmentName = leader?.learner?.department?.department_name;
-  const semesterName = leader?.learner?.semester?.semester_name;
-
-  const parts = [institutionName, departmentName, semesterName].filter(Boolean);
-  if (parts.length === 0) return null;
+  if (!institutionName && !departmentName && !semesterName) return null;
 
   return (
     <div className="flex flex-wrap items-center gap-1.5 mt-1 ml-7">
