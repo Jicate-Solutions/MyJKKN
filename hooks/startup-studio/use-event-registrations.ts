@@ -152,6 +152,26 @@ export function useDeleteRegistration() {
   });
 }
 
+export function useDeleteOwnTeam(eventId: string) {
+  const queryClient = useQueryClient();
+  const router = useRouter();
+  const { profile } = useAuth();
+  return useMutation({
+    mutationFn: (registrationId: string) => {
+      if (!profile?.id) throw new Error('Not authenticated');
+      return EventRegistrationService.deleteRegistration(registrationId);
+    },
+    onSuccess: () => {
+      queryClient.removeQueries({ queryKey: ['my-registration', eventId, profile?.id] });
+      queryClient.invalidateQueries({ queryKey: ['event-registrations'] });
+      queryClient.invalidateQueries({ queryKey: ['startup-event-stats'] });
+      toast.success('Your team has been deleted');
+      router.push(`/startup-studio/events/${eventId}`);
+    },
+    onError: (error: any) => toast.error(error.message || 'Failed to delete team'),
+  });
+}
+
 export function useUpdateMemberLaptop() {
   const queryClient = useQueryClient();
   return useMutation({

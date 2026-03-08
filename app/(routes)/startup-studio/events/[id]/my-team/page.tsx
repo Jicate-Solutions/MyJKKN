@@ -11,6 +11,16 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { useEvent } from '@/hooks/startup-studio/use-events';
 import {
   useMyRegistration,
@@ -22,6 +32,7 @@ import {
   useUpdateProblemIdea,
   useUpdateTeamName,
   useUpdateMemberLaptop,
+  useDeleteOwnTeam,
 } from '@/hooks/startup-studio/use-event-registrations';
 import { useAuth } from '@/hooks/use-auth';
 import { useTeamSubmission } from '@/hooks/startup-studio/use-event-submissions';
@@ -31,7 +42,7 @@ import {
   CheckCircle2, Clock, Laptop, MapPin, User, Users, Loader2,
   UserPlus, XCircle, Hash, Bell, Shield, GraduationCap, Building2, Mail, Pencil,
   Send, ExternalLink, Github, Link2, Video, FileText, Lightbulb,
-  Copy, Check, AlertCircle, Trophy, Calendar,
+  Copy, Check, AlertCircle, Trophy, Calendar, Trash2,
 } from 'lucide-react';
 import type { EventTeamMember, PendingInvitation } from '@/types/startup-studio';
 
@@ -57,12 +68,15 @@ export default function MyTeamPage({ params }: { params: Promise<{ id: string }>
   const updateProblemIdea = useUpdateProblemIdea();
   const updateTeamName = useUpdateTeamName();
 
+  const deleteOwnTeam = useDeleteOwnTeam(id);
+
   const [searchDialogOpen, setSearchDialogOpen] = useState(false);
   const [editingIdea, setEditingIdea] = useState(false);
   const [ideaDraft, setIdeaDraft] = useState('');
   const [editingName, setEditingName] = useState(false);
   const [nameDraft, setNameDraft] = useState('');
   const [codeCopied, setCodeCopied] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
   // Also wait when both queries are still fetching with no resolved data yet
   // (guards against stale-null flash on browser back navigation or slow networks)
@@ -670,7 +684,62 @@ export default function MyTeamPage({ params }: { params: Promise<{ id: string }>
         {(teamSubmission || !isLeader) && (
           <SubmissionReadOnlyCard submission={teamSubmission} />
         )}
+
+        {/* ── Danger Zone ── */}
+        {isLeader && !registration.checked_in && (
+          <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-5">
+            <div className="flex items-center justify-between flex-wrap gap-4">
+              <div>
+                <h3 className="font-semibold text-destructive flex items-center gap-2">
+                  <Trash2 className="h-4 w-4" />
+                  Delete Team
+                </h3>
+                <p className="text-sm text-muted-foreground mt-0.5">
+                  Permanently remove your team registration and all member invitations.
+                </p>
+              </div>
+              <Button
+                variant="destructive"
+                size="sm"
+                className="gap-2 shrink-0"
+                onClick={() => setDeleteDialogOpen(true)}
+                disabled={deleteOwnTeam.isPending}
+              >
+                {deleteOwnTeam.isPending
+                  ? <><Loader2 className="h-4 w-4 animate-spin" /> Deleting...</>
+                  : <><Trash2 className="h-4 w-4" /> Delete Team</>
+                }
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
+
+      {/* ── Delete Confirmation Dialog ── */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Team &ldquo;{registration.team_name}&rdquo;?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete your team registration, remove all pending invitations,
+              and remove all accepted members. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteOwnTeam.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={deleteOwnTeam.isPending}
+              onClick={() => deleteOwnTeam.mutate(registration.id)}
+            >
+              {deleteOwnTeam.isPending
+                ? <><Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> Deleting...</>
+                : 'Yes, delete team'
+              }
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <StudentSearchDialog
         open={searchDialogOpen}
