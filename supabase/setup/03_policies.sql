@@ -3211,3 +3211,22 @@ CREATE POLICY "appathon_verifications_update"
         )
         OR (SELECT is_super_admin FROM profiles WHERE id = auth.uid())
     );
+
+-- ─── Audience Votes RLS (Demo Day Live Voting) ────────────────────────────
+-- Updated: 2026-03-08 - Added RLS policies for audience_votes table
+-- Any authenticated user can read votes (for leaderboard display).
+-- Users can only insert/update their own vote row.
+ALTER TABLE audience_votes ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "audience_votes_select"
+  ON audience_votes FOR SELECT
+  USING (auth.uid() IS NOT NULL);
+
+CREATE POLICY "audience_votes_insert"
+  ON audience_votes FOR INSERT
+  WITH CHECK (auth.uid() = voter_profile_id);
+
+CREATE POLICY "audience_votes_update"
+  ON audience_votes FOR UPDATE
+  USING (auth.uid() = voter_profile_id)
+  WITH CHECK (auth.uid() = voter_profile_id);

@@ -2211,6 +2211,32 @@ CREATE INDEX IF NOT EXISTS idx_appathon_verifications_venue
 CREATE INDEX IF NOT EXISTS idx_appathon_verifications_status
     ON appathon_verifications(verification_status);
 
+-- ─── Audience Votes (Demo Day Live Voting) ────────────────────────────────
+-- Updated: 2026-03-08 - Added audience_votes table for Demo Day live voting
+-- Audience members rate each startup team (1–5 stars) during the live event.
+-- One vote per audience member per submission (UNIQUE constraint).
+-- voting_opened_at / voting_closed_at on startup_events control the window.
+CREATE TABLE IF NOT EXISTS audience_votes (
+  id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  event_id         UUID NOT NULL REFERENCES startup_events(id) ON DELETE CASCADE,
+  submission_id    UUID NOT NULL REFERENCES event_submissions(id) ON DELETE CASCADE,
+  voter_profile_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  rating           INTEGER NOT NULL CHECK (rating BETWEEN 1 AND 5),
+  voted_at         TIMESTAMPTZ DEFAULT NOW(),
+  updated_at       TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(submission_id, voter_profile_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_audience_votes_event      ON audience_votes(event_id);
+CREATE INDEX IF NOT EXISTS idx_audience_votes_submission ON audience_votes(submission_id);
+CREATE INDEX IF NOT EXISTS idx_audience_votes_voter      ON audience_votes(voter_profile_id);
+
+-- Voting window columns on startup_events
+-- NULL means voting has not been opened/closed yet.
+ALTER TABLE startup_events
+  ADD COLUMN IF NOT EXISTS voting_opened_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS voting_closed_at TIMESTAMPTZ;
+
 -- =====================================================
 -- END OF TABLE DEFINITIONS
 -- =====================================================

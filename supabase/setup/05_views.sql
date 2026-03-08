@@ -485,8 +485,22 @@ WHERE eva.day_type = 'demo_day'
 GROUP BY esa.staff_id, s.profile_id, p.full_name,
          esa.venue_assignment_id, eva.manual_name, esa.event_id;
 
+-- ─── Audience Vote Summary (Demo Day Live Voting) ─────────────────────────
+-- Updated: 2026-03-08 - Added audience_vote_summary view for Demo Day live voting
+-- Aggregates total votes and average star rating per submission per event.
+-- Used by the leaderboard, evaluate table vote columns, and vote page.
+CREATE OR REPLACE VIEW audience_vote_summary AS
+SELECT
+  av.submission_id,
+  av.event_id,
+  COUNT(*)                          AS total_votes,
+  ROUND(AVG(av.rating)::numeric, 1) AS average_rating
+FROM audience_votes av
+GROUP BY av.submission_id, av.event_id;
+
 -- ================================================================================
 -- End of Views File
--- Total Views: 14 (3 billing + 2 bug-report + 2 academic + 2 compatibility
---               + 1 lifecycle materialized + 2 demo-day regular views)
+-- Total Views: 15 (3 billing + 2 bug-report + 2 academic + 2 compatibility
+--               + 1 lifecycle materialized + 2 demo-day regular views
+--               + 1 audience vote summary)
 -- ================================================================================
