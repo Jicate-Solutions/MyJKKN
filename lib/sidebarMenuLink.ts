@@ -69,6 +69,7 @@ import {
   MessagesSquare,
   Radio,
   Rocket,
+  Vote,
   SearchCheck,
   UserCog
 } from 'lucide-react';
@@ -408,6 +409,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/startup-studio/events/[id]/demo-day': 'startup_studio.demo_day.manage',
   '/startup-studio/events/[id]/evaluate': 'startup_studio.evaluations.manage',
   '/startup-studio/events/[id]/leaderboard': 'startup_studio.leaderboard.view',
+  '/startup-studio/events/[id]/vote': 'startup_studio.events.view',
   '/startup-studio/events/[id]/checklists': 'startup_studio.checklists.manage',
 };
 
@@ -1450,6 +1452,11 @@ export function GetPages(pathname: string): MenuGroup[] {
                 active: pathname.includes('/leaderboard')
               },
               {
+                href: `/startup-studio/events/${activeId}/vote`,
+                label: 'Live Voting',
+                active: pathname.includes('/vote')
+              },
+              {
                 href: `/startup-studio/events/${activeId}/checklists`,
                 label: 'Checklists',
                 active: pathname.includes('/checklists')
@@ -1679,16 +1686,17 @@ export function GetRoleBasedPages(
             // Evaluator roles are staff-assigned (not permission-assigned) — bypass RBAC and show only the evaluate submenu
             const isEvaluatorRole = ['judge', 'panel_chair', 'evaluator'].includes(userRole.role_key || '');
             if (isEvaluatorRole && submenu.href.includes('/startup-studio/events/')) {
-              return submenu.href.includes('/evaluate');
+              return submenu.href.includes('/evaluate') || submenu.href.includes('/vote');
             }
 
             // Faculty / HOD / Principal: restricted startup-studio submenu access
-            // - All three: Venues & Mentors + Registrations (view only)
+            // - All three: Venues & Mentors + Registrations (view only) + Live Voting
             // - Faculty only: additionally Checklists (can mark items, not add/delete)
             const isLimitedStaffRole = ['faculty', 'hod', 'principal'].includes(userRole.role_key || '');
             if (isLimitedStaffRole && submenu.href.includes('/startup-studio/events/')) {
               if (submenu.href.includes('/venues')) return true;
               if (submenu.href.includes('/registrations')) return true;
+              if (submenu.href.includes('/vote')) return true;
               if (userRole.role_key === 'faculty' && submenu.href.includes('/checklists')) return true;
               return false;
             }
