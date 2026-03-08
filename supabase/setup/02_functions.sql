@@ -5171,6 +5171,16 @@ BEGIN
 
   FOR v_peer IN SELECT * FROM jsonb_array_elements(p_peer_tags)
   LOOP
+    IF NOT EXISTS (
+      SELECT 1 FROM event_team_members
+      WHERE registration_id = p_team_id
+        AND profile_id = (v_peer->>'tagged_profile_id')::UUID
+        AND status = 'accepted'
+    ) THEN
+      RAISE EXCEPTION 'tagged_profile_id % is not an accepted member of this team',
+        v_peer->>'tagged_profile_id';
+    END IF;
+
     INSERT INTO appathon_peer_tags
       (role_card_id, tagger_profile_id, tagged_profile_id, tagged_role)
     VALUES (
