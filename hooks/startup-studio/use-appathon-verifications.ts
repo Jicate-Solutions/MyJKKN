@@ -28,7 +28,7 @@ export function useIsEventEvaluator(eventId: string, profileId: string | undefin
     queryKey: verificationKeys.isEvaluator(eventId, profileId),
     queryFn: async () => {
       const { createClientSupabaseClient } = await import('@/lib/supabase/client')
-      const supabase = createClientSupabaseClient()
+      const supabase = createClientSupabaseClient() as any
       const { data, error } = await supabase
         .from('event_staff_assignments')
         .select('id, staff!inner(profile_id)')

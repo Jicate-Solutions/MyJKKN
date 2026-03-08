@@ -126,7 +126,7 @@ export default function LeaderboardPage({ params }: { params: Promise<{ id: stri
                 isAdmin={true}
                 isPublished={isPublished}
                 isFrozen={isFrozen}
-                entriesOverride={isPublished ? verifiedEntries : undefined}
+                entriesOverride={isPublished ? verifiedEntries as any : undefined}
                 isLoadingOverride={isPublished ? verifiedLoading : undefined}
               />
             </TabsContent>
@@ -140,7 +140,7 @@ export default function LeaderboardPage({ params }: { params: Promise<{ id: stri
             isAdmin={false}
             isPublished={isPublished}
             isFrozen={isFrozen}
-            entriesOverride={isPublished ? verifiedEntries : undefined}
+            entriesOverride={isPublished ? verifiedEntries as any : undefined}
             isLoadingOverride={isPublished ? verifiedLoading : undefined}
           />
         )}

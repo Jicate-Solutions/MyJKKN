@@ -47,7 +47,7 @@ export class AppathonVerificationService {
     eventId: string,
     evaluatorProfileId: string
   ): Promise<EvaluatorTeamCard[]> {
-    const supabase = createClientSupabaseClient()
+    const supabase = createClientSupabaseClient() as any
 
     // 1. Find evaluator's venue assignments for this event (demo day, judge roles)
     const { data: staffAssignments, error: staffErr } = await supabase
@@ -124,7 +124,7 @@ export class AppathonVerificationService {
           registration_id: a.registration_id,
           team_name: reg?.team_name ?? '',
           institution_name: reg?.institutions?.name ?? '',
-          demo_slot: slotMap.get(a.registration_id) ?? null,
+          demo_slot: (slotMap.get(a.registration_id) as number | undefined) ?? null,
           venue_id: a.venue_assignment_id,
           submission: submission
             ? {
@@ -155,7 +155,7 @@ export class AppathonVerificationService {
     dto: CreateVerificationDto,
     evaluatorProfileId: string
   ): Promise<AppathonVerification> {
-    const supabase = createClientSupabaseClient()
+    const supabase = createClientSupabaseClient() as any
 
     // Server-side score recomputation (do not trust client-sent scores)
     const score = AppathonVerificationService.calculateScore({
@@ -210,7 +210,7 @@ export class AppathonVerificationService {
     verificationId: string,
     dto: UpdateVerificationDto
   ): Promise<AppathonVerification> {
-    const supabase = createClientSupabaseClient()
+    const supabase = createClientSupabaseClient() as any
 
     // Recompute score if numeric fields changed
     let scoreUpdate: { verified_tier?: number; revenue_bonus?: number; total_score?: number } = {}
@@ -259,7 +259,7 @@ export class AppathonVerificationService {
 
   // ─── Admin: Get Flagged Teams ─────────────────────────────────────────────
   static async getFlaggedVerifications(eventId: string): Promise<AppathonVerification[]> {
-    const supabase = createClientSupabaseClient()
+    const supabase = createClientSupabaseClient() as any
 
     const { data, error } = await supabase
       .from('appathon_verifications')
@@ -281,7 +281,7 @@ export class AppathonVerificationService {
 
   // ─── Admin: Verified Leaderboard ─────────────────────────────────────────
   static async getVerifiedLeaderboard(eventId: string): Promise<VerifiedLeaderboardEntry[]> {
-    const supabase = createClientSupabaseClient()
+    const supabase = createClientSupabaseClient() as any
 
     const { data, error } = await supabase
       .from('appathon_leaderboard')
@@ -295,7 +295,7 @@ export class AppathonVerificationService {
 
   // ─── Admin: Evaluator Progress ────────────────────────────────────────────
   static async getEvaluatorProgress(eventId: string): Promise<EvaluatorProgress[]> {
-    const supabase = createClientSupabaseClient()
+    const supabase = createClientSupabaseClient() as any
 
     const { data, error } = await supabase
       .from('evaluator_progress')
@@ -308,7 +308,7 @@ export class AppathonVerificationService {
 
   // ─── Admin: Freeze Metrics ────────────────────────────────────────────────
   static async freezeMetrics(eventId: string): Promise<void> {
-    const supabase = createClientSupabaseClient()
+    const supabase = createClientSupabaseClient() as any
     const { error } = await supabase
       .from('startup_events')
       .update({ metrics_frozen_at: new Date().toISOString() })
@@ -318,7 +318,7 @@ export class AppathonVerificationService {
 
   // ─── Admin: Publish Results ───────────────────────────────────────────────
   static async publishResults(eventId: string): Promise<void> {
-    const supabase = createClientSupabaseClient()
+    const supabase = createClientSupabaseClient() as any
     const { error } = await supabase
       .from('startup_events')
       .update({
