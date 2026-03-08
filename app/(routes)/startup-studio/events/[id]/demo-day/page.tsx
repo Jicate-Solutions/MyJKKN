@@ -26,8 +26,8 @@ import {
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import {
-  ArrowLeft, Calendar, CalendarClock, Clock, Hash, Loader2,
-  MapPin, Monitor, Plus, Timer, Users, X,
+  ArrowLeft, Calendar, CalendarClock, Clock, Download, Eye, Flag,
+  Hash, Loader2, Lock, MapPin, Monitor, Plus, Settings, Timer, Users, X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useEvent } from '@/hooks/startup-studio/use-events';
@@ -40,6 +40,26 @@ import {
   useUnassignSlot,
 } from '@/hooks/startup-studio/use-event-leaderboard';
 import { useAuth } from '@/hooks/use-auth';
+import {
+  useFreezeMetrics,
+  usePublishVerifiedResults,
+  useFlaggedVerifications,
+  useAdminUpdateVerification,
+  useEvaluatorProgress,
+} from '@/hooks/startup-studio/use-appathon-verifications';
+import {
+  AlertDialog,
+  AlertDialogTrigger,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogCancel,
+  AlertDialogAction,
+} from '@/components/ui/alert-dialog';
+import { Progress } from '@/components/ui/progress';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 
 export default function DemoDayPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -53,6 +73,11 @@ export default function DemoDayPage({ params }: { params: Promise<{ id: string }
   const generateSlots = useGenerateDemoSlots();
   const assignTeam = useAssignTeamToSlot();
   const unassignSlot = useUnassignSlot();
+  const freezeMetrics = useFreezeMetrics(id);
+  const publishResults = usePublishVerifiedResults(id);
+  const { data: flaggedVerifications } = useFlaggedVerifications(id);
+  const adminUpdate = useAdminUpdateVerification(id);
+  const { data: evaluatorProgressData } = useEvaluatorProgress(id);
 
   // Default date from event's demo_date or start_date
   const defaultDate = useMemo(() => {
@@ -128,6 +153,197 @@ export default function DemoDayPage({ params }: { params: Promise<{ id: string }
             </p>
           )}
         </div>
+
+        {/* ── Demo Day Controls ── */}
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Settings className="h-4 w-4" />
+              Demo Day Controls
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {/* Freeze Metrics */}
+            <div className="flex items-center justify-between p-3 rounded-lg border">
+              <div>
+                <p className="text-sm font-medium">Freeze Metrics</p>
+                <p className="text-xs text-muted-foreground">
+                  {event?.metrics_frozen_at
+                    ? `Frozen at ${new Date(event.metrics_frozen_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`
+                    : 'Prevents teams from updating metrics. Use at 9:15 AM.'}
+                </p>
+              </div>
+              {event?.metrics_frozen_at ? (
+                <Badge className="bg-green-500 gap-1">
+                  <Lock className="h-3 w-3" /> Frozen
+                </Badge>
+              ) : (
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button size="sm" variant="destructive" className="gap-1.5" disabled={freezeMetrics.isPending}>
+                      <Lock className="h-3.5 w-3.5" /> Freeze Metrics
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Freeze Team Metrics?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        This prevents ALL teams from updating their user counts and revenue.
+                        This should only be done at 9:15 AM when presentations begin.
+                        This action cannot be undone.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction className="bg-destructive" onClick={() => freezeMetrics.mutate()}>
+                        Freeze Now
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              )}
+            </div>
+
+            {/* Publish Results */}
+            <div className="flex items-center justify-between p-3 rounded-lg border">
+              <div>
+                <p className="text-sm font-medium">Publish Results</p>
+                <p className="text-xs text-muted-foreground">
+                  {event?.is_results_published
+                    ? `Published at ${event.results_published_at ? new Date(event.results_published_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '\u2014'}`
+                    : 'Makes the verified leaderboard visible to all participants.'}
+                </p>
+              </div>
+              {event?.is_results_published ? (
+                <Badge className="bg-blue-500 gap-1">
+                  <Eye className="h-3 w-3" /> Published
+                </Badge>
+              ) : (
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button size="sm" variant="outline" className="gap-1.5" disabled={publishResults.isPending || !event?.metrics_frozen_at}>
+                      <Eye className="h-3.5 w-3.5" /> Publish Results
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Publish Results?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        The verified leaderboard will become visible to all participants.
+                        Make sure all teams have been verified or flagged before publishing.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction onClick={() => publishResults.mutate()}>
+                        Publish Now
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              )}
+            </div>
+
+            {/* CSV Export */}
+            <div className="flex items-center justify-between p-3 rounded-lg border">
+              <div>
+                <p className="text-sm font-medium">Export Results</p>
+                <p className="text-xs text-muted-foreground">Download all verification data as CSV</p>
+              </div>
+              <Button size="sm" variant="outline" className="gap-1.5" asChild>
+                <a href={`/api/startup-studio/events/${id}/export/verifications`} download>
+                  <Download className="h-3.5 w-3.5" /> Export CSV
+                </a>
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* ── Evaluator Progress ── */}
+        {(evaluatorProgressData?.length ?? 0) > 0 && (
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">Evaluator Progress</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {evaluatorProgressData!.map(ep => (
+                <div key={ep.staff_id} className="space-y-1">
+                  <div className="flex items-center justify-between text-sm">
+                    <div>
+                      <span className="font-medium">{ep.evaluator_name}</span>
+                      <span className="text-muted-foreground text-xs ml-2">{ep.venue_name}</span>
+                    </div>
+                    <span className="text-xs tabular-nums text-muted-foreground">
+                      {ep.verified_count}/{ep.total_teams}
+                    </span>
+                  </div>
+                  <Progress
+                    value={ep.total_teams > 0 ? (ep.verified_count / ep.total_teams) * 100 : 0}
+                    className="h-1.5"
+                  />
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* ── Flagged Teams Review ── */}
+        {(flaggedVerifications?.length ?? 0) > 0 && (
+          <Card className="border-amber-400">
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-base text-amber-700">
+                <Flag className="h-4 w-4" />
+                Flagged Teams ({flaggedVerifications!.length})
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {flaggedVerifications!.map(v => {
+                const sub = (v as any).event_submissions;
+                const reg = sub?.event_registrations;
+                const evaluator = (v as any).profiles;
+                return (
+                  <div key={v.id} className="border rounded-lg p-3 space-y-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <p className="font-medium text-sm">{reg?.team_name ?? '\u2014'}</p>
+                        <p className="text-xs text-muted-foreground">Flagged by: {evaluator?.full_name ?? '\u2014'}</p>
+                        <p className="text-xs text-red-600 mt-1">Reason: {v.flag_reason}</p>
+                      </div>
+                      <Badge
+                        variant="outline"
+                        className={v.verification_status === 'disqualified' ? 'text-red-600 border-red-400' : 'text-amber-600 border-amber-400'}
+                      >
+                        {v.verification_status}
+                      </Badge>
+                    </div>
+                    <div className="grid grid-cols-2 gap-1 text-xs text-muted-foreground">
+                      <span>Claimed: {v.claimed_users} users, {v.claimed_active_users} active, ₹{v.claimed_revenue}</span>
+                      <span>Verified: {v.verified_users} users, {v.verified_active_users} active, ₹{v.verified_revenue}</span>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm" variant="outline"
+                        className="flex-1 text-green-600 border-green-400 hover:bg-green-50 text-xs"
+                        onClick={() => adminUpdate.mutate({ id: v.id, dto: { verification_status: 'verified' } })}
+                        disabled={adminUpdate.isPending}
+                      >
+                        Accept as Verified
+                      </Button>
+                      <Button
+                        size="sm" variant="outline"
+                        className="flex-1 text-red-600 border-red-400 hover:bg-red-50 text-xs"
+                        onClick={() => adminUpdate.mutate({ id: v.id, dto: { verification_status: 'disqualified' } })}
+                        disabled={adminUpdate.isPending}
+                      >
+                        Disqualify
+                      </Button>
+                    </div>
+                  </div>
+                );
+              })}
+            </CardContent>
+          </Card>
+        )}
 
         {/* Stats Cards */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
