@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { EventService } from '@/lib/services/startup-studio/event-service';
 import { useAuth } from '@/hooks/use-auth';
 import type { EventFilters, UpdateEventDto, CreateEventDto, LearnerParticipationFilters, NotParticipatedFilters } from '@/types/startup-studio';
+
 import { toast } from 'sonner';
 
 // Guards against Next.js 15 Dynamic Route Prefetching placeholders like "%%drp:id:abc%%"
@@ -55,6 +56,20 @@ export function useLearnerParticipationStats(
   return useQuery({
     queryKey: ['startup-learner-participation', eventId, filters],
     queryFn: () => EventService.getLearnerParticipationStats(eventId!, filters),
+    enabled: !authLoading && isValidUUID(eventId),
+    staleTime: 30 * 1000,
+    retry: 3,
+  });
+}
+
+export function useNotParticipatedByInstitution(
+  eventId: string | undefined,
+  filters: LearnerParticipationFilters = {}
+) {
+  const { isLoading: authLoading } = useAuth();
+  return useQuery({
+    queryKey: ['startup-not-participated-by-institution', eventId, filters],
+    queryFn: () => EventService.getNotParticipatedByInstitution(eventId!, filters),
     enabled: !authLoading && isValidUUID(eventId),
     staleTime: 30 * 1000,
     retry: 3,

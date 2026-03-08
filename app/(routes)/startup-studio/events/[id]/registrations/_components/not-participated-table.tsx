@@ -21,6 +21,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import {
+  Building2,
   ChevronLeft,
   ChevronRight,
   ChevronsLeft,
@@ -35,11 +36,11 @@ import {
   ChevronDown,
   ChevronUp,
 } from 'lucide-react';
-import { useNotParticipatedLearners } from '@/hooks/startup-studio/use-events';
+import { useNotParticipatedLearners, useNotParticipatedByInstitution } from '@/hooks/startup-studio/use-events';
 import { useStudentSearchFilterOptions } from '@/hooks/startup-studio/use-event-registrations';
 import { useQuery } from '@tanstack/react-query';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
-import type { NotParticipatedLearner } from '@/types/startup-studio';
+import type { NotParticipatedLearner, LearnerParticipationFilters } from '@/types/startup-studio';
 import { cn } from '@/lib/utils';
 
 const PAGE_SIZE_OPTIONS = [25, 50, 100];
@@ -132,6 +133,18 @@ export function NotParticipatedTable({
 
   const { data: result, isLoading } = useNotParticipatedLearners(eventId, queryFilters);
 
+  // Institution-wise breakdown — uses the same hierarchy filters but NOT search/pagination
+  // so the stats always reflect the full filtered set, not just the current page
+  const institutionStatsFilters: LearnerParticipationFilters = {
+    institution_id: instFilter    || undefined,
+    degree_id:      degreeFilter  || undefined,
+    department_id:  deptFilter    || undefined,
+    program_id:     programFilter || undefined,
+    semester_id:    semesterFilter|| undefined,
+  };
+  const { data: institutionStats = [], isLoading: instStatsLoading } =
+    useNotParticipatedByInstitution(eventId, institutionStatsFilters);
+
   const rows       = result?.data  ?? [];
   const totalCount = result?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
@@ -179,6 +192,63 @@ export function NotParticipatedTable({
             Export CSV
           </Button>
         </div>
+
+        {/* Institution-wise Stats */}
+        {(instStatsLoading || institutionStats.length > 0) && (
+          <div className="space-y-2">
+            <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+              <Building2 className="h-3.5 w-3.5" />
+              Institution-wise Breakdown
+            </div>
+            {instStatsLoading ? (
+              <div className="flex items-center gap-2 text-xs text-muted-foreground py-1">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading breakdown...
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2">
+                {institutionStats.map((inst) => (
+                  <button
+                    key={inst.institution_id ?? 'unknown'}
+                    type="button"
+                    onClick={() => {
+                      if (inst.institution_id) {
+                        setInstFilter(inst.institution_id);
+                        setDegreeFilter(''); setDeptFilter('');
+                        setProgramFilter(''); setSemesterFilter('');
+                        setPage(1);
+                      }
+                    }}
+                    className={cn(
+                      'text-left rounded-lg border p-2.5 space-y-1 transition-colors',
+                      'hover:border-orange-400 hover:bg-orange-50 dark:hover:bg-orange-950/20',
+                      instFilter === inst.institution_id
+                        ? 'border-orange-400 bg-orange-50 dark:bg-orange-950/20'
+                        : 'bg-background',
+                      !inst.institution_id && 'cursor-default'
+                    )}
+                  >
+                    <p className="text-xs font-medium leading-tight line-clamp-2">
+                      {inst.institution_name ?? 'Unknown Institution'}
+                    </p>
+                    <p className="text-lg font-bold text-orange-600 dark:text-orange-400 leading-none">
+                      {inst.not_participated_count.toLocaleString()}
+                    </p>
+                    <p className="text-[10px] text-muted-foreground">not participated</p>
+                  </button>
+                ))}
+              </div>
+            )}
+            {instFilter && (
+              <button
+                type="button"
+                onClick={() => { setInstFilter(''); setPage(1); }}
+                className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
+              >
+                <X className="h-3 w-3" /> Show all institutions
+              </button>
+            )}
+          </div>
+        )}
 
         {/* Filter Controls */}
         <div className="space-y-3">

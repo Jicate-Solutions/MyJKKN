@@ -448,6 +448,12 @@ export interface NotParticipatedFilters extends LearnerParticipationFilters {
   limit?: number;
 }
 
+export interface NotParticipatedByInstitution {
+  institution_id: string | null;
+  institution_name: string | null;
+  not_participated_count: number;
+}
+
 // -- Pending Invitation View --
 
 export interface PendingInvitation {
