@@ -158,6 +158,7 @@ export interface EventSubmission {
   mrr_amount: number;
   paying_users_count: number;
   user_count: number;
+  active_users_count: number;
   proof_urls: string[];
   mrr_verified: boolean;
   mrr_verified_at: string | null;
@@ -278,6 +279,7 @@ export interface UpdateMetricsDto {
   mrr_amount?: number;
   paying_users_count?: number;
   user_count?: number;
+  active_users_count?: number;
   proof_urls?: string[];
 }
 

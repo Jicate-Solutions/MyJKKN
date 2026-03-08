@@ -2006,9 +2006,11 @@ CREATE TABLE IF NOT EXISTS public.event_submissions (
     category TEXT,
 
     -- Phase 2 fields: locked at metrics_deadline
+    -- Updated: 2026-03-08 - Added active_users_count for Demo Day tier verification
     mrr_amount DECIMAL(10,2) DEFAULT 0,
     paying_users_count INT DEFAULT 0,
     user_count INT DEFAULT 0,
+    active_users_count INT DEFAULT 0,         -- Active users (separate from total signups; added 2026-03-08)
     proof_urls TEXT[] DEFAULT '{}',
 
     -- Verification (batch - only Level 4/5 teams)

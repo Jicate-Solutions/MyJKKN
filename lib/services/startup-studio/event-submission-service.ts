@@ -152,6 +152,7 @@ export class EventSubmissionService {
         mrr_amount: dto.mrr_amount ?? 0,
         paying_users_count: dto.paying_users_count ?? 0,
         user_count: dto.user_count ?? 0,
+        active_users_count: dto.active_users_count ?? 0,
         proof_urls: dto.proof_urls ?? [],
         tier_level: score.tier_level,
         tier_points: score.tier_points,

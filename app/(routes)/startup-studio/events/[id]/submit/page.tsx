@@ -57,6 +57,7 @@ const metricsSchema = z.object({
   mrr_amount: z.coerce.number().min(0).default(0),
   paying_users_count: z.coerce.number().min(0).default(0),
   user_count: z.coerce.number().min(0).default(0),
+  active_users_count: z.coerce.number().min(0).default(0),
   proof_urls: z.string().optional(),
 });
 
@@ -536,6 +537,7 @@ function MetricsSection({
       mrr_amount: draft?.mrr_amount ?? submission?.mrr_amount ?? 0,
       paying_users_count: draft?.paying_users_count ?? submission?.paying_users_count ?? 0,
       user_count: draft?.user_count ?? submission?.user_count ?? 0,
+      active_users_count: draft?.active_users_count ?? submission?.active_users_count ?? 0,
       proof_urls: draft?.proof_urls ?? (submission?.proof_urls?.join(', ') || ''),
     },
   });
@@ -574,6 +576,7 @@ function MetricsSection({
           mrr_amount: values.mrr_amount,
           paying_users_count: values.paying_users_count,
           user_count: values.user_count,
+          active_users_count: values.active_users_count,
           proof_urls: proofUrls,
         },
         config,
@@ -616,7 +619,7 @@ function MetricsSection({
       <CardContent className="space-y-4">
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               <FormField control={form.control} name="mrr_amount" render={({ field }) => (
                 <FormItem>
                   <FormLabel>MRR Amount</FormLabel>
@@ -635,8 +638,19 @@ function MetricsSection({
 
               <FormField control={form.control} name="user_count" render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Total Users</FormLabel>
+                  <FormLabel>Total Users Signed Up</FormLabel>
                   <FormControl><Input type="number" {...field} disabled={locked} min={0} /></FormControl>
+                  <FormMessage />
+                </FormItem>
+              )} />
+
+              <FormField control={form.control} name="active_users_count" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Active Users</FormLabel>
+                  <FormControl><Input type="number" {...field} disabled={locked} min={0} /></FormControl>
+                  <p className="text-xs text-muted-foreground">
+                    Users who have performed an action in your app (not just signed up)
+                  </p>
                   <FormMessage />
                 </FormItem>
               )} />
