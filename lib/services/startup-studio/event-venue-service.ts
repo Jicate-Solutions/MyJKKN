@@ -371,6 +371,32 @@ export class EventVenueService {
     return (data || []) as unknown as EventVenueAssignment[];
   }
 
+  // All venues for the event — used by faculty who can mark attendance for any venue
+  // (same join shape as getVenuesForStaff so StaffVenueCard renders without changes)
+  static async getAllVenuesForFaculty(eventId: string, dayType?: DayType): Promise<EventVenueAssignment[]> {
+    let query = this.supabase
+      .from('event_venue_assignments')
+      .select(`
+        *,
+        institution:institutions(id, name),
+        staff_assignments:event_staff_assignments(id, staff_id, role, day_type, staff:staff(id, first_name, last_name, email)),
+        team_allocations:event_team_venue_allocations(id, registration_id, registration:event_registrations(id, team_name, institution_id))
+      `)
+      .eq('event_id', eventId)
+      .order('created_at', { ascending: true });
+
+    if (dayType) {
+      query = query.eq('day_type', dayType);
+    }
+
+    const { data, error } = await query;
+    if (error) {
+      console.error('[startup/venues] getAllVenuesForFaculty failed:', error);
+      throw error;
+    }
+    return (data || []) as unknown as EventVenueAssignment[];
+  }
+
   static async getVenueAttendance(
     eventId: string,
     venueAssignmentId: string,

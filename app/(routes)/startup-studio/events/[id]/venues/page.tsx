@@ -24,8 +24,13 @@ export default function VenuesPage({ params }: { params: Promise<{ id: string }>
     profile?.role === 'administrator' ||
     profile?.role === 'super_admin';
 
-  // Non-admin with a profile email → treat as potential staff member
-  const isStaff = !isAdmin && !!profile?.email;
+  // Faculty roles — can see ALL venues and mark attendance for any team
+  const isFacultyRole =
+    !isAdmin &&
+    ['faculty', 'hod', 'principal', 'staff', 'lecturer'].includes(profile?.role ?? '');
+
+  // Remaining non-admin, non-faculty with an email → assigned-staff-only view
+  const isStaff = !isAdmin && !isFacultyRole && !!profile?.email;
 
   return (
     <ContentLayout title="Venues & Mentors">
@@ -63,8 +68,11 @@ export default function VenuesPage({ params }: { params: Promise<{ id: string }>
         ) : isAdmin ? (
           // Full admin view — all venues, add/edit/delete, stats, allocation
           <VenuesPanel eventId={id} />
+        ) : isFacultyRole ? (
+          // Faculty view — all venues (read-only) + attendance marking for any team
+          <StaffVenueView eventId={id} staffEmail={profile!.email} showAll />
         ) : isStaff ? (
-          // Staff view — only assigned venues + attendance marking
+          // Assigned-staff view — only venues they are explicitly assigned to
           <StaffVenueView eventId={id} staffEmail={profile!.email} />
         ) : (
           <div className="text-center py-16 text-muted-foreground">

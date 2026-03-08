@@ -20,7 +20,7 @@ import {
   Users,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useStaffVenues, useVenueAttendance } from '@/hooks/startup-studio/use-event-venues';
+import { useStaffVenues, useAllVenuesForFaculty, useVenueAttendance } from '@/hooks/startup-studio/use-event-venues';
 import { EventChecklistService } from '@/lib/services/startup-studio/event-checklist-service';
 import { useAuth } from '@/hooks/use-auth';
 import type { DayType, ChecklistPhase, EventVenueAssignment, AttendanceStatus, StaffRole } from '@/types/startup-studio';
@@ -37,9 +37,11 @@ const ROLE_LABELS: Record<StaffRole, string> = {
 interface StaffVenueViewProps {
   eventId: string;
   staffEmail: string;
+  /** When true, shows ALL venues (faculty mode) instead of only assigned venues */
+  showAll?: boolean;
 }
 
-export function StaffVenueView({ eventId, staffEmail }: StaffVenueViewProps) {
+export function StaffVenueView({ eventId, staffEmail, showAll = false }: StaffVenueViewProps) {
   const [dayType, setDayType] = useState<DayType>('build_day');
 
   return (
@@ -48,9 +50,13 @@ export function StaffVenueView({ eventId, staffEmail }: StaffVenueViewProps) {
       <div className="flex items-start gap-3 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 dark:border-blue-800 dark:bg-blue-950/20">
         <ClipboardList className="h-4 w-4 text-blue-600 mt-0.5 shrink-0" />
         <div>
-          <p className="text-sm font-medium text-blue-800 dark:text-blue-300">Staff View</p>
+          <p className="text-sm font-medium text-blue-800 dark:text-blue-300">
+            {showAll ? 'Faculty View' : 'Staff View'}
+          </p>
           <p className="text-xs text-blue-600 dark:text-blue-400 mt-0.5">
-            You can see only venues you are assigned to. Mark attendance for your allocated teams.
+            {showAll
+              ? 'You can see all venues and mark attendance for any team.'
+              : 'You can see only venues you are assigned to. Mark attendance for your allocated teams.'}
           </p>
         </div>
       </div>
@@ -62,10 +68,10 @@ export function StaffVenueView({ eventId, staffEmail }: StaffVenueViewProps) {
         </TabsList>
 
         <TabsContent value="build_day">
-          <StaffDayPanel eventId={eventId} staffEmail={staffEmail} dayType="build_day" />
+          <StaffDayPanel eventId={eventId} staffEmail={staffEmail} dayType="build_day" showAll={showAll} />
         </TabsContent>
         <TabsContent value="demo_day">
-          <StaffDayPanel eventId={eventId} staffEmail={staffEmail} dayType="demo_day" />
+          <StaffDayPanel eventId={eventId} staffEmail={staffEmail} dayType="demo_day" showAll={showAll} />
         </TabsContent>
       </Tabs>
     </div>
@@ -73,13 +79,17 @@ export function StaffVenueView({ eventId, staffEmail }: StaffVenueViewProps) {
 }
 
 // ── Day panel ────────────────────────────────────────────────────────────────
-function StaffDayPanel({ eventId, staffEmail, dayType }: {
+function StaffDayPanel({ eventId, staffEmail, dayType, showAll }: {
   eventId: string;
   staffEmail: string;
   dayType: DayType;
+  showAll: boolean;
 }) {
   const router = useRouter();
-  const { data: venues = [], isLoading } = useStaffVenues(eventId, staffEmail, dayType);
+  const assignedVenues = useStaffVenues(eventId, staffEmail, dayType);
+  const allVenues     = useAllVenuesForFaculty(eventId, dayType);
+
+  const { data: venues = [], isLoading } = showAll ? allVenues : assignedVenues;
 
   if (isLoading) {
     return (
@@ -93,10 +103,16 @@ function StaffDayPanel({ eventId, staffEmail, dayType }: {
     return (
       <div className="text-center py-14">
         <Building2 className="h-10 w-10 mx-auto text-muted-foreground/40 mb-3" />
-        <p className="text-sm text-muted-foreground">You are not assigned to any venues</p>
-        <p className="text-xs text-muted-foreground mt-1">
-          for {dayType === 'build_day' ? 'Build Day' : 'Demo Day'}.
+        <p className="text-sm text-muted-foreground">
+          {showAll
+            ? 'No venues have been set up for this event yet.'
+            : 'You are not assigned to any venues'}
         </p>
+        {!showAll && (
+          <p className="text-xs text-muted-foreground mt-1">
+            for {dayType === 'build_day' ? 'Build Day' : 'Demo Day'}.
+          </p>
+        )}
       </div>
     );
   }

@@ -3045,13 +3045,18 @@ GRANT EXECUTE ON FUNCTION get_facilitator_attendance_stats(UUID, DATE, DATE, UUI
 CREATE POLICY "event_team_attendance_select" ON event_team_attendance
     FOR SELECT TO authenticated USING (true);
 
--- Admins OR staff assigned to the venue can insert
+-- Updated: 2026-03-08 - Faculty roles (faculty, hod, principal, staff, lecturer)
+-- can also insert attendance for any venue, not just assigned staff
 CREATE POLICY "event_team_attendance_insert" ON event_team_attendance
     FOR INSERT TO authenticated WITH CHECK (
         EXISTS (
             SELECT 1 FROM profiles
             WHERE id = auth.uid()
-            AND (is_super_admin = true OR role IN ('admin', 'administrator'))
+            AND (
+                is_super_admin = true
+                OR role IN ('admin', 'administrator')
+                OR role IN ('faculty', 'hod', 'principal', 'staff', 'lecturer')
+            )
         )
         OR EXISTS (
             SELECT 1 FROM event_staff_assignments esa
@@ -3063,13 +3068,17 @@ CREATE POLICY "event_team_attendance_insert" ON event_team_attendance
         )
     );
 
--- Admins OR assigned staff can update
+-- Updated: 2026-03-08 - Faculty roles can also update attendance
 CREATE POLICY "event_team_attendance_update" ON event_team_attendance
     FOR UPDATE TO authenticated USING (
         EXISTS (
             SELECT 1 FROM profiles
             WHERE id = auth.uid()
-            AND (is_super_admin = true OR role IN ('admin', 'administrator'))
+            AND (
+                is_super_admin = true
+                OR role IN ('admin', 'administrator')
+                OR role IN ('faculty', 'hod', 'principal', 'staff', 'lecturer')
+            )
         )
         OR EXISTS (
             SELECT 1 FROM event_staff_assignments esa

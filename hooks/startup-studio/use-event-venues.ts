@@ -195,6 +195,17 @@ export function useEventAttendanceMap(eventId: string, dayType: DayType) {
   });
 }
 
+export function useAllVenuesForFaculty(eventId: string, dayType?: DayType) {
+  const { isLoading: authLoading } = useAuth();
+  return useQuery({
+    queryKey: ['event-venues-faculty', eventId, dayType],
+    queryFn: () => EventVenueService.getAllVenuesForFaculty(eventId, dayType),
+    enabled: !authLoading && isValidUUID(eventId),
+    staleTime: 15 * 1000,
+    retry: 3,
+  });
+}
+
 export function useStaffVenues(eventId: string, staffEmail: string, dayType?: DayType) {
   const { isLoading: authLoading } = useAuth();
   return useQuery({
