@@ -3173,18 +3173,28 @@ CREATE POLICY "appathon_verifications_select"
 
 -- Evaluators can create their own verifications
 -- Must be assigned to the venue as judge/panel_chair/evaluator for demo_day
+-- Super admins / admins bypass the staff-assignment check
+-- Updated: 2026-03-08 - Added admin bypass consistent with UPDATE policy
 CREATE POLICY "appathon_verifications_insert"
     ON appathon_verifications FOR INSERT
     WITH CHECK (
         evaluator_id = auth.uid()
-        AND EXISTS (
-            SELECT 1
-            FROM event_staff_assignments esa
-            JOIN staff s ON s.id = esa.staff_id
-            WHERE esa.venue_assignment_id = appathon_verifications.venue_id
-            AND s.profile_id = auth.uid()
-            AND esa.role IN ('judge', 'panel_chair', 'evaluator')
-            AND esa.day_type = 'demo_day'
+        AND (
+            EXISTS (
+                SELECT 1
+                FROM event_staff_assignments esa
+                JOIN staff s ON s.id = esa.staff_id
+                WHERE esa.venue_assignment_id = appathon_verifications.venue_id
+                AND s.profile_id = auth.uid()
+                AND esa.role IN ('judge', 'panel_chair', 'evaluator')
+                AND esa.day_type = 'demo_day'
+            )
+            OR EXISTS (
+                SELECT 1 FROM profiles p
+                WHERE p.id = auth.uid()
+                AND p.role IN ('admin', 'super_admin', 'administrator')
+            )
+            OR (SELECT is_super_admin FROM profiles WHERE id = auth.uid())
         )
     );
 
