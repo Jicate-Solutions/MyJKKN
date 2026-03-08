@@ -466,3 +466,36 @@ export interface PendingInvitation {
   invited_at: string;
   invited_by_name: string | null;
 }
+
+// ── Role Cards (Skill Bank) ───────────────────────────────────────────────
+
+export interface RoleCard {
+  id: string;
+  submission_id: string;
+  team_id: string;
+  profile_id: string;
+  learner_id: string | null;
+  self_roles: string[];
+  proud_of: string;
+  created_at: string;
+  peer_tags?: PeerTag[];
+}
+
+export interface PeerTag {
+  id: string;
+  role_card_id: string;
+  tagger_profile_id: string;
+  tagged_profile_id: string;
+  tagged_role: string;
+  created_at: string;
+}
+
+export interface CreateRoleCardDto {
+  submission_id: string;
+  team_id: string;
+  profile_id: string;
+  learner_id: string | null;
+  self_roles: string[];
+  proud_of: string;
+  peer_tags: Array<{ tagged_profile_id: string; tagged_role: string }>;
+}
