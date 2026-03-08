@@ -545,11 +545,13 @@ export interface CreateVerificationDto {
   verified_active_users: number;
   verified_revenue: number;
   verification_status: VerificationStatus;
+  // NOTE: These are optional in the DTO (undefined) but stored as NULL in DB.
+  // Service layer must convert undefined → null (or omit the key) on insert/update.
   flag_reason?: string;
   notes?: string;
 }
 
-export interface UpdateVerificationDto extends Partial<CreateVerificationDto> {}
+export type UpdateVerificationDto = Partial<CreateVerificationDto>;
 
 export interface VerificationScore {
   tier: number;          // 0–4
