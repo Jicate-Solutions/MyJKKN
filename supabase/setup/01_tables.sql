@@ -1899,6 +1899,8 @@ CREATE TABLE IF NOT EXISTS public.startup_events (
     submission_deadline TIMESTAMPTZ,
     metrics_deadline TIMESTAMPTZ,
     is_results_published BOOLEAN DEFAULT false,
+    metrics_frozen_at TIMESTAMPTZ,          -- When admin froze team metrics (added 2026-03-08)
+    results_published_at TIMESTAMPTZ,       -- When results were published (added 2026-03-08)
     config JSONB DEFAULT '{}'::jsonb,
     created_by UUID REFERENCES profiles(id),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
