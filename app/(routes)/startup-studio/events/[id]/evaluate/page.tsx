@@ -235,6 +235,7 @@ export default function EvaluatePage({ params }: { params: Promise<{ id: string 
                       teams={tabTeams[tabKey]}
                       onVerify={handleVerify}
                       isSubmitting={isPending}
+                      eventId={id}
                     />
                   )}
                 </TabsContent>

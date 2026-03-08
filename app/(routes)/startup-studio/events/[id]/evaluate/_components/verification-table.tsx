@@ -13,7 +13,8 @@ import {
 } from '@/components/ui/table'
 import { ClipboardEdit, CheckCircle2, Flag, XCircle } from 'lucide-react'
 import { VerificationSheet } from './verification-sheet'
-import type { EvaluatorTeamCard, VerificationStatus } from '@/types/startup-studio'
+import { useVoteSummaries, useAudienceVotesRealtime } from '@/hooks/startup-studio/use-audience-votes'
+import type { EvaluatorTeamCard, VerificationStatus, VoteSummary } from '@/types/startup-studio'
 
 interface VerificationTableProps {
   teams: EvaluatorTeamCard[]
@@ -24,6 +25,7 @@ interface VerificationTableProps {
     flagReason?: string
   ) => Promise<void>
   isSubmitting: boolean
+  eventId: string
 }
 
 const statusBadge = (status: VerificationStatus | undefined) => {
@@ -46,9 +48,16 @@ const statusIcon = (status: VerificationStatus | undefined) => {
   return null
 }
 
-export function VerificationTable({ teams, onVerify, isSubmitting }: VerificationTableProps) {
+export function VerificationTable({ teams, onVerify, isSubmitting, eventId }: VerificationTableProps) {
   const [selectedTeam, setSelectedTeam] = useState<EvaluatorTeamCard | null>(null)
   const [sheetOpen, setSheetOpen] = useState(false)
+
+  const { data: summaries = [] } = useVoteSummaries(eventId)
+  useAudienceVotesRealtime(eventId)
+
+  const summaryMap = new Map<string, VoteSummary>(
+    summaries.map(s => [s.submission_id, s])
+  )
 
   const openSheet = (team: EvaluatorTeamCard) => {
     setSelectedTeam(team)
@@ -78,6 +87,8 @@ export function VerificationTable({ teams, onVerify, isSubmitting }: Verificatio
               <TableHead className="text-center hidden md:table-cell">Active</TableHead>
               <TableHead className="text-center hidden md:table-cell">Revenue</TableHead>
               <TableHead className="text-center">Status</TableHead>
+              <TableHead className="text-center hidden md:table-cell">Votes</TableHead>
+              <TableHead className="text-center hidden md:table-cell">Avg ★</TableHead>
               <TableHead className="w-24 text-right">Action</TableHead>
             </TableRow>
           </TableHeader>
@@ -114,6 +125,20 @@ export function VerificationTable({ teams, onVerify, isSubmitting }: Verificatio
                   </TableCell>
                   <TableCell className="text-center">
                     {statusBadge(status)}
+                  </TableCell>
+                  <TableCell className="text-center text-sm hidden md:table-cell font-mono">
+                    {(() => {
+                      const summary = summaryMap.get(team.submission?.id ?? '')
+                      return summary ? summary.total_votes : '—'
+                    })()}
+                  </TableCell>
+                  <TableCell className="text-center text-sm hidden md:table-cell font-mono">
+                    {(() => {
+                      const summary = summaryMap.get(team.submission?.id ?? '')
+                      return summary && summary.total_votes > 0
+                        ? summary.average_rating.toFixed(1)
+                        : '—'
+                    })()}
                   </TableCell>
                   <TableCell className="text-right">
                     <Button
