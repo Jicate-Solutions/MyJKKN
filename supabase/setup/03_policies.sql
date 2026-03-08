@@ -981,6 +981,82 @@ CREATE POLICY "staff_plan_courses_delete_by_role" ON staff_plan_courses
         AND staff_plan_id IN (SELECT staff_plan_id FROM get_user_staff_plan_access())
     );
 
+-- =============================================
+-- CLASS_INCHARGES TABLE POLICIES
+-- Added: 2026-03-08 - Class incharge assignments
+-- =============================================
+
+-- SELECT: Super admins see all; others see records from their institutions
+CREATE POLICY "class_incharges_select_by_institution" ON public.class_incharges
+    FOR SELECT USING (
+        EXISTS (
+            SELECT 1 FROM profiles
+            WHERE id = auth.uid()
+            AND is_super_admin = true
+        )
+        OR
+        institution_id IN (
+            SELECT institution_id
+            FROM user_institution_access
+            WHERE user_id = auth.uid()
+            AND is_active = true
+        )
+    );
+
+-- INSERT: Super admins or users with admin/write/full access
+CREATE POLICY "class_incharges_insert_by_access_type" ON public.class_incharges
+    FOR INSERT WITH CHECK (
+        EXISTS (
+            SELECT 1 FROM profiles
+            WHERE id = auth.uid()
+            AND is_super_admin = true
+        )
+        OR
+        institution_id IN (
+            SELECT institution_id
+            FROM user_institution_access
+            WHERE user_id = auth.uid()
+            AND access_type IN ('admin', 'write', 'full')
+            AND is_active = true
+        )
+    );
+
+-- UPDATE: Super admins or users with admin/write/full access
+CREATE POLICY "class_incharges_update_by_access_type" ON public.class_incharges
+    FOR UPDATE USING (
+        EXISTS (
+            SELECT 1 FROM profiles
+            WHERE id = auth.uid()
+            AND is_super_admin = true
+        )
+        OR
+        institution_id IN (
+            SELECT institution_id
+            FROM user_institution_access
+            WHERE user_id = auth.uid()
+            AND access_type IN ('admin', 'write', 'full')
+            AND is_active = true
+        )
+    );
+
+-- DELETE: Super admins or users with admin/full access only
+CREATE POLICY "class_incharges_delete_by_admin_access" ON public.class_incharges
+    FOR DELETE USING (
+        EXISTS (
+            SELECT 1 FROM profiles
+            WHERE id = auth.uid()
+            AND is_super_admin = true
+        )
+        OR
+        institution_id IN (
+            SELECT institution_id
+            FROM user_institution_access
+            WHERE user_id = auth.uid()
+            AND access_type IN ('admin', 'full')
+            AND is_active = true
+        )
+    );
+
 -- ================================================================================
 -- SECTION 6: ADMISSION MODULE TABLES
 -- ================================================================================
