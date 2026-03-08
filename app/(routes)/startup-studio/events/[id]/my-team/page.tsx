@@ -37,14 +37,15 @@ import {
 import { useAuth } from '@/hooks/use-auth';
 import { useTeamSubmission } from '@/hooks/startup-studio/use-event-submissions';
 import { useRegistrationVenueAllocations } from '@/hooks/startup-studio/use-event-venues';
-import { useTeamRoleCards } from '@/hooks/startup-studio/use-role-cards';
+import { useMyRoleCard, useTeamRoleCards } from '@/hooks/startup-studio/use-role-cards';
+import { Progress } from '@/components/ui/progress';
 import { TeamRoleCardsOverview } from '../submit/_components/role-card-section';
 import { StudentSearchDialog } from './_components/student-search-dialog';
 import {
   CheckCircle2, Clock, Laptop, MapPin, User, Users, Loader2,
   UserPlus, XCircle, Hash, Bell, Shield, GraduationCap, Building2, Mail, Pencil,
   Send, ExternalLink, Github, Link2, Video, FileText, Lightbulb,
-  Copy, Check, AlertCircle, Trophy, Calendar, Trash2,
+  Copy, Check, AlertCircle, Trophy, Calendar, Trash2, Star,
 } from 'lucide-react';
 import type { EventTeamMember, PendingInvitation } from '@/types/startup-studio';
 
@@ -88,7 +89,9 @@ export default function MyTeamPage({ params }: { params: Promise<{ id: string }>
   const membershipAny = membership as any;
   const submissionRegistrationId = registration?.id ?? membershipAny?.registration_id;
   const { data: teamSubmission } = useTeamSubmission(id, submissionRegistrationId);
-  const { data: teamRoleCards = [] } = useTeamRoleCards(teamSubmission?.id);
+  const submissionId = teamSubmission?.id;
+  const { data: teamRoleCards = [] } = useTeamRoleCards(submissionId);
+  const { data: myRoleCard } = useMyRoleCard(submissionId);
 
   // For team members (non-leaders): fetch venue allocations directly using the
   // registration_id from their membership. Leaders already get this via useMyRegistration.
@@ -306,6 +309,68 @@ export default function MyTeamPage({ params }: { params: Promise<{ id: string }>
           })()}
 
           <SubmissionReadOnlyCard submission={teamSubmission} />
+
+          {/* Role Card Completion Status (member view) */}
+          {teamSubmission && (
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <Star className="h-4 w-4" />
+                  Team Role Cards
+                  <Badge variant="secondary" className="ml-auto text-xs">
+                    {teamRoleCards.length}/{memberAccepted.length} completed
+                  </Badge>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <Progress
+                  value={memberAccepted.length > 0
+                    ? (teamRoleCards.length / memberAccepted.length) * 100
+                    : 0
+                  }
+                  className="h-1.5"
+                />
+
+                <div className="space-y-1.5">
+                  {memberAccepted.map((tm: any) => {
+                    const hasCard = (teamRoleCards as any[]).some((rc: any) => rc.profile_id === tm.profile_id)
+                    return (
+                      <div key={tm.member_id} className="flex items-center justify-between text-sm">
+                        <span className="text-sm">
+                          {tm.full_name || tm.email}
+                          {tm.profile_id === profile?.id && (
+                            <span className="text-xs text-muted-foreground ml-1">(you)</span>
+                          )}
+                        </span>
+                        {hasCard ? (
+                          <Badge className="bg-green-500 gap-1 text-xs">
+                            <CheckCircle2 className="h-3 w-3" /> Done
+                          </Badge>
+                        ) : (
+                          <Badge variant="secondary" className="gap-1 text-xs">
+                            <Clock className="h-3 w-3" /> Pending
+                          </Badge>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+
+                {!myRoleCard && (
+                  <p className="text-xs text-muted-foreground bg-muted rounded p-2">
+                    Help us build the JKKN Skill Bank! Fill in your Role Card — it takes 1 minute.
+                  </p>
+                )}
+
+                <Button asChild variant="outline" size="sm" className="w-full gap-1.5">
+                  <Link href={`/startup-studio/events/${id}/submit`}>
+                    <Star className="h-3.5 w-3.5" />
+                    {myRoleCard ? 'View Role Card' : 'Fill My Role Card'}
+                  </Link>
+                </Button>
+              </CardContent>
+            </Card>
+          )}
 
           {teamSubmission?.metrics_updated_at && memberAccepted.length > 1 && (
             <TeamRoleCardsOverview
@@ -650,6 +715,68 @@ export default function MyTeamPage({ params }: { params: Promise<{ id: string }>
             )}
           </CardContent>
         </Card>
+
+        {/* ── Role Card Completion Status ── */}
+        {teamSubmission && (
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Star className="h-4 w-4" />
+                Team Role Cards
+                <Badge variant="secondary" className="ml-auto text-xs">
+                  {teamRoleCards.length}/{acceptedMembers.length} completed
+                </Badge>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <Progress
+                value={acceptedMembers.length > 0
+                  ? (teamRoleCards.length / acceptedMembers.length) * 100
+                  : 0
+                }
+                className="h-1.5"
+              />
+
+              <div className="space-y-1.5">
+                {acceptedMembers.map((member: EventTeamMember) => {
+                  const hasCard = (teamRoleCards as any[]).some((rc: any) => rc.profile_id === member.profile_id)
+                  return (
+                    <div key={member.id} className="flex items-center justify-between text-sm">
+                      <span className="text-sm">
+                        {member.full_name}
+                        {member.profile_id === profile?.id && (
+                          <span className="text-xs text-muted-foreground ml-1">(you)</span>
+                        )}
+                      </span>
+                      {hasCard ? (
+                        <Badge className="bg-green-500 gap-1 text-xs">
+                          <CheckCircle2 className="h-3 w-3" /> Done
+                        </Badge>
+                      ) : (
+                        <Badge variant="secondary" className="gap-1 text-xs">
+                          <Clock className="h-3 w-3" /> Pending
+                        </Badge>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+
+              {!myRoleCard && (
+                <p className="text-xs text-muted-foreground bg-muted rounded p-2">
+                  Help us build the JKKN Skill Bank! Fill in your Role Card — it takes 1 minute.
+                </p>
+              )}
+
+              <Button asChild variant="outline" size="sm" className="w-full gap-1.5">
+                <Link href={`/startup-studio/events/${id}/submit`}>
+                  <Star className="h-3.5 w-3.5" />
+                  {myRoleCard ? 'View Role Card' : 'Fill My Role Card'}
+                </Link>
+              </Button>
+            </CardContent>
+          </Card>
+        )}
 
         {/* ── Venue Assignments ── */}
         <Card>
