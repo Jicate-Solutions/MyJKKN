@@ -636,6 +636,9 @@ export const PERMISSION_CATEGORIES = [
       // Demo Day
       { key: 'startup_studio.demo_day.manage', label: 'Manage Demo Day Slots' },
 
+      // Evaluations
+      { key: 'startup_studio.evaluations.manage', label: 'Manage Demo Day Evaluations' },
+
       // Checklists
       { key: 'startup_studio.checklists.manage', label: 'Manage Event Checklists' },
     ]
