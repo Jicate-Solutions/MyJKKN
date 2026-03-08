@@ -200,7 +200,7 @@ export function useAllVenuesForFaculty(eventId: string, dayType?: DayType) {
   return useQuery({
     queryKey: ['event-venues-faculty', eventId, dayType],
     queryFn: () => EventVenueService.getAllVenuesForFaculty(eventId, dayType),
-    enabled: !authLoading && isValidUUID(eventId),
+    enabled: !authLoading && !!eventId,
     staleTime: 15 * 1000,
     retry: 3,
   });
