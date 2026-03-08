@@ -154,7 +154,7 @@ export function VerificationCard({ team, onVerify, isSubmitting }: VerificationC
           <Checkbox
             id={`presented-${team.registration_id}`}
             checked={form.watch('presented')}
-            onCheckedChange={v => form.setValue('presented', !!v)}
+            onCheckedChange={v => form.setValue('presented', v === true)}
           />
           <Label htmlFor={`presented-${team.registration_id}`} className="text-sm">
             Team was present and presented
@@ -165,7 +165,7 @@ export function VerificationCard({ team, onVerify, isSubmitting }: VerificationC
           <Checkbox
             id={`app_live-${team.registration_id}`}
             checked={form.watch('app_live')}
-            onCheckedChange={v => form.setValue('app_live', !!v)}
+            onCheckedChange={v => form.setValue('app_live', v === true)}
           />
           <Label htmlFor={`app_live-${team.registration_id}`} className="text-sm">
             App is live and working
