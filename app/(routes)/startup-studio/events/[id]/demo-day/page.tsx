@@ -128,7 +128,7 @@ export default function DemoDayPage({ params }: { params: Promise<{ id: string }
         { label: 'Demo Day' },
       ]} />
 
-      <div className="space-y-6 max-w-5xl mt-4 pb-10">
+      <div className="space-y-6 mt-4 pb-10">
         {/* Back Button */}
         <Button
           variant="ghost"
