@@ -566,14 +566,19 @@ export class EventRegistrationService {
   }
 
   static async deleteRegistration(registrationId: string): Promise<void> {
-    const { error } = await this.supabase
+    const { data, error } = await this.supabase
       .from('event_registrations')
       .delete()
-      .eq('id', registrationId);
+      .eq('id', registrationId)
+      .select('id');
 
     if (error) {
       console.error('[startup/registration] deleteRegistration failed:', error);
       throw new Error('Failed to delete registration. Please try again.');
+    }
+    // RLS blocks return no error but affect 0 rows — surface this as an explicit failure
+    if (!data || data.length === 0) {
+      throw new Error('You do not have permission to delete this team.');
     }
   }
 

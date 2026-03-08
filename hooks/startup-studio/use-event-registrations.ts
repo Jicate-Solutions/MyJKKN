@@ -163,10 +163,11 @@ export function useDeleteOwnTeam(eventId: string) {
     },
     onSuccess: () => {
       queryClient.removeQueries({ queryKey: ['my-registration', eventId, profile?.id] });
+      queryClient.removeQueries({ queryKey: ['my-accepted-membership', eventId, profile?.id] });
       queryClient.invalidateQueries({ queryKey: ['event-registrations'] });
       queryClient.invalidateQueries({ queryKey: ['startup-event-stats'] });
       toast.success('Your team has been deleted');
-      router.push(`/startup-studio/events/${eventId}`);
+      router.push('/startup-studio/events');
     },
     onError: (error: any) => toast.error(error.message || 'Failed to delete team'),
   });
