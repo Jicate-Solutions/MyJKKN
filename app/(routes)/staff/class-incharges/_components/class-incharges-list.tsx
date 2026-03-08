@@ -1,50 +1,86 @@
 'use client';
 
-import { useState } from 'react';
-import {
-  useReactTable,
-  getCoreRowModel,
-  flexRender,
-} from '@tanstack/react-table';
+import { useState, useCallback, useMemo } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { ClassInchargeFilters, SectionWithIncharges } from '@/types/staff';
-import { useClassIncharges } from '@/hooks/staff/use-class-incharges';
+import { useClassIncharges, classInchargeKeys } from '@/hooks/staff/use-class-incharges';
+import { ClassInchargeService } from '@/lib/services/staff/class-incharge-service';
+import { usePermissions } from '@/hooks/use-permissions';
 import { getClassInchargeColumns } from './class-incharge-columns';
 import { AssignInchargeDialog } from './assign-incharge-dialog';
+import { DataTable } from '@/components/ui/data-table';
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
-import { Button } from '@/components/ui/button';
-import { Skeleton } from '@/components/ui/skeleton';
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { ChevronLeft, ChevronRight, UserX } from 'lucide-react';
+import { toast } from 'react-hot-toast';
 
 interface Props {
   filters: ClassInchargeFilters;
   onPageChange: (page: number) => void;
+  onPageSizeChange?: (size: number) => void;
 }
 
-export function ClassInchargesList({ filters, onPageChange }: Props) {
-  const [selectedSection, setSelectedSection] =
-    useState<SectionWithIncharges | null>(null);
+export function ClassInchargesList({ filters, onPageChange, onPageSizeChange }: Props) {
+  const [selectedSection, setSelectedSection] = useState<SectionWithIncharges | null>(null);
+  const [removeAllSection, setRemoveAllSection] = useState<SectionWithIncharges | null>(null);
+  const [isRemoving, setIsRemoving] = useState(false);
 
-  const { data, isLoading, error } = useClassIncharges(filters);
+  const queryClient = useQueryClient();
+  const { isSuperAdmin, canAccess } = usePermissions();
+  const canDelete = isSuperAdmin || canAccess('staff', 'class_incharges.delete');
+
+  const { data, isLoading, error, refetch } = useClassIncharges(filters);
   const sections = data?.data || [];
   const metadata = data?.metadata;
 
-  const columns = getClassInchargeColumns({
-    onManage: (section) => setSelectedSection(section),
-  });
+  const handleManage = useCallback((section: SectionWithIncharges) => {
+    setSelectedSection(section);
+  }, []);
 
-  const table = useReactTable({
-    data: sections,
-    columns,
-    getCoreRowModel: getCoreRowModel(),
-  });
+  const handleRemoveAllClick = useCallback((section: SectionWithIncharges) => {
+    setRemoveAllSection(section);
+  }, []);
+
+  const handleConfirmRemoveAll = async () => {
+    if (!removeAllSection?.class_incharges?.length) return;
+    setIsRemoving(true);
+    try {
+      await Promise.all(
+        removeAllSection.class_incharges.map((ic) =>
+          ClassInchargeService.removeIncharge(ic.id)
+        )
+      );
+      await queryClient.invalidateQueries({ queryKey: classInchargeKeys.lists() });
+      toast.success(
+        `Removed ${removeAllSection.class_incharges.length} incharge${
+          removeAllSection.class_incharges.length !== 1 ? 's' : ''
+        } from ${removeAllSection.section_name}`
+      );
+    } catch {
+      toast.error('Failed to remove all incharges');
+    } finally {
+      setIsRemoving(false);
+      setRemoveAllSection(null);
+    }
+  };
+
+  const columns = useMemo(
+    () =>
+      getClassInchargeColumns({
+        onManage: handleManage,
+        onRemoveAll: handleRemoveAllClick,
+        canDelete,
+      }),
+    [handleManage, handleRemoveAllClick, canDelete]
+  );
 
   if (!filters.institution_id) {
     return (
@@ -68,97 +104,31 @@ export function ClassInchargesList({ filters, onPageChange }: Props) {
 
   return (
     <>
-      <div className="rounded-md border">
-        <Table>
-          <TableHeader>
-            {table.getHeaderGroups().map((hg) => (
-              <TableRow key={hg.id}>
-                {hg.headers.map((header) => (
-                  <TableHead key={header.id} className="text-xs font-medium">
-                    {flexRender(
-                      header.column.columnDef.header,
-                      header.getContext()
-                    )}
-                  </TableHead>
-                ))}
-              </TableRow>
-            ))}
-          </TableHeader>
-          <TableBody>
-            {isLoading ? (
-              Array.from({ length: 5 }).map((_, i) => (
-                <TableRow key={i}>
-                  {columns.map((_, j) => (
-                    <TableCell key={j}>
-                      <Skeleton className="h-4 w-full" />
-                    </TableCell>
-                  ))}
-                </TableRow>
-              ))
-            ) : table.getRowModel().rows.length === 0 ? (
-              <TableRow>
-                <TableCell
-                  colSpan={columns.length}
-                  className="h-32 text-center"
-                >
-                  <div className="flex flex-col items-center gap-2 text-muted-foreground">
-                    <UserX className="h-8 w-8" />
-                    <p className="text-sm">No sections found</p>
-                    <p className="text-xs">
-                      Adjust the filters to see sections
-                    </p>
-                  </div>
-                </TableCell>
-              </TableRow>
-            ) : (
-              table.getRowModel().rows.map((row) => (
-                <TableRow key={row.id} className="hover:bg-muted/40">
-                  {row.getVisibleCells().map((cell) => (
-                    <TableCell key={cell.id} className="py-2">
-                      {flexRender(
-                        cell.column.columnDef.cell,
-                        cell.getContext()
-                      )}
-                    </TableCell>
-                  ))}
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-      </div>
+      <DataTable
+        columns={columns}
+        data={sections}
+        filterColumn="__no_search__"
+        searchPlaceholder="Search sections..."
+        onRefresh={refetch}
+        showRefresh={true}
+        serverSidePagination={
+          metadata
+            ? {
+                currentPage: metadata.page,
+                totalPages: metadata.totalPages,
+                pageSize: metadata.limit,
+                totalItems: metadata.total,
+                hasNextPage: metadata.page < metadata.totalPages,
+                hasPreviousPage: metadata.page > 1,
+                onPageChange,
+                onPageSizeChange,
+                isLoading,
+              }
+            : undefined
+        }
+      />
 
-      {/* Pagination */}
-      {metadata && metadata.totalPages > 1 && (
-        <div className="flex items-center justify-between">
-          <p className="text-xs text-muted-foreground">
-            Showing {sections.length} of {metadata.total} sections
-          </p>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={metadata.page <= 1}
-              onClick={() => onPageChange(metadata.page - 1)}
-            >
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-            <span className="text-xs text-muted-foreground">
-              {metadata.page} / {metadata.totalPages}
-            </span>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={metadata.page >= metadata.totalPages}
-              onClick={() => onPageChange(metadata.page + 1)}
-            >
-              <ChevronRight className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
-      )}
-
-      {/* Assign/Manage Dialog */}
+      {/* Assign / Manage Dialog */}
       {selectedSection && (
         <AssignInchargeDialog
           section={selectedSection}
@@ -168,6 +138,42 @@ export function ClassInchargesList({ filters, onPageChange }: Props) {
           }}
         />
       )}
+
+      {/* Remove All Confirmation */}
+      <AlertDialog
+        open={!!removeAllSection}
+        onOpenChange={(open) => {
+          if (!open && !isRemoving) setRemoveAllSection(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove All Incharges?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {removeAllSection && (
+                <>
+                  This will permanently remove all{' '}
+                  <strong>{removeAllSection.class_incharges?.length}</strong>{' '}
+                  incharge assignment
+                  {(removeAllSection.class_incharges?.length ?? 0) !== 1 ? 's' : ''}{' '}
+                  from <strong>{removeAllSection.section_name}</strong>. This
+                  action cannot be undone.
+                </>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isRemoving}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmRemoveAll}
+              disabled={isRemoving}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isRemoving ? 'Removing...' : 'Remove All'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }

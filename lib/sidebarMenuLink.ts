@@ -185,6 +185,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/staff/category': 'staff.categories.view',
   '/staff/list': 'staff.view',
   '/staff/dashboard': 'staff.dashboard.view',
+  '/staff/class-incharges': 'staff.class_incharges.view',
 
   // Academic Management
   '/academic/years': 'academic.years.view',

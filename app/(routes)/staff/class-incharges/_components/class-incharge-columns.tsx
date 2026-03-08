@@ -1,20 +1,30 @@
 'use client';
 
-import { ColumnDef } from '@tanstack/react-table';
+import { PermissionColumnDef } from '@/components/ui/data-table';
 import { SectionWithIncharges, ClassIncharge } from '@/types/staff';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { UserCheck, UserPlus } from 'lucide-react';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import { MoreVertical, UserCheck, UserPlus, Trash2 } from 'lucide-react';
 
-interface ColumnActions {
+export interface ClassInchargeColumnActions {
   onManage: (section: SectionWithIncharges) => void;
+  onRemoveAll: (section: SectionWithIncharges) => void;
+  canDelete: boolean;
 }
 
 function getInitials(firstName: string, lastName: string) {
@@ -71,8 +81,8 @@ function InchargeAvatars({ incharges }: { incharges: ClassIncharge[] }) {
 }
 
 export function getClassInchargeColumns(
-  actions: ColumnActions
-): ColumnDef<SectionWithIncharges>[] {
+  actions: ClassInchargeColumnActions
+): PermissionColumnDef<SectionWithIncharges>[] {
   return [
     {
       accessorKey: 'section_name',
@@ -111,6 +121,7 @@ export function getClassInchargeColumns(
     {
       id: 'incharges',
       header: 'Incharges',
+      enableHiding: false,
       cell: ({ row }) => (
         <InchargeAvatars incharges={row.original.class_incharges || []} />
       ),
@@ -118,28 +129,58 @@ export function getClassInchargeColumns(
     {
       id: 'actions',
       header: '',
+      enableSorting: false,
+      enableHiding: false,
       cell: ({ row }) => {
-        const hasIncharges =
-          row.original.class_incharges && row.original.class_incharges.length > 0;
+        const section = row.original;
+        const hasIncharges = (section.class_incharges?.length ?? 0) > 0;
+
         return (
-          <Button
-            variant={hasIncharges ? 'outline' : 'default'}
-            size="sm"
-            className="h-7 text-xs"
-            onClick={() => actions.onManage(row.original)}
-          >
-            {hasIncharges ? (
-              <>
-                <UserCheck className="h-3.5 w-3.5 mr-1.5" />
-                Manage
-              </>
-            ) : (
-              <>
-                <UserPlus className="h-3.5 w-3.5 mr-1.5" />
-                Assign
-              </>
-            )}
-          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" className="h-8 w-8 p-0">
+                <span className="sr-only">Open menu</span>
+                <MoreVertical className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuLabel>Actions</DropdownMenuLabel>
+              <DropdownMenuItem
+                onClick={() => actions.onManage(section)}
+                className="cursor-pointer"
+              >
+                {hasIncharges ? (
+                  <UserCheck className="mr-2 h-4 w-4" />
+                ) : (
+                  <UserPlus className="mr-2 h-4 w-4" />
+                )}
+                {hasIncharges ? 'Manage Incharges' : 'Assign Incharge'}
+              </DropdownMenuItem>
+
+              {hasIncharges && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onClick={
+                      actions.canDelete
+                        ? () => actions.onRemoveAll(section)
+                        : undefined
+                    }
+                    disabled={!actions.canDelete}
+                    className={
+                      actions.canDelete
+                        ? 'text-destructive focus:text-destructive cursor-pointer'
+                        : 'cursor-not-allowed'
+                    }
+                    style={{ opacity: actions.canDelete ? 1 : 0.5 }}
+                  >
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    Remove All Incharges
+                  </DropdownMenuItem>
+                </>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
         );
       },
     },

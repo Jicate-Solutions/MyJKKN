@@ -25,6 +25,10 @@ export function ClassInchargesPageClient() {
     setFilters((prev) => ({ ...prev, page }));
   }
 
+  function handlePageSizeChange(size: number) {
+    setFilters((prev) => ({ ...prev, limit: size, page: 1 }));
+  }
+
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between">
@@ -44,6 +48,7 @@ export function ClassInchargesPageClient() {
       <ClassInchargesList
         filters={filters}
         onPageChange={handlePageChange}
+        onPageSizeChange={handlePageSizeChange}
       />
     </div>
   );
