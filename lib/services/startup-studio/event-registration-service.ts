@@ -566,18 +566,21 @@ export class EventRegistrationService {
   }
 
   static async deleteRegistration(registrationId: string): Promise<void> {
-    const { data, error } = await this.supabase
+    // NOTE: Do NOT add .select() here — the global 'Prefer: count=exact' header
+    // conflicts with PostgREST's 'return=representation' that .select() adds,
+    // causing the response body to be empty even when the delete succeeds.
+    // Instead, rely on `count` which is always populated by the count=exact header.
+    const { error, count } = await this.supabase
       .from('event_registrations')
       .delete()
-      .eq('id', registrationId)
-      .select('id');
+      .eq('id', registrationId);
 
     if (error) {
       console.error('[startup/registration] deleteRegistration failed:', error);
       throw new Error('Failed to delete registration. Please try again.');
     }
     // RLS blocks return no error but affect 0 rows — surface this as an explicit failure
-    if (!data || data.length === 0) {
+    if (count === 0) {
       throw new Error('You do not have permission to delete this team.');
     }
   }
