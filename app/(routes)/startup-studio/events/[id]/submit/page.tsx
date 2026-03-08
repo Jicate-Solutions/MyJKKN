@@ -100,7 +100,7 @@ export default function SubmitPage({ params }: { params: Promise<{ id: string }>
   const memberRegistrationId = !registration ? membershipAny?.registration_id : undefined;
   const { data: memberSubmission, isLoading: memberSubLoading } = useTeamSubmission(id, memberRegistrationId);
   // For Role Card Phase 3: fetch team members list for member branch (leader gets them via registration.team_members)
-  const { data: memberTeamMembers } = useMyTeamMembers(id);
+  const { data: memberTeamMembers, isLoading: memberTeamLoading } = useMyTeamMembers(id);
 
   const now = new Date();
   const submissionLocked = event?.submission_deadline
@@ -110,7 +110,7 @@ export default function SubmitPage({ params }: { params: Promise<{ id: string }>
     ? new Date(event.metrics_deadline) < now
     : false;
 
-  if (authLoading || eventLoading || regLoading || memberLoading || subLoading || memberSubLoading) {
+  if (authLoading || eventLoading || regLoading || memberLoading || subLoading || memberSubLoading || memberTeamLoading) {
     return (
       <ContentLayout title="Submit Project">
         <div className="flex items-center justify-center min-h-[60vh]">
