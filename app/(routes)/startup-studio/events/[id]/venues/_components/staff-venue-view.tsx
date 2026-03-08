@@ -261,8 +261,8 @@ function StaffVenueCard({ venue, eventId, dayType, staffEmail, onMarkAttendance 
           {allocatedCount === 0 ? (
             <p className="text-xs text-muted-foreground">No teams allocated to this venue.</p>
           ) : (
-            <div className="space-y-1">
-              {teams.slice(0, 6).map((alloc: any, idx: number) => {
+            <div className="space-y-1 max-h-64 overflow-y-auto pr-1">
+              {teams.map((alloc: any, idx: number) => {
                 const status = attMap[alloc.registration_id] as AttendanceStatus | undefined;
                 const teamName = alloc.registration?.team_name || 'Unknown';
                 return (
@@ -282,11 +282,6 @@ function StaffVenueCard({ venue, eventId, dayType, staffEmail, onMarkAttendance 
                   </div>
                 );
               })}
-              {teams.length > 6 && (
-                <p className="text-xs text-muted-foreground text-center pt-1">
-                  +{teams.length - 6} more — click Mark Attendance to see all
-                </p>
-              )}
             </div>
           )}
         </div>
