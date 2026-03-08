@@ -35,6 +35,8 @@ import { useMySubmission, useTeamSubmission, useSubmitProject, useUpdateSubmissi
 import { EventSubmissionService } from '@/lib/services/startup-studio/event-submission-service';
 import type { EventConfig } from '@/types/startup-studio';
 import Link from 'next/link';
+import { useMyTeamMembers } from '@/hooks/startup-studio/use-event-registrations';
+import { RoleCardSection } from './_components/role-card-section';
 
 const projectSchema = z.object({
   app_name: z.string().min(2, 'App name is required'),
@@ -87,7 +89,7 @@ const TIER_NAMES: Record<number, string> = {
 
 export default function SubmitPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
-  const { isLoading: authLoading } = useAuth();
+  const { profile, isLoading: authLoading } = useAuth();
   const { data: event, isLoading: eventLoading } = useEvent(id);
   const { data: registration, isLoading: regLoading } = useMyRegistration(id);
   const { data: membership, isLoading: memberLoading } = useMyAcceptedMembership(id);
@@ -97,6 +99,8 @@ export default function SubmitPage({ params }: { params: Promise<{ id: string }>
   const membershipAny = membership as any;
   const memberRegistrationId = !registration ? membershipAny?.registration_id : undefined;
   const { data: memberSubmission, isLoading: memberSubLoading } = useTeamSubmission(id, memberRegistrationId);
+  // For Role Card Phase 3: fetch team members list for member branch (leader gets them via registration.team_members)
+  const { data: memberTeamMembers } = useMyTeamMembers(id);
 
   const now = new Date();
   const submissionLocked = event?.submission_deadline
@@ -142,6 +146,16 @@ export default function SubmitPage({ params }: { params: Promise<{ id: string }>
             </Button>
           </div>
           <MemberSubmissionView submission={memberSubmission} />
+
+          {memberSubmission?.metrics_updated_at && profile && (
+            <RoleCardSection
+              submissionId={memberSubmission.id}
+              teamId={memberRegistrationId!}
+              profileId={profile.id}
+              learnerId={(membershipAny?.learner_id as string | null) ?? null}
+              teamMembers={(memberTeamMembers as any) ?? []}
+            />
+          )}
         </div>
       </ContentLayout>
     );
@@ -196,6 +210,19 @@ export default function SubmitPage({ params }: { params: Promise<{ id: string }>
           config={event?.config as EventConfig}
           eventId={id}
         />
+
+        {submission?.metrics_updated_at && profile && (
+          <RoleCardSection
+            submissionId={submission.id}
+            teamId={registration.id}
+            profileId={profile.id}
+            learnerId={
+              registration.team_members?.find((m) => m.profile_id === profile.id)
+                ?.learner_id ?? null
+            }
+            teamMembers={registration.team_members ?? []}
+          />
+        )}
       </div>
     </ContentLayout>
   );
