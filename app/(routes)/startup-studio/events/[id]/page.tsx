@@ -57,11 +57,16 @@ function formatTime(dateStr: string | null): string {
 
 function getDaysUntil(dateStr: string | null): string | null {
   if (!dateStr) return null;
-  const diff = Math.ceil((new Date(dateStr).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
-  if (diff < 0) return null;
-  if (diff === 0) return 'Today';
-  if (diff === 1) return 'Tomorrow';
-  return `${diff} days left`;
+  const target = new Date(dateStr);
+  const now = new Date();
+  // Compare calendar dates in local timezone (strip time component)
+  const targetDay = new Date(target.getFullYear(), target.getMonth(), target.getDate());
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const diffDays = Math.round((targetDay.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+  if (diffDays < 0) return null;
+  if (diffDays === 0) return 'Today';
+  if (diffDays === 1) return 'Tomorrow';
+  return `${diffDays} days left`;
 }
 
 export default function EventDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -172,7 +177,7 @@ export default function EventDetailPage({ params }: { params: Promise<{ id: stri
 
               {/* Quick Action Buttons */}
               <div className="shrink-0 flex flex-col gap-3 min-w-[200px]">
-                {canRegister && (isRegistrationOpen || isSuperAdmin) && !isInATeam && (
+                {canRegister && isRegistrationOpen && !isInATeam && (
                   <Link href={`/startup-studio/events/${id}/register`} className="w-full">
                     <Button size="lg" className="w-full gap-2 shadow-md hover:shadow-lg transition-all bg-primary hover:bg-primary/90">
                       <Rocket className="h-4 w-4" /> Register Team
@@ -352,7 +357,7 @@ export default function EventDetailPage({ params }: { params: Promise<{ id: stri
         {/* Action Banners */}
         <div className="grid gap-6">
           {/* Registration CTA */}
-          {canRegister && (isRegistrationOpen || isSuperAdmin) && !isInATeam && (
+          {canRegister && isRegistrationOpen && !isInATeam && (
             <div className="relative overflow-hidden rounded-xl bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-950/30 dark:to-teal-950/30 border border-emerald-100 dark:border-emerald-900/50 p-6 md:p-8">
               <div className="flex flex-col md:flex-row items-center justify-between gap-6 relative z-10">
                 <div className="flex items-start gap-4">

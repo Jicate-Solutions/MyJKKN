@@ -5125,3 +5125,74 @@ BEGIN
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
+
+-- ══════════════════════════════════════════════════════════════
+-- submit_role_card RPC (Added: 2026-03-08)
+-- Atomic insert of role card + peer tags in one transaction.
+-- SECURITY DEFINER: bypasses RLS but validates caller = p_profile_id.
+-- ══════════════════════════════════════════════════════════════
+
+CREATE OR REPLACE FUNCTION submit_role_card(
+  p_submission_id    UUID,
+  p_team_id          UUID,
+  p_profile_id       UUID,
+  p_learner_id       UUID,
+  p_self_roles       TEXT[],
+  p_proud_of         TEXT,
+  p_peer_tags        JSONB
+) RETURNS UUID
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_role_card_id UUID;
+  v_peer        JSONB;
+BEGIN
+  IF auth.uid() IS DISTINCT FROM p_profile_id THEN
+    RAISE EXCEPTION 'Unauthorized: caller does not match profile_id';
+  END IF;
+
+  IF array_length(p_self_roles, 1) IS NULL
+     OR array_length(p_self_roles, 1) < 1
+     OR array_length(p_self_roles, 1) > 2 THEN
+    RAISE EXCEPTION 'Must select 1–2 roles';
+  END IF;
+
+  IF length(trim(p_proud_of)) < 10 OR length(trim(p_proud_of)) > 150 THEN
+    RAISE EXCEPTION 'proud_of must be 10–150 characters';
+  END IF;
+
+  INSERT INTO appathon_role_cards
+    (submission_id, team_id, profile_id, learner_id, self_roles, proud_of)
+  VALUES
+    (p_submission_id, p_team_id, p_profile_id, p_learner_id, p_self_roles, trim(p_proud_of))
+  RETURNING id INTO v_role_card_id;
+
+  FOR v_peer IN SELECT * FROM jsonb_array_elements(p_peer_tags)
+  LOOP
+    IF NOT EXISTS (
+      SELECT 1 FROM event_team_members
+      WHERE registration_id = p_team_id
+        AND profile_id = (v_peer->>'tagged_profile_id')::UUID
+        AND status = 'accepted'
+    ) THEN
+      RAISE EXCEPTION 'tagged_profile_id % is not an accepted member of this team',
+        v_peer->>'tagged_profile_id';
+    END IF;
+
+    INSERT INTO appathon_peer_tags
+      (role_card_id, tagger_profile_id, tagged_profile_id, tagged_role)
+    VALUES (
+      v_role_card_id,
+      p_profile_id,
+      (v_peer->>'tagged_profile_id')::UUID,
+      v_peer->>'tagged_role'
+    );
+  END LOOP;
+
+  RETURN v_role_card_id;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION submit_role_card TO authenticated;

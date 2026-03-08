@@ -61,6 +61,7 @@ import {
   useStaffList,
   useVenueAttendance,
   useMarkAttendance,
+  useTeamAcademicDetails,
 } from '@/hooks/startup-studio/use-event-venues';
 import { useEventRegistrations } from '@/hooks/startup-studio/use-event-registrations';
 import { useQuery } from '@tanstack/react-query';
@@ -472,6 +473,9 @@ function AttendanceSection({
     attendanceRecords.map((a) => [a.registration_id, a])
   );
 
+  const registrationIds = teams.map((t: any) => t.registration_id).filter(Boolean);
+  const { data: academicDetails = {} } = useTeamAcademicDetails(registrationIds);
+
   const counts = { present: 0, absent: 0, late: 0, excused: 0, unmarked: 0 };
   for (const team of teams) {
     const rec = attendanceByReg[(team as any).registration_id];
@@ -603,6 +607,8 @@ function AttendanceSection({
                             </Badge>
                           )}
                         </div>
+                        {/* Institution / Department / Semester meta */}
+                        <TeamMeta registration={alloc.registration} academic={academicDetails[regId]} />
                         {rec && (
                           <p className="text-[10px] text-muted-foreground mt-1 ml-7">
                             Marked by{' '}
@@ -678,6 +684,40 @@ function AttendanceSection({
           venueId={venue.id}
           dayType={dayType}
         />
+      )}
+    </div>
+  );
+}
+
+// ── Team meta (institution / department / semester) ───────────────────────────
+function TeamMeta({
+  registration,
+  academic,
+}: {
+  registration: any;
+  academic?: { department?: string; semester?: string };
+}) {
+  const institutionName = registration?.institution?.name;
+  const departmentName = academic?.department;
+  const semesterName = academic?.semester;
+
+  if (!institutionName && !departmentName && !semesterName) return null;
+
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 mt-1 ml-7">
+      {institutionName && (
+        <Badge variant="secondary" className="text-[10px] h-4 px-1.5 font-normal">
+          {institutionName}
+        </Badge>
+      )}
+      {departmentName && (
+        <span className="text-[10px] text-muted-foreground">{departmentName}</span>
+      )}
+      {semesterName && (
+        <>
+          <span className="text-[10px] text-muted-foreground">·</span>
+          <span className="text-[10px] text-muted-foreground">{semesterName}</span>
+        </>
       )}
     </div>
   );

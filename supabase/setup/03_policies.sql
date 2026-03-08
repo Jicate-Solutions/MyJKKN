@@ -3095,3 +3095,60 @@ CREATE POLICY "event_team_attendance_delete" ON event_team_attendance
     FOR DELETE TO authenticated USING (
         EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND is_super_admin = true)
     );
+
+-- ══════════════════════════════════════════════════════════════
+-- RLS: appathon_role_cards & appathon_peer_tags (Added: 2026-03-08)
+-- ══════════════════════════════════════════════════════════════
+
+ALTER TABLE appathon_role_cards ENABLE ROW LEVEL SECURITY;
+ALTER TABLE appathon_peer_tags  ENABLE ROW LEVEL SECURITY;
+
+-- Role Cards: SELECT (own card OR same team OR admin/faculty)
+CREATE POLICY "role_cards_select" ON appathon_role_cards FOR SELECT USING (
+  auth.uid() = profile_id
+  OR EXISTS (
+    SELECT 1 FROM event_team_members etm
+    WHERE etm.profile_id = auth.uid()
+      AND etm.status = 'accepted'
+      AND etm.registration_id = appathon_role_cards.team_id
+  )
+  OR EXISTS (
+    SELECT 1 FROM profiles p
+    WHERE p.id = auth.uid()
+      AND p.role IN ('admin', 'principal', 'hod', 'faculty')
+  )
+  OR (SELECT is_super_admin FROM profiles WHERE id = auth.uid())
+);
+
+-- Role Cards: INSERT (defence-in-depth alongside SECURITY DEFINER RPC)
+CREATE POLICY "role_cards_insert" ON appathon_role_cards FOR INSERT WITH CHECK (
+  auth.uid() = profile_id
+);
+
+-- Peer Tags: SELECT (own tags OR same team via role card OR admin)
+CREATE POLICY "peer_tags_select" ON appathon_peer_tags FOR SELECT USING (
+  auth.uid() = tagger_profile_id
+  OR EXISTS (
+    SELECT 1 FROM appathon_role_cards rc
+    JOIN event_team_members etm ON etm.registration_id = rc.team_id
+    WHERE rc.id = appathon_peer_tags.role_card_id
+      AND etm.profile_id = auth.uid()
+      AND etm.status = 'accepted'
+  )
+  OR EXISTS (
+    SELECT 1 FROM profiles p
+    WHERE p.id = auth.uid()
+      AND p.role IN ('admin', 'principal', 'hod', 'faculty')
+  )
+  OR (SELECT is_super_admin FROM profiles WHERE id = auth.uid())
+);
+
+-- Peer Tags: INSERT (only via RPC — role card must be owned by caller)
+CREATE POLICY "peer_tags_insert" ON appathon_peer_tags FOR INSERT WITH CHECK (
+  auth.uid() = tagger_profile_id
+  AND EXISTS (
+    SELECT 1 FROM appathon_role_cards rc
+    WHERE rc.id = appathon_peer_tags.role_card_id
+      AND rc.profile_id = auth.uid()
+  )
+);

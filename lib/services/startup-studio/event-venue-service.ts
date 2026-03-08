@@ -21,7 +21,7 @@ export class EventVenueService {
         *,
         institution:institutions(id, name),
         staff_assignments:event_staff_assignments(id, staff_id, role, day_type, staff:staff(id, first_name, last_name, email)),
-        team_allocations:event_team_venue_allocations(id, registration_id, registration:event_registrations(id, team_name, institution_id))
+        team_allocations:event_team_venue_allocations(id, registration_id, registration:event_registrations(id, team_name, institution_id, institution:institutions(id, name)))
       `)
       .eq('event_id', eventId)
       .order('created_at', { ascending: true });
@@ -353,7 +353,7 @@ export class EventVenueService {
         *,
         institution:institutions(id, name),
         staff_assignments:event_staff_assignments(id, staff_id, role, day_type, staff:staff(id, first_name, last_name, email)),
-        team_allocations:event_team_venue_allocations(id, registration_id, registration:event_registrations(id, team_name, institution_id))
+        team_allocations:event_team_venue_allocations(id, registration_id, registration:event_registrations(id, team_name, institution_id, institution:institutions(id, name)))
       `)
       .in('id', venueIds)
       .eq('event_id', eventId)
@@ -380,7 +380,7 @@ export class EventVenueService {
         *,
         institution:institutions(id, name),
         staff_assignments:event_staff_assignments(id, staff_id, role, day_type, staff:staff(id, first_name, last_name, email)),
-        team_allocations:event_team_venue_allocations(id, registration_id, registration:event_registrations(id, team_name, institution_id))
+        team_allocations:event_team_venue_allocations(id, registration_id, registration:event_registrations(id, team_name, institution_id, institution:institutions(id, name)))
       `)
       .eq('event_id', eventId)
       .order('created_at', { ascending: true });
@@ -453,7 +453,7 @@ export class EventVenueService {
         *,
         institution:institutions(id, name),
         staff_assignments:event_staff_assignments(id, staff_id, role, day_type, staff:staff(id, first_name, last_name, email)),
-        team_allocations:event_team_venue_allocations(id, registration_id, registration:event_registrations(id, team_name, institution_id))
+        team_allocations:event_team_venue_allocations(id, registration_id, registration:event_registrations(id, team_name, institution_id, institution:institutions(id, name)))
       `)
       .eq('id', venueId)
       .maybeSingle();
@@ -463,6 +463,40 @@ export class EventVenueService {
       throw error;
     }
     return data as unknown as EventVenueAssignment | null;
+  }
+
+  /** Fetch department & semester for a list of registration IDs via team members */
+  static async getTeamAcademicDetails(registrationIds: string[]): Promise<Record<string, { department?: string; semester?: string }>> {
+    if (registrationIds.length === 0) return {};
+    const { data, error } = await this.supabase
+      .from('event_team_members')
+      .select(`
+        registration_id,
+        is_leader,
+        learner:learners_profiles(
+          department:departments(id, department_name),
+          semester:semesters(id, semester_name)
+        )
+      `)
+      .in('registration_id', registrationIds);
+
+    if (error) {
+      console.error('[startup/venues] getTeamAcademicDetails failed:', error);
+      return {};
+    }
+
+    const result: Record<string, { department?: string; semester?: string }> = {};
+    for (const row of data || []) {
+      const regId = row.registration_id;
+      // Prefer leader; only overwrite if we haven't set a leader entry yet
+      if (!result[regId] || row.is_leader) {
+        result[regId] = {
+          department: row.learner?.department?.department_name,
+          semester: row.learner?.semester?.semester_name,
+        };
+      }
+    }
+    return result;
   }
 
   static async markAttendance(

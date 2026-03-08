@@ -245,6 +245,16 @@ export function useMarkAttendance() {
   });
 }
 
+/** Fetch department & semester for a set of registration IDs (used in venue detail page). */
+export function useTeamAcademicDetails(registrationIds: string[]) {
+  return useQuery({
+    queryKey: ['team-academic-details', ...registrationIds.sort()],
+    queryFn: () => EventVenueService.getTeamAcademicDetails(registrationIds),
+    enabled: registrationIds.length > 0,
+    staleTime: 60 * 1000,
+  });
+}
+
 // Fetches venue allocations for a specific registration (team).
 // Used by team members (non-leaders) who don't have an event_registrations row
 // of their own — they only have a registration_id via their team membership.

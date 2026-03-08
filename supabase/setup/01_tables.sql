@@ -2115,6 +2115,43 @@ CREATE INDEX IF NOT EXISTS idx_event_team_attendance_registration ON event_team_
 
 ALTER TABLE public.event_team_attendance ENABLE ROW LEVEL SECURITY;
 
+-- ══════════════════════════════════════════════════════════════
+-- APPATHON ROLE CARDS (Added: 2026-03-08 — Skill Bank Phase 1)
+-- ══════════════════════════════════════════════════════════════
+
+CREATE TABLE IF NOT EXISTS appathon_role_cards (
+  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  submission_id UUID NOT NULL REFERENCES event_submissions(id) ON DELETE CASCADE,
+  team_id      UUID NOT NULL REFERENCES event_registrations(id) ON DELETE CASCADE,
+  profile_id   UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  learner_id   UUID REFERENCES learners_profiles(id) ON DELETE SET NULL,
+  self_roles   TEXT[] NOT NULL,
+  proud_of     TEXT NOT NULL,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE(submission_id, profile_id)
+);
+
+CREATE TABLE IF NOT EXISTS appathon_peer_tags (
+  id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  role_card_id     UUID NOT NULL REFERENCES appathon_role_cards(id) ON DELETE CASCADE,
+  tagger_profile_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  tagged_profile_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  tagged_role      TEXT NOT NULL,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE(role_card_id, tagged_profile_id)
+);
+
+-- Indexes for Skill Bank queries
+CREATE INDEX IF NOT EXISTS idx_appathon_role_cards_submission  ON appathon_role_cards(submission_id);
+CREATE INDEX IF NOT EXISTS idx_appathon_role_cards_team        ON appathon_role_cards(team_id);
+CREATE INDEX IF NOT EXISTS idx_appathon_role_cards_profile     ON appathon_role_cards(profile_id);
+CREATE INDEX IF NOT EXISTS idx_appathon_role_cards_learner     ON appathon_role_cards(learner_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_appathon_role_cards_learner_unique
+  ON appathon_role_cards(submission_id, learner_id) WHERE learner_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_appathon_peer_tags_role_card    ON appathon_peer_tags(role_card_id);
+CREATE INDEX IF NOT EXISTS idx_appathon_peer_tags_tagged       ON appathon_peer_tags(tagged_profile_id);
+CREATE INDEX IF NOT EXISTS idx_appathon_peer_tags_tagged_role  ON appathon_peer_tags(tagged_role);
+
 -- =====================================================
 -- END OF TABLE DEFINITIONS
 -- =====================================================
