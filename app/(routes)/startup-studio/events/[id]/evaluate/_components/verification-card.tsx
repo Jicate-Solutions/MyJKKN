@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useForm } from 'react-hook-form'
+import { useForm, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -66,16 +66,19 @@ export function VerificationCard({ team, onVerify, isSubmitting }: VerificationC
     },
   })
 
-  const watched = form.watch()
+  const appLive = useWatch({ control: form.control, name: 'app_live' })
+  const verifiedUsers = useWatch({ control: form.control, name: 'verified_users' })
+  const verifiedActiveUsers = useWatch({ control: form.control, name: 'verified_active_users' })
+  const verifiedRevenue = useWatch({ control: form.control, name: 'verified_revenue' })
 
   useEffect(() => {
     setScore(AppathonVerificationService.calculateScore({
-      app_live: watched.app_live,
-      verified_users: Number(watched.verified_users ?? 0),
-      verified_active_users: Number(watched.verified_active_users ?? 0),
-      verified_revenue: Number(watched.verified_revenue ?? 0),
+      app_live: appLive,
+      verified_users: Number(verifiedUsers ?? 0),
+      verified_active_users: Number(verifiedActiveUsers ?? 0),
+      verified_revenue: Number(verifiedRevenue ?? 0),
     }))
-  }, [watched.app_live, watched.verified_users, watched.verified_active_users, watched.verified_revenue])
+  }, [appLive, verifiedUsers, verifiedActiveUsers, verifiedRevenue])
 
   const handleAction = async (status: VerificationStatus) => {
     const needsReason = status === 'flagged' || status === 'disqualified'
