@@ -301,7 +301,7 @@ export function RoleCardSection({
 
             <Button
               type="submit"
-              disabled={submitRoleCard.isPending}
+              disabled={submitRoleCard.isPending || submitRoleCard.isSuccess}
               className="w-full sm:w-auto gap-2"
             >
               <CheckCircle2 className="h-4 w-4" />
