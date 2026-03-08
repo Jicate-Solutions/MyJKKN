@@ -332,7 +332,7 @@ export interface ClassInchargeStaff {
   id: string;
   first_name: string;
   last_name: string;
-  designation: string;
+  designation: string | null;
   profile_picture: string | null;
 }
 

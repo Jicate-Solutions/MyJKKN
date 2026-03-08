@@ -77,7 +77,7 @@ export function ClassInchargesFilters({ filters, onFiltersChange }: Props) {
     if (!isSuperAdmin && profile?.institution_id && !filters.institution_id) {
       onFiltersChange({ institution_id: profile.institution_id });
     }
-  }, [profile, isSuperAdmin]);
+  }, [profile, isSuperAdmin, filters.institution_id, onFiltersChange]);
 
   function handleReset() {
     onFiltersChange({

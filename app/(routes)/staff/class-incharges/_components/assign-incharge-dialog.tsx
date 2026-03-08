@@ -8,6 +8,7 @@ import {
   useRemoveIncharge,
 } from '@/hooks/staff/use-class-incharges';
 import { useStaffForSelection } from '@/hooks/staff/use-staff';
+import { usePermissions } from '@/hooks/use-permissions';
 import { toast } from 'react-hot-toast';
 import {
   Dialog,
@@ -42,6 +43,10 @@ function getInitials(first: string, last: string) {
 export function AssignInchargeDialog({ section, open, onOpenChange }: Props) {
   const [selectedStaffId, setSelectedStaffId] = useState<string>('');
 
+  const { canAccess } = usePermissions();
+  const canCreate = canAccess('staff', 'class_incharges.create') || canAccess('staff', 'edit');
+  const canDelete = canAccess('staff', 'class_incharges.delete') || canAccess('staff', 'edit');
+
   const { data: incharges = [], isLoading: inchargesLoading } =
     useInchargesBySection(section.id);
 
@@ -67,8 +72,8 @@ export function AssignInchargeDialog({ section, open, onOpenChange }: Props) {
       });
       setSelectedStaffId('');
       toast.success('Incharge assigned successfully');
-    } catch (error: any) {
-      toast.error(error?.message || 'Failed to assign incharge');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to assign incharge');
     }
   }
 
@@ -133,7 +138,7 @@ export function AssignInchargeDialog({ section, open, onOpenChange }: Props) {
                       <span className="text-xs">{name}</span>
                       <button
                         className="ml-0.5 text-muted-foreground hover:text-destructive transition-colors"
-                        disabled={removeMutation.isPending}
+                        disabled={removeMutation.isPending || !canDelete}
                         onClick={() => handleRemove(ic.id, name)}
                         aria-label={`Remove ${name}`}
                       >
@@ -177,7 +182,7 @@ export function AssignInchargeDialog({ section, open, onOpenChange }: Props) {
               </Select>
               <Button
                 size="sm"
-                disabled={!selectedStaffId || assignMutation.isPending}
+                disabled={!selectedStaffId || assignMutation.isPending || !canCreate}
                 onClick={handleAssign}
                 className="h-9"
               >
