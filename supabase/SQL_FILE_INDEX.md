@@ -75,7 +75,7 @@ When updating any SQL file:
 | Child App Auth  | ~~child_app_analytics, child_app_auth_codes_bucket, child_app_unified_sessions~~ (REMOVED 2025-01-20)                                                                                                     | 0     | ❌ Dropped - moved to auth server                          |
 | LTI Integration | lti_tools, lti_launches, lti_grades                                                                                                                                                                                         | 3     | ✅ Complete - MATLAB integration |
 | **Service Requests** | **service_types, service_type_fields, service_request_approval_steps, service_requests, service_request_approvals, service_request_timeline, service_request_attachments** | **7** | **✅ NEW - Dynamic configurable service request system** |
-| **Startup Studio** | **startup_events, event_registrations, event_team_members, event_venue_assignments, event_team_venue_allocations, event_staff_assignments, event_demo_slots, event_submissions, event_checklists, event_checklist_items, event_checklist_completions, event_team_attendance** | **12** | **NEW - Generic event platform for hackathons/competitions** |
+| **Startup Studio** | **startup_events, event_registrations, event_team_members, event_venue_assignments, event_team_venue_allocations, event_staff_assignments, event_demo_slots, event_submissions, event_checklists, event_checklist_items, event_checklist_completions, event_team_attendance, appathon_role_cards, appathon_peer_tags, appathon_verifications** | **15** | **NEW - Generic event platform for hackathons/competitions** |
 | Other           | applications (with parent auth + LTI), categories, subcategories, employment_categories, user_activity_logs, activity_stats, institution_departments, migration_log                                                           | 8     | ✅ Updated with auth + LTI  |
 
 ### Functions (244 total - Updated 2026-02-09)
@@ -201,6 +201,29 @@ When updating any SQL file:
   **Purpose**: Aggregates `student_attendance.marked_by` counts per staff member to power the live facilitator attendance dashboard at `/attendance/consolidation/facilitators`. Returns summary totals, per-facilitator detail with weekly trend and daily heatmap data, and department-level breakdown — all as a single JSONB response.
 
   **Function signature**: `get_facilitator_attendance_stats(p_institution_id UUID, p_date_from DATE, p_date_to DATE, p_department_id UUID DEFAULT NULL, p_program_id UUID DEFAULT NULL, p_semester_id UUID DEFAULT NULL, p_facilitator_id UUID DEFAULT NULL) → JSONB`
+
+---
+
+### 2026-03-08: Demo Day Evaluation — appathon_verifications Table
+
+- **Files Updated**:
+  - `supabase/setup/01_tables.sql` — Added `appathon_verifications` table with 4 indexes
+  - `supabase/setup/03_policies.sql` — Added RLS (ENABLE + 3 policies: SELECT, INSERT, UPDATE)
+
+  **Purpose**: Core evaluation table for Demo Day. One row per evaluator per team. Evaluators verify team claims (live URL, user counts, revenue) during presentations and record tier scores (T1–T4) + revenue bonus. Calculated scores are server-recomputed and not trusted from client. Admission restricted to staff assigned as judge/panel_chair/evaluator for `demo_day` day_type.
+
+**appathon_verifications** — New table:
+- `submission_id` → `event_submissions(id)`
+- `evaluator_id` → `profiles(id)`
+- `venue_id` → `event_venue_assignments(id)`
+- `presented BOOLEAN`, `presentation_slot INT`
+- `app_live BOOLEAN`
+- `claimed_users`, `claimed_active_users`, `claimed_revenue` — copied at freeze time
+- `verified_users`, `verified_active_users`, `verified_revenue` — evaluator-confirmed
+- `verified_tier INT`, `revenue_bonus INT`, `total_score INT` — server-computed
+- `verification_status TEXT` — `'pending'` | `'verified'` | `'flagged'` | `'disqualified'`
+- `flag_reason TEXT`, `notes TEXT`
+- UNIQUE constraint on `(submission_id, evaluator_id)`
 
 ---
 

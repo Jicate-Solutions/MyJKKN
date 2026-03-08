@@ -3152,3 +3152,48 @@ CREATE POLICY "peer_tags_insert" ON appathon_peer_tags FOR INSERT WITH CHECK (
       AND rc.profile_id = auth.uid()
   )
 );
+
+-- ─── RLS: appathon_verifications ──────────────────────────────────────────
+-- Added: 2026-03-08
+ALTER TABLE appathon_verifications ENABLE ROW LEVEL SECURITY;
+
+-- Evaluators see their own; admins see all
+CREATE POLICY "appathon_verifications_select"
+    ON appathon_verifications FOR SELECT
+    USING (
+        evaluator_id = auth.uid()
+        OR EXISTS (
+            SELECT 1 FROM profiles p
+            WHERE p.id = auth.uid()
+            AND p.role IN ('admin', 'super_admin', 'administrator')
+        )
+    );
+
+-- Evaluators can create their own verifications
+-- Must be assigned to the venue as judge/panel_chair/evaluator for demo_day
+CREATE POLICY "appathon_verifications_insert"
+    ON appathon_verifications FOR INSERT
+    WITH CHECK (
+        evaluator_id = auth.uid()
+        AND EXISTS (
+            SELECT 1
+            FROM event_staff_assignments esa
+            JOIN staff s ON s.id = esa.staff_id
+            WHERE esa.venue_assignment_id = appathon_verifications.venue_id
+            AND s.profile_id = auth.uid()
+            AND esa.role IN ('judge', 'panel_chair', 'evaluator')
+            AND esa.day_type = 'demo_day'
+        )
+    );
+
+-- Evaluators update their own; admins update any
+CREATE POLICY "appathon_verifications_update"
+    ON appathon_verifications FOR UPDATE
+    USING (
+        evaluator_id = auth.uid()
+        OR EXISTS (
+            SELECT 1 FROM profiles p
+            WHERE p.id = auth.uid()
+            AND p.role IN ('admin', 'super_admin', 'administrator')
+        )
+    );

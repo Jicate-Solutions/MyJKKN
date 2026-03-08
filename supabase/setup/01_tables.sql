@@ -2156,6 +2156,61 @@ CREATE INDEX IF NOT EXISTS idx_appathon_peer_tags_role_card    ON appathon_peer_
 CREATE INDEX IF NOT EXISTS idx_appathon_peer_tags_tagged       ON appathon_peer_tags(tagged_profile_id);
 CREATE INDEX IF NOT EXISTS idx_appathon_peer_tags_tagged_role  ON appathon_peer_tags(tagged_role);
 
+-- ─── Appathon Verifications (Demo Day Evaluation System) ──────────────────
+-- Added: 2026-03-08 - One row per evaluator per team. Evaluators verify
+-- team claims (live URL, user counts, revenue) during Demo Day presentations.
+-- Uses T1-T4 user-based tier scoring + revenue bonus (separate from T0-T5 self-reported).
+CREATE TABLE IF NOT EXISTS public.appathon_verifications (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+
+    -- Core relationships
+    submission_id UUID NOT NULL REFERENCES event_submissions(id) ON DELETE CASCADE,
+    evaluator_id  UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+    venue_id      UUID NOT NULL REFERENCES event_venue_assignments(id) ON DELETE CASCADE,
+
+    -- Team presence
+    presented          BOOLEAN DEFAULT false,
+    presentation_slot  INT,
+
+    -- App verification
+    app_live BOOLEAN DEFAULT false,
+
+    -- Claimed values (copied from event_submissions at freeze time)
+    claimed_users        INT           DEFAULT 0,
+    claimed_active_users INT           DEFAULT 0,
+    claimed_revenue      NUMERIC(10,2) DEFAULT 0,
+
+    -- Verified values (evaluator-confirmed)
+    verified_users        INT           DEFAULT 0,
+    verified_active_users INT           DEFAULT 0,
+    verified_revenue      NUMERIC(10,2) DEFAULT 0,
+
+    -- Calculated scores (server-recomputed, do not trust client)
+    verified_tier  INT DEFAULT 0,
+    revenue_bonus  INT DEFAULT 0,
+    total_score    INT DEFAULT 0,
+
+    -- Verification outcome
+    verification_status TEXT NOT NULL DEFAULT 'pending'
+        CHECK (verification_status IN ('pending', 'verified', 'flagged', 'disqualified')),
+    flag_reason TEXT,
+    notes TEXT,
+
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+    UNIQUE(submission_id, evaluator_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_appathon_verifications_submission
+    ON appathon_verifications(submission_id);
+CREATE INDEX IF NOT EXISTS idx_appathon_verifications_evaluator
+    ON appathon_verifications(evaluator_id);
+CREATE INDEX IF NOT EXISTS idx_appathon_verifications_venue
+    ON appathon_verifications(venue_id);
+CREATE INDEX IF NOT EXISTS idx_appathon_verifications_status
+    ON appathon_verifications(verification_status);
+
 -- =====================================================
 -- END OF TABLE DEFINITIONS
 -- =====================================================
