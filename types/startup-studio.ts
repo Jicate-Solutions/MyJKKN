@@ -504,3 +504,114 @@ export interface CreateRoleCardDto {
   proud_of: string;
   peer_tags: Array<{ tagged_profile_id: string; tagged_role: string }>;
 }
+
+// ─── Demo Day Verification Types (added 2026-03-08) ──────────────────────
+
+export type VerificationStatus = 'pending' | 'verified' | 'flagged' | 'disqualified';
+
+export interface AppathonVerification {
+  id: string;
+  submission_id: string;
+  evaluator_id: string;
+  venue_id: string;
+  presented: boolean;
+  presentation_slot: number | null;
+  app_live: boolean;
+  claimed_users: number;
+  claimed_active_users: number;
+  claimed_revenue: number;
+  verified_users: number;
+  verified_active_users: number;
+  verified_revenue: number;
+  verified_tier: number;
+  revenue_bonus: number;
+  total_score: number;
+  verification_status: VerificationStatus;
+  flag_reason: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+  // Joined fields (present when queried with select)
+  evaluator?: { full_name: string };
+  venue?: { manual_name: string };
+}
+
+export interface CreateVerificationDto {
+  submission_id: string;
+  venue_id: string;
+  presented: boolean;
+  app_live: boolean;
+  verified_users: number;
+  verified_active_users: number;
+  verified_revenue: number;
+  verification_status: VerificationStatus;
+  flag_reason?: string;
+  notes?: string;
+}
+
+export interface UpdateVerificationDto extends Partial<CreateVerificationDto> {}
+
+export interface VerificationScore {
+  tier: number;          // 0–4
+  tier_points: number;   // 0, 10, 25, 40, or 50
+  revenue_bonus: number; // 0, 5, or 10
+  total_score: number;
+}
+
+// Data shape returned by the appathon_leaderboard view
+export interface VerifiedLeaderboardEntry {
+  submission_id: string;
+  team_id: string;
+  team_name: string;
+  institution_id: string;
+  event_id: string;
+  app_name: string | null;
+  live_app_url: string | null;
+  category: string | null;
+  verified_tier: number;
+  tier_points: number;
+  revenue_bonus: number;
+  total_score: number;
+  verified_users: number;
+  verified_active_users: number;
+  verified_revenue: number;
+  verification_status: VerificationStatus | null;
+  presented: boolean | null;
+  evaluator_id: string | null;
+  venue_name: string | null;
+  college_rank: number;
+  overall_rank: number;
+}
+
+// A single team card shown to the evaluator on the /evaluate page
+export interface EvaluatorTeamCard {
+  registration_id: string;
+  team_name: string;
+  institution_name: string;
+  demo_slot: number | null;
+  venue_id: string;  // venue_assignment_id for the team's demo venue
+  submission: {
+    id: string;
+    app_name: string | null;
+    live_app_url: string | null;
+    github_url: string | null;
+    user_count: number;
+    active_users_count: number;
+    mrr_amount: number;
+    proof_urls: string[];
+  } | null;
+  verification: AppathonVerification | null;
+}
+
+// Admin view of evaluator progress per venue
+export interface EvaluatorProgress {
+  staff_id: string;
+  evaluator_profile_id: string;
+  evaluator_name: string;
+  venue_id: string;
+  venue_name: string;
+  event_id: string;
+  total_teams: number;
+  verified_count: number;
+  remaining: number;
+}
