@@ -183,7 +183,7 @@ export default function SubmitPage({ params }: { params: Promise<{ id: string }>
     <ContentLayout title="Submit Project">
       <PageBreadcrumb items={breadcrumb} />
 
-      <div className="space-y-6 max-w-5xl py-4">
+      <div className="space-y-6 py-4">
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-2xl font-bold">Submit Project</h2>

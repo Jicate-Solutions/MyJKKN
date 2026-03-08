@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -48,6 +49,22 @@ const roleCardSchema = z.object({
 
 type RoleCardFormValues = z.infer<typeof roleCardSchema>;
 
+// ── Draft persistence helpers ──────────────────────────────────────────────────
+
+function readDraft<T>(key: string): Partial<T> | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const s = sessionStorage.getItem(key);
+    return s ? (JSON.parse(s) as Partial<T>) : null;
+  } catch { return null; }
+}
+function saveDraft(key: string, values: unknown) {
+  try { sessionStorage.setItem(key, JSON.stringify(values)); } catch {}
+}
+function clearDraft(key: string) {
+  try { sessionStorage.removeItem(key); } catch {}
+}
+
 // ── Props ─────────────────────────────────────────────────────────────────────
 
 interface RoleCardSectionProps {
@@ -78,14 +95,25 @@ export function RoleCardSection({
   const completedCount = teamCards?.length ?? 0;
   const totalCount = acceptedMembers.length;
 
+  const draftKey = `role-card-${submissionId}-${profileId}`;
+  const draft = readDraft<RoleCardFormValues>(draftKey);
+
   const form = useForm<RoleCardFormValues>({
     resolver: zodResolver(roleCardSchema),
     defaultValues: {
-      self_roles: [],
-      proud_of: '',
-      peer_tags: Object.fromEntries(otherMembers.map((m) => [m.profile_id!, ''])),
+      self_roles: draft?.self_roles ?? [],
+      proud_of: draft?.proud_of ?? '',
+      peer_tags: Object.fromEntries(
+        otherMembers.map((m) => [m.profile_id!, draft?.peer_tags?.[m.profile_id!] ?? ''])
+      ),
     },
   });
+
+  // Persist form values to sessionStorage so navigation doesn't wipe the draft
+  useEffect(() => {
+    const subscription = form.watch((values) => saveDraft(draftKey, values));
+    return () => subscription.unsubscribe();
+  }, [form, draftKey]);
 
   if (myCardLoading || teamCardsLoading) {
     return (
@@ -146,15 +174,18 @@ export function RoleCardSection({
       ([tagged_profile_id, tagged_role]) => ({ tagged_profile_id, tagged_role })
     );
 
-    submitRoleCard.mutate({
-      submission_id: submissionId,
-      team_id: teamId,
-      profile_id: profileId,
-      learner_id: learnerId,
-      self_roles: values.self_roles,
-      proud_of: values.proud_of,
-      peer_tags,
-    });
+    submitRoleCard.mutate(
+      {
+        submission_id: submissionId,
+        team_id: teamId,
+        profile_id: profileId,
+        learner_id: learnerId,
+        self_roles: values.self_roles,
+        proud_of: values.proud_of,
+        peer_tags,
+      },
+      { onSuccess: () => clearDraft(draftKey) }
+    );
   };
 
   return (

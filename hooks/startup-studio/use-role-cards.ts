@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { RoleCardService } from '@/lib/services/startup-studio/role-card-service';
 import type { CreateRoleCardDto } from '@/types/startup-studio';
 import { useAuth } from '@/hooks/use-auth';
+import toast from 'react-hot-toast';
 
 /** Fetch the current user's role card for a submission (null = not yet submitted). */
 export function useMyRoleCard(submissionId: string | undefined) {
@@ -31,8 +32,12 @@ export function useSubmitRoleCard() {
   return useMutation({
     mutationFn: (dto: CreateRoleCardDto) => RoleCardService.createRoleCard(dto),
     onSuccess: (_, variables) => {
+      toast.success('Role card submitted!');
       queryClient.invalidateQueries({ queryKey: ['my-role-card', variables.submission_id, variables.profile_id] });
       queryClient.invalidateQueries({ queryKey: ['team-role-cards', variables.submission_id] });
+    },
+    onError: (error: any) => {
+      toast.error(error?.message || 'Failed to submit role card');
     },
   });
 }
