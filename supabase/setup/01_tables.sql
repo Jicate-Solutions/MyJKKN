@@ -2222,8 +2222,8 @@ CREATE TABLE IF NOT EXISTS audience_votes (
   submission_id    UUID NOT NULL REFERENCES event_submissions(id) ON DELETE CASCADE,
   voter_profile_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
   rating           INTEGER NOT NULL CHECK (rating BETWEEN 1 AND 5),
-  voted_at         TIMESTAMPTZ DEFAULT NOW(),
-  updated_at       TIMESTAMPTZ DEFAULT NOW(),
+  voted_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE(submission_id, voter_profile_id)
 );
 

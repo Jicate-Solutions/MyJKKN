@@ -3222,6 +3222,9 @@ CREATE POLICY "audience_votes_select"
   ON audience_votes FOR SELECT
   USING (auth.uid() IS NOT NULL);
 
+-- Voting window (voting_opened_at / voting_closed_at) is enforced at the
+-- application layer in AudienceVoteService.castVote(). The policy only
+-- enforces identity — users may only insert their own vote.
 CREATE POLICY "audience_votes_insert"
   ON audience_votes FOR INSERT
   WITH CHECK (auth.uid() = voter_profile_id);
