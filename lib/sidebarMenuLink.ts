@@ -1021,6 +1021,13 @@ export function GetPages(pathname: string): MenuGroup[] {
           active: pathname === '/staff/list',
           icon: Users,
           submenus: []
+        },
+        {
+          href: '/staff/class-incharges',
+          label: 'Class Incharges',
+          active: pathname.startsWith('/staff/class-incharges'),
+          icon: UserCheck,
+          submenus: []
         }
       ]
     },
