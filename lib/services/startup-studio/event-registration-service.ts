@@ -187,7 +187,8 @@ export class EventRegistrationService {
         *,
         owner:profiles!event_registrations_owner_id_fkey(id, full_name, email, avatar_url),
         institution:institutions(id, name),
-        team_members:event_team_members(id, email, full_name, student_id, has_laptop, profile_id, learner_id, status, is_leader, responded_at)
+        team_members:event_team_members(id, email, full_name, student_id, has_laptop, profile_id, learner_id, status, is_leader, responded_at),
+        submission:event_submissions(*)
       `)
       .eq('event_id', filters.event_id)
       .order('created_at', { ascending: true });
@@ -545,6 +546,19 @@ export class EventRegistrationService {
       console.error('[startup/registration] toggleCheckIn failed:', error);
       throw error;
     }
+  }
+
+  static async getDemoSlots(eventId: string): Promise<Array<{ registration_id: string; slot_order: number | null }>> {
+    const { data, error } = await this.supabase
+      .from('event_demo_slots')
+      .select('registration_id, slot_order')
+      .eq('event_id', eventId);
+
+    if (error) {
+      console.error('[startup/registration] getDemoSlots failed:', error);
+      return [];
+    }
+    return (data || []) as Array<{ registration_id: string; slot_order: number | null }>;
   }
 
   static async updateTeamName(registrationId: string, ownerId: string, teamName: string): Promise<void> {

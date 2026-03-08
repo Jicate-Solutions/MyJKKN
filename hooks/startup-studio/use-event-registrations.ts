@@ -43,6 +43,15 @@ export function useEventRegistrationsPaginated(filters: RegistrationFilters) {
   });
 }
 
+export function useEventDemoSlots(eventId: string | undefined) {
+  return useQuery({
+    queryKey: ['event-demo-slots', eventId],
+    queryFn: () => EventRegistrationService.getDemoSlots(eventId!),
+    enabled: isValidUUID(eventId),
+    staleTime: 60 * 1000,
+  });
+}
+
 export function useMyRegistration(eventId: string | undefined) {
   const { profile } = useAuth();
   return useQuery({

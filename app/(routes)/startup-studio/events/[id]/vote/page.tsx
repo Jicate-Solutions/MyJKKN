@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { useAuth } from '@/hooks/use-auth'
 import { useEvent } from '@/hooks/startup-studio/use-events'
-import { useEventRegistrations } from '@/hooks/startup-studio/use-event-registrations'
+import { useEventRegistrations, useEventDemoSlots } from '@/hooks/startup-studio/use-event-registrations'
 import {
   useVoteSummaries,
   useMyVotes,
@@ -25,6 +25,7 @@ export default function VotePage({ params }: { params: Promise<{ id: string }> }
 
   const { data: event, isLoading: eventLoading } = useEvent(id)
   const { data: registrations = [], isLoading: regsLoading } = useEventRegistrations({ event_id: id })
+  const { data: demoSlots = [] } = useEventDemoSlots(id)
   const { data: summaries = [] } = useVoteSummaries(id)
   const { data: myVotes = [] } = useMyVotes(id, profileId)
   const { mutate: castVote, isPending } = useCastVote(id, profileId)
@@ -37,9 +38,19 @@ export default function VotePage({ params }: { params: Promise<{ id: string }> }
   // Build lookup maps
   const summaryMap = new Map(summaries.map(s => [s.submission_id, s]))
   const myVoteMap = new Map(myVotes.map(v => [v.submission_id, v.rating]))
+  const slotMap = new Map(demoSlots.map(s => [s.registration_id, s.slot_order]))
 
-  // Only list teams that have a submitted project
-  const teamsWithSubmissions = registrations.filter(r => !!r.submission)
+  // Only list teams that have a submitted project, sorted by demo slot (nulls last)
+  const teamsWithSubmissions = registrations
+    .filter(r => !!r.submission)
+    .sort((a, b) => {
+      const slotA = slotMap.get(a.id) ?? null
+      const slotB = slotMap.get(b.id) ?? null
+      if (slotA === null && slotB === null) return 0
+      if (slotA === null) return 1
+      if (slotB === null) return -1
+      return slotA - slotB
+    })
 
   if (eventLoading) {
     return (
@@ -127,7 +138,7 @@ export default function VotePage({ params }: { params: Promise<{ id: string }> }
                   teamName={reg.team_name}
                   appName={reg.submission!.app_name}
                   institutionName={institutionName}
-                  demoSlot={null}
+                  demoSlot={slotMap.get(reg.id) ?? null}
                   slotIndex={index + 1}
                   totalVotes={voteSummary?.total_votes ?? 0}
                   averageRating={voteSummary?.average_rating ?? 0}
