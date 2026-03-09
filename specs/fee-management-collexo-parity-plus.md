@@ -1123,7 +1123,6 @@ CREATE TABLE billing_tax_config (
 > **Tax calculation precision:** All tax calculations MUST use exact decimal arithmetic in the application layer (e.g., `Decimal.js` or SQL `ROUND(amount * rate / 100, 2)`). Compute `total_tax` as the literal sum of component amounts (CGST + SGST + IGST), NOT independently calculated, to satisfy the CHECK constraint on `billing_tax_calculations`.
 
 ```sql
-
 CREATE TABLE billing_tax_calculations (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   institution_id uuid NOT NULL REFERENCES institutions(id),
