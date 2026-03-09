@@ -411,6 +411,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/startup-studio/events/[id]/leaderboard': 'startup_studio.leaderboard.view',
   '/startup-studio/events/[id]/vote': 'startup_studio.events.view',
   '/startup-studio/events/[id]/checklists': 'startup_studio.checklists.manage',
+  '/startup-studio/events/[id]/dashboard': 'startup_studio.analytics.view',
 };
 
 export function GetPages(pathname: string): MenuGroup[] {
@@ -1411,6 +1412,11 @@ export function GetPages(pathname: string): MenuGroup[] {
             active: pathname.startsWith('/startup-studio'),
             icon: Rocket,
             submenus: activeId ? [
+              {
+                href: `/startup-studio/events/${activeId}/dashboard`,
+                label: 'Analytics Dashboard',
+                active: pathname.includes('/dashboard')
+              },
               {
                 href: `/startup-studio/events/${activeId}/my-team`,
                 label: 'My Team',
