@@ -94,10 +94,13 @@ export function getClassInchargeColumns(
       header: () => (
         <Checkbox
           checked={
-            actions.totalCount > 0 &&
-            actions.selectedIds.size === actions.totalCount
+            actions.totalCount > 0 && actions.selectedIds.size === actions.totalCount
+              ? true
+              : actions.selectedIds.size > 0
+              ? 'indeterminate'
+              : false
           }
-          onCheckedChange={(checked) => actions.onSelectAll(!!checked)}
+          onCheckedChange={(checked) => actions.onSelectAll(checked === true)}
           aria-label="Select all"
           className="translate-y-[2px]"
         />

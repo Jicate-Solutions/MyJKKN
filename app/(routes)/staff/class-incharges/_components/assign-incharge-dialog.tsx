@@ -137,7 +137,7 @@ export function AssignInchargeDialog({ open, onOpenChange, ...rest }: Props) {
         .join(' › ')
     : '';
 
-  const isPending = assignMutation.isPending || bulkAssignMutation.isPending;
+  const isPending = isBulk ? bulkAssignMutation.isPending : assignMutation.isPending;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
