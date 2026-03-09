@@ -2,7 +2,6 @@
 
 import { use } from 'react'
 import { Skeleton } from '@/components/ui/skeleton'
-import { useAuth } from '@/hooks/use-auth'
 import { useEvent } from '@/hooks/startup-studio/use-events'
 import { useMyRegistration } from '@/hooks/startup-studio/use-event-registrations'
 import { useMySubmission } from '@/hooks/startup-studio/use-event-submissions'
@@ -14,7 +13,6 @@ import { CaseStudyForm } from './_components/case-study-form'
 export default function CaseStudyPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
 
-  const { profile } = useAuth()
   const { data: event, isLoading: eventLoading } = useEvent(id)
   const { data: registration, isLoading: registrationLoading } = useMyRegistration(id)
   const { data: submission, isLoading: submissionLoading } = useMySubmission(id)

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -42,10 +42,18 @@ export function CaseStudyForm({
   score,
   existing,
 }: Props) {
-  const DRAFT_KEY = `case_study_draft_${eventId}_${registrationId}`
+  // Fix 5: derive DRAFT_KEY once with useMemo instead of on every render
+  const DRAFT_KEY = useMemo(
+    () => `case_study_draft_${eventId}_${registrationId}`,
+    [eventId, registrationId]
+  )
+
   const [draftSaved, setDraftSaved] = useState(false)
   const autoSaveRef = useRef<NodeJS.Timeout | null>(null)
+  // Fix 2: ref to hold latest saveDraft so setInterval never has a stale closure
+  const saveDraftRef = useRef<(() => void) | null>(null)
 
+  // Fix 1: no localStorage in defaultValues (safe for SSR)
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
     defaultValues: existing
@@ -56,14 +64,20 @@ export function CaseStudyForm({
           who_else: existing.who_else ?? '',
           demo_url: existing.demo_url ?? '',
         }
-      : (() => {
-          const draft = localStorage.getItem(DRAFT_KEY)
-          if (draft) {
-            try { return JSON.parse(draft) } catch {}
-          }
-          return { problem: '', solution: '', proof: '', who_else: '', demo_url: '' }
-        })(),
+      : { problem: '', solution: '', proof: '', who_else: '', demo_url: '' },
   })
+
+  // Fix 1: load draft from localStorage after mount (browser-only)
+  useEffect(() => {
+    if (!existing) {
+      const draft = localStorage.getItem(DRAFT_KEY)
+      if (draft) {
+        try {
+          form.reset(JSON.parse(draft))
+        } catch {}
+      }
+    }
+  }, []) // intentionally empty — only runs once on mount
 
   const create = useCreateCaseStudy(eventId, registrationId)
   const update = useUpdateCaseStudy(eventId, registrationId)
@@ -77,12 +91,15 @@ export function CaseStudyForm({
     }
   }
 
+  // Fix 2: keep ref always up-to-date so interval never calls a stale closure
+  saveDraftRef.current = saveDraft
+
   useEffect(() => {
-    autoSaveRef.current = setInterval(saveDraft, 10_000)
+    autoSaveRef.current = setInterval(() => saveDraftRef.current?.(), 10_000)
     return () => {
       if (autoSaveRef.current) clearInterval(autoSaveRef.current)
     }
-  }, [])
+  }, []) // empty deps is safe because interval calls through ref
 
   async function onSubmit(values: FormValues) {
     const cleanedUrl = values.demo_url || undefined
@@ -207,7 +224,8 @@ export function CaseStudyForm({
             name="who_else"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>4. Who Else Needs This? <span className="text-destructive">*</span></FormLabel>
+                {/* Fix 3: field is optional in schema — remove asterisk, add (optional) hint */}
+                <FormLabel>4. Who Else Needs This? <span className="text-muted-foreground text-xs">(optional)</span></FormLabel>
                 <FormDescription>Beyond JKKN, who would pay for this?</FormDescription>
                 <FormControl>
                   <Textarea

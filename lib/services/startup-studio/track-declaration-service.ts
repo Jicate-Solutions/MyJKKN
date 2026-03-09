@@ -131,7 +131,7 @@ export class TrackDeclarationService {
       .eq('event_id', eventId)
     if (error) throw error
 
-    const counts = (data ?? []).reduce<Record<string, number>>((acc, row) => {
+    const counts = ((data ?? []) as Array<{ track: string }>).reduce<Record<string, number>>((acc, row) => {
       acc[row.track] = (acc[row.track] ?? 0) + 1
       return acc
     }, {})
