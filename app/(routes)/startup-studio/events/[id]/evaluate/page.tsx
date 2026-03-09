@@ -3,7 +3,7 @@
 import { use, useState, useEffect } from 'react'
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, Loader2, Lock } from 'lucide-react'
+import { ArrowLeft, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -67,26 +67,6 @@ export default function EvaluatePage({ params }: { params: Promise<{ id: string 
     )
   }
   if (!event) return notFound()
-
-  if (!event.metrics_frozen_at) {
-    return (
-      <ContentLayout title="Demo Day Evaluation">
-        <div className="mx-auto p-6 text-center space-y-4 pt-12">
-          <Lock className="h-12 w-12 text-muted-foreground mx-auto" />
-          <h2 className="text-lg font-semibold">Evaluation Not Open Yet</h2>
-          <p className="text-sm text-muted-foreground">
-            The admin must freeze team metrics before evaluation can begin.
-            Please wait for the 9:15 AM signal.
-          </p>
-          <Link href={`/startup-studio/events/${id}`}>
-            <Button variant="outline" className="gap-1.5">
-              <ArrowLeft className="h-4 w-4" /> Back to Event
-            </Button>
-          </Link>
-        </div>
-      </ContentLayout>
-    )
-  }
 
   const pendingTeams = displayTeams.filter(
     t => !t.verification || t.verification.verification_status === 'pending'

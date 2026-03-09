@@ -88,6 +88,14 @@ import { useEventRegistrations } from '@/hooks/startup-studio/use-event-registra
 import { useAuth } from '@/hooks/use-auth';
 import type { DayType, EventVenueAssignment } from '@/types/startup-studio';
 
+const ROLE_LABELS: Record<string, string> = {
+  mentor: 'Mentor',
+  lead_mentor: 'Lead Mentor',
+  judge: 'Judge',
+  panel_chair: 'Panel Chair',
+  evaluator: 'Evaluator',
+};
+
 function useInstitutions() {
   return useQuery({
     queryKey: ['institutions-list'],
@@ -365,11 +373,23 @@ function VenuesDataTable({ venues, eventId, dayType, isSuperAdmin, unallocatedTe
       accessorFn: (row) => row.staff_assignments?.length || 0,
       header: ({ column }) => <SortableHeader column={column} label="Staff" />,
       cell: ({ row }) => {
-        const count = row.original.staff_assignments?.length || 0;
+        const assignments = row.original.staff_assignments || [];
+        if (assignments.length === 0) {
+          return <span className="text-xs text-muted-foreground">—</span>;
+        }
         return (
-          <Badge variant={count > 0 ? 'secondary' : 'outline'} className="text-xs tabular-nums">
-            {count}
-          </Badge>
+          <div className="flex flex-col gap-1 min-w-0">
+            {assignments.map((sa: any) => (
+              <div key={sa.id} className="flex items-center gap-1.5 min-w-0">
+                <span className="text-xs truncate">
+                  {sa.staff?.first_name} {sa.staff?.last_name}
+                </span>
+                <Badge variant="outline" className="text-[10px] px-1 py-0 shrink-0">
+                  {ROLE_LABELS[sa.role] || sa.role}
+                </Badge>
+              </div>
+            ))}
+          </div>
         );
       },
     },
