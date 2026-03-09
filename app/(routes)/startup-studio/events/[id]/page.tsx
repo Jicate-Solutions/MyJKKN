@@ -39,7 +39,8 @@ import {
   ArrowRight,
   Info,
   Layers,
-  Wrench
+  Wrench,
+  Vote
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -425,12 +426,19 @@ export default function EventDetailPage({ params }: { params: Promise<{ id: stri
                       </p>
                     </div>
                   </div>
-                  <div className="flex gap-3 shrink-0">
+                  <div className="flex gap-3 shrink-0 flex-wrap">
                     <Link href={`/startup-studio/events/${id}/my-team`}>
                       <Button variant="outline" className="bg-white/50 hover:bg-white/80 dark:bg-black/20 dark:hover:bg-black/40 border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 gap-2">
                         <Users className="h-4 w-4" /> {isLeader ? 'Manage Team' : 'View My Team'}
                       </Button>
                     </Link>
+                    {event.voting_opened_at && (
+                      <Link href={`/startup-studio/events/${id}/vote`}>
+                        <Button variant="outline" className="bg-white/50 hover:bg-white/80 dark:bg-black/20 dark:hover:bg-black/40 border-purple-200 dark:border-purple-800 text-purple-700 dark:text-purple-300 gap-2">
+                          <Vote className="h-4 w-4" /> {event.voting_closed_at ? 'View Votes' : 'Vote Now'}
+                        </Button>
+                      </Link>
+                    )}
                     <Link href={`/startup-studio/events/${id}/submit`}>
                       <Button className="bg-blue-600 hover:bg-blue-700 text-white shadow-sm gap-2">
                         <FileText className="h-4 w-4" /> {isLeader ? 'Submit Project' : 'View Submission'}
@@ -442,6 +450,31 @@ export default function EventDetailPage({ params }: { params: Promise<{ id: stri
             );
           })()}
         </div>
+
+        {/* Voting Banner — visible to everyone when voting is open */}
+        {event.voting_opened_at && !event.voting_closed_at && (
+          <div className="relative overflow-hidden rounded-xl bg-gradient-to-r from-purple-50 to-violet-50 dark:from-purple-950/30 dark:to-violet-950/30 border border-purple-100 dark:border-purple-900/50 p-6">
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-6 relative z-10">
+              <div className="flex items-center gap-4">
+                <div className="h-10 w-10 rounded-full bg-purple-100 dark:bg-purple-900/50 flex items-center justify-center shrink-0">
+                  <Vote className="h-5 w-5 text-purple-600 dark:text-purple-400" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-purple-950 dark:text-purple-50">Audience Voting is Live!</h3>
+                  <p className="text-sm text-purple-800/80 dark:text-purple-200/80">
+                    Rate and vote for your favourite teams. Every vote counts!
+                  </p>
+                </div>
+              </div>
+              <Link href={`/startup-studio/events/${id}/vote`}>
+                <Button className="bg-purple-600 hover:bg-purple-700 text-white shadow-md gap-2">
+                  <Vote className="h-4 w-4" /> Vote Now <ArrowRight className="h-4 w-4" />
+                </Button>
+              </Link>
+            </div>
+            <div className="absolute right-0 top-0 h-32 w-32 bg-purple-200/20 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
+          </div>
+        )}
 
         {/* Evaluator Panel — shown to judges/evaluators/panel_chairs who are not admins */}
         {!isAdmin && isEventEvaluator && (

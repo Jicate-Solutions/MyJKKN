@@ -45,7 +45,7 @@ import {
   CheckCircle2, Clock, Laptop, MapPin, User, Users, Loader2,
   UserPlus, XCircle, Hash, Bell, Shield, GraduationCap, Building2, Mail, Pencil,
   Send, ExternalLink, Github, Link2, Video, FileText, Lightbulb,
-  Copy, Check, AlertCircle, Trophy, Calendar, Trash2, Star,
+  Copy, Check, AlertCircle, Trophy, Calendar, Trash2, Star, Vote,
 } from 'lucide-react';
 import type { EventTeamMember, PendingInvitation } from '@/types/startup-studio';
 
@@ -378,6 +378,32 @@ export default function MyTeamPage({ params }: { params: Promise<{ id: string }>
               cards={teamRoleCards}
               myProfileId={profile?.id ?? ''}
             />
+          )}
+
+          {/* Voting Banner */}
+          {event?.voting_opened_at && (
+            <div className="rounded-xl border bg-gradient-to-r from-purple-50 to-violet-50/40 dark:from-purple-950/20 dark:to-violet-950/10 p-5">
+              <div className="flex items-center justify-between flex-wrap gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="h-9 w-9 rounded-full bg-purple-100 dark:bg-purple-900/50 flex items-center justify-center shrink-0">
+                    <Vote className="h-4 w-4 text-purple-600 dark:text-purple-400" />
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-sm">
+                      {event.voting_closed_at ? 'Voting Results' : 'Audience Voting is Live!'}
+                    </h3>
+                    <p className="text-xs text-muted-foreground">
+                      {event.voting_closed_at ? 'See how teams were rated.' : 'Rate and vote for your favourite teams.'}
+                    </p>
+                  </div>
+                </div>
+                <Link href={`/startup-studio/events/${id}/vote`}>
+                  <Button size="sm" className="bg-purple-600 hover:bg-purple-700 text-white gap-2">
+                    <Vote className="h-3.5 w-3.5" /> {event.voting_closed_at ? 'View Votes' : 'Vote Now'}
+                  </Button>
+                </Link>
+              </div>
+            </div>
           )}
         </div>
       </ContentLayout>
@@ -813,6 +839,32 @@ export default function MyTeamPage({ params }: { params: Promise<{ id: string }>
                 <Button variant={teamSubmission ? 'outline' : 'default'} className="gap-2">
                   <Send className="h-4 w-4" />
                   {teamSubmission ? 'Update Submission' : 'Submit Project'}
+                </Button>
+              </Link>
+            </div>
+          </div>
+        )}
+
+        {/* ── Voting Banner ── */}
+        {event?.voting_opened_at && (
+          <div className="rounded-xl border bg-gradient-to-r from-purple-50 to-violet-50/40 dark:from-purple-950/20 dark:to-violet-950/10 p-5">
+            <div className="flex items-center justify-between flex-wrap gap-4">
+              <div className="flex items-center gap-3">
+                <div className="h-9 w-9 rounded-full bg-purple-100 dark:bg-purple-900/50 flex items-center justify-center shrink-0">
+                  <Vote className="h-4 w-4 text-purple-600 dark:text-purple-400" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-sm">
+                    {event.voting_closed_at ? 'Voting Results' : 'Audience Voting is Live!'}
+                  </h3>
+                  <p className="text-xs text-muted-foreground">
+                    {event.voting_closed_at ? 'See how teams were rated.' : 'Rate and vote for your favourite teams.'}
+                  </p>
+                </div>
+              </div>
+              <Link href={`/startup-studio/events/${id}/vote`}>
+                <Button size="sm" className="bg-purple-600 hover:bg-purple-700 text-white gap-2">
+                  <Vote className="h-3.5 w-3.5" /> {event.voting_closed_at ? 'View Votes' : 'Vote Now'}
                 </Button>
               </Link>
             </div>

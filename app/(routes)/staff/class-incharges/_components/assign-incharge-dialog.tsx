@@ -104,7 +104,12 @@ export function AssignInchargeDialog({ section, open, onOpenChange }: Props) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent
+        className="sm:max-w-lg"
+        onInteractOutside={(e) => {
+          if (comboboxOpen) e.preventDefault();
+        }}
+      >
         <DialogHeader>
           <DialogTitle>
             Manage Class Incharges — {section.section_name}
