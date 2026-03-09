@@ -1058,10 +1058,12 @@ CREATE TABLE billing_escalation_steps (
   channels text[] DEFAULT '{email}',
   template_id uuid REFERENCES billing_reminder_templates(id),
   late_fee_amount decimal(8,2),
+  -- late_fee_amount only meaningful for late_fee_apply actions
+  CHECK (action_type = 'late_fee_apply' OR late_fee_amount IS NULL),
   requires_approval boolean DEFAULT false,
   -- High-impact actions MUST require approval — cannot be set to auto-execute
   CHECK (
-    action_type NOT IN ('legal_notice_draft', 'exam_hold', 'certificate_hold')
+    action_type NOT IN ('legal_notice_draft', 'exam_hold', 'certificate_hold', 'access_restrict')
     OR requires_approval = true
   ),
   metadata jsonb DEFAULT '{}',
