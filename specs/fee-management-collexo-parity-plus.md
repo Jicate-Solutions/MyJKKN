@@ -1026,6 +1026,12 @@ app/(routes)/pay/[token]/
 
 > **Routing note:** Payment link page lives under `(routes)/pay/` (outside `billing/`) since it's a public page with no authentication. Token-based access only.
 
+> **SECURITY — Token generation:** `link_token` MUST be cryptographically random with at least 256 bits of entropy (`crypto.randomBytes(32).toString('hex')`). Do NOT use UUIDs, sequential IDs, or non-cryptographic randomness (`Math.random()`). Predictable tokens allow attackers to enumerate payment links and access other students' payment pages.
+
+> **bill_ids validation:** PostgreSQL cannot enforce FK constraints on array elements. Before creating a payment link, the service layer MUST validate: (1) all bill_ids exist in `billing_student_bills`, (2) all bills belong to the same student, (3) all bills belong to the same institution, (4) all bills have payable status. When rendering the `/pay/[token]` page, re-validate all bill_ids — if any are invalid (deleted, cancelled), show an error and mark the link as `expired` rather than allowing partial payment.
+
+> **Stale `total_amount` in notifications:** The stored `total_amount` reflects the balance at link creation time. Notification templates using payment links should say "Pay your outstanding fees" rather than quoting a specific amount. If an amount must be shown, recalculate it at notification send time.
+
 > **CRITICAL — Stale amount protection:** When a payment link is accessed, the system MUST recalculate the current outstanding balance from `billing_student_bills` at render time — NOT use the stored `total_amount`. If the bill has been partially paid (offline or via another link) since the link was created, the payment page shows the CURRENT balance. The stored `total_amount` is for reference/audit only. Implementation: the `/pay/[token]` page queries the live bill balance on every load.
 
 ### 5.3 Defaulter Escalation Engine
