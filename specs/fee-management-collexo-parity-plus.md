@@ -1003,9 +1003,9 @@ CREATE TABLE billing_payment_links (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   institution_id uuid NOT NULL REFERENCES institutions(id),
   student_id uuid NOT NULL REFERENCES learners_profiles(id),
-  bill_ids uuid[] NOT NULL,
-  total_amount decimal(12,2) NOT NULL,
-  link_token text UNIQUE NOT NULL,
+  bill_ids uuid[] NOT NULL,                         -- References billing_student_bills(id) — no FK on arrays, validated at app layer
+  total_amount decimal(12,2) NOT NULL,              -- Amount at link creation time (for reference/audit only — payment page recalculates live)
+  link_token text UNIQUE NOT NULL,                  -- MUST be generated using crypto.randomBytes(32).toString('hex') (64 hex chars, 256 bits entropy)
   expires_at timestamptz NOT NULL,
   status text NOT NULL DEFAULT 'active'
     CHECK (status IN ('active', 'used', 'expired', 'cancelled')),
