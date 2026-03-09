@@ -755,8 +755,8 @@ app/(routes)/billing/student-portal/
 ├── transactions/page.tsx       — Payment history (online + offline)
 └── payment/
     ├── page.tsx                — Payment initiation (select bills, choose mode)
-    ├── success/page.tsx        — Payment confirmation
-    └── failed/page.tsx         — Payment failure + retry
+    ├── success/page.tsx        — Payment confirmation (transaction ID, amount paid, remaining balance, "Download Receipt" button, "View all bills" link)
+    └── failed/page.tsx         — Payment failure + retry (clear error category: bank declined / timeout / technical error; specific guidance per type; "Try Again" button; "If money was debited, it will be refunded within 5-7 business days" reassurance; support contact info)
 ```
 
 > **Empty/pending state (CRITICAL):** Students will access the portal before their bill is generated (admin hasn't run bulk generation yet, or fee matrix isn't configured for their program). The portal MUST handle this gracefully:
