@@ -1233,7 +1233,11 @@ CREATE UNIQUE INDEX unique_escalation_per_step
 
 **Dry-run / Preview mode:** Before activating any escalation policy, the system MUST provide:
 
-1. **Preview mode:** Show exactly which students would be affected, what actions would trigger, and when — without executing anything. Admin reviews the "blast radius" before activation.
+1. **Preview mode:** Show a filterable, sortable table of affected students:
+   - Columns: Student Name, Program, Outstanding Amount, Days Overdue, Scheduled Action, Existing Arrangements
+   - Checkbox to exclude individual students from this escalation run
+   - Filter by action type (e.g., "show only exam_hold") and severity
+   - Export to CSV for offline review before activation
 2. **Confirmation gate:** Activating a policy that affects >50 students requires explicit confirmation with the count displayed: "This policy will apply to 347 students. Proceed?"
 3. **Emergency pause:** Every active escalation policy has a prominent "Pause" button that immediately stops all pending actions. Paused policies retain their state and can be resumed.
 4. **Gradual rollout:** New policies can be activated in "pilot mode" — apply to a single section/program first, review results, then expand.
