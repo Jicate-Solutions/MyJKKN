@@ -1037,7 +1037,7 @@ CREATE TABLE billing_escalation_policies (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   institution_id uuid NOT NULL REFERENCES institutions(id),
   policy_name text NOT NULL,
-  applies_to_categories uuid[],
+  applies_to_categories uuid[],                    -- References billing_item_categories(id) — which fee categories this policy covers
   is_active boolean DEFAULT true,
   created_at timestamptz DEFAULT now()
 );
