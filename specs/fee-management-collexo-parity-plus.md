@@ -375,11 +375,15 @@ CREATE TABLE billing_student_scholarships (
   status text NOT NULL DEFAULT 'active'
     CHECK (status IN ('active', 'suspended', 'revoked')),
   revocation_reason text,
-  priority int NOT NULL DEFAULT 1,                 -- Stacking order when multiple scholarships apply
+  priority int NOT NULL DEFAULT 1 CHECK (priority >= 1),  -- Stacking order (1 = highest priority, applied first)
   created_at timestamptz DEFAULT now(),
-  UNIQUE(student_id, scholarship_rule_id, academic_year_id),  -- Prevent duplicate scholarship assignments
-  UNIQUE(student_id, academic_year_id, priority)              -- Prevent duplicate priorities per student per year
+  UNIQUE(student_id, scholarship_rule_id, academic_year_id)   -- Prevent duplicate scholarship assignments
 );
+
+-- Priority uniqueness only for active scholarships — revoked/suspended scholarships don't block priority slots
+CREATE UNIQUE INDEX unique_active_scholarship_priority
+  ON billing_student_scholarships(student_id, academic_year_id, priority)
+  WHERE status = 'active';
 ```
 
 > **Stacking rule:** When multiple scholarships apply to the same student, process in `priority` order (1 = highest priority, applied first). Each scholarship applies to the REMAINING amount after prior scholarships, not the original amount. Total reduction per fee component is capped at 100% — once a component reaches zero, remaining scholarships for that component are skipped.
