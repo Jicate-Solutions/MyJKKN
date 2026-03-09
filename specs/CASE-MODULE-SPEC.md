@@ -1380,5 +1380,123 @@ All CASE module pages must follow existing MyJKKN patterns:
 
 ---
 
+## 19. Page Wireframes
+
+### 19.1 Reviewer Dashboard (`/case/reviews`)
+**Layout:** Full-width page with stats bar + tabbed content area
+**Stats Bar (top):**
+- Total Reviews Completed (all time)
+- Pending Reviews (action needed)
+- Average Checklist Score (across all reviews)
+- Approval Rate (%)
+
+**Tabs:**
+1. **Pending Queue** (default) — Table of courses awaiting review:
+   | Course Name | Institution | Track | Submitted | Submitted By | Actions |
+   Each row has 'Review' button → opens review form with 10-point checklist
+2. **Review History** — Table of past reviews with verdict, score, date, course link
+3. **My Workload** — Monthly chart of reviews completed, avg review time
+
+**Empty State:** 'No courses pending review. Check back later.'
+**Mobile:** Stats stack vertically, table becomes card list.
+
+### 19.2 Unarchive Flow (`/case/courses` → archived tab)
+**Access:** Super_admin only (button hidden for other roles)
+**Location:** Courses list page has filter tabs: All | Published | Draft | Archived
+**Archived Tab:**
+- Shows archived courses in a table with Name, Institution, Archived Date, Archived By
+- Each row has 'Restore to Draft' button (super_admin only)
+- Clicking opens confirmation dialog:
+  Title: 'Restore Course?'
+  Body: 'This will move [Course Name] back to Draft status. It will need to go through the review process again before publishing.'
+  Actions: [Cancel] [Restore to Draft]
+- On confirm: sets review_status='draft', clears approved_at/approved_by, shows success toast
+
+### 19.3 Capstone Student Flow (`/case/courses/[id]/capstone`)
+**Student View:**
+1. **Proposal Form:**
+   - Title (required)
+   - Description (textarea, required)
+   - Industry Partner (optional text)
+   - Link to Solutions Hub project (optional — searchable dropdown of sh_solutions)
+   - Presentation URL (optional)
+   - Report URL (optional)
+   - Submit button → sets status='proposed'
+2. **Progress Tracker (after approval):**
+   - Status badge showing current stage (proposed → approved → in_progress → submitted → evaluated → completed)
+   - Mentor info card (name, email, designation)
+   - Timeline of status changes
+   - Upload areas for presentation and report
+3. **Evaluation View (read-only for student):**
+   - Grade display
+   - Evaluator notes
+   - Completion certificate link (if completed)
+
+**Admin/Faculty View:**
+- List of all capstone proposals with filters (status, semester, institution)
+- Approve/reject proposals
+- Assign mentors (searchable dropdown of case_faculty)
+- Evaluate: grade input + notes textarea + mark as completed
+
+### 19.4 NAAC Export Page (`/case/admin/naac-export`)
+**Layout:** Form-based page with preview and download
+**Filters:**
+- Academic Year (dropdown)
+- Institution (dropdown — super_admin sees all, others see own)
+- Metric (multi-select: 1.5, 5.5, 6.4, 7.6)
+- Date Range (start/end date pickers)
+
+**Preview Section:**
+For each selected metric, show a card with:
+- Metric number and name
+- Key data points (e.g., Metric 1.5: X courses with NSQF levels, Y students enrolled)
+- Supporting evidence list (course names, cert counts, outcome stats)
+
+**Export Buttons:**
+- 'Download PDF' — formatted report suitable for NAAC submission
+- 'Download Excel' — raw data tables for further analysis
+Both generated via @react-pdf/renderer (PDF) and xlsx library (Excel).
+
+### 19.5 Faculty Management (`/case/admin/faculty`)
+**Layout:** Table with action buttons
+**Table Columns:**
+| Name | Email | Designation | Specialization | Track | Role | Status | Actions |
+
+**Actions per row:**
+- Edit (pencil icon) → opens edit dialog
+- Deactivate/Activate toggle
+- View Courses (link to filtered course list)
+
+**Add Faculty Button (top right):**
+Opens form dialog:
+- Search existing users (typeahead on profiles table by name/email)
+- If user found: auto-fill name, email from profile, link user_id
+- If not found: manual entry (name, email, phone — no user_id link)
+- Designation, Specialization, Track (dropdown), Role (dropdown), Bio, Photo URL
+- Save → INSERT into case_faculty
+
+**Empty State:** 'No faculty members added yet. Click + Add Faculty to get started.'
+
+### 19.6 Certificate Download Page (`/case/my-certificates`)
+**Student View:**
+**Layout:** Grid of certificate cards (2 per row on desktop, 1 on mobile)
+**Each Card:**
+- Course name (title)
+- Certificate type badge (NSQF / Industry / Internal)
+- NSQF Level badge (if applicable)
+- Issue date
+- Status indicator (green 'Active' or red 'Revoked')
+- Actions: [Preview] [Download PDF]
+
+**Preview:** Opens modal with HTML certificate rendering (full-width, printable)
+**Download:** Triggers PDF generation via API route, downloads file
+
+**Multi-cert:** If student has multiple certs for same course (e.g., NSQF + Industry), they appear as separate cards grouped under the course name.
+
+**Empty State:** 'No certificates earned yet. Complete a CASE course to receive your certificate.'
+**Revoked State:** Card shows red banner 'This certificate has been revoked' with revocation date. Preview still available (with watermark 'REVOKED'). Download disabled.
+
+---
+
 *Spec finalized 2026-03-09 · Based on FST analysis + structured interview (6 questions, all answered)*
 *Prior analysis: [JKKN CASE Relevance in AI World](obsidian://open?vault=Claude%20Setup&file=Capture%2FJKKNKB%2F26-03-08-8.43pm-JKKN-CASE-Relevance-AI-World.md)*
