@@ -115,6 +115,7 @@ export class ProgressionService {
     for (const v of verifications) {
       const submission = v.event_submissions
       if (!submission) continue
+      if (submission.event_id !== eventId) continue  // guard against dot-notation filter being ignored
       const registration = submission.event_registrations
       if (!registration) continue
 
@@ -122,6 +123,8 @@ export class ProgressionService {
         registration.event_team_members ?? []
 
       const acceptedMembers = members.filter(m => m.status === 'accepted')
+
+      const achievedAt = new Date().toISOString()
 
       for (const member of acceptedMembers) {
         const { error: upsertError } = await supabase
@@ -133,7 +136,7 @@ export class ProgressionService {
               team_id: registration.id,
               level: 1,
               level_name: 'App Builder',
-              achieved_at: new Date().toISOString(),
+              achieved_at: achievedAt,
               evidence: {
                 verification_id: v.id,
                 app_live: v.app_live,
