@@ -1664,6 +1664,9 @@ The system sends notifications at these lifecycle events. Channel = in-app notif
 | Review deadline expired | Admin + chair | "Review for '{title}' has passed its 7-day deadline" |
 | Handover initiated | New proposer + old team | "'{title}' V{n} is being handed over to V{n+1}" |
 | CIA bonus applied | Student | "CoE bonus of {percent}% applied to {assessment_name}" |
+| Project reopened (from rejected) | Proposer + team | "'{title}' has been reopened by an admin. You can revise and resubmit." |
+| Handover finalized (V(n+1) created) | V(n) team + V(n+1) proposer | "'{title}' V{n+1} has been created. Handover complete." |
+| Vote updated | Other committee members | "[Member] changed their vote on '{title}'" |
 
 ### Revision Workflow
 
