@@ -799,9 +799,10 @@ CREATE TABLE billing_data_imports (
   import_type text NOT NULL
     CHECK (import_type IN (
       'fee_structures', 'student_balances', 'payment_history',
-      'receipts', 'scholarships', 'opening_balances'
+      'receipts', 'scholarships', 'opening_balances',
+      'bulk_bill_generation'                       -- Reused for bulk bill generation job tracking (Phase 2.1)
     )),
-  file_name text NOT NULL,
+  file_name text,                                  -- NULL for bulk_bill_generation (no file involved)
   file_url text,                                 -- Stored in Supabase Storage
   status text NOT NULL DEFAULT 'uploaded'
     CHECK (status IN ('uploaded', 'validating', 'validated', 'importing', 'completed', 'failed', 'partial')),
