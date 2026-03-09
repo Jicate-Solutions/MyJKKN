@@ -87,7 +87,7 @@ export class TrackDeclarationService {
       .update({
         mentor_approved: dto.mentor_approved,
         mentor_notes: dto.mentor_notes ?? null,
-        approved_at: new Date().toISOString(),
+        approved_at: dto.mentor_approved ? new Date().toISOString() : null,
         approved_by: mentorProfileId,
       })
       .eq('id', declarationId)
