@@ -1023,6 +1023,10 @@ app/(routes)/billing/defaulters/
 ├── by-admission-type/page.tsx  — Are government quota students defaulting more?
 ├── risk-flags/page.tsx         — Students showing payment deterioration
 └── [studentId]/page.tsx        — Individual student payment profile
+                                    Shows: payment history timeline, outstanding breakdown, contact info
+                                    Action buttons: "Send Reminder" (pre-filled), "Create Payment Link" (generates + copies),
+                                    "Record Payment" (opens form pre-filled with student), "View in CRM" (if lead exists)
+                                    Notes section for accounts team (internal, not visible to student)
 ```
 
 ### 4.3 Collection Analytics
