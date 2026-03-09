@@ -851,6 +851,8 @@ When a student transfers programs mid-year (e.g., B.Tech CSE → B.Tech ECE), th
 - Cheque/DD clearance tracking works
 - Program transfers handled with superseded bills + credit notes
 
+> **Bill generation notification (optional):** When bulk bill generation completes, optionally notify students that their bill is available. Configurable per institution (some may prefer students discover bills on their own). Channel: email + in-app. Content: total amount, due date, link to student portal, breakdown summary. This is distinct from due-date reminders (Phase 5) which fire based on approaching/past due dates.
+
 ---
 
 ## Phase 3: Data Migration from Tally
