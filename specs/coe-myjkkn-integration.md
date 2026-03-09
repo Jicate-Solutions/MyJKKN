@@ -1559,7 +1559,7 @@ This is a **read-only integration** — CoE never writes to attendance tables, i
 
 ### Phase 2: CIA Subsystem + Incentive Automation
 - **Tables:** `coe_cia_configs`, `coe_cia_student_marks`, `coe_incentive_ledger` (3 tables)
-- **API Routes:** 5 files
+- **API Routes:** 6 files
 - **Pages:** 2 (incentives, CIA config/marks)
 - **Service:** `coe-cia-service.ts` + extend `coe-service.ts`
 - **Hooks:** `use-coe-cia.ts` + extend `use-coe.ts`
