@@ -1696,7 +1696,7 @@ export function GetRoleBasedPages(
             }
 
             // Faculty / HOD / Principal: restricted startup-studio submenu access
-            // - All three: Venues & Mentors + Registrations (view only) + Live Voting
+            // - All three: Venues & Mentors + My Assignment + Registrations (view only) + Live Voting + Evaluate
             // - Faculty only: additionally Checklists (can mark items, not add/delete)
             const isLimitedStaffRole = ['faculty', 'hod', 'principal'].includes(userRole.role_key || '');
             if (isLimitedStaffRole && submenu.href.includes('/startup-studio/events/')) {
@@ -1704,6 +1704,8 @@ export function GetRoleBasedPages(
               if (submenu.href.includes('/my-assignment')) return true;
               if (submenu.href.includes('/registrations')) return true;
               if (submenu.href.includes('/vote')) return true;
+              if (submenu.href.includes('/evaluate')) return true;
+              if (submenu.href.includes('/leaderboard')) return true;
               if (userRole.role_key === 'faculty' && submenu.href.includes('/checklists')) return true;
               return false;
             }

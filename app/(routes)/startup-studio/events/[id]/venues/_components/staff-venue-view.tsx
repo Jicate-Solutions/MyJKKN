@@ -17,6 +17,7 @@ import {
   ListChecks,
   Loader2,
   MapPin,
+  UserCheck,
   Users,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -168,6 +169,11 @@ function StaffVenueCard({ venue, eventId, dayType, staffEmail, onMarkAttendance 
     (sa: any) => sa.staff?.email === staffEmail
   );
 
+  // All staff assigned to this venue for the current day type
+  const venueStaff = (venue.staff_assignments || []).filter(
+    (sa: any) => sa.day_type === dayType
+  );
+
   // Attendance progress %
   const pct = allocatedCount > 0 ? Math.round((markedCount / allocatedCount) * 100) : 0;
 
@@ -287,6 +293,40 @@ function StaffVenueCard({ venue, eventId, dayType, staffEmail, onMarkAttendance 
             </div>
           )}
         </div>
+
+        {/* Assigned staff for this venue */}
+        {venueStaff.length > 0 && (
+          <>
+            <Separator />
+            <div>
+              <div className="text-xs font-medium text-muted-foreground mb-2 flex items-center gap-1.5">
+                <UserCheck className="h-3.5 w-3.5" />
+                Assigned Staff
+                <Badge variant="outline" className="text-[10px] h-5 px-1.5 ml-1">{venueStaff.length}</Badge>
+              </div>
+              <div className="space-y-1">
+                {venueStaff.map((sa: any) => {
+                  const name = [sa.staff?.first_name, sa.staff?.last_name].filter(Boolean).join(' ') || sa.staff?.email || 'Unknown';
+                  const isMe = sa.staff?.email === staffEmail;
+                  return (
+                    <div key={sa.id} className={cn(
+                      'flex items-center gap-2 text-xs rounded-md px-2.5 py-1.5',
+                      isMe ? 'bg-primary/5 border border-primary/20' : 'bg-muted/30'
+                    )}>
+                      <span className="flex-1 font-medium truncate">
+                        {name}
+                        {isMe && <span className="text-primary ml-1 font-normal">(You)</span>}
+                      </span>
+                      <Badge variant="secondary" className="text-[10px] h-5 px-1.5 shrink-0">
+                        {ROLE_LABELS[sa.role as StaffRole] || sa.role}
+                      </Badge>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </>
+        )}
       </CardContent>
 
       {/* Team-wise checklist sheet */}
