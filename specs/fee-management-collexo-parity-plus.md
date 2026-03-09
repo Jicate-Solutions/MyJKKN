@@ -616,7 +616,7 @@ CREATE TABLE billing_offline_payments (
   bill_id uuid NOT NULL REFERENCES billing_student_bills(id),
   payment_mode text NOT NULL
     CHECK (payment_mode IN ('cash', 'cheque', 'demand_draft', 'bank_transfer', 'upi_offline', 'pos_swipe')),
-  amount decimal(12,2) NOT NULL,
+  amount decimal(12,2) NOT NULL CHECK (amount > 0),  -- Payments must always be positive
   -- Mode-specific details
   reference_number text,                         -- Cheque no / DD no / UTR / UPI ref
   bank_name text,                                -- For cheque/DD
