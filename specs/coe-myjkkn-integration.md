@@ -78,15 +78,17 @@ The lifecycle has two phases: **pre-approval** (proposal → committee) and **po
 ```
 proposal (learner submits)
   → committee_review (committee votes)
-    → orientation (onboarding, policy intro, team formation)
-      → empathize (interview users, discover pain points)
-        → define (articulate problem statement)
-          → ideate (classify solution approach, brainstorm)
-            → prototype (build with tools)
-              → test (user testing, measure outcomes)
-                → trajectory_assessment (5-criteria rubric)
-                  → handover | completed
-                    → completed (archived with full history)
+    ├→ rejected (terminal — archived, admin can reopen)
+    ├→ proposal (revision_needed — loops back for editing)
+    └→ orientation (approved — onboarding, policy intro, team formation)
+        → empathize (interview users, discover pain points)
+          → define (articulate problem statement)
+            → ideate (classify solution approach, brainstorm)
+              → prototype (build with tools)
+                → test (user testing, measure outcomes)
+                  → trajectory_assessment (5-criteria rubric)
+                    → handover | completed
+                      → completed (archived with full history)
 ```
 
 ### Stage <-> Cycle Step Mapping
