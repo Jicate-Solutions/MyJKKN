@@ -219,7 +219,7 @@ CREATE TABLE billing_fee_matrices (
   admission_type text NOT NULL                   -- Maps to learners_profiles.quota + entry_type
     CHECK (admission_type IN ('government', 'management', 'nri', 'lateral', 'spot', 'other')),
   fee_structure_id uuid NOT NULL REFERENCES billing_fee_structures(id),
-  regulatory_cap_id uuid REFERENCES billing_regulatory_caps(id),  -- NOTE: Forward reference — create billing_regulatory_caps BEFORE this table, or add this FK via ALTER TABLE after both tables exist
+  regulatory_cap_id uuid REFERENCES billing_regulatory_caps(id),  -- FK: billing_regulatory_caps (section 1.2) MUST be created before this table
   is_active boolean DEFAULT true,
   notes text,
   created_by uuid REFERENCES profiles(id),
