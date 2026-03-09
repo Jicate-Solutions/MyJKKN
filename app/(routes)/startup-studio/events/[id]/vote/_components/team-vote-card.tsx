@@ -10,6 +10,7 @@ interface TeamVoteCardProps {
   teamName: string
   appName: string | null
   institutionName: string
+  category: string | null
   demoSlot: number | null
   slotIndex: number           // fallback display number if demoSlot is null
   totalVotes: number
@@ -24,6 +25,7 @@ export function TeamVoteCard({
   teamName,
   appName,
   institutionName,
+  category,
   demoSlot,
   slotIndex,
   totalVotes,
@@ -55,7 +57,12 @@ export function TeamVoteCard({
             {appName && (
               <p className="text-xs text-muted-foreground mt-0.5">{appName}</p>
             )}
-            <p className="text-xs text-muted-foreground">{institutionName}</p>
+            <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+              <p className="text-xs text-muted-foreground">{institutionName}</p>
+              {category && (
+                <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4">{category}</Badge>
+              )}
+            </div>
           </div>
 
           {/* Live vote count */}

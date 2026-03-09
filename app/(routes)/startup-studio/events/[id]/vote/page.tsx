@@ -1,12 +1,14 @@
 'use client'
 
-import { use } from 'react'
+import { use, useMemo } from 'react'
 import Link from 'next/link'
-import { ArrowLeft, Loader2, Vote } from 'lucide-react'
+import { ArrowLeft, Loader2, Search, Vote } from 'lucide-react'
 import { ContentLayout } from '@/components/layout/content-layout'
 import { PageBreadcrumb } from '@/components/navigation'
 import { Button } from '@/components/ui/button'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Input } from '@/components/ui/input'
+import { Badge } from '@/components/ui/badge'
 import { useState } from 'react'
 import { useAuth } from '@/hooks/use-auth'
 import { useEvent } from '@/hooks/startup-studio/use-events'
@@ -25,6 +27,8 @@ export default function VotePage({ params }: { params: Promise<{ id: string }> }
   const profileId = profile?.id ?? ''
 
   const [submittingId, setSubmittingId] = useState<string | null>(null)
+  const [search, setSearch] = useState('')
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
 
   const { data: event, isLoading: eventLoading } = useEvent(id)
   const { data: registrations = [], isLoading: regsLoading } = useEventRegistrations({ event_id: id })
@@ -60,6 +64,26 @@ export default function VotePage({ params }: { params: Promise<{ id: string }> }
       if (slotB === null) return -1
       return slotA - slotB
     })
+
+  // Derive unique categories from loaded submissions (only what exists in this event)
+  const availableCategories = useMemo(() => {
+    const cats = teamsWithSubmissions
+      .map(r => r.submission?.category)
+      .filter((c): c is string => !!c)
+    return Array.from(new Set(cats)).sort()
+  }, [teamsWithSubmissions])
+
+  // Client-side filter by search + category
+  const filteredTeams = useMemo(() => {
+    return teamsWithSubmissions.filter(r => {
+      const matchesSearch = !search.trim() ||
+        r.team_name.toLowerCase().includes(search.trim().toLowerCase()) ||
+        (r.submission?.app_name ?? '').toLowerCase().includes(search.trim().toLowerCase())
+      const matchesCategory = !selectedCategory ||
+        r.submission?.category === selectedCategory
+      return matchesSearch && matchesCategory
+    })
+  }, [teamsWithSubmissions, search, selectedCategory])
 
   if (authLoading || eventLoading) {
     return (
@@ -125,6 +149,42 @@ export default function VotePage({ params }: { params: Promise<{ id: string }> }
           </AlertDescription>
         </Alert>
 
+        {/* Search + category filters */}
+        {!regsLoading && teamsWithSubmissions.length > 0 && (
+          <div className="space-y-2">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search team or app name…"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                className="pl-9"
+              />
+            </div>
+            {availableCategories.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                <Badge
+                  variant={selectedCategory === null ? 'default' : 'outline'}
+                  className="cursor-pointer"
+                  onClick={() => setSelectedCategory(null)}
+                >
+                  All
+                </Badge>
+                {availableCategories.map(cat => (
+                  <Badge
+                    key={cat}
+                    variant={selectedCategory === cat ? 'default' : 'outline'}
+                    className="cursor-pointer"
+                    onClick={() => setSelectedCategory(prev => prev === cat ? null : cat)}
+                  >
+                    {cat}
+                  </Badge>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         {regsLoading ? (
           <div className="flex justify-center p-8">
             <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -133,9 +193,13 @@ export default function VotePage({ params }: { params: Promise<{ id: string }> }
           <div className="text-center py-12 text-sm text-muted-foreground">
             No team submissions found for this event.
           </div>
+        ) : filteredTeams.length === 0 ? (
+          <div className="text-center py-10 text-sm text-muted-foreground">
+            No teams match your search.
+          </div>
         ) : (
           <div className="space-y-3">
-            {teamsWithSubmissions.map((reg, index) => {
+            {filteredTeams.map((reg, index) => {
               const submissionId = reg.submission!.id
               const voteSummary = summaryMap.get(submissionId)
               const myRating = myVoteMap.get(submissionId) ?? 0
@@ -147,6 +211,7 @@ export default function VotePage({ params }: { params: Promise<{ id: string }> }
                   teamName={reg.team_name}
                   appName={reg.submission!.app_name ?? ''}
                   institutionName={institutionName}
+                  category={reg.submission!.category ?? null}
                   demoSlot={slotMap.get(reg.id) ?? null}
                   slotIndex={index + 1}
                   totalVotes={voteSummary?.total_votes ?? 0}

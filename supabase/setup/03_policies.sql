@@ -2832,6 +2832,18 @@ CREATE POLICY "event_registrations_select" ON event_registrations
         )
     );
 
+-- Updated: 2026-03-09 — allow any authenticated user to read all registrations for events
+-- where voting has been opened. This enables the vote page to show all teams, not just the
+-- viewer's own team. PERMISSIVE policy — OR'd with the existing policy above.
+CREATE POLICY "event_registrations_voting_select" ON event_registrations
+    FOR SELECT TO authenticated USING (
+        EXISTS (
+            SELECT 1 FROM startup_events
+            WHERE startup_events.id = event_registrations.event_id
+              AND startup_events.voting_opened_at IS NOT NULL
+        )
+    );
+
 CREATE POLICY "event_registrations_insert" ON event_registrations
     FOR INSERT TO authenticated WITH CHECK (owner_id = auth.uid());
 
@@ -2974,6 +2986,20 @@ CREATE POLICY "event_submissions_select" ON event_submissions
     FOR SELECT TO authenticated USING (
         EXISTS (SELECT 1 FROM event_registrations WHERE id = event_submissions.registration_id AND owner_id = auth.uid())
         OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND (is_super_admin = true OR role IN ('admin', 'administrator', 'staff')))
+    );
+
+-- Updated: 2026-03-09 — allow any authenticated user to read submissions for events where
+-- voting is open. Required so the vote page can show all teams' app_name / submission data.
+-- PERMISSIVE policy — OR'd with the policies above.
+CREATE POLICY "event_submissions_voting_select" ON event_submissions
+    FOR SELECT TO authenticated USING (
+        EXISTS (
+            SELECT 1
+            FROM event_registrations er
+            JOIN startup_events se ON se.id = er.event_id
+            WHERE er.id = event_submissions.registration_id
+              AND se.voting_opened_at IS NOT NULL
+        )
     );
 
 CREATE POLICY "event_submissions_insert" ON event_submissions
