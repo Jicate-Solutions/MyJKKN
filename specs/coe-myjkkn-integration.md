@@ -451,6 +451,9 @@ CREATE TABLE coe_committee_reviews (
   min_members INTEGER NOT NULL DEFAULT 3,      -- minimum committee size
   review_deadline TIMESTAMPTZ,                 -- 7 days from submission by default
 
+  -- Submitter tracking (who initiated this review)
+  submitted_by UUID REFERENCES profiles(id),  -- proposer for proposal_review, admin for others
+
   -- Timelines
   submitted_at TIMESTAMPTZ DEFAULT NOW(),
   review_started_at TIMESTAMPTZ,
