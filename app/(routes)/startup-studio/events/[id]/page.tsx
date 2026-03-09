@@ -264,6 +264,21 @@ export default function EventDetailPage({ params }: { params: Promise<{ id: stri
                   time={formatTime(event.start_date)}
                   countdown={getDaysUntil(event.start_date)}
                 />
+                {event.submission_deadline && (
+                  <>
+                    <div className="pl-2.5">
+                      <div className="h-6 w-0.5 bg-muted" />
+                    </div>
+                    <TimelineItem
+                      icon={<FileText className="h-5 w-5 text-orange-500" />}
+                      label="Project Submission Deadline"
+                      date={formatDate(event.submission_deadline)}
+                      time={formatTime(event.submission_deadline)}
+                      countdown={getDaysUntil(event.submission_deadline)}
+                      isNext={!!getDaysUntil(event.submission_deadline)}
+                    />
+                  </>
+                )}
                 <div className="pl-2.5">
                   <div className="h-6 w-0.5 bg-muted" />
                 </div>

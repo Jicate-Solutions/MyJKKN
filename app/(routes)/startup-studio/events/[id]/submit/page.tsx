@@ -28,7 +28,7 @@ import {
   FormLabel,
   FormMessage,
 } from '@/components/ui/form';
-import { Lock, Send, BarChart3, Trophy, Globe, Github, Link2, Video, FileText, Lightbulb, ArrowLeft, Loader2, ExternalLink } from 'lucide-react';
+import { Lock, Send, BarChart3, Trophy, Globe, Github, Link2, Video, FileText, Lightbulb, ArrowLeft, Loader2, ExternalLink, Clock } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { useEvent } from '@/hooks/startup-studio/use-events';
 import { useMyRegistration, useMyAcceptedMembership, useMyTeamMembers } from '@/hooks/startup-studio/use-event-registrations';
@@ -180,6 +180,13 @@ export default function SubmitPage({ params }: { params: Promise<{ id: string }>
   }
 
   // ── Leader (owner) view: full submit/edit form ───────────────────────────
+  const submissionDeadlineLabel = event?.submission_deadline
+    ? new Date(event.submission_deadline).toLocaleString('en-IN', {
+        weekday: 'short', month: 'short', day: 'numeric',
+        hour: '2-digit', minute: '2-digit',
+      })
+    : null;
+
   return (
     <ContentLayout title="Submit Project">
       <PageBreadcrumb items={breadcrumb} />
@@ -196,6 +203,25 @@ export default function SubmitPage({ params }: { params: Promise<{ id: string }>
             </Link>
           </Button>
         </div>
+
+        {/* Submission deadline info banner */}
+        {submissionDeadlineLabel && (
+          <Alert className={submissionLocked
+            ? 'border-destructive/30 bg-destructive/5'
+            : 'border-orange-300 bg-orange-50 dark:bg-orange-950/20'
+          }>
+            {submissionLocked
+              ? <Lock className="h-4 w-4 text-destructive" />
+              : <Clock className="h-4 w-4 text-orange-600" />
+            }
+            <AlertDescription className={submissionLocked ? 'text-destructive text-sm' : 'text-orange-700 text-sm'}>
+              {submissionLocked
+                ? <>Submission closed on <strong>{submissionDeadlineLabel}</strong>. Contact the organizer to extend the deadline.</>
+                : <>Submission deadline: <strong>{submissionDeadlineLabel}</strong>. Submit or update your project before this time.</>
+              }
+            </AlertDescription>
+          </Alert>
+        )}
 
         <ProjectSection
           eventId={id}
@@ -307,12 +333,6 @@ function ProjectSection({
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-
-        {locked && (
-          <div className="flex items-center gap-2 p-3 rounded-lg border border-destructive/30 bg-destructive/5 text-destructive text-sm">
-            <Lock className="h-4 w-4 shrink-0" /> Submission deadline has passed. Your submission is locked.
-          </div>
-        )}
 
         {/* Card 1: Project Details */}
         <Card>
