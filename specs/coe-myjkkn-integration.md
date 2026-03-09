@@ -1415,6 +1415,7 @@ proposal            -> committee_review
 committee_review    -> orientation      (only if review approved)
 committee_review    -> proposal         (if revision_needed — loops back)
 committee_review    -> rejected         (if review rejected — terminal state)
+rejected            -> proposal         (admin reopen only — gives project another chance)
 orientation         -> empathize
 empathize           -> define
 define              -> ideate
@@ -1425,7 +1426,13 @@ trajectory_assessment -> handover | completed
 handover            -> completed
 ```
 
-No other backward transitions. The `committee_review -> proposal` loop is the only exception — it allows learners to revise and resubmit. The `committee_review -> rejected` transition is terminal — the project is archived and cannot be reactivated.
+**Backward transitions:**
+- `committee_review -> proposal` — revision loop. Committee requests changes, learner edits and resubmits.
+- `rejected -> proposal` — admin reopen. An admin can reactivate a rejected project, returning it to draft state for revision. This is rare but necessary for edge cases (e.g., new evidence, policy change). Only `admin`, `institution_admin`, or `super_admin` can trigger this.
+
+**Direct completion vs handover:** When a project reaches `trajectory_assessment`, it can go to either `handover` or `completed`:
+- **`completed`** — the project is fully finished and will NOT continue to the next batch. The team has delivered its final output (solution deployed, paper published, startup launched). No successor project is needed.
+- **`handover`** — the project is intended for cross-batch continuation. A new team will pick up where this one left off. Use this when the problem space requires multi-batch effort.
 
 **Incentive automation triggers:** When `advanceStage` moves a project to a new stage, check if that stage matches a milestone in the policy table. If yes, auto-create incentive ledger entries for all team members.
 
