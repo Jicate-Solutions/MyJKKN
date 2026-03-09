@@ -10,3 +10,8 @@ fee-management-collexo-parity-plus.md: regulatory cap enforcement is advisory-on
 # User decision: "Keep text[] + validation note. Junction table is over-engineering for now."
 # Date: 2026-03-09
 fee-management-collexo-parity-plus.md: scholarship applies_to_components uses text array with validation against billing_item_categories (2026-03-09)
+
+# Sentinel UUID pattern for NULL-handling in unique indexes is acceptable
+# User decision: "Leave as-is. The collision risk is acceptable."
+# Date: 2026-03-09
+fee-management-collexo-parity-plus.md: sentinel UUID COALESCE pattern in billing_regulatory_caps unique index is intentional (2026-03-09)
