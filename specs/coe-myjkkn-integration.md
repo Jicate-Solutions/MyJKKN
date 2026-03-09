@@ -1692,6 +1692,43 @@ Critical actions require explicit confirmation to prevent accidental state chang
 | Delete CIA config | "Deleting this assessment configuration will affect all future mark entries. Existing marks are preserved." | "Delete Configuration" (red) |
 | Apply incentive manually | "Grant {incentive_type} ({value}) to {recipient}? This will be logged in the incentive ledger." | "Grant Incentive" |
 
+### Committee Voting Rules (Abstention Handling)
+
+- **Quorum:** A majority of eligible members must participate (e.g., 2 of 3, 3 of 5). Abstentions **count toward quorum** — the member has participated.
+- **Decision:** Only `approve` vs `reject` votes determine the outcome. Abstentions do **not** count toward the majority. Example: 3 members — 1 approve, 1 abstain, 1 reject → tie → chair breaks tie.
+- **Tie-breaking:** If approve and reject counts are equal, the chair's vote decides. If the chair abstained, the review remains `under_review` until the chair casts a non-abstain vote or the deadline expires.
+- **Deadline expiry:** If the 7-day deadline passes without quorum, the review status remains `under_review`. An admin or chair can either extend the deadline or finalize with the existing votes.
+- **Vote mutability:** Members can change their vote at any time before the review is finalized (status changes to `approved`/`rejected`/`revision_needed`). After finalization, votes are locked.
+
+### Committee Feedback Display (Learner View)
+
+When a learner views their project after a committee decision:
+
+- **Approved:** Green banner: "Your proposal has been approved! Next step: Orientation." Show decision summary if provided.
+- **Rejected:** Red banner: "Your proposal was not approved." Show `rejection_reason`. If admin reopens later, show "This project has been reopened for revision."
+- **Revision Needed:** Amber banner: "The committee has requested changes." Show `revision_feedback` prominently. Below it, show vote summary (e.g., "2 voted for revision, 1 approved") without individual vote details — only the chair and admins see individual votes.
+- **Under Review:** Blue banner: "Your proposal is being reviewed by the committee ({votes_cast}/{total_members} votes in)." Show deadline countdown.
+
+### Error States
+
+| Scenario | User Sees | Recovery |
+|----------|-----------|----------|
+| Advance stage fails (invalid transition) | "Cannot move from {from} to {to}. Valid next steps: {valid_stages}." | Show valid transitions as buttons |
+| Submit for review fails (missing required fields) | "Your proposal needs a title and problem statement before submission." | Highlight missing fields |
+| Vote fails (review already finalized) | "This review has already been decided. Your vote was not recorded." | Redirect to review result |
+| Handover fails (no new proposer specified) | "A new team lead must be specified for the next version." | Show user picker |
+| CIA bonus fails (no marks recorded) | "No CIA marks found for this student. Record marks before applying bonus." | Link to marks entry |
+| Committee member add fails (voting started) | "Cannot add members after voting has started." | Show current member list |
+| Duplicate vote fails (already voted) | "You have already voted. You can update your vote from the review page." | Link to update vote |
+
+### Mobile Considerations
+
+The CoE module should be usable on mobile devices for key actions:
+- **Voting:** Committee members should be able to vote from mobile (responsive vote form)
+- **Proposal viewing:** Project cards and details should be readable on mobile
+- **Notifications:** In-app notifications should be tappable on mobile
+- **Proposal creation** and **CIA marks entry** are desktop-primary — complex forms that benefit from larger screens
+
 ---
 
 ## Changes from Original Spec (Interview-Driven)
