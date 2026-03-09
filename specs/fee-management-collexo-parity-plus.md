@@ -475,6 +475,15 @@ app/(routes)/billing/fee-config/
 │   └── [ruleId]/
 │       ├── page.tsx            — View rule details + list of assigned students
 │       └── students/page.tsx   — Manage student assignments for this rule
+```
+
+> **Scholarship assignment preview (CRITICAL):** Before confirming any scholarship assignment (individual or bulk), show the financial impact:
+> - Individual: "This scholarship will reduce [Student Name]'s bill by Rs X (from Rs Y to Rs Z)"
+> - Bulk: "This will assign [Scholarship] to X students, reducing total billing by Rs Y"
+> - Show stacking impact if student already has other scholarships
+> - Require confirmation with financial impact visible — an admin assigning a 100% scholarship to wrong students could waive millions in fees
+
+```
 └── revisions/
     └── page.tsx                — Year-over-year fee change report
 ```
