@@ -8,11 +8,15 @@ import type {
   MentorApproveTrackDto,
 } from '@/types/startup-studio'
 
+// Guards against Next.js 15 DRP placeholders like "%%drp:id:abc%%" passed as route params
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const isValidUUID = (id: string | undefined | null): boolean => !!id && !id.includes('%%drp:') && UUID_REGEX.test(id);
+
 export function useMyDeclaration(eventId: string, registrationId: string | null | undefined) {
   return useQuery({
     queryKey: ['track-declaration', eventId, registrationId],
     queryFn: () => TrackDeclarationService.getMyDeclaration(eventId, registrationId!),
-    enabled: !!eventId && !!registrationId,
+    enabled: isValidUUID(eventId) && isValidUUID(registrationId),
   })
 }
 
@@ -20,7 +24,7 @@ export function useEventDeclarations(eventId: string) {
   return useQuery({
     queryKey: ['event-track-declarations', eventId],
     queryFn: () => TrackDeclarationService.getEventDeclarations(eventId),
-    enabled: !!eventId,
+    enabled: isValidUUID(eventId),
   })
 }
 
@@ -28,7 +32,7 @@ export function useDeclarationSummary(eventId: string) {
   return useQuery({
     queryKey: ['track-declaration-summary', eventId],
     queryFn: () => TrackDeclarationService.getDeclarationSummary(eventId),
-    enabled: !!eventId,
+    enabled: isValidUUID(eventId),
   })
 }
 

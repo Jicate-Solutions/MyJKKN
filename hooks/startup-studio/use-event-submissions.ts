@@ -4,6 +4,10 @@ import { EventSubmissionService } from '@/lib/services/startup-studio/event-subm
 import { useAuth } from '@/hooks/use-auth';
 import type { SubmitProjectDto, UpdateMetricsDto, EventConfig } from '@/types/startup-studio';
 
+// Guards against Next.js 15 DRP placeholders like "%%drp:id:abc%%" passed as route params
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const isValidUUID = (id: string | undefined | null): boolean => !!id && !id.includes('%%drp:') && UUID_REGEX.test(id);
+
 export function useMySubmission(eventId: string | undefined) {
   const { profile } = useAuth();
   return useQuery({
@@ -12,7 +16,7 @@ export function useMySubmission(eventId: string | undefined) {
       if (!eventId || !profile?.id) return null;
       return EventSubmissionService.getMySubmission(eventId, profile.id);
     },
-    enabled: !!eventId && !!profile?.id,
+    enabled: isValidUUID(eventId) && !!profile?.id,
     staleTime: 15 * 1000,
     retry: 3,
   });
@@ -26,7 +30,7 @@ export function useTeamSubmission(eventId: string | undefined, registrationId: s
       if (!eventId || !registrationId) return null;
       return EventSubmissionService.getSubmission(eventId, registrationId);
     },
-    enabled: !authLoading && !!eventId && !!registrationId,
+    enabled: !authLoading && isValidUUID(eventId) && isValidUUID(registrationId),
     staleTime: 15 * 1000,
     retry: 2,
   });

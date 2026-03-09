@@ -6,6 +6,10 @@ import { toast } from 'sonner'
 import { AppathonVerificationService } from '@/lib/services/startup-studio/appathon-verification-service'
 import type { CreateVerificationDto, UpdateVerificationDto } from '@/types/startup-studio'
 
+// Guards against Next.js 15 DRP placeholders like "%%drp:id:abc%%" passed as route params
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const isValidUUID = (id: string | undefined): boolean => !!id && !id.includes('%%drp:') && UUID_REGEX.test(id);
+
 // ─── Query Keys ─────────────────────────────────────────────────────────────
 export const verificationKeys = {
   isEvaluator: (eventId: string, profileId: string | undefined) =>
@@ -40,7 +44,7 @@ export function useIsEventEvaluator(eventId: string, profileId: string | undefin
       return (data?.length ?? 0) > 0
     },
     staleTime: 60_000,
-    enabled: !!eventId && !!profileId,
+    enabled: isValidUUID(eventId) && !!profileId,
   })
 }
 
@@ -50,7 +54,7 @@ export function useEvaluatorTeams(eventId: string, profileId: string) {
     queryKey: verificationKeys.evaluatorTeams(eventId, profileId),
     queryFn: () => AppathonVerificationService.getEvaluatorTeams(eventId, profileId),
     staleTime: 30_000,
-    enabled: !!eventId && !!profileId,
+    enabled: isValidUUID(eventId) && !!profileId,
   })
 }
 
@@ -59,7 +63,7 @@ export function useTeamsForVenue(eventId: string, venueId: string, profileId: st
   return useQuery({
     queryKey: verificationKeys.evaluatorTeams(eventId, profileId + ':' + venueId),
     queryFn: () => AppathonVerificationService.getTeamsForVenue(eventId, venueId, profileId),
-    enabled: !!eventId && !!venueId && !!profileId,
+    enabled: isValidUUID(eventId) && isValidUUID(venueId) && !!profileId,
     staleTime: 30_000,
   })
 }
@@ -93,7 +97,7 @@ export function useFlaggedVerifications(eventId: string) {
     queryKey: verificationKeys.flaggedVerifications(eventId),
     queryFn: () => AppathonVerificationService.getFlaggedVerifications(eventId),
     staleTime: 15_000,
-    enabled: !!eventId,
+    enabled: isValidUUID(eventId),
   })
 }
 
@@ -118,7 +122,7 @@ export function useEvaluatorProgress(eventId: string) {
     queryKey: verificationKeys.evaluatorProgress(eventId),
     queryFn: () => AppathonVerificationService.getEvaluatorProgress(eventId),
     staleTime: 15_000,
-    enabled: !!eventId,
+    enabled: isValidUUID(eventId),
   })
 }
 
@@ -128,7 +132,7 @@ export function useVerifiedLeaderboard(eventId: string) {
     queryKey: verificationKeys.verifiedLeaderboard(eventId),
     queryFn: () => AppathonVerificationService.getVerifiedLeaderboard(eventId),
     staleTime: 15_000,
-    enabled: !!eventId,
+    enabled: isValidUUID(eventId),
   })
 }
 

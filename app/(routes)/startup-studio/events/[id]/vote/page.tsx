@@ -43,9 +43,15 @@ export default function VotePage({ params }: { params: Promise<{ id: string }> }
   const myVoteMap = new Map(myVotes.map(v => [v.submission_id, v.rating]))
   const slotMap = new Map(demoSlots.map(s => [s.registration_id, s.slot_order]))
 
+  // Normalize submission: PostgREST returns a 1-to-many join as an array; take first element.
+  const normalizedRegistrations = registrations.map(r => ({
+    ...r,
+    submission: Array.isArray(r.submission) ? (r.submission[0] ?? null) : r.submission,
+  }))
+
   // Only list teams that have a submitted project, sorted by demo slot (nulls last)
-  const teamsWithSubmissions = registrations
-    .filter(r => !!r.submission)
+  const teamsWithSubmissions = normalizedRegistrations
+    .filter(r => !!r.submission?.id)
     .sort((a, b) => {
       const slotA = slotMap.get(a.id) ?? null
       const slotB = slotMap.get(b.id) ?? null
@@ -139,7 +145,7 @@ export default function VotePage({ params }: { params: Promise<{ id: string }> }
                 <TeamVoteCard
                   key={reg.id}
                   teamName={reg.team_name}
-                  appName={reg.submission!.app_name}
+                  appName={reg.submission!.app_name ?? ''}
                   institutionName={institutionName}
                   demoSlot={slotMap.get(reg.id) ?? null}
                   slotIndex={index + 1}

@@ -3,12 +3,16 @@ import toast from 'react-hot-toast';
 import { EventLeaderboardService } from '@/lib/services/startup-studio/event-leaderboard-service';
 import { useAuth } from '@/hooks/use-auth';
 
+// Guards against Next.js 15 DRP placeholders like "%%drp:id:abc%%" passed as route params
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const isValidUUID = (id: string | undefined | null): boolean => !!id && !id.includes('%%drp:') && UUID_REGEX.test(id);
+
 export function useLeaderboard(eventId: string) {
   const { isLoading: authLoading } = useAuth();
   return useQuery({
     queryKey: ['event-leaderboard', eventId],
     queryFn: () => EventLeaderboardService.getLeaderboard(eventId),
-    enabled: !authLoading && !!eventId,
+    enabled: !authLoading && isValidUUID(eventId),
     staleTime: 15 * 1000,
     retry: 3,
   });
@@ -36,7 +40,7 @@ export function useMrrVerificationQueue(eventId: string) {
   return useQuery({
     queryKey: ['mrr-queue', eventId],
     queryFn: () => EventLeaderboardService.getMrrVerificationQueue(eventId),
-    enabled: !authLoading && !!eventId,
+    enabled: !authLoading && isValidUUID(eventId),
     staleTime: 15 * 1000,
     retry: 3,
   });
@@ -83,7 +87,7 @@ export function useDemoSlots(eventId: string) {
   return useQuery({
     queryKey: ['demo-slots', eventId],
     queryFn: () => EventLeaderboardService.getDemoSlots(eventId),
-    enabled: !authLoading && !!eventId,
+    enabled: !authLoading && isValidUUID(eventId),
     staleTime: 15 * 1000,
     retry: 3,
   });

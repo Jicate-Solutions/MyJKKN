@@ -5,13 +5,17 @@ import type { CreateRoleCardDto } from '@/types/startup-studio';
 import { useAuth } from '@/hooks/use-auth';
 import toast from 'react-hot-toast';
 
+// Guards against Next.js 15 DRP placeholders like "%%drp:id:abc%%" passed as route params
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const isValidUUID = (id: string | undefined | null): boolean => !!id && !id.includes('%%drp:') && UUID_REGEX.test(id);
+
 /** Fetch the current user's role card for a submission (null = not yet submitted). */
 export function useMyRoleCard(submissionId: string | undefined) {
   const { profile } = useAuth();
   return useQuery({
     queryKey: ['my-role-card', submissionId, profile?.id],
     queryFn: () => RoleCardService.getMyRoleCard(submissionId!, profile!.id),
-    enabled: !!submissionId && !!profile?.id,
+    enabled: isValidUUID(submissionId) && !!profile?.id,
     staleTime: 30_000,
   });
 }
@@ -21,7 +25,7 @@ export function useTeamRoleCards(submissionId: string | undefined) {
   return useQuery({
     queryKey: ['team-role-cards', submissionId],
     queryFn: () => RoleCardService.getTeamRoleCards(submissionId!),
-    enabled: !!submissionId,
+    enabled: isValidUUID(submissionId),
     staleTime: 15_000,
   });
 }

@@ -10,7 +10,7 @@ import { toast } from 'sonner';
 // Guards against Next.js 15 Dynamic Route Prefetching placeholders like "%%drp:id:abc%%"
 // that are passed as route params during speculative prefetch — they are not real UUIDs
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const isValidUUID = (id: string | undefined): boolean => !!id && UUID_REGEX.test(id);
+const isValidUUID = (id: string | undefined): boolean => !!id && !id.includes('%%drp:') && UUID_REGEX.test(id);
 
 export function useEvents(filters?: EventFilters) {
   const { isLoading: authLoading } = useAuth();

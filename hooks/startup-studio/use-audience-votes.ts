@@ -7,6 +7,10 @@ import toast from 'react-hot-toast'
 import { createClientSupabaseClient } from '@/lib/supabase/client'
 import { AudienceVoteService } from '@/lib/services/startup-studio/audience-vote-service'
 
+// Guards against Next.js 15 DRP placeholders like "%%drp:id:abc%%" passed as route params
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const isValidUUID = (id: string | undefined | null): boolean => !!id && !id.includes('%%drp:') && UUID_REGEX.test(id);
+
 // ─── Query Keys ──────────────────────────────────────────────────────────────
 export const voteKeys = {
   summaries: (eventId: string) => ['vote-summaries', eventId] as const,
@@ -20,7 +24,7 @@ export function useVoteSummaries(eventId: string) {
     queryKey: voteKeys.summaries(eventId),
     queryFn: () => AudienceVoteService.getVoteSummaries(eventId),
     staleTime: 10_000,
-    enabled: !!eventId,
+    enabled: isValidUUID(eventId),
   })
 }
 
@@ -30,7 +34,7 @@ export function useMyVotes(eventId: string, profileId: string) {
     queryKey: voteKeys.myVotes(eventId, profileId),
     queryFn: () => AudienceVoteService.getMyVotes(eventId, profileId),
     staleTime: 30_000,
-    enabled: !!eventId && !!profileId,
+    enabled: isValidUUID(eventId) && !!profileId,
   })
 }
 
@@ -90,7 +94,7 @@ export function useAudienceVotesRealtime(eventId: string) {
   const qc = useQueryClient()
 
   useEffect(() => {
-    if (!eventId) return
+    if (!isValidUUID(eventId)) return
 
     const supabase = createClientSupabaseClient()
     const channel = supabase

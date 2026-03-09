@@ -8,7 +8,7 @@ import type { CreateRegistrationDto, RegistrationFilters, StudentSearchFilters }
 
 // Guards against Next.js 15 DRP placeholders like "%%drp:id:abc%%" passed as route params
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const isValidUUID = (id: string | undefined): boolean => !!id && UUID_REGEX.test(id);
+const isValidUUID = (id: string | undefined): boolean => !!id && !id.includes('%%drp:') && UUID_REGEX.test(id);
 
 export function useRegistration(registrationId: string | undefined) {
   const { isLoading: authLoading } = useAuth();
@@ -210,10 +210,13 @@ export function useRemoveTeamMember() {
 
 export function useStudentSearch(filters: StudentSearchFilters & { enabled?: boolean }) {
   const { enabled = true, ...searchFilters } = filters;
+  const isEventIdValid = !searchFilters.event_id || isValidUUID(searchFilters.event_id);
+  const isInstIdValid = !searchFilters.institution_id || isValidUUID(searchFilters.institution_id);
+
   return useQuery({
     queryKey: ['student-search', searchFilters],
     queryFn: () => StudentSearchService.searchStudents(searchFilters),
-    enabled: enabled && !!searchFilters.event_id && !!searchFilters.institution_id,
+    enabled: enabled && !!searchFilters.event_id && !!searchFilters.institution_id && isEventIdValid && isInstIdValid,
     staleTime: 30 * 1000,
     retry: 1,
   });
@@ -225,9 +228,12 @@ export function useStudentSearchFilterOptions(filters: {
   department_id?: string;
   program_id?: string;
 }) {
+  const isInstIdValid = !filters.institution_id || isValidUUID(filters.institution_id);
+  
   return useQuery({
     queryKey: ['student-search-filter-options', filters],
     queryFn: () => StudentSearchService.getFilterOptions(filters),
+    enabled: isInstIdValid,
     staleTime: 60 * 1000,
     retry: 1,
   });

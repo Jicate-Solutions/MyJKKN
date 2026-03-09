@@ -7,6 +7,10 @@ import { EventAnalyticsService } from '@/lib/services/startup-studio/event-analy
 import { AppathonVerificationService } from '@/lib/services/startup-studio/appathon-verification-service'
 import type { StartupEvent } from '@/types/startup-studio'
 
+// Guards against Next.js 15 DRP placeholders like "%%drp:id:abc%%" passed as route params
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const isValidUUID = (id: string | undefined | null): boolean => !!id && !id.includes('%%drp:') && UUID_REGEX.test(id);
+
 // Re-export useEvaluatorProgress from use-appathon-verifications so callers can import it
 // from either file — both share the same React Query cache key ['evaluator-progress', eventId].
 export { useEvaluatorProgress } from './use-appathon-verifications'
@@ -19,7 +23,7 @@ export function useEventDashboardKPIs(eventId: string) {
     queryKey: ['event-dashboard-kpis', eventId],
     queryFn: () => EventAnalyticsService.getKPIs(eventId),
     staleTime: 15_000,
-    enabled: !authLoading && !!eventId,
+    enabled: !authLoading && isValidUUID(eventId),
     retry: 3,
   })
 }
@@ -32,7 +36,7 @@ export function useEventSubmissionMetrics(eventId: string) {
     queryKey: ['event-submission-metrics', eventId],
     queryFn: () => EventAnalyticsService.getSubmissionMetrics(eventId),
     staleTime: 15_000,
-    enabled: !authLoading && !!eventId,
+    enabled: !authLoading && isValidUUID(eventId),
     retry: 3,
   })
 }
@@ -45,7 +49,7 @@ export function useEventAttendanceSummary(eventId: string) {
     queryKey: ['event-attendance-summary', eventId],
     queryFn: () => EventAnalyticsService.getAttendanceSummary(eventId),
     staleTime: 15_000,
-    enabled: !authLoading && !!eventId,
+    enabled: !authLoading && isValidUUID(eventId),
     retry: 3,
   })
 }
@@ -58,7 +62,7 @@ export function useEventVerificationSummary(eventId: string) {
     queryKey: ['event-verification-summary', eventId],
     queryFn: () => EventAnalyticsService.getVerificationSummary(eventId),
     staleTime: 15_000,
-    enabled: !authLoading && !!eventId,
+    enabled: !authLoading && isValidUUID(eventId),
     retry: 3,
   })
 }
@@ -80,7 +84,7 @@ export function useEventVotingOverview(
         voting_closed_at: event?.voting_closed_at ?? null,
       }),
     staleTime: 10_000,
-    enabled: !authLoading && !!eventId && !!event,
+    enabled: !authLoading && isValidUUID(eventId) && !!event,
     retry: 3,
   })
 }
@@ -99,7 +103,7 @@ export function useEventEvaluatorProgress(eventId: string) {
     queryKey: ['evaluator-progress', eventId],
     queryFn: () => AppathonVerificationService.getEvaluatorProgress(eventId),
     staleTime: 15_000,
-    enabled: !authLoading && !!eventId,
+    enabled: !authLoading && isValidUUID(eventId),
     retry: 3,
   })
 }
@@ -112,7 +116,7 @@ export function useEventChecklistProgress(eventId: string) {
     queryKey: ['event-checklist-progress', eventId],
     queryFn: () => EventAnalyticsService.getChecklistProgress(eventId),
     staleTime: 30_000,
-    enabled: !authLoading && !!eventId,
+    enabled: !authLoading && isValidUUID(eventId),
     retry: 3,
   })
 }
@@ -125,7 +129,7 @@ export function useEventInstitutionBreakdown(eventId: string) {
     queryKey: ['event-institution-breakdown', eventId],
     queryFn: () => EventAnalyticsService.getInstitutionBreakdown(eventId),
     staleTime: 30_000,
-    enabled: !authLoading && !!eventId,
+    enabled: !authLoading && isValidUUID(eventId),
     retry: 3,
   })
 }

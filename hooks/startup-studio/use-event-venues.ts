@@ -5,12 +5,16 @@ import { useAuth } from '@/hooks/use-auth';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import type { CreateVenueDto, UpdateVenueDto, DayType, StaffRole, MarkAttendanceDto, EventTeamAttendance } from '@/types/startup-studio';
 
+// Guards against Next.js 15 Dynamic Route Prefetching placeholders like "%%drp:id:abc%%"
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const isValidUUID = (id: string | undefined | null): boolean => !!id && !id.includes('%%drp:') && UUID_REGEX.test(id);
+
 export function useVenue(venueId: string) {
   const { isLoading: authLoading } = useAuth();
   return useQuery({
     queryKey: ['event-venue', venueId],
     queryFn: () => EventVenueService.getVenueById(venueId),
-    enabled: !authLoading && !!venueId,
+    enabled: !authLoading && isValidUUID(venueId),
     staleTime: 15 * 1000,
     retry: 3,
   });
@@ -21,7 +25,7 @@ export function useEventVenues(eventId: string, dayType?: DayType) {
   return useQuery({
     queryKey: ['event-venues', eventId, dayType],
     queryFn: () => EventVenueService.getVenues(eventId, dayType),
-    enabled: !authLoading && !!eventId,
+    enabled: !authLoading && isValidUUID(eventId),
     staleTime: 15 * 1000,
     retry: 3,
   });
@@ -189,7 +193,7 @@ export function useEventAttendanceMap(eventId: string, dayType: DayType) {
   return useQuery({
     queryKey: ['event-attendance-map', eventId, dayType],
     queryFn: () => EventVenueService.getEventAttendanceMap(eventId, dayType),
-    enabled: !authLoading && !!eventId,
+    enabled: !authLoading && isValidUUID(eventId),
     staleTime: 10 * 1000,
     retry: 3,
   });
@@ -200,7 +204,7 @@ export function useAllVenuesForFaculty(eventId: string, dayType?: DayType) {
   return useQuery({
     queryKey: ['event-venues-faculty', eventId, dayType],
     queryFn: () => EventVenueService.getAllVenuesForFaculty(eventId, dayType),
-    enabled: !authLoading && !!eventId,
+    enabled: !authLoading && isValidUUID(eventId),
     staleTime: 15 * 1000,
     retry: 3,
   });
@@ -211,7 +215,7 @@ export function useStaffVenues(eventId: string, staffEmail: string, dayType?: Da
   return useQuery({
     queryKey: ['event-venues-staff', eventId, staffEmail, dayType],
     queryFn: () => EventVenueService.getVenuesForStaff(eventId, staffEmail, dayType),
-    enabled: !authLoading && !!eventId && !!staffEmail,
+    enabled: !authLoading && isValidUUID(eventId) && !!staffEmail,
     staleTime: 15 * 1000,
     retry: 3,
   });
@@ -222,7 +226,7 @@ export function useVenueAttendance(eventId: string, venueAssignmentId: string, d
   return useQuery({
     queryKey: ['venue-attendance', eventId, venueAssignmentId, dayType],
     queryFn: () => EventVenueService.getVenueAttendance(eventId, venueAssignmentId, dayType),
-    enabled: !authLoading && !!eventId && !!venueAssignmentId,
+    enabled: !authLoading && isValidUUID(eventId) && isValidUUID(venueAssignmentId),
     staleTime: 10 * 1000,
     retry: 3,
   });
@@ -286,7 +290,7 @@ export function useRegistrationVenueAllocations(registrationId: string | null | 
       }
       return (data ?? []) as any[];
     },
-    enabled: !authLoading && !!registrationId,
+    enabled: !authLoading && isValidUUID(registrationId),
     staleTime: 15 * 1000,
     retry: 2,
   });

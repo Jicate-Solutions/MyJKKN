@@ -7,11 +7,15 @@ import type {
   AdminUpdateCaseStudyDto,
 } from '@/types/startup-studio'
 
+// Guards against Next.js 15 DRP placeholders like "%%drp:id:abc%%" passed as route params
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const isValidUUID = (id: string | undefined | null): boolean => !!id && !id.includes('%%drp:') && UUID_REGEX.test(id);
+
 export function useMyCaseStudy(eventId: string, registrationId: string | null | undefined) {
   return useQuery({
     queryKey: ['case-study', eventId, registrationId],
     queryFn: () => CaseStudyService.getMyCaseStudy(eventId, registrationId!),
-    enabled: !!eventId && !!registrationId,
+    enabled: isValidUUID(eventId) && isValidUUID(registrationId),
   })
 }
 
@@ -19,7 +23,7 @@ export function useEventCaseStudies(eventId: string) {
   return useQuery({
     queryKey: ['event-case-studies', eventId],
     queryFn: () => CaseStudyService.getEventCaseStudies(eventId),
-    enabled: !!eventId,
+    enabled: isValidUUID(eventId),
   })
 }
 
