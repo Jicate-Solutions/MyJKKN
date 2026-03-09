@@ -770,11 +770,15 @@ CREATE POLICY "staff_view_bills" ON billing_student_bills
     OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
   );
 
--- TODO (Phase 0): Student self-access RLS requires mapping learners_profiles to auth.users.
--- learners_profiles has NO user_id column currently. Phase 0 audit must determine:
+-- BLOCKER (Phase 0 MUST resolve before Phase 2 ships): Student self-access RLS requires
+-- mapping learners_profiles to auth.users. learners_profiles has NO user_id column currently.
+-- Phase 0 audit must determine:
 -- 1. How learners_profiles maps to auth.users (via profiles? separate column? join table?)
 -- 2. Design the student-facing RLS policy for billing_student_bills, billing_receipts, etc.
--- Until resolved, student portal pages should use server-side data fetching with explicit student lookup.
+-- Until resolved, student portal pages MUST use server-side data fetching with explicit student
+-- lookup. Student-facing API endpoints MUST NOT accept arbitrary studentId parameters — they
+-- must derive the student identity from auth.uid() via the resolved mapping.
+-- WARNING: Without this mapping, IDOR vulnerabilities are near-certain.
 ```
 
 ### 2.6 Program Transfer / Mid-Year Changes
