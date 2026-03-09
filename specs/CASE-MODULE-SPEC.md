@@ -195,6 +195,20 @@ Assigned to specific users (Robert Maria Vincent, N Narayan Rao) via a new `cust
 
 **Implementation:** Create a new row in `custom_roles` with `role_key = 'case_reviewer'` and the permissions listed in Section 7. Robert and Narayan Rao get assigned this role. The `case.review` permission is checked in both RLS policies and the application layer.
 
+**Reviewer assignment** uses existing MyJKKN user management. Super_admin assigns the `case_reviewer` role via the Roles page. Technically: INSERT into `user_roles` with the reviewer's `user_id` and the `case_reviewer` `role_id`.
+
+**Seed data example:**
+```sql
+-- Assign case_reviewer role to Robert and Narayan Rao
+-- 1. Create the custom role
+INSERT INTO custom_roles (role_key, name, permissions)
+VALUES ('case_reviewer', 'CASE Reviewer', '["case.review", "case.courses.read"]');
+-- 2. Assign to users via user_roles junction table
+INSERT INTO user_roles (user_id, role_id) VALUES
+  ((SELECT id FROM profiles WHERE email = 'robert@jkkn.ac.in'), (SELECT id FROM custom_roles WHERE role_key = 'case_reviewer')),
+  ((SELECT id FROM profiles WHERE email = 'narayan.rao@jkkn.ac.in'), (SELECT id FROM custom_roles WHERE role_key = 'case_reviewer'));
+```
+
 ### 3.4 Student Outcomes Tracking
 
 New table `case_student_outcomes` tracks post-completion results:
