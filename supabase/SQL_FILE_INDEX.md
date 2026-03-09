@@ -76,6 +76,7 @@ When updating any SQL file:
 | LTI Integration | lti_tools, lti_launches, lti_grades                                                                                                                                                                                         | 3     | ✅ Complete - MATLAB integration |
 | **Service Requests** | **service_types, service_type_fields, service_request_approval_steps, service_requests, service_request_approvals, service_request_timeline, service_request_attachments** | **7** | **✅ NEW - Dynamic configurable service request system** |
 | **Startup Studio** | **startup_events, event_registrations, event_team_members, event_venue_assignments, event_team_venue_allocations, event_staff_assignments, event_demo_slots, event_submissions, event_checklists, event_checklist_items, event_checklist_completions, event_team_attendance, appathon_role_cards, appathon_peer_tags, appathon_verifications** | **15** | **NEW - Generic event platform for hackathons/competitions** |
+| **Post-Demo Day Pipeline** | **track_declarations, progression_levels, case_studies** | **3** | **NEW 2026-03-09 — Post-demo-day team path declaration, learner identity progression (5 levels), and case study narratives** |
 | Other           | applications (with parent auth + LTI), categories, subcategories, employment_categories, user_activity_logs, activity_stats, institution_departments, migration_log                                                           | 8     | ✅ Updated with auth + LTI  |
 
 ### Functions (244 total - Updated 2026-02-09)
@@ -191,6 +192,38 @@ When updating any SQL file:
 ```
 
 ## 📝 Change Log
+
+### 2026-03-09: Post-Demo Day Pipeline — 3 New Tables
+
+- **Files Updated**:
+  - `supabase/setup/01_tables.sql` — Added `track_declarations`, `progression_levels`, `case_studies` tables with indexes
+  - `supabase/setup/03_policies.sql` — Added RLS (ENABLE + 13 policies across 3 tables)
+  - `supabase/setup/04_triggers.sql` — Added `update_case_studies_updated_at` trigger
+
+  **Purpose**: Track team path declarations after Demo Day, individual learner identity-ladder progression (5 levels), and structured case study narratives for `solve_for_industry` / `jicate_solutions` tracks.
+
+**track_declarations** — New table:
+- `event_id` → `startup_events(id)`, `team_id` → `event_registrations(id)`
+- `track TEXT` — `'solve_for_100'` | `'jicate_solutions'` | `'solve_for_industry'` | `'completed'`
+- `declared_by` → `profiles(id)`, `declared_at TIMESTAMPTZ`
+- `mentor_approved BOOLEAN`, `mentor_notes TEXT`, `approved_at`, `approved_by`
+- UNIQUE on `(event_id, team_id)`
+
+**progression_levels** — New table:
+- `profile_id` → `profiles(id)`, `event_id` → `startup_events(id)`, `team_id` → `event_registrations(id)`
+- `level INTEGER` (1–5), `level_name TEXT`, `achieved_at TIMESTAMPTZ`
+- `evidence JSONB`, `awarded_by TEXT` (default `'system'`)
+- UNIQUE on `(profile_id, event_id, level)`
+
+**case_studies** — New table:
+- `event_id` → `startup_events(id)`, `team_id` → `event_registrations(id)`
+- `track TEXT` — `'solve_for_industry'` | `'jicate_solutions'`
+- `problem TEXT`, `solution TEXT`, `proof TEXT`, `who_else TEXT`
+- `demo_url TEXT`, `app_name TEXT`, `app_url TEXT`
+- `score INTEGER`, `featured BOOLEAN` (default `false`)
+- UNIQUE on `(event_id, team_id)`; `updated_at` auto-managed by trigger
+
+---
 
 ### 2026-03-06: Facilitator Attendance Report — RPC Function
 

@@ -571,6 +571,13 @@ CREATE TRIGGER update_appathon_verifications_updated_at
     BEFORE UPDATE ON appathon_verifications
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+-- updated_at trigger for case_studies
+-- Added: 2026-03-09
+
+CREATE TRIGGER update_case_studies_updated_at
+  BEFORE UPDATE ON case_studies
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
 -- ================================================================================
 -- End of Triggers File
 -- Total Triggers: 79 (Updated: 2026-03-08)

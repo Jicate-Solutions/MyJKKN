@@ -2237,6 +2237,79 @@ ALTER TABLE startup_events
   ADD COLUMN IF NOT EXISTS voting_opened_at TIMESTAMPTZ,
   ADD COLUMN IF NOT EXISTS voting_closed_at TIMESTAMPTZ;
 
+-- ============================================================
+-- POST DEMO DAY PIPELINE TABLES
+-- Added: 2026-03-09 — Spec: Spec-Post-Demo-Day-Pipeline.md
+-- ============================================================
+
+-- Track Declarations: Teams declare which path they want after Demo Day
+CREATE TABLE IF NOT EXISTS track_declarations (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  event_id UUID NOT NULL REFERENCES startup_events(id) ON DELETE CASCADE,
+  team_id UUID NOT NULL REFERENCES event_registrations(id) ON DELETE CASCADE,
+  track TEXT NOT NULL,
+  reason TEXT,
+  declared_by UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  declared_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  mentor_approved BOOLEAN DEFAULT NULL,
+  mentor_notes TEXT,
+  approved_at TIMESTAMPTZ,
+  approved_by UUID REFERENCES profiles(id) ON DELETE SET NULL,
+  UNIQUE (event_id, team_id),
+  CHECK (track IN ('solve_for_100', 'jicate_solutions', 'solve_for_industry', 'completed'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_track_declarations_event ON track_declarations(event_id);
+CREATE INDEX IF NOT EXISTS idx_track_declarations_team ON track_declarations(team_id);
+CREATE INDEX IF NOT EXISTS idx_track_declarations_track ON track_declarations(track);
+CREATE INDEX IF NOT EXISTS idx_track_declarations_declared_by ON track_declarations(declared_by);
+
+-- Progression Levels: Individual learner progression across 5-stage identity ladder
+CREATE TABLE IF NOT EXISTS progression_levels (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  profile_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  event_id UUID NOT NULL REFERENCES startup_events(id) ON DELETE CASCADE,
+  team_id UUID REFERENCES event_registrations(id) ON DELETE SET NULL,
+  level INTEGER NOT NULL,
+  level_name TEXT NOT NULL,
+  achieved_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  evidence JSONB NOT NULL DEFAULT '{}'::jsonb,
+  awarded_by TEXT NOT NULL DEFAULT 'system',
+  UNIQUE (profile_id, event_id, level),
+  CHECK (level BETWEEN 1 AND 5)
+);
+
+CREATE INDEX IF NOT EXISTS idx_progression_levels_profile ON progression_levels(profile_id);
+CREATE INDEX IF NOT EXISTS idx_progression_levels_event ON progression_levels(event_id);
+CREATE INDEX IF NOT EXISTS idx_progression_levels_team ON progression_levels(team_id);
+CREATE INDEX IF NOT EXISTS idx_progression_levels_level ON progression_levels(level);
+
+-- Case Studies: Structured narratives for solve_for_industry and jicate_solutions tracks
+CREATE TABLE IF NOT EXISTS case_studies (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  event_id UUID NOT NULL REFERENCES startup_events(id) ON DELETE CASCADE,
+  team_id UUID NOT NULL REFERENCES event_registrations(id) ON DELETE CASCADE,
+  track TEXT NOT NULL,
+  problem TEXT NOT NULL,
+  solution TEXT NOT NULL,
+  proof TEXT NOT NULL,
+  who_else TEXT,
+  demo_url TEXT,
+  app_name TEXT,
+  app_url TEXT,
+  score INTEGER,
+  featured BOOLEAN NOT NULL DEFAULT false,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (event_id, team_id),
+  CHECK (track IN ('solve_for_industry', 'jicate_solutions'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_case_studies_event ON case_studies(event_id);
+CREATE INDEX IF NOT EXISTS idx_case_studies_team ON case_studies(team_id);
+CREATE INDEX IF NOT EXISTS idx_case_studies_track ON case_studies(track);
+CREATE INDEX IF NOT EXISTS idx_case_studies_featured ON case_studies(featured);
+
 -- =====================================================
 -- END OF TABLE DEFINITIONS
 -- =====================================================

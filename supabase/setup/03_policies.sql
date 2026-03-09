@@ -3233,3 +3233,197 @@ CREATE POLICY "audience_votes_update"
   ON audience_votes FOR UPDATE
   USING (auth.uid() = voter_profile_id)
   WITH CHECK (auth.uid() = voter_profile_id);
+
+-- ============================================================
+-- RLS: POST DEMO DAY PIPELINE TABLES
+-- Added: 2026-03-09
+-- ============================================================
+
+ALTER TABLE track_declarations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE progression_levels ENABLE ROW LEVEL SECURITY;
+ALTER TABLE case_studies ENABLE ROW LEVEL SECURITY;
+
+-- ---- track_declarations policies ----
+
+CREATE POLICY "track_declarations_select_own_team"
+  ON track_declarations FOR SELECT
+  USING (
+    EXISTS (
+      SELECT 1 FROM event_team_members etm
+      WHERE etm.registration_id = track_declarations.team_id
+        AND etm.profile_id = auth.uid()
+        AND etm.status = 'accepted'
+    )
+    OR
+    EXISTS (
+      SELECT 1 FROM event_registrations er
+      WHERE er.id = track_declarations.team_id
+        AND er.owner_id = auth.uid()
+    )
+  );
+
+CREATE POLICY "track_declarations_select_admin"
+  ON track_declarations FOR SELECT
+  USING (
+    EXISTS (
+      SELECT 1 FROM profiles p
+      WHERE p.id = auth.uid()
+        AND p.role IN ('super_admin', 'admin', 'faculty', 'hod', 'principal')
+    )
+  );
+
+CREATE POLICY "track_declarations_insert_leader"
+  ON track_declarations FOR INSERT
+  WITH CHECK (
+    declared_by = auth.uid()
+    AND EXISTS (
+      SELECT 1 FROM event_registrations er
+      WHERE er.id = team_id
+        AND er.owner_id = auth.uid()
+    )
+    AND EXISTS (
+      SELECT 1 FROM startup_events se
+      WHERE se.id = event_id
+        AND se.is_results_published = true
+    )
+  );
+
+CREATE POLICY "track_declarations_update_leader"
+  ON track_declarations FOR UPDATE
+  USING (
+    declared_by = auth.uid()
+    AND declared_at > NOW() - INTERVAL '7 days'
+  )
+  WITH CHECK (
+    declared_by = auth.uid()
+  );
+
+CREATE POLICY "track_declarations_update_admin"
+  ON track_declarations FOR UPDATE
+  USING (
+    EXISTS (
+      SELECT 1 FROM profiles p
+      WHERE p.id = auth.uid()
+        AND p.role IN ('super_admin', 'admin', 'faculty', 'hod', 'principal')
+    )
+  );
+
+-- ---- progression_levels policies ----
+
+CREATE POLICY "progression_levels_select_own"
+  ON progression_levels FOR SELECT
+  USING (profile_id = auth.uid());
+
+CREATE POLICY "progression_levels_select_admin"
+  ON progression_levels FOR SELECT
+  USING (
+    EXISTS (
+      SELECT 1 FROM profiles p
+      WHERE p.id = auth.uid()
+        AND p.role IN ('super_admin', 'admin', 'faculty', 'hod', 'principal')
+    )
+  );
+
+CREATE POLICY "progression_levels_insert_admin"
+  ON progression_levels FOR INSERT
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM profiles p
+      WHERE p.id = auth.uid()
+        AND p.role IN ('super_admin', 'admin')
+    )
+  );
+
+CREATE POLICY "progression_levels_update_admin"
+  ON progression_levels FOR UPDATE
+  USING (
+    EXISTS (
+      SELECT 1 FROM profiles p
+      WHERE p.id = auth.uid()
+        AND p.role IN ('super_admin', 'admin')
+    )
+  );
+
+-- ---- case_studies policies ----
+
+CREATE POLICY "case_studies_select_own_team"
+  ON case_studies FOR SELECT
+  USING (
+    EXISTS (
+      SELECT 1 FROM event_team_members etm
+      WHERE etm.registration_id = case_studies.team_id
+        AND etm.profile_id = auth.uid()
+        AND etm.status = 'accepted'
+    )
+    OR
+    EXISTS (
+      SELECT 1 FROM event_registrations er
+      WHERE er.id = case_studies.team_id
+        AND er.owner_id = auth.uid()
+    )
+  );
+
+CREATE POLICY "case_studies_select_public_after_publish"
+  ON case_studies FOR SELECT
+  USING (
+    EXISTS (
+      SELECT 1 FROM startup_events se
+      WHERE se.id = case_studies.event_id
+        AND se.is_results_published = true
+    )
+    AND auth.role() = 'authenticated'
+  );
+
+CREATE POLICY "case_studies_select_admin"
+  ON case_studies FOR SELECT
+  USING (
+    EXISTS (
+      SELECT 1 FROM profiles p
+      WHERE p.id = auth.uid()
+        AND p.role IN ('super_admin', 'admin', 'faculty', 'hod', 'principal')
+    )
+  );
+
+CREATE POLICY "case_studies_insert_team_member"
+  ON case_studies FOR INSERT
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM event_team_members etm
+      WHERE etm.registration_id = team_id
+        AND etm.profile_id = auth.uid()
+        AND etm.status = 'accepted'
+    )
+    OR
+    EXISTS (
+      SELECT 1 FROM event_registrations er
+      WHERE er.id = team_id
+        AND er.owner_id = auth.uid()
+    )
+  );
+
+CREATE POLICY "case_studies_update_team_member"
+  ON case_studies FOR UPDATE
+  USING (
+    EXISTS (
+      SELECT 1 FROM event_team_members etm
+      WHERE etm.registration_id = case_studies.team_id
+        AND etm.profile_id = auth.uid()
+        AND etm.status = 'accepted'
+    )
+    OR
+    EXISTS (
+      SELECT 1 FROM event_registrations er
+      WHERE er.id = case_studies.team_id
+        AND er.owner_id = auth.uid()
+    )
+  );
+
+CREATE POLICY "case_studies_update_admin"
+  ON case_studies FOR UPDATE
+  USING (
+    EXISTS (
+      SELECT 1 FROM profiles p
+      WHERE p.id = auth.uid()
+        AND p.role IN ('super_admin', 'admin')
+    )
+  );
