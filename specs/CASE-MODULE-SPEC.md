@@ -143,6 +143,14 @@ The existing VAC module has **32 files, 4 tables, 30 hooks, 34 service methods**
 
 **Archive rule:** Archiving is blocked if active enrollments exist (`status = 'active'`). All students must complete or be unenrolled first.
 
+**Bulk Unenroll Action:** When archiving is blocked due to active enrollments, the UI shows:
+- Error message: 'Cannot archive: X active enrollment(s) remain'
+- Link: 'View Active Enrollments' → opens dialog/page listing enrolled students
+- Action: 'Bulk Unenroll' button to unenroll selected/all ghost students
+- After unenrolling, admin can proceed with archiving
+Add service method: `bulkUnenrollStudents(courseId, studentIds[])`
+Add hook: `useBulkUnenroll()`
+
 **Unarchive:** Only `super_admin` can restore ARCHIVED → DRAFT.
 
 **Force Approve (super_admin only):** When the normal review workflow is blocked (e.g., only 2 reviewers and one is the course creator), a `super_admin` can force-approve a course. This bypasses the `case_course_reviews` table and sets `review_status` directly to `approved` with audit fields (`force_approved_by`, `force_approved_at`, `force_approval_reason`). The force-approve action is logged and visible in the course history. It does NOT change the normal 2-reviewer workflow — it is an escape hatch only.
