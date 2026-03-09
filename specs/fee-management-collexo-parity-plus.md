@@ -1264,7 +1264,6 @@ These features create competitive advantages Collexo structurally cannot match.
 | P6 | `billing_student_financial_health` | Financial health scoring |
 | P6 | `billing_cashflow_forecasts` | Cash flow predictions |
 | P6 | `billing_regulatory_compliance` | Regulatory tracking |
-| ~~P6~~ P1 | `billing_audit_trail` | Immutable audit log (**moved to Phase 1**) |
 | P6 | `billing_settlements` | Gateway settlement tracking |
 | P6 | `billing_settlement_items` | Per-transaction settlement detail |
 | P6 | `billing_payment_arrangements` | Custom payment plans |
