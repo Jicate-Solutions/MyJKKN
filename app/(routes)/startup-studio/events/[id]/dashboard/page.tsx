@@ -24,6 +24,7 @@ import { AttendanceTab } from './_components/attendance-tab';
 import { SubmissionsTab } from './_components/submissions-tab';
 import { EvaluationTab } from './_components/evaluation-tab';
 import { VotingTab } from './_components/voting-tab';
+import { DeclarationsTab } from './_components/declarations-tab';
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -107,6 +108,7 @@ function DashboardContent({ eventId }: { eventId: string }) {
                 <TabsTrigger value="submissions">Submissions</TabsTrigger>
                 <TabsTrigger value="evaluation">Evaluation</TabsTrigger>
                 <TabsTrigger value="voting">Voting</TabsTrigger>
+                <TabsTrigger value="declarations">Declarations</TabsTrigger>
               </TabsList>
 
               <TabsContent value="overview" className="mt-4">
@@ -167,6 +169,10 @@ function DashboardContent({ eventId }: { eventId: string }) {
                 ) : votingOverview ? (
                   <VotingTab overview={votingOverview} />
                 ) : null}
+              </TabsContent>
+
+              <TabsContent value="declarations" className="mt-4">
+                <DeclarationsTab eventId={eventId} />
               </TabsContent>
             </Tabs>
           </>
