@@ -3416,6 +3416,20 @@ CREATE POLICY "case_studies_update_team_member"
       WHERE er.id = case_studies.team_id
         AND er.owner_id = auth.uid()
     )
+  )
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM event_team_members etm
+      WHERE etm.registration_id = case_studies.team_id
+        AND etm.profile_id = auth.uid()
+        AND etm.status = 'accepted'
+    )
+    OR
+    EXISTS (
+      SELECT 1 FROM event_registrations er
+      WHERE er.id = case_studies.team_id
+        AND er.owner_id = auth.uid()
+    )
   );
 
 CREATE POLICY "case_studies_update_admin"
