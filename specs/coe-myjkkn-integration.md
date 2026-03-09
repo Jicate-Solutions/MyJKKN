@@ -969,7 +969,7 @@ export type CoeStage =
   | 'prototype' | 'test' | 'trajectory_assessment'
   | 'handover' | 'completed' | 'rejected';
 
-export type CoeOriginType = 'cycle' | 'submission' | 'fresh';
+export type CoeOriginType = 'cycle' | 'submission' | 'fresh' | 'handover';
 
 export type CoeTrajectory = 'solution' | 'startup' | 'research';
 // NULL on coe_projects.trajectory means "not yet decided"
