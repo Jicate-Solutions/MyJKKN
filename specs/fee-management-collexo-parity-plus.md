@@ -910,6 +910,9 @@ CREATE TABLE billing_data_imports (
 app/(routes)/billing/migration/
 ├── page.tsx                    — Migration dashboard (status of all imports)
 ├── upload/page.tsx             — Upload file + select import type
+│                                 Download template button per import type (headers + sample row + format notes)
+│                                 Column mapping preview: "Your columns → Our columns" visual
+│                                 Tally-specific instructions per type (export path in Tally)
 ├── validate/[id]/page.tsx      — Review validation results
 ├── preview/[id]/page.tsx       — Preview import data
 └── history/page.tsx            — Past imports with results
