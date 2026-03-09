@@ -761,7 +761,7 @@ When a student transfers programs mid-year (e.g., B.Tech CSE → B.Tech ECE), th
 >   ADD CONSTRAINT billing_student_bills_status_check
 >   CHECK (status IN ('draft', 'generated', 'partially_paid', 'paid', 'overdue', 'cancelled', 'superseded'));
 > ```
-> The UNIQUE constraint `(student_id, academic_year_id)` still holds — the superseded bill stays in the DB but the new bill replaces it functionally. Relax the UNIQUE to allow both by including status: `UNIQUE(student_id, academic_year_id) WHERE status != 'superseded'` (partial unique index).
+> The partial unique index from Phase 2.1 (`unique_active_student_year_bill ... WHERE status NOT IN ('superseded', 'cancelled')`) already handles this — the superseded bill stays in the DB with `status = 'superseded'`, and the new bill passes the partial index check. No additional migration needed for this phase.
 
 ### Phase 2 Deliverable
 
