@@ -365,7 +365,7 @@ CREATE UNIQUE INDEX idx_coe_incentive_unique_milestone
 | Milestone | Trigger | Method |
 |-----------|---------|--------|
 | `proposal_submitted` | Stage: `proposal` -> `committee_review` | `advanceStage()` (auto) |
-| `prototype_developed` | Stage: -> `prototype` | `advanceStage()` (auto) |
+| `prototype_developed` | Stage: `prototype` -> `test` | `advanceStage()` (auto) |
 | `incubation_accepted` | External: NIF/NLB acceptance | `recordExternalMilestone()` (manual) |
 | `publication_accepted` | External: Journal/conference acceptance | `recordExternalMilestone()` (manual) |
 | `solution_implemented` | External: JICATE deployment | `recordExternalMilestone()` (manual) |
