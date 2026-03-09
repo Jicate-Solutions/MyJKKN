@@ -1,7 +1,7 @@
 // hooks/staff/use-class-incharges.ts
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ClassInchargeFilters, AssignInchargeDto } from '@/types/staff';
+import { ClassInchargeFilters, AssignInchargeDto, BulkAssignInchargeDto, BulkAssignResult } from '@/types/staff';
 import { ClassInchargeService } from '@/lib/services/staff/class-incharge-service';
 import { QUERY_CONFIG } from '@/lib/config/query-config';
 
@@ -72,6 +72,21 @@ export function useRemoveIncharge(sectionId: string) {
       queryClient.invalidateQueries({
         queryKey: classInchargeKeys.bySection(sectionId),
       });
+    },
+  });
+}
+
+/**
+ * Bulk-assign one staff member as incharge to multiple sections at once.
+ * Invalidates the list cache on success so the table refreshes.
+ */
+export function useBulkAssignIncharge() {
+  const queryClient = useQueryClient();
+
+  return useMutation<BulkAssignResult, Error, BulkAssignInchargeDto>({
+    mutationFn: (dto) => ClassInchargeService.bulkAssignIncharge(dto),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: classInchargeKeys.lists() });
     },
   });
 }
