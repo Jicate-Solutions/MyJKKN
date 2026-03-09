@@ -864,6 +864,8 @@ CREATE TABLE billing_opening_balances (
 );
 ```
 
+> **Negative outstanding (overpayment):** If `total_paid > total_fees` from the legacy system, `outstanding` will be negative. This is valid — it represents a credit/overpayment from Tally. The import validation step should flag negative outstanding for manual review. Dashboard queries should handle this explicitly: show overpaid students separately from defaulters. Queries filtering `outstanding > 0` to find defaulters will correctly exclude overpaid students.
+
 ### 3.4 Reconciliation
 
 After import, provide tools to verify:
