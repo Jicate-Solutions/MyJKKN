@@ -20,11 +20,16 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { MoreVertical, UserCheck, UserPlus, Trash2 } from 'lucide-react';
+import { Checkbox } from '@/components/ui/checkbox';
 
 export interface ClassInchargeColumnActions {
   onManage: (section: SectionWithIncharges) => void;
   onRemoveAll: (section: SectionWithIncharges) => void;
   canDelete: boolean;
+  selectedIds: Set<string>;
+  onToggleSelect: (id: string) => void;
+  onSelectAll: (checked: boolean) => void;
+  totalCount: number;
 }
 
 function getInitials(firstName: string, lastName: string) {
@@ -84,6 +89,32 @@ export function getClassInchargeColumns(
   actions: ClassInchargeColumnActions
 ): PermissionColumnDef<SectionWithIncharges>[] {
   return [
+    {
+      id: 'select',
+      header: () => (
+        <Checkbox
+          checked={
+            actions.totalCount > 0 &&
+            actions.selectedIds.size === actions.totalCount
+          }
+          onCheckedChange={(checked) => actions.onSelectAll(!!checked)}
+          aria-label="Select all"
+          className="translate-y-[2px]"
+        />
+      ),
+      cell: ({ row }: { row: { original: SectionWithIncharges } }) => (
+        <Checkbox
+          checked={actions.selectedIds.has(row.original.id)}
+          onCheckedChange={() => actions.onToggleSelect(row.original.id)}
+          aria-label="Select row"
+          className="translate-y-[2px]"
+          onClick={(e: React.MouseEvent) => e.stopPropagation()}
+        />
+      ),
+      enableSorting: false,
+      enableHiding: false,
+      size: 40,
+    },
     {
       accessorKey: 'section_name',
       header: 'Section',
