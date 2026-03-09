@@ -1,0 +1,12 @@
+# Fresh Eyes Ignore — MyJKKN
+# Items confirmed as intentional design decisions by the user
+
+# Regulatory cap enforcement is advisory-only (warn, don't block)
+# User decision: "Warn only. Allow save with warning. Keep it flexible."
+# Date: 2026-03-09
+fee-management-collexo-parity-plus.md: regulatory cap enforcement is advisory-only, warn don't block (2026-03-09)
+
+# Scholarship component matching uses text[] with runtime validation, not junction table
+# User decision: "Keep text[] + validation note. Junction table is over-engineering for now."
+# Date: 2026-03-09
+fee-management-collexo-parity-plus.md: scholarship applies_to_components uses text array with validation against billing_item_categories (2026-03-09)
