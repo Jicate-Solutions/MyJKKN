@@ -49,7 +49,7 @@ const projectSchema = z.object({
   github_url: z.string().url('Must be a valid URL').refine(
     (url) => url.startsWith('https://github.com/'),
     'Must be a GitHub URL (https://github.com/...)'
-  ),
+  ).optional().or(z.literal('')),
   demo_video_url: z.string().url('Must be a valid URL').optional().or(z.literal('')),
 });
 
@@ -445,7 +445,7 @@ function ProjectSection({
             <FormField control={form.control} name="github_url" render={({ field }) => (
               <FormItem>
                 <FormLabel className="flex items-center gap-1.5">
-                  <Github className="h-3.5 w-3.5" /> GitHub Repository URL <span className="text-destructive">*</span>
+                  <Github className="h-3.5 w-3.5" /> GitHub Repository URL
                 </FormLabel>
                 <FormControl>
                   <Input {...field} disabled={locked} placeholder="https://github.com/username/repo" />
