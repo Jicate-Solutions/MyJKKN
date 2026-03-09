@@ -759,6 +759,14 @@ app/(routes)/billing/student-portal/
     └── failed/page.tsx         — Payment failure + retry
 ```
 
+> **Empty/pending state (CRITICAL):** Students will access the portal before their bill is generated (admin hasn't run bulk generation yet, or fee matrix isn't configured for their program). The portal MUST handle this gracefully:
+> - Show student profile info (name, program, year) so they know they're in the right place
+> - Display: "Your fee details are being prepared. You'll be notified when your bill is ready."
+> - Do NOT surface admin-side errors (e.g., "no fee matrix configured") — just show the pending message
+> - This is the student's **first impression** of the fee portal — it must not be an error page
+
+> **Mobile-first design (CRITICAL):** Students and parents access the portal almost exclusively on mobile phones (especially in Indian education). The student portal, payment pages, and receipt download MUST be designed mobile-first: card-based layout, large tap targets, no horizontal scroll. The public payment link page (`/pay/[token]`) must work on low-end Android browsers. Admin pages are desktop-primary but should be responsive.
+
 > **Routing note:** Student portal lives under `billing/student-portal/` to follow the project's convention of keeping all module routes under their module prefix. This page uses student-context RLS (not admin RLS).
 
 **RLS:**
