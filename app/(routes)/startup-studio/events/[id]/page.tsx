@@ -74,7 +74,7 @@ function getDaysUntil(dateStr: string | null): string | null {
 export default function EventDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const router = useRouter();
-  const { data: event, isLoading: eventLoading, isError, refetch } = useEvent(id);
+  const { data: event, isPending: eventPending, isError, refetch } = useEvent(id);
   const { data: stats } = useEventStats(id);
   const { data: myRegistration } = useMyRegistration(id);
   const { data: myMembership } = useMyAcceptedMembership(id);
@@ -82,7 +82,9 @@ export default function EventDetailPage({ params }: { params: Promise<{ id: stri
   const { profile, isLoading: authLoading } = useAuth();
   const { data: isEventEvaluator } = useIsEventEvaluator(id, profile?.id);
   const [editOpen, setEditOpen] = useState(false);
-  const isLoading = authLoading || eventLoading;
+  // Use isPending (not isLoading) — covers both disabled queries (auth loading) AND
+  // in-flight queries. Prevents "Event not found" flash during the transition.
+  const isLoading = (authLoading && !profile) || eventPending;
 
   if (isLoading) {
     return (
@@ -119,6 +121,7 @@ export default function EventDetailPage({ params }: { params: Promise<{ id: stri
 
   const isAdmin = profile?.is_super_admin || profile?.role === 'super_admin' || profile?.role === 'admin' || profile?.role === 'administrator';
   const isSuperAdmin = !!(profile?.is_super_admin || profile?.role === 'super_admin');
+  const isFacultyRole = !isAdmin && ['faculty', 'hod', 'principal', 'staff', 'lecturer'].includes(profile?.role ?? '');
   // Only students and super admins can register teams
   const canRegister = profile?.role === 'student' || isSuperAdmin;
   const config = event.config;
@@ -453,6 +456,24 @@ export default function EventDetailPage({ params }: { params: Promise<{ id: stri
               <div className="grid gap-4 grid-cols-2 sm:grid-cols-3">
                 <AdminLink href={`/startup-studio/events/${id}/evaluate`} icon={<ClipboardCheck className="h-5 w-5" />} label="Evaluate Teams" />
                 <AdminLink href={`/startup-studio/events/${id}/leaderboard`} icon={<Trophy className="h-5 w-5" />} label="Leaderboard" />
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Staff / Mentor Panel — shown to faculty, hod, principal, staff, lecturer who are not admins */}
+        {isFacultyRole && !isAdmin && (
+          <Card className="border-dashed border-2 shadow-none bg-muted/10">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base flex items-center gap-2 text-muted-foreground">
+                <MapPin className="h-4 w-4" />
+                Mentor Controls
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid gap-4 grid-cols-2 sm:grid-cols-3">
+                <AdminLink href={`/startup-studio/events/${id}/my-assignment`} icon={<ClipboardList className="h-5 w-5" />} label="My Assignment" />
+                <AdminLink href={`/startup-studio/events/${id}/venues`} icon={<MapPin className="h-5 w-5" />} label="Venues & Mentors" />
               </div>
             </CardContent>
           </Card>

@@ -91,17 +91,19 @@ const TIER_NAMES: Record<number, string> = {
 export default function SubmitPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const { profile, isLoading: authLoading } = useAuth();
-  const { data: event, isLoading: eventLoading } = useEvent(id);
-  const { data: registration, isLoading: regLoading } = useMyRegistration(id);
-  const { data: membership, isLoading: memberLoading } = useMyAcceptedMembership(id);
-  const { data: submission, isLoading: subLoading } = useMySubmission(id);
+  // Use isPending (covers disabled→fetching transition) for queries that always run.
+  // Use isLoading for conditionally-enabled queries (useTeamSubmission) to avoid blocking forever.
+  const { data: event, isPending: eventPending } = useEvent(id);
+  const { data: registration, isPending: regPending } = useMyRegistration(id);
+  const { data: membership, isPending: memberPending } = useMyAcceptedMembership(id);
+  const { data: submission, isPending: subPending } = useMySubmission(id);
 
   // For accepted members (non-leader): fetch team submission via registration_id from membership
   const membershipAny = membership as any;
   const memberRegistrationId = !registration ? membershipAny?.registration_id : undefined;
   const { data: memberSubmission, isLoading: memberSubLoading } = useTeamSubmission(id, memberRegistrationId);
   // For Role Card Phase 3: fetch team members list for member branch (leader gets them via registration.team_members)
-  const { data: memberTeamMembers, isLoading: memberTeamLoading } = useMyTeamMembers(id);
+  const { data: memberTeamMembers, isPending: memberTeamPending } = useMyTeamMembers(id);
 
   const now = new Date();
   const submissionLocked = event?.submission_deadline
@@ -111,7 +113,10 @@ export default function SubmitPage({ params }: { params: Promise<{ id: string }>
     ? new Date(event.metrics_deadline) < now
     : false) || !!event?.metrics_frozen_at;
 
-  if (authLoading || eventLoading || regLoading || memberLoading || subLoading || memberSubLoading || memberTeamLoading) {
+  // Use isPending for always-run queries — covers the disabled→fetching gap that causes
+  // "not found" flash. Only use isLoading for useTeamSubmission (conditionally enabled,
+  // would be isPending=true forever for leaders).
+  if ((authLoading && !profile) || eventPending || regPending || memberPending || subPending || memberSubLoading || memberTeamPending) {
     return (
       <ContentLayout title="Submit Project">
         <div className="flex items-center justify-center min-h-[60vh]">

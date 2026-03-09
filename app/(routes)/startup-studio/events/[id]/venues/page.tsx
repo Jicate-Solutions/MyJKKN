@@ -70,10 +70,10 @@ export default function VenuesPage({ params }: { params: Promise<{ id: string }>
           <VenuesPanel eventId={id} />
         ) : isFacultyRole ? (
           // Faculty view — all venues (read-only) + attendance marking for any team
-          <StaffVenueView eventId={id} staffEmail={profile!.email} showAll />
+          <StaffVenueView eventId={id} staffEmail={profile!.email} showAll defaultDayType={event?.status === 'demo_day' ? 'demo_day' : 'build_day'} />
         ) : isStaff ? (
           // Assigned-staff view — only venues they are explicitly assigned to
-          <StaffVenueView eventId={id} staffEmail={profile!.email} />
+          <StaffVenueView eventId={id} staffEmail={profile!.email} defaultDayType={event?.status === 'demo_day' ? 'demo_day' : 'build_day'} />
         ) : (
           <div className="text-center py-16 text-muted-foreground">
             <MapPin className="h-10 w-10 mx-auto mb-3 opacity-30" />

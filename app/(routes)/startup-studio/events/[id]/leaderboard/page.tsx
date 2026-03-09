@@ -18,7 +18,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 export default function LeaderboardPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const router = useRouter();
-  const { data: event, isLoading: eventLoading } = useEvent(id);
+  const { data: event, isPending: eventPending } = useEvent(id);
   const { profile, isLoading: authLoading } = useAuth();
   const isAdmin = profile?.role === 'super_admin' || profile?.role === 'admin' || profile?.role === 'administrator';
   const isFrozen = !!event?.metrics_frozen_at;
@@ -33,7 +33,7 @@ export default function LeaderboardPage({ params }: { params: Promise<{ id: stri
     { label: 'Leaderboard' },
   ];
 
-  if (authLoading || eventLoading) {
+  if ((authLoading && !profile) || eventPending) {
     return (
       <ContentLayout title="Leaderboard">
         <PageBreadcrumb items={breadcrumbs} />

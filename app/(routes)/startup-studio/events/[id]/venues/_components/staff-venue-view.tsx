@@ -39,10 +39,12 @@ interface StaffVenueViewProps {
   staffEmail: string;
   /** When true, shows ALL venues (faculty mode) instead of only assigned venues */
   showAll?: boolean;
+  /** Initial day tab — defaults to build_day. Pass event.status-derived value to auto-select the active day. */
+  defaultDayType?: DayType;
 }
 
-export function StaffVenueView({ eventId, staffEmail, showAll = false }: StaffVenueViewProps) {
-  const [dayType, setDayType] = useState<DayType>('build_day');
+export function StaffVenueView({ eventId, staffEmail, showAll = false, defaultDayType = 'build_day' }: StaffVenueViewProps) {
+  const [dayType, setDayType] = useState<DayType>(defaultDayType);
 
   return (
     <div className="space-y-5">

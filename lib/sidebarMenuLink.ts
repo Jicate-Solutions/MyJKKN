@@ -1701,6 +1701,7 @@ export function GetRoleBasedPages(
             const isLimitedStaffRole = ['faculty', 'hod', 'principal'].includes(userRole.role_key || '');
             if (isLimitedStaffRole && submenu.href.includes('/startup-studio/events/')) {
               if (submenu.href.includes('/venues')) return true;
+              if (submenu.href.includes('/my-assignment')) return true;
               if (submenu.href.includes('/registrations')) return true;
               if (submenu.href.includes('/vote')) return true;
               if (userRole.role_key === 'faculty' && submenu.href.includes('/checklists')) return true;

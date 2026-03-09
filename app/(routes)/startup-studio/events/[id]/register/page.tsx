@@ -10,10 +10,10 @@ import { Loader2, ShieldX } from 'lucide-react';
 
 export default function RegisterPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
-  const { data: event, isLoading: eventLoading } = useEvent(id);
+  const { data: event, isPending: eventPending } = useEvent(id);
   const { profile, isLoading: authLoading } = useAuth();
 
-  if (authLoading || eventLoading) {
+  if ((authLoading && !profile) || eventPending) {
     return (
       <ContentLayout title="Register">
         <div className="flex items-center justify-center py-20">
