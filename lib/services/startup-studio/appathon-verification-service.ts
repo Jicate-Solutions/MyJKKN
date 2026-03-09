@@ -180,7 +180,7 @@ export class AppathonVerificationService {
 
     if (allocErr) throw allocErr
 
-    // 2. Get this evaluator's existing verifications
+    // 2. Get ALL evaluators' verifications for this venue (super_admin sees everyone's work)
     const submissionIds = (allocations ?? [])
       .flatMap(a => {
         const reg = a.event_registrations as any
@@ -192,11 +192,17 @@ export class AppathonVerificationService {
     if (submissionIds.length > 0) {
       const { data: verifications } = await supabase
         .from('appathon_verifications')
-        .select('*')
+        .select('*, profiles!evaluator_id(full_name)')
         .in('submission_id', submissionIds)
-        .eq('evaluator_id', evaluatorProfileId)
+        .eq('venue_id', venueId)
+        .order('updated_at', { ascending: false })
 
-      ;(verifications ?? []).forEach(v => verificationMap.set(v.submission_id, v))
+      // Pick the most recently updated verification per submission
+      ;(verifications ?? []).forEach(v => {
+        if (!verificationMap.has(v.submission_id)) {
+          verificationMap.set(v.submission_id, v)
+        }
+      })
     }
 
     // 3. Get demo slots (for presentation order)
