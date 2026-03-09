@@ -635,7 +635,7 @@ CREATE POLICY "coe_<table>_service" ON coe_<table>
 
 ### Per-Table Write Policies
 
-In addition to the SELECT + service_role template above, each table needs role-appropriate write policies:
+In addition to the SELECT + service_role template above, each table needs role-appropriate write policies. **All write policies include an explicit `OR super_admin` bypass** per CLAUDE.md requirement: "super_admin always has FULL ACCESS."
 
 ```sql
 -- ═══════════════════════════════════════════
@@ -643,110 +643,178 @@ In addition to the SELECT + service_role template above, each table needs role-a
 -- ═══════════════════════════════════════════
 CREATE POLICY "coe_projects_insert" ON coe_projects
   FOR INSERT TO authenticated WITH CHECK (
-    institution_id = auth_institution_id()
-    AND proposed_by = auth.uid()
+    (institution_id = auth_institution_id() AND proposed_by = auth.uid())
+    OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
   );
 
+-- SECURITY: Proposer can ONLY edit in 'proposal' (draft) stage. Locked once in committee_review or later.
 CREATE POLICY "coe_projects_update" ON coe_projects
   FOR UPDATE TO authenticated USING (
-    institution_id = auth_institution_id()
-    AND (
-      proposed_by = auth.uid()  -- proposer can edit own draft
-      OR mentor_id = auth.uid()  -- mentor can update mentee project
-      OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN ('admin', 'institution_admin', 'super_admin'))
+    (
+      institution_id = auth_institution_id()
+      AND (
+        (proposed_by = auth.uid() AND stage = 'proposal')  -- proposer: draft only
+        OR mentor_id = auth.uid()  -- mentor can update mentee project
+        OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN ('admin', 'institution_admin'))
+      )
     )
+    OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
   );
 
 -- DELETE: admin-only (soft-delete via is_active preferred)
 CREATE POLICY "coe_projects_delete" ON coe_projects
   FOR DELETE TO authenticated USING (
-    institution_id = auth_institution_id()
-    AND EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN ('admin', 'institution_admin', 'super_admin'))
+    (institution_id = auth_institution_id()
+      AND EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN ('admin', 'institution_admin')))
+    OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
   );
 
 -- ═══════════════════════════════════════════
--- coe_trajectory_assessments: Committee members create, assessed_by = self
+-- coe_trajectory_assessments: Committee members, mentors, or admins only
+-- SECURITY: Restricted to prevent any institution user from submitting assessments
 -- ═══════════════════════════════════════════
 CREATE POLICY "coe_trajectory_insert" ON coe_trajectory_assessments
   FOR INSERT TO authenticated WITH CHECK (
-    institution_id = auth_institution_id()
-    AND assessed_by = auth.uid()
+    (
+      institution_id = auth_institution_id()
+      AND assessed_by = auth.uid()
+      AND (
+        -- Must be: committee member for this project's review, OR mentor, OR admin
+        EXISTS (SELECT 1 FROM coe_committee_members cm
+          JOIN coe_committee_reviews cr ON cr.id = cm.review_id
+          WHERE cr.project_id = coe_trajectory_assessments.project_id
+          AND cm.user_id = auth.uid() AND cm.role IN ('chair', 'reviewer'))
+        OR EXISTS (SELECT 1 FROM coe_projects WHERE id = coe_trajectory_assessments.project_id AND mentor_id = auth.uid())
+        OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN ('admin', 'institution_admin'))
+      )
+    )
+    OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
   );
 
 -- ═══════════════════════════════════════════
--- coe_project_stage_history: Insert-only (append-only audit trail)
+-- coe_project_stage_history: SERVICE_ROLE ONLY (immutable audit trail)
+-- SECURITY: No authenticated INSERT — prevents fake audit trail entries.
+-- All stage history is created via advanceStage() service method (service_role).
 -- ═══════════════════════════════════════════
-CREATE POLICY "coe_stage_history_insert" ON coe_project_stage_history
-  FOR INSERT TO authenticated WITH CHECK (
-    institution_id = auth_institution_id()
-    AND changed_by = auth.uid()
-  );
--- No UPDATE/DELETE — audit trail is immutable
+-- No authenticated INSERT/UPDATE/DELETE policies. service_role handles all writes.
 
 -- ═══════════════════════════════════════════
 -- coe_incentive_ledger: Auto-applied by service, manual by admin
 -- ═══════════════════════════════════════════
 CREATE POLICY "coe_incentive_insert" ON coe_incentive_ledger
   FOR INSERT TO authenticated WITH CHECK (
-    institution_id = auth_institution_id()
-    AND EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN ('admin', 'institution_admin', 'super_admin'))
+    (institution_id = auth_institution_id()
+      AND EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN ('admin', 'institution_admin')))
+    OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
   );
 -- Note: auto_applied incentives are created via service_role, not authenticated
 
 CREATE POLICY "coe_incentive_update" ON coe_incentive_ledger
   FOR UPDATE TO authenticated USING (
-    institution_id = auth_institution_id()
-    AND EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN ('admin', 'institution_admin', 'super_admin'))
+    (institution_id = auth_institution_id()
+      AND EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN ('admin', 'institution_admin')))
+    OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
   );
 
 -- ═══════════════════════════════════════════
--- coe_mentor_ratings: Rater = self
+-- coe_mentor_ratings: Only team members or admins can rate
+-- SECURITY: Prevents unrelated users from rating mentors they never worked with
 -- ═══════════════════════════════════════════
 CREATE POLICY "coe_mentor_ratings_insert" ON coe_mentor_ratings
   FOR INSERT TO authenticated WITH CHECK (
-    institution_id = auth_institution_id()
-    AND rated_by = auth.uid()
+    (
+      institution_id = auth_institution_id()
+      AND rated_by = auth.uid()
+      AND (
+        -- Must be a team member of the project OR admin
+        EXISTS (SELECT 1 FROM ss_team_members tm
+          JOIN coe_projects p ON p.team_id = tm.team_id
+          WHERE p.id = coe_mentor_ratings.project_id AND tm.user_id = auth.uid())
+        OR EXISTS (SELECT 1 FROM coe_projects WHERE id = coe_mentor_ratings.project_id AND proposed_by = auth.uid())
+        OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN ('admin', 'institution_admin'))
+      )
+    )
+    OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
   );
 
 -- ═══════════════════════════════════════════
--- coe_committee_reviews: Admin/facilitator creates
+-- coe_committee_reviews: Admin/staff creates; chair/admin finalizes
 -- ═══════════════════════════════════════════
 CREATE POLICY "coe_reviews_insert" ON coe_committee_reviews
   FOR INSERT TO authenticated WITH CHECK (
-    institution_id = auth_institution_id()
-    AND EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN ('admin', 'institution_admin', 'super_admin', 'staff'))
+    (institution_id = auth_institution_id()
+      AND EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN ('admin', 'institution_admin', 'staff')))
+    OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
   );
 
+-- SECURITY: decided_by is validated against actual role, NOT self-referencing.
+-- Only the chair of this review OR an admin can finalize decisions.
 CREATE POLICY "coe_reviews_update" ON coe_committee_reviews
   FOR UPDATE TO authenticated USING (
-    institution_id = auth_institution_id()
-    AND (
-      decided_by = auth.uid()  -- decision-maker can finalize
-      OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN ('admin', 'institution_admin', 'super_admin'))
+    (
+      institution_id = auth_institution_id()
+      AND (
+        EXISTS (SELECT 1 FROM coe_committee_members
+          WHERE review_id = coe_committee_reviews.id AND user_id = auth.uid() AND role = 'chair')
+        OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN ('admin', 'institution_admin'))
+      )
     )
+    OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
   );
 
 -- ═══════════════════════════════════════════
--- coe_committee_members: Admin assigns, no self-assignment
+-- coe_committee_members: Admin assigns; membership frozen once voting starts
 -- ═══════════════════════════════════════════
 CREATE POLICY "coe_members_insert" ON coe_committee_members
   FOR INSERT TO authenticated WITH CHECK (
-    institution_id = auth_institution_id()
-    AND EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN ('admin', 'institution_admin', 'super_admin'))
+    (institution_id = auth_institution_id()
+      AND EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN ('admin', 'institution_admin'))
+      -- SECURITY: Cannot add members after voting has started
+      AND NOT EXISTS (SELECT 1 FROM coe_committee_votes WHERE review_id = coe_committee_members.review_id)
+      -- SECURITY: Cannot add the project's proposer as a committee member
+      AND NOT EXISTS (
+        SELECT 1 FROM coe_committee_reviews cr
+        JOIN coe_projects p ON p.id = cr.project_id
+        WHERE cr.id = coe_committee_members.review_id AND p.proposed_by = coe_committee_members.user_id
+      )
+    )
+    OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
   );
 
 -- ═══════════════════════════════════════════
--- coe_committee_votes: Only committee members (chair/reviewer) can vote
+-- coe_committee_votes: Chair/reviewer can vote; proposer-voter separation enforced
 -- ═══════════════════════════════════════════
 CREATE POLICY "coe_votes_insert" ON coe_committee_votes
   FOR INSERT TO authenticated WITH CHECK (
-    institution_id = auth_institution_id()
-    AND user_id = auth.uid()
+    (
+      institution_id = auth_institution_id()
+      AND user_id = auth.uid()
+      AND EXISTS (
+        SELECT 1 FROM coe_committee_members
+        WHERE review_id = coe_committee_votes.review_id
+          AND user_id = auth.uid()
+          AND role IN ('chair', 'reviewer')  -- observers cannot vote
+      )
+      -- SECURITY: Proposer cannot vote on their own proposal
+      AND NOT EXISTS (
+        SELECT 1 FROM coe_committee_reviews cr
+        JOIN coe_projects p ON p.id = cr.project_id
+        WHERE cr.id = coe_committee_votes.review_id
+        AND p.proposed_by = auth.uid()
+      )
+    )
+    OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+  );
+
+-- SECURITY: Votes can be updated ONLY before the review is finalized (allows correction).
+-- Once review status is approved/rejected/revision_needed, votes are locked.
+CREATE POLICY "coe_votes_update" ON coe_committee_votes
+  FOR UPDATE TO authenticated USING (
+    user_id = auth.uid()
     AND EXISTS (
-      SELECT 1 FROM coe_committee_members
-      WHERE review_id = coe_committee_votes.review_id
-        AND user_id = auth.uid()
-        AND role IN ('chair', 'reviewer')  -- observers cannot vote
+      SELECT 1 FROM coe_committee_reviews
+      WHERE id = coe_committee_votes.review_id
+      AND status IN ('submitted', 'under_review')  -- not yet finalized
     )
   );
 
@@ -755,20 +823,23 @@ CREATE POLICY "coe_votes_insert" ON coe_committee_votes
 -- ═══════════════════════════════════════════
 CREATE POLICY "coe_cia_configs_insert" ON coe_cia_configs
   FOR INSERT TO authenticated WITH CHECK (
-    institution_id = auth_institution_id()
-    AND EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN ('admin', 'institution_admin', 'super_admin'))
+    (institution_id = auth_institution_id()
+      AND EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN ('admin', 'institution_admin')))
+    OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
   );
 
 CREATE POLICY "coe_cia_configs_update" ON coe_cia_configs
   FOR UPDATE TO authenticated USING (
-    institution_id = auth_institution_id()
-    AND EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN ('admin', 'institution_admin', 'super_admin'))
+    (institution_id = auth_institution_id()
+      AND EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN ('admin', 'institution_admin')))
+    OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
   );
 
 CREATE POLICY "coe_cia_configs_delete" ON coe_cia_configs
   FOR DELETE TO authenticated USING (
-    institution_id = auth_institution_id()
-    AND EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN ('admin', 'institution_admin', 'super_admin'))
+    (institution_id = auth_institution_id()
+      AND EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN ('admin', 'institution_admin')))
+    OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
   );
 
 -- ═══════════════════════════════════════════
@@ -776,18 +847,28 @@ CREATE POLICY "coe_cia_configs_delete" ON coe_cia_configs
 -- ═══════════════════════════════════════════
 CREATE POLICY "coe_cia_marks_insert" ON coe_cia_student_marks
   FOR INSERT TO authenticated WITH CHECK (
-    institution_id = auth_institution_id()
-    AND EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN ('admin', 'institution_admin', 'super_admin', 'staff'))
+    (institution_id = auth_institution_id()
+      AND EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN ('admin', 'institution_admin', 'staff')))
+    OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
   );
 
 CREATE POLICY "coe_cia_marks_update" ON coe_cia_student_marks
   FOR UPDATE TO authenticated USING (
-    institution_id = auth_institution_id()
-    AND EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN ('admin', 'institution_admin', 'super_admin', 'staff'))
+    (institution_id = auth_institution_id()
+      AND EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role IN ('admin', 'institution_admin', 'staff')))
+    OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
   );
 ```
 
-**All write policies include super_admin bypass via the role check.** The `service_role` policy (from template) covers all automated operations (incentive auto-apply, stage history logging via service).
+**Immutable tables (service_role only for writes):**
+- `coe_project_stage_history` — audit trail, no authenticated writes
+- `coe_committee_votes` — no DELETE for any role (even service_role should avoid deletes)
+
+**Service_role restrictions (recommended at implementation):**
+- `coe_committee_votes`: restrict service_role to SELECT + INSERT only (no UPDATE/DELETE) to enforce vote immutability
+- `coe_project_stage_history`: restrict service_role to SELECT + INSERT only
+
+**All write policies include super_admin bypass via `OR EXISTS (... role = 'super_admin')`.** The `service_role` policy (from template) covers all automated operations (incentive auto-apply, stage history logging).
 
 **Public visibility note:** All `coe_projects` with `is_public = true` are visible to any authenticated user within the same institution. The standard institution RLS handles this — no special policy needed. The `is_public` flag is for future use if project owners want to make a project private.
 
