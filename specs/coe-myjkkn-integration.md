@@ -992,7 +992,8 @@ Extends `BaseService`, follows `CyclesService` pattern exactly.
 - `updateProject(id, data)` — update metadata/mentor/tags. Proposer can edit freely while in `proposal` (draft) stage. Locked once in `committee_review` or later.
 - `advanceStage(id, toStage, reason)` — validates transition + creates history + triggers incentive automation
 - `submitTrajectoryAssessment(projectId, scores)` — saves rubric, computes recommendation
-- `createHandover(projectId, { new_proposed_by, new_team_id? })` — requires new proposer/team. Spawns V(n+1) after committee handover_review approval. See Handover Logic section for two-step flow.
+- `initiateHandover(projectId, input: CreateHandoverInput)` — requires `new_proposed_by`. Creates a `handover_review` committee review and stores pending handover data (new proposer, team) in `review.notes` as JSON. Does NOT create V(n+1) yet — that happens after committee approval. Only callable when project is in `handover` stage.
+- `finalizeHandover(reviewId)` — called after committee approves the `handover_review`. Creates V(n+1) project from stored handover data, marks V(n) as `completed`. Only callable by admin or chair when review status is `approved`. See Handover Logic section for full flow.
 - `getIncentives(projectId)` / `createIncentive(data)` — incentive CRUD
 - `autoApplyIncentives(projectId, milestone)` — auto-generate attendance + CIA incentives (called internally by advanceStage)
 - `recordExternalMilestone(projectId, milestone, evidence)` — for post-trajectory milestones that are NOT stage transitions (see table below). Creates incentive ledger entries for all team members. Requires admin role.
