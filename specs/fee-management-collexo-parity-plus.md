@@ -660,6 +660,8 @@ Student Portal → Select Bills → Choose Payment Mode → HDFC Gateway → Cal
 >
 > The shared secret key MUST be stored in environment variables (never in code or database). Failed verification attempts must be logged with full payload for security audit.
 
+> **Gateway unavailability handling:** Before redirecting to the payment gateway, perform a health check. If the gateway is unreachable or timing out: show "Online payment is temporarily unavailable. Please try again later or contact the accounts office for offline payment options." Admins can configure a maintenance banner: "Online payments unavailable from 2 AM to 4 AM for scheduled maintenance." This prevents students from encountering cryptic gateway errors.
+
 ### 2.3 Offline Payment Recording
 
 **Critical:** This is AS important as online payments. JKKN's current reality is predominantly offline.
