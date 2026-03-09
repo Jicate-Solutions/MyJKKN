@@ -741,6 +741,11 @@ export interface UpdateCaseStudyDto {
   demo_url?: string;
 }
 
+export interface AdminUpdateCaseStudyDto {
+  featured?: boolean;
+  score?: number | null;
+}
+
 export interface TrackDeclarationSummary {
   track: TrackId;
   count: number;
