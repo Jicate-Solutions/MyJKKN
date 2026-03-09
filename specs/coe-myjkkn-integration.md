@@ -1572,7 +1572,7 @@ This is a **read-only integration** — CoE never writes to attendance tables, i
 - **Pages:** 2 (mentor ratings, handover dashboard)
 - **Service:** Extend `coe-service.ts`
 - **Hooks:** Extend `use-coe.ts`
-- **Dependency:** Phase 1 + Phase 2 (handover reviews need committee workflow).
+- **Dependency:** Phase 1 (committee workflow for handover_review) + Phase 2 (incentive automation triggered when entering handover stage).
 
 ---
 
