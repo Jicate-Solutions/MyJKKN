@@ -178,6 +178,7 @@ CREATE TABLE billing_fee_structures (
   institution_id uuid NOT NULL REFERENCES institutions(id),
   name text NOT NULL,                              -- "B.Tech Govt Quota AY 2026-27"
   description text,
+  UNIQUE(institution_id, name),                    -- Prevent duplicate names within an institution
   is_active boolean DEFAULT true,
   created_at timestamptz DEFAULT now(),
   updated_at timestamptz DEFAULT now()
