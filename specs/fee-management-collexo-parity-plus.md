@@ -953,6 +953,21 @@ After import, provide tools to verify:
 - Payment totals reconcile
 - Flag discrepancies for manual review
 
+**Reconciliation pages:**
+```
+app/(routes)/billing/migration/
+├── reconcile/page.tsx             — Side-by-side comparison (MyJKKN vs Tally totals)
+│                                    Summary: total fees, total paid, total outstanding per source
+│                                    Status indicators: matching / mismatched / within tolerance
+├── reconcile/discrepancies/page.tsx — Mismatched students with resolution actions
+│                                    Columns: Student, MyJKKN Amount, Tally Amount, Difference, Status
+│                                    Actions per row: Accept MyJKKN, Accept Tally, Mark for review
+│                                    Filters: by program, by amount threshold, unresolved only
+└── reconcile/report/page.tsx      — Printable reconciliation report for auditors
+                                    Export to PDF for sign-off
+                                    Shows: resolution summary, remaining discrepancies, sign-off fields
+```
+
 ### Phase 3 Deliverable
 
 - All historical fee data imported from Tally
