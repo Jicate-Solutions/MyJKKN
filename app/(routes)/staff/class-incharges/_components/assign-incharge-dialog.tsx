@@ -292,7 +292,7 @@ export function AssignInchargeDialog({ open, onOpenChange, ...rest }: Props) {
                 <PopoverContent
                   className="w-[--radix-popover-trigger-width] p-0"
                   align="start"
-                  container={containerEl ?? undefined}
+                  container={containerEl}
                 >
                   <Command>
                     <CommandInput placeholder="Search by name or staff ID..." />
