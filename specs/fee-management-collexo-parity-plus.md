@@ -1116,6 +1116,13 @@ CREATE TABLE billing_tax_config (
   effective_to date,
   created_at timestamptz DEFAULT now()
 );
+```
+
+> **Implementation note:** `applies_to_components` references fee component names as free-text strings (same pattern as `billing_scholarship_rules`). During implementation, validate against actual `billing_item_categories.item_category_name` values. When creating/updating a tax config, validate that no other active config for the same institution + component has an overlapping effective date range.
+
+> **Tax calculation precision:** All tax calculations MUST use exact decimal arithmetic in the application layer (e.g., `Decimal.js` or SQL `ROUND(amount * rate / 100, 2)`). Compute `total_tax` as the literal sum of component amounts (CGST + SGST + IGST), NOT independently calculated, to satisfy the CHECK constraint on `billing_tax_calculations`.
+
+```sql
 
 CREATE TABLE billing_tax_calculations (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
