@@ -731,7 +731,11 @@ CREATE TABLE billing_offline_payments (
 **Admin pages:**
 ```
 app/(routes)/billing/payments/
-├── record/page.tsx             — Record offline payment (select student, bill, mode, details)
+├── record/page.tsx             — Record offline payment (student lookup → bill → mode → details)
+│                                 Student lookup: search by name, roll number, phone, or student ID
+│                                 Results show: Name, Roll No, Program, Year, Photo, Outstanding amount
+│                                 If no outstanding bill: show "No pending fees" with payment history link
+│                                 Recently looked-up students list for quick re-access during busy counters
 ├── pending/page.tsx            — Pending clearance (cheques/DDs awaiting clearance)
 ├── bounced/page.tsx            — Bounced cheques requiring follow-up
 └── verify/page.tsx             — Payments awaiting verification
