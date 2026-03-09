@@ -1269,7 +1269,7 @@ These features create competitive advantages Collexo structurally cannot match.
 | P6 | `billing_payment_arrangements` | Custom payment plans |
 | P6 | `billing_loan_applications` | External loan tracking (future) |
 
-**Total: 32 new tables across 6 phases (20 fully specified with DDL, 12 Phase 6 tables sketched for future design)**
+**Total: 31 new tables across 6 phases (20 fully specified with DDL, 11 Phase 6 tables sketched for future design)**
 
 ---
 
