@@ -1020,14 +1020,18 @@ Separate service for CIA operations.
 React Query hooks calling `apiClient` to `/api/startup-studio/coe/*`:
 
 - `useCoeProjects(filters)` / `useCoeProject(id)` / `useCreateCoeProject()`
+- `useUpdateCoeProject()` — mutation: update project metadata (proposer only, while in `proposal` stage)
 - `useSubmitForReview(projectId)` — mutation: transitions proposal to committee_review
 - `useAdvanceCoeStage()` — mutation with optimistic update
 - `useCoeTrajectoryAssessment(projectId)` / `useSubmitTrajectory()`
-- `useCoeIncentives(projectId)` / `useCreateIncentive()`
+- `useCoeIncentives(projectId, filters?)` / `useCreateIncentive()`
+- `useRecordExternalMilestone()` — mutation: batch-create incentive entries for post-trajectory milestones (admin only)
 - `useCoeReviews(projectId)` / `useCreateReview()` / `useUpdateReview()`
-- `useSubmitVote()` — committee vote mutation
+- `useSubmitVote()` / `useUpdateVote()` — committee vote mutations (update only before finalization)
 - `useCoeMentorRatings(projectId)` / `useRateMentor()`
-- `useCoeHandover()` — mutation (requires `{ new_proposed_by, new_team_id? }` — no orphan V2 projects)
+- `useCoeStageHistory(projectId)` — query: stage transition audit trail for timeline view
+- `useInitiateHandover()` — mutation: creates handover_review (requires `CreateHandoverInput`)
+- `useFinalizeHandover()` — mutation: creates V(n+1) after committee approval (admin/chair only)
 - `useCoeAnalytics(filters)`
 
 ### `hooks/startup-studio/use-coe-cia.ts`
