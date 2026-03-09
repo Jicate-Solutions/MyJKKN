@@ -655,6 +655,12 @@ CREATE TABLE billing_offline_payments (
 > ```
 > The `verified_by != recorded_by` CHECK constraint enforces separation of duties — the person who records a cash payment cannot also verify it.
 
+> **`clearance_status` handling by payment mode:** The default `'pending'` is correct for cheques and demand drafts, but misleading for cash/UPI/POS payments where clearance doesn't apply. The application layer MUST set `clearance_status = 'na'` when recording cash, UPI offline, bank transfer, or POS swipe payments. The pending clearance page (`payments/pending/page.tsx`) MUST filter to `clearance_status = 'pending' AND payment_mode IN ('cheque', 'demand_draft')` — never show cash/transfer payments as pending clearance. Receipt generation logic should check `clearance_status IN ('cleared', 'na')` before generating receipts.
+
+> **Overpayment validation:** The application layer MUST validate that `amount` does not exceed the bill's current outstanding balance. If an overpayment is genuinely needed (e.g., advance payment), require `institution_admin` or `super_admin` approval with a justification note in `metadata`.
+
+> **Verification role restriction:** The UPDATE RLS policy for `billing_offline_payments` must enforce role restrictions on verification — only `accountant`, `admin`, `institution_admin`, or `super_admin` can set `verified_by`.
+
 **Why a separate table (not just payment_transactions)?** Offline payments have fundamentally different fields:
 - Cheque/DD need bank details, clearance tracking, bounce handling
 - Cash needs recorded_by (who accepted it) and verification
