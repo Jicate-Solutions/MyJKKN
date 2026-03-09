@@ -553,13 +553,13 @@ Student Profile (quota + entry_type → admission_type) → Fee Matrix Lookup �
   → Same as generate but doesn't save — returns preview for admin review
 ```
 
-> **Idempotency constraint:** Add a UNIQUE constraint on `billing_student_bills` to prevent duplicate bills:
+> **Idempotency constraint:** Add a partial unique index on `billing_student_bills` to prevent duplicate active bills while allowing superseded/cancelled bills to coexist:
 > ```sql
-> ALTER TABLE billing_student_bills
->   ADD CONSTRAINT unique_student_year_bill
->   UNIQUE(student_id, academic_year_id);
+> CREATE UNIQUE INDEX unique_active_student_year_bill
+>   ON billing_student_bills(student_id, academic_year_id)
+>   WHERE status NOT IN ('superseded', 'cancelled');
 > ```
-> This ensures a student cannot have two bills for the same academic year. If a re-bill is needed (e.g., program transfer), the old bill must be set to `status = 'superseded'` first.
+> This ensures a student cannot have two active bills for the same academic year. Program transfers (Phase 2.6) supersede the old bill before generating a new one — the partial index allows both rows to exist. Do NOT use a plain `UNIQUE(student_id, academic_year_id)` constraint — it blocks program transfers.
 
 > **Background job tracking:** Bulk generation for large cohorts (500+ students) runs as a background job with real-time progress:
 > - Job status tracked in `billing_data_imports` (reuse with `import_type = 'bulk_bill_generation'`)
