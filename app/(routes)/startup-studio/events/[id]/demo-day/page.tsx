@@ -251,7 +251,7 @@ export default function DemoDayPage({ params }: { params: Promise<{ id: string }
             </div>
 
             {/* Progression Levels */}
-            {event?.is_results_published && (
+            {isSuperAdmin && event?.is_results_published && (
               <div className="border rounded-lg p-4 space-y-2">
                 <h3 className="text-sm font-semibold">Progression Levels</h3>
                 <p className="text-xs text-muted-foreground">
