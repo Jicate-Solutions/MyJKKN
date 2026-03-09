@@ -927,6 +927,16 @@ New fields added to `case-course-form.tsx`:
   - Verdict: Approve / Reject / Override Approve (requires reason)
 - On submit: creates `case_course_reviews` record, updates `case_courses.review_status`
 
+### 8.8 Sidebar Badge Counts (v1 Notification Strategy)
+
+For v1, use sidebar badge counts only — no email/push/WebSocket:
+- **Reviews (N)** — count of courses in `pending_review` status (visible to case_reviewers)
+- **Pending Verification (N)** — count of unverified student outcomes (visible to faculty/admin)
+- **My Certificates (N)** — count of new/unclaimed certificates (visible to students)
+
+Badge counts refresh on page navigation via React Query `staleTime: 30_000` (30s).
+Implementation: Add `useCASEBadgeCounts()` hook that returns `{ pendingReviews, pendingVerifications, newCertificates }`.
+
 ---
 
 ## 9. Service Layer
