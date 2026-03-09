@@ -386,27 +386,41 @@ CREATE UNIQUE INDEX unique_active_scholarship_priority
   WHERE status = 'active';
 ```
 
-> **Stacking rule:** When multiple scholarships apply to the same student, process in `priority` order (1 = highest priority, applied first). Each scholarship applies to the REMAINING amount after prior scholarships, not the original amount. Total reduction per fee component is capped at 100% — once a component reaches zero, remaining scholarships for that component are skipped.
+> **Stacking rule:** When multiple scholarships apply to the same student, process in `priority` order (1 = highest priority, applied first). Only `status = 'active'` scholarships are applied — suspended and revoked scholarships are skipped. Each scholarship applies to the REMAINING amount after prior scholarships, not the original amount. Total reduction per fee component is capped at 100% — once a component reaches zero, remaining scholarships for that component are skipped.
 >
 > **Stacking pseudocode:**
 > ```
+> scholarships = student_scholarships WHERE status = 'active' ORDER BY priority ASC
+>
+> // For fixed_amount scholarships with multiple components, track budget across components
+> scholarship_budgets = {}  // keyed by scholarship.id
+> for each scholarship in scholarships:
+>   if scholarship.reduction_type == 'fixed_amount':
+>     scholarship_budgets[scholarship.id] = scholarship.reduction_value
+>
 > for each fee_component in bill:
 >   remaining = component.original_amount
->   for each scholarship in student_scholarships ORDER BY priority ASC:
+>   for each scholarship in scholarships:
 >     if scholarship.applies_to_all_components OR component.name IN scholarship.applies_to_components:
 >       if scholarship.reduction_type == 'full_waiver':
 >         reduction = remaining
 >       elif scholarship.reduction_type == 'percentage':
 >         reduction = remaining * (scholarship.reduction_value / 100)
 >       elif scholarship.reduction_type == 'fixed_amount':
->         reduction = MIN(scholarship.reduction_value, remaining)
+>         // Fixed amount is a TOTAL budget across all components, not per-component
+>         budget_remaining = scholarship_budgets[scholarship.id]
+>         reduction = MIN(budget_remaining, remaining)
+>         scholarship_budgets[scholarship.id] -= reduction
 >       remaining = remaining - reduction
 >       record_scholarship_application(scholarship, component, reduction)
 >       if remaining <= 0:
 >         break  // Component fully covered
 >   component.final_amount = MAX(remaining, 0)
 > ```
-> **Key principle:** Percentage scholarships apply to the REMAINING balance, not the original. This is standard accounting practice and prevents over-reduction when stacking a 50% + 50% scholarship (result: 75% total reduction, not 100%).
+> **Key principles:**
+> - Percentage scholarships apply to the REMAINING balance, not the original. This is standard accounting practice and prevents over-reduction when stacking a 50% + 50% scholarship (result: 75% total reduction, not 100%).
+> - `fixed_amount` scholarships track a total budget across all applicable components. A Rs 50,000 scholarship across 3 components reduces by Rs 50,000 total (not Rs 50,000 per component).
+> - Suspended/revoked scholarships are silently skipped. Consider adding a `suspended_until date` column for auto-resume. The admin dashboard should show a "suspended scholarships" section for review.
 
 ### 1.4 Year-over-Year Fee Management
 
