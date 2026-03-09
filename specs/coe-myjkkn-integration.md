@@ -1013,7 +1013,7 @@ Separate service for CIA operations.
 - `getStudentMarks(filters)` — list marks with config joins
 - `recordMarks(data)` — save student CIA marks
 - `computeCoeBonus(studentId, projectId)` — calculate CIA bonus based on project milestone + student marks
-- `applyBonus(markId, bonusPercent, projectId)` — apply bonus to marks entry. **Cap formula:** `effective_marks = min(marks_obtained + (max_marks * bonusPercent / 100), max_marks)`. Bonus can increase marks but never exceed max_marks.
+- `applyBonus(markId, bonusPercent, projectId)` — apply bonus to marks entry. **Cap formula:** `effective_marks = min(marks_obtained + (max_marks * bonusPercent / 100), max_marks)`. Bonus can increase marks but never exceed max_marks. **NULL guard:** Must verify `marks_obtained IS NOT NULL` before applying — a student with no marks yet cannot receive a bonus (skip silently or return warning).
 
 ### `hooks/startup-studio/use-coe.ts`
 
