@@ -201,8 +201,15 @@ New table `case_student_outcomes` tracks post-completion results:
 | `employer_or_client` | varchar | Company/client name |
 | `start_date` / `end_date` | timestamptz | When the gig/job ran |
 | `evidence_url` | text | Proof (contract, payment screenshot, offer letter) |
+| `evidence_type` | varchar(10) | `'url'` (default) or `'file'` — distinguishes external links from uploads |
 | `verified_by` | UUID | Faculty/admin who verified the outcome |
 | `verified_at` | timestamptz | When verified |
+
+**Evidence:** Students can provide evidence via:
+1. **Text URL** — Paste a link (LinkedIn, portfolio, Upwork, offer letter URL). Validated as HTTPS-only at application layer.
+2. **File Upload** — Upload screenshots/PDFs to Supabase Storage (`case-outcomes/{institution_id}/{student_id}/{filename}`). Max 10MB per file.
+The `evidence_url` column stores either the external URL or the Supabase Storage URL. A separate `evidence_type` column distinguishes them.
+Add to `case_student_outcomes`: `evidence_type VARCHAR(10) DEFAULT 'url' CHECK (evidence_type IN ('url', 'file'))`
 
 ### 3.5 PDF Certificate with QR Verification
 
