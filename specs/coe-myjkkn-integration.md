@@ -1684,7 +1684,7 @@ Critical actions require explicit confirmation to prevent accidental state chang
 | Action | Dialog Content | Confirm Button |
 |--------|---------------|---------------|
 | Submit proposal for review | "Once submitted, your proposal enters committee review. You won't be able to edit until the review is complete or revision is requested." | "Submit for Review" |
-| Cast committee vote | "You are voting to **{vote}** the proposal '{title}'. This cannot be changed." | "Confirm Vote" |
+| Cast committee vote | "You are voting to **{vote}** the proposal '{title}'. You can change your vote until the review is finalized." | "Confirm Vote" |
 | Advance stage | "Move '{title}' from **{from}** to **{to}**? This will be recorded in the project history." | "Advance Stage" |
 | Reject proposal | "Rejecting '{title}' is permanent. The project will be archived and cannot be reactivated." | "Reject Proposal" (red) |
 | Initiate handover | "This will create a new version (V{n+1}) of '{title}' and mark the current version as completed." | "Start Handover" |
