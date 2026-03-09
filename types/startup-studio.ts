@@ -638,3 +638,111 @@ export interface VoteSummary {
   total_votes: number;
   average_rating: number;  // e.g. 4.2
 }
+
+// ============================================================
+// POST DEMO DAY PIPELINE TYPES
+// Added: 2026-03-09 — Spec: Spec-Post-Demo-Day-Pipeline.md
+// ============================================================
+
+export type TrackId = 'solve_for_100' | 'jicate_solutions' | 'solve_for_industry' | 'completed'
+
+export type ProgressionLevelNumber = 1 | 2 | 3 | 4 | 5
+
+export interface TrackDeclaration {
+  id: string;
+  event_id: string;
+  team_id: string;
+  track: TrackId;
+  reason: string | null;
+  declared_by: string;
+  declared_at: string;
+  created_at: string;
+  updated_at: string;
+  mentor_approved: boolean | null;
+  mentor_notes: string | null;
+  approved_at: string | null;
+  approved_by: string | null;
+}
+
+export interface TrackDeclarationWithTeam extends TrackDeclaration {
+  team_name: string;
+  institution_name: string;
+}
+
+export interface ProgressionLevel {
+  id: string;
+  profile_id: string;
+  event_id: string;
+  team_id: string | null;
+  level: ProgressionLevelNumber;
+  level_name: string;
+  achieved_at: string;
+  created_at: string;
+  evidence: Record<string, unknown>;
+  awarded_by: string;
+}
+
+export interface CaseStudy {
+  id: string;
+  event_id: string;
+  team_id: string;
+  track: 'solve_for_industry' | 'jicate_solutions';
+  problem: string;
+  solution: string;
+  proof: string;
+  who_else: string | null;
+  demo_url: string | null;
+  app_name: string | null;
+  app_url: string | null;
+  score: number | null;
+  featured: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+// DTOs
+
+export interface DeclareTrackDto {
+  event_id: string;
+  team_id: string;
+  track: TrackId;
+  reason?: string;
+}
+
+export interface UpdateTrackDeclarationDto {
+  track: TrackId;
+  reason?: string;
+}
+
+export interface MentorApproveTrackDto {
+  mentor_approved: boolean;
+  mentor_notes?: string;
+}
+
+export interface CreateCaseStudyDto {
+  event_id: string;
+  team_id: string;
+  track: 'solve_for_industry' | 'jicate_solutions';
+  problem: string;
+  solution: string;
+  proof: string;
+  who_else?: string;
+  demo_url?: string;
+  app_name?: string;
+  app_url?: string;
+  score?: number;
+}
+
+export interface UpdateCaseStudyDto {
+  problem?: string;
+  solution?: string;
+  proof?: string;
+  who_else?: string;
+  demo_url?: string;
+}
+
+export interface TrackDeclarationSummary {
+  track: TrackId;
+  count: number;
+  percentage: number;
+}
