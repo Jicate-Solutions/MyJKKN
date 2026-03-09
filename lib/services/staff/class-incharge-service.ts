@@ -5,6 +5,8 @@ import {
   ClassIncharge,
   ClassInchargeFilters,
   AssignInchargeDto,
+  BulkAssignInchargeDto,
+  BulkAssignResult,
   SectionWithIncharges,
   SectionWithInchargesResponse,
 } from '@/types/staff';
@@ -174,6 +176,42 @@ export class ClassInchargeService {
       console.error('[class-incharge-service] Error assigning incharge:', error);
       throw error;
     }
+  }
+
+  /**
+   * Assign a staff member as class incharge for multiple sections at once.
+   * Silently skips sections where the staff is already assigned (23505 unique constraint).
+   * Throws on any other error.
+   */
+  static async bulkAssignIncharge(dto: BulkAssignInchargeDto): Promise<BulkAssignResult> {
+    const results = await Promise.allSettled(
+      dto.section_ids.map((section_id) =>
+        this.assignIncharge({
+          institution_id: dto.institution_id,
+          section_id,
+          staff_id: dto.staff_id,
+        })
+      )
+    );
+
+    let assigned = 0;
+    let skipped = 0;
+
+    for (const result of results) {
+      if (result.status === 'fulfilled') {
+        assigned++;
+      } else {
+        // 23505 = unique constraint violation = staff already assigned to this section
+        const msg = result.reason?.message ?? '';
+        if (msg.includes('already assigned')) {
+          skipped++;
+        } else {
+          throw result.reason;
+        }
+      }
+    }
+
+    return { assigned, skipped };
   }
 
   /**
