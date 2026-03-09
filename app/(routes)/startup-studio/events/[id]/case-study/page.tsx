@@ -63,6 +63,7 @@ export default function CaseStudyPage({ params }: { params: Promise<{ id: string
 
   return (
     <div className="container max-w-2xl py-6">
+      {/* score: uses submission total_score as approximation; admin can correct via adminUpdateCaseStudy */}
       <CaseStudyForm
         eventId={id}
         registrationId={registration.id}

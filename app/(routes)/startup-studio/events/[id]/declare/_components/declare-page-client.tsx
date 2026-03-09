@@ -5,6 +5,7 @@ import { useMyRegistration } from '@/hooks/startup-studio/use-event-registration
 import { useMySubmission } from '@/hooks/startup-studio/use-event-submissions'
 import { useMyDeclaration } from '@/hooks/startup-studio/use-track-declarations'
 import { DeclarationForm } from './declaration-form'
+import { ProgressionLevelWidget } from '@/components/startup-studio/progression-level-widget'
 import { Skeleton } from '@/components/ui/skeleton'
 
 interface Props {
@@ -52,12 +53,15 @@ export function DeclarePageClient({ eventId }: Props) {
   }
 
   return (
-    <DeclarationForm
-      eventId={eventId}
-      registrationId={registration.id}
-      teamName={registration.team_name}
-      appathonScore={submission?.total_score ?? 0}
-      existing={existing ?? null}
-    />
+    <div className="space-y-6">
+      <ProgressionLevelWidget eventId={eventId} />
+      <DeclarationForm
+        eventId={eventId}
+        registrationId={registration.id}
+        teamName={registration.team_name}
+        appathonScore={submission?.total_score ?? 0}
+        existing={existing ?? null}
+      />
+    </div>
   )
 }
