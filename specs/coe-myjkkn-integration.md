@@ -1686,7 +1686,8 @@ Critical actions require explicit confirmation to prevent accidental state chang
 | Submit proposal for review | "Once submitted, your proposal enters committee review. You won't be able to edit until the review is complete or revision is requested." | "Submit for Review" |
 | Cast committee vote | "You are voting to **{vote}** the proposal '{title}'. You can change your vote until the review is finalized." | "Confirm Vote" |
 | Advance stage | "Move '{title}' from **{from}** to **{to}**? This will be recorded in the project history." | "Advance Stage" |
-| Reject proposal | "Rejecting '{title}' is permanent. The project will be archived and cannot be reactivated." | "Reject Proposal" (red) |
+| Reject proposal | "Rejecting '{title}' will archive the project. An admin can reopen it later if needed." | "Reject Proposal" (red) |
+| Reopen rejected project | "Reopen '{title}'? The project will return to draft (proposal) stage for revision and resubmission." | "Reopen Project" |
 | Initiate handover | "This will create a new version (V{n+1}) of '{title}' and mark the current version as completed." | "Start Handover" |
 | Delete CIA config | "Deleting this assessment configuration will affect all future mark entries. Existing marks are preserved." | "Delete Configuration" (red) |
 | Apply incentive manually | "Grant {incentive_type} ({value}) to {recipient}? This will be logged in the incentive ledger." | "Grant Incentive" |
