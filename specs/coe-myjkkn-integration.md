@@ -1442,7 +1442,7 @@ handover            -> completed
 
 ## Handover Logic
 
-Handover is a **two-step process** with a documentation/preparation window between steps:
+Handover is a **three-step process**: advance to handover stage, initiate committee review, then finalize after approval.
 
 ### Step 1: Advance to Handover Stage
 `CoeService.advanceStage(projectId, 'handover')` — called from `trajectory_assessment` stage. This:
@@ -1451,24 +1451,34 @@ Handover is a **two-step process** with a documentation/preparation window betwe
 3. Triggers milestone incentives for the handover stage
 4. The project is now in `handover` stage — a preparation window for documentation, knowledge transfer, and identifying the next batch's team
 
-### Step 2: Execute Handover
-`CoeService.createHandover(projectId, { new_proposed_by, new_team_id })` — called when ready to spawn V(n+1):
+### Step 2: Initiate Handover Review
+`CoeService.initiateHandover(projectId, input: CreateHandoverInput)` — called when the admin has identified V(n+1) leadership:
+1. Validate current project is at `handover` stage
+2. Validate `new_proposed_by` is provided (no orphan V2 projects)
+3. Create a `handover_review` committee review with `submitted_by` = calling admin
+4. Store pending handover data in `review.notes` as JSON: `{ new_proposed_by, new_team_id }`
+5. Committee now reviews and votes (async — up to 7-day deadline)
 
-1. Validate current project is at `handover` stage (NOT trajectory_assessment — must have gone through Step 1)
-2. Validate `new_proposed_by` is provided (no orphan V2 projects — a new proposer/team must be specified)
-3. Create a committee review of type `handover_review`
-4. After committee approval, create new `coe_projects` row with:
+### Step 3: Finalize Handover (after committee approval)
+`CoeService.finalizeHandover(reviewId)` — called after committee approves the `handover_review`:
+1. Validate review status is `approved`
+2. Extract handover data from `review.notes`
+3. Create new `coe_projects` row with:
    - `parent_project_id` = current project ID
    - `version` = current.version + 1
    - `academic_year` = next academic year
    - `proposed_by` = `new_proposed_by` (new batch lead)
    - `team_id` = `new_team_id` (new batch team, if provided)
-   - `stage` = 'orientation' (fresh start for new batch)
-   - `origin_type` = 'fresh' (new batch starts fresh)
+   - `stage` = 'orientation' (V(n+1) skips proposal/committee_review — see note below)
+   - `origin_type` = 'handover'
    - `origin_cycle_id` = NULL (new batch creates their own cycle at orientation)
    - Copies: title, summary, tags, trajectory, downstream links
-5. Mark current project as `completed`
-6. Log in `coe_project_stage_history` for both projects
+4. Mark current project as `completed` (stage -> `completed`)
+5. Log in `coe_project_stage_history` for both projects
+
+**V(n+1) skips proposal/committee_review:** This is intentional. The handover_review on V(n) serves as committee approval for the continuation. The committee assessed the project's merit and the new team's readiness during the handover review — a second proposal review would be redundant.
+
+**Timeout/escape:** If a handover_review is not resolved within 90 days, an admin can manually advance V(n) to `completed` without creating V(n+1). The project simply ends. This prevents indefinite handover limbo.
 
 ---
 
