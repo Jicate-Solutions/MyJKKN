@@ -625,6 +625,7 @@ CREATE TABLE case_student_outcomes (
   CONSTRAINT valid_date_range CHECK (end_date IS NULL OR start_date IS NULL OR end_date >= start_date),
 
   evidence_url TEXT,
+  evidence_type VARCHAR(10) DEFAULT 'url' CHECK (evidence_type IN ('url', 'file')),
   verified_by UUID REFERENCES profiles(id),
   verified_at TIMESTAMPTZ,
   is_verified BOOLEAN DEFAULT false,
