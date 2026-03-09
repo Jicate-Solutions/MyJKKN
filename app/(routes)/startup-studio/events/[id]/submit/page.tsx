@@ -445,13 +445,13 @@ function ProjectSection({
             <FormField control={form.control} name="github_url" render={({ field }) => (
               <FormItem>
                 <FormLabel className="flex items-center gap-1.5">
-                  <Github className="h-3.5 w-3.5" /> GitHub Repository URL
+                  <Github className="h-3.5 w-3.5" /> GitHub Repository URL (optional)
                 </FormLabel>
                 <FormControl>
                   <Input {...field} disabled={locked} placeholder="https://github.com/username/repo" />
                 </FormControl>
                 <p className="text-xs text-muted-foreground">
-                  Export your Lovable project to GitHub before submitting. This preserves your work after credits expire.
+                  Export your Lovable project to GitHub before submitting.
                 </p>
                 <FormMessage />
               </FormItem>
