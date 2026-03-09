@@ -1189,6 +1189,7 @@ export interface CoeCommitteeReview {
   conditions: string | null;
   rejection_reason: string | null;
   revision_feedback: string | null;
+  submitted_by: string | null;  // who initiated this review
   submitted_at: string;
   review_started_at: string | null;
   decided_at: string | null;
@@ -1200,6 +1201,8 @@ export interface CoeCommitteeReview {
   // Joined
   members?: CoeCommitteeMember[];
   votes?: CoeCommitteeVoteRecord[];
+  submitter?: { id: string; full_name: string };
+  decider?: { id: string; full_name: string };
 }
 
 export interface CoeCommitteeMember {
