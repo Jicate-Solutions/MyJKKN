@@ -506,6 +506,8 @@ CREATE POLICY "audit_read_institution" ON billing_audit_trail
 ```
 
 > **Implementation note:** Create a reusable Supabase trigger function `billing_audit_trigger()` that fires AFTER INSERT/UPDATE/DELETE on every `billing_*` table. Deploy the trigger on all 20 Phase 1-5 tables during their respective migrations. The trigger captures `auth.uid()`, old/new row data as JSONB, and the list of changed columns.
+>
+> **NULL `auth.uid()` handling:** `performed_by` is intentionally NULLABLE (no NOT NULL constraint). During data migrations, cron jobs, and Edge Function execution, `auth.uid()` returns NULL. The trigger function must handle this gracefully: when `auth.uid()` is NULL, set `context` to `'migration'`, `'cron'`, or `'system'` as appropriate. Application code running with service_role should set a custom GUC variable (`SET LOCAL app.audit_context = 'migration-job'`) that the trigger reads as a fallback identifier when `auth.uid()` is NULL.
 
 ### Phase 1 Deliverable
 
