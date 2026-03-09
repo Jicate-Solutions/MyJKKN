@@ -1197,6 +1197,7 @@ export interface CASEStudentOutcome {
   start_date: string | null;
   end_date: string | null;
   evidence_url: string | null;
+  evidence_type: 'url' | 'file';
   verified_by: string | null;
   verified_at: string | null;
   is_verified: boolean;
