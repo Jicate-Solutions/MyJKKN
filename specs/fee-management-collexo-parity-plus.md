@@ -529,6 +529,18 @@ CREATE POLICY "audit_read_institution" ON billing_audit_trail
 >
 > **NULL `auth.uid()` handling:** `performed_by` is intentionally NULLABLE (no NOT NULL constraint). During data migrations, cron jobs, and Edge Function execution, `auth.uid()` returns NULL. The trigger function must handle this gracefully: when `auth.uid()` is NULL, set `context` to `'migration'`, `'cron'`, or `'system'` as appropriate. Application code running with service_role should set a custom GUC variable (`SET LOCAL app.audit_context = 'migration-job'`) that the trigger reads as a fallback identifier when `auth.uid()` is NULL.
 
+> **Phase 1 Migration Ordering:** Tables must be created in this order (FK dependency chain):
+> 1. `billing_fee_structures`
+> 2. `billing_fee_structure_items`
+> 3. `billing_regulatory_caps`
+> 4. `billing_fee_matrices` (references `billing_fee_structures` and `billing_regulatory_caps`)
+> 5. `billing_scholarship_rules`
+> 6. `billing_student_scholarships`
+> 7. `billing_fee_revisions`
+> 8. `billing_audit_trail`
+>
+> **Academic year FK protection:** All billing tables referencing `academic_years(id)` use implicit `ON DELETE NO ACTION` (PostgreSQL default). Academic years with billing data MUST NOT be deleted — only deactivated. The FK constraint prevents accidental cascade deletion of financial records. If explicit, use `ON DELETE RESTRICT`.
+
 ### Phase 1 Deliverable
 
 Admin can:
