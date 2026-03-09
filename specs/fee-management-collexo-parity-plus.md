@@ -562,10 +562,12 @@ Student Profile (quota + entry_type → admission_type) → Fee Matrix Lookup �
 > This ensures a student cannot have two active bills for the same academic year. Program transfers (Phase 2.6) supersede the old bill before generating a new one — the partial index allows both rows to exist. Do NOT use a plain `UNIQUE(student_id, academic_year_id)` constraint — it blocks program transfers.
 
 > **Background job tracking:** Bulk generation for large cohorts (500+ students) runs as a background job with real-time progress:
-> - Job status tracked in `billing_data_imports` (reuse with `import_type = 'bulk_bill_generation'`)
+> - Job status tracked in `billing_data_imports` (reuse with `import_type = 'bulk_bill_generation'` — see Phase 3.2 CHECK constraint which includes this value)
+> - For bulk generation jobs, `file_name` is NULL (no file involved) — the column is nullable for this use case
 > - Frontend polls job status and shows progress bar (X/total students processed)
-> - Double-submit protection: if a job is already running for the same institution + program + year, reject the new request
+> - Double-submit protection: if a job is already running for the same institution + program + year, reject the new request. Limit to 1 concurrent bulk generation job per institution
 > - Admin can cancel a running job (unprocessed students are skipped)
+> - Bill generation for a specific student must acquire an advisory lock (`pg_advisory_xact_lock(hashtext(student_id::text || academic_year_id::text))`) to prevent concurrent generation for the same student
 
 **Bulk bill generation page:**
 ```
