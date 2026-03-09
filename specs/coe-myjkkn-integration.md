@@ -255,8 +255,16 @@ CREATE TABLE coe_project_stage_history (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   project_id UUID NOT NULL REFERENCES coe_projects(id) ON DELETE CASCADE,
   institution_id UUID NOT NULL REFERENCES institutions(id),  -- denormalized for direct RLS
-  from_stage TEXT,
-  to_stage TEXT NOT NULL,
+  from_stage TEXT CHECK (from_stage IS NULL OR from_stage IN (
+    'proposal', 'committee_review', 'orientation', 'empathize', 'define',
+    'ideate', 'prototype', 'test', 'trajectory_assessment',
+    'handover', 'completed', 'rejected'
+  )),
+  to_stage TEXT NOT NULL CHECK (to_stage IN (
+    'proposal', 'committee_review', 'orientation', 'empathize', 'define',
+    'ideate', 'prototype', 'test', 'trajectory_assessment',
+    'handover', 'completed', 'rejected'
+  )),
   changed_by UUID REFERENCES profiles(id),
   change_reason TEXT,
   metadata JSONB DEFAULT '{}',
