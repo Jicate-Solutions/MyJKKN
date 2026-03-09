@@ -204,6 +204,11 @@ CREATE TABLE billing_fee_structure_items (
 
 > **How it fits together:** `billing_fee_structures` groups line items into a named structure. `billing_fee_structure_items` maps which items (from the existing 3-level category hierarchy) belong to each structure and at what amount. Then `billing_fee_matrices` (below) maps which structure applies to which program x year x admission_type combination.
 
+> **Concurrent editing and post-bill-generation changes:** Fee structures can be edited by multiple admins in a multi-campus setup. To handle this:
+> - **Optimistic locking:** Use `updated_at` for conflict detection. Before saving, check that `updated_at` matches the value loaded at edit time. If it changed, reject the save with: "This fee structure was modified by another user. Please reload and try again."
+> - **Post-generation warning:** When editing a fee structure that has bills generated from it (join via `billing_fee_matrices` → `billing_student_bills`), show a warning: "X bills have been generated from this structure. Changes will NOT affect existing bills — only future bill generations." Require explicit confirmation to proceed.
+> - Fee structures are NOT immutable after bill generation — admins may need to correct errors. But changes only affect future bills, never retroactively.
+
 ### 1.1 Fee Structure Matrix
 
 **New table: `billing_fee_matrices`**
