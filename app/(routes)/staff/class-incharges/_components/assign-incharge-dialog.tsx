@@ -58,6 +58,7 @@ export function AssignInchargeDialog({ open, onOpenChange, ...rest }: Props) {
   const primarySection = sections[0];
 
   const [selectedStaffId, setSelectedStaffId] = useState<string>('');
+  const [containerEl, setContainerEl] = useState<HTMLElement | null>(null);
   const [comboboxOpen, setComboboxOpen] = useState(false);
 
   const { canAccess } = usePermissions();
@@ -143,18 +144,7 @@ export function AssignInchargeDialog({ open, onOpenChange, ...rest }: Props) {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         className="sm:max-w-lg"
-        onInteractOutside={(e) => {
-          const target = e.target as Element;
-          if (target?.closest('[data-radix-popper-content-wrapper]')) {
-            e.preventDefault();
-          }
-        }}
-        onPointerDownOutside={(e) => {
-          const target = e.target as Element;
-          if (target?.closest('[data-radix-popper-content-wrapper]')) {
-            e.preventDefault();
-          }
-        }}
+        ref={(node) => setContainerEl(node)}
       >
         <DialogHeader>
           <DialogTitle>
@@ -299,7 +289,11 @@ export function AssignInchargeDialog({ open, onOpenChange, ...rest }: Props) {
                     <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                   </Button>
                 </PopoverTrigger>
-                <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                <PopoverContent
+                  className="w-[--radix-popover-trigger-width] p-0"
+                  align="start"
+                  container={containerEl ?? undefined}
+                >
                   <Command>
                     <CommandInput placeholder="Search by name or staff ID..." />
                     <CommandList>
