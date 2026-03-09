@@ -906,19 +906,22 @@ Three roles use the system equally but see different things:
 
 All under `/api/startup-studio/coe/`, following existing pattern: `withAuth` + `CoeService` + `corsHeaders` + `OPTIONS`.
 
-### Phase 1 Routes (9 files)
+### Phase 1 Routes (10 files)
 
 | Route | Methods | Purpose |
 |-------|---------|---------|
 | `coe/projects/route.ts` | GET, POST | List (filterable: stage, trajectory, year, mentor, origin_type) + Create proposal |
 | `coe/projects/[id]/route.ts` | GET, PATCH, DELETE | Single project CRUD with joined cycle/team/assessments |
-| `coe/projects/[id]/advance/route.ts` | POST | Advance stage (validates allowed transitions) |
+| `coe/projects/[id]/advance/route.ts` | POST | Advance stage (validates allowed transitions). When `toStage === 'committee_review'`, internally delegates to `submitForReview()` which also creates the review record. |
 | `coe/projects/[id]/trajectory/route.ts` | POST | Submit trajectory assessment with 5-criteria scores |
 | `coe/projects/[id]/history/route.ts` | GET | Stage transition audit trail |
 | `coe/projects/[id]/reviews/route.ts` | GET, POST | List + create committee reviews |
 | `coe/projects/[id]/reviews/[reviewId]/route.ts` | PATCH | Update review decision (approve/reject/revision) |
-| `coe/projects/[id]/reviews/[reviewId]/vote/route.ts` | POST | Submit individual committee vote |
+| `coe/projects/[id]/reviews/[reviewId]/vote/route.ts` | POST, PATCH | Submit or update committee vote (update only before finalization) |
 | `coe/analytics/route.ts` | GET | Dashboard: projects by stage, trajectory distribution, incentive totals |
+| `coe/projects/[id]/submit-for-review/route.ts` | POST | Explicit submit-for-review action (proposer only). Validates proposal is ready, creates committee review, advances to `committee_review` stage. Alternative to using advance route. |
+
+**Note on `submitForReview` routing:** Two paths exist: (1) the `/advance` route detects `toStage === 'committee_review'` and delegates to `submitForReview()` internally, or (2) the dedicated `/submit-for-review` route calls it directly. Both produce identical results. The dedicated route exists for UX clarity — the "Submit for Review" button on the proposal page calls this route, making the action explicit.
 
 ### Phase 2 Routes (5 files)
 
