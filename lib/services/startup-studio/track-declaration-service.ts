@@ -15,20 +15,20 @@ export class TrackDeclarationService {
     registrationId: string
   ): Promise<TrackDeclaration | null> {
     const supabase = createClientSupabaseClient()
-    const { data, error } = await supabase
+    const { data, error } = await (supabase as any)
       .from('track_declarations')
       .select('*')
       .eq('event_id', eventId)
       .eq('team_id', registrationId)
       .maybeSingle()
     if (error) throw error
-    return data
+    return data as TrackDeclaration | null
   }
 
   // Team leader declares a track (INSERT)
   static async declareTrack(dto: DeclareTrackDto, profileId: string): Promise<TrackDeclaration> {
     const supabase = createClientSupabaseClient()
-    const { data, error } = await supabase
+    const { data, error } = await (supabase as any)
       .from('track_declarations')
       .insert({
         event_id: dto.event_id,
@@ -40,7 +40,7 @@ export class TrackDeclarationService {
       .select('*')
       .single()
     if (error) throw error
-    return data
+    return data as TrackDeclaration
   }
 
   // Team leader updates their declaration (7-day window enforced here, not in RLS)
@@ -50,7 +50,7 @@ export class TrackDeclarationService {
   ): Promise<TrackDeclaration> {
     // Fetch current declaration to enforce 7-day window in service layer
     const supabase = createClientSupabaseClient()
-    const { data: existing, error: fetchError } = await supabase
+    const { data: existing, error: fetchError } = await (supabase as any)
       .from('track_declarations')
       .select('declared_at')
       .eq('id', declarationId)
@@ -62,7 +62,7 @@ export class TrackDeclarationService {
       throw new Error('Track declaration can only be changed within 7 days of initial declaration.')
     }
 
-    const { data, error } = await supabase
+    const { data, error } = await (supabase as any)
       .from('track_declarations')
       .update({
         track: dto.track,
@@ -72,7 +72,7 @@ export class TrackDeclarationService {
       .select('*')
       .single()
     if (error) throw error
-    return data
+    return data as TrackDeclaration
   }
 
   // Mentor approves or rejects a declaration
@@ -82,7 +82,7 @@ export class TrackDeclarationService {
     mentorProfileId: string
   ): Promise<TrackDeclaration> {
     const supabase = createClientSupabaseClient()
-    const { data, error } = await supabase
+    const { data, error } = await (supabase as any)
       .from('track_declarations')
       .update({
         mentor_approved: dto.mentor_approved,
@@ -94,13 +94,13 @@ export class TrackDeclarationService {
       .select('*')
       .single()
     if (error) throw error
-    return data
+    return data as TrackDeclaration
   }
 
   // Admin: all declarations for an event with team + institution info
   static async getEventDeclarations(eventId: string): Promise<TrackDeclarationWithTeam[]> {
     const supabase = createClientSupabaseClient()
-    const { data, error } = await supabase
+    const { data, error } = await (supabase as any)
       .from('track_declarations')
       .select(`
         *,
@@ -125,7 +125,7 @@ export class TrackDeclarationService {
   // Admin: summary count per track for the dashboard
   static async getDeclarationSummary(eventId: string): Promise<TrackDeclarationSummary[]> {
     const supabase = createClientSupabaseClient()
-    const { data, error } = await supabase
+    const { data, error } = await (supabase as any)
       .from('track_declarations')
       .select('track')
       .eq('event_id', eventId)

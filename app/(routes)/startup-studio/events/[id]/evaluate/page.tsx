@@ -41,7 +41,8 @@ export default function EvaluatePage({ params }: { params: Promise<{ id: string 
 
   const { data: event, isLoading: eventLoading } = useEvent(id)
   const { data: teams = [], isLoading: teamsLoading } = useEvaluatorTeams(id, profileId)
-  const { data: allVenues = [] } = useEventVenues(id, 'demo_day')
+  // Only super_admin needs the venue list (for the venue selector dropdown)
+  const { data: allVenues = [] } = useEventVenues(isSuperAdmin ? id : '', 'demo_day')
   const { data: adminTeams = [], isLoading: adminTeamsLoading } = useTeamsForVenue(
     id, selectedVenueId, profileId
   )
