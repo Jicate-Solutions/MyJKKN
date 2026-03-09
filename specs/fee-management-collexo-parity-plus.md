@@ -1130,8 +1130,15 @@ CREATE TABLE billing_payment_links (
 ```
 app/(routes)/pay/[token]/
 ├── page.tsx                    — Payment page with institution branding
-├── success/page.tsx            — Confirmation
-└── failed/page.tsx             — Failure + retry
+│                                 Trust signals: institution logo (from institutions table) + full name
+│                                 No logo configured: institution name in large text + MyJKKN branding
+│                                 Layout: logo → student masked ID → amount → "Pay Now" button
+└── success/page.tsx            — Confirmation (transaction ID, amount, "Download Receipt" link, return to portal)
+└── failed/page.tsx             — Failure page with:
+                                  Clear error category (bank declined / timeout / technical error)
+                                  "Try Again" and "Try different method" buttons
+                                  "If money was debited, refund within 5-7 business days" reassurance
+                                  Support contact info
 ```
 
 > **Routing note:** Payment link page lives under `(routes)/pay/` (outside `billing/`) since it's a public page with no authentication. Token-based access only.
