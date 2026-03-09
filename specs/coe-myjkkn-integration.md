@@ -1333,7 +1333,10 @@ export interface CreateCoeIncentiveInput {
 
 export interface CreateCoeReviewInput {
   review_type: CoeReviewType;
-  committee_member_ids: string[];  // user IDs to invite
+  committee_members: Array<{
+    user_id: string;
+    role: CoeCommitteeRole;  // 'chair' | 'reviewer' | 'observer'
+  }>;  // at least one must be 'chair'
   notes?: string;
   attachments?: Array<{ url: string; title: string; type: string }>;
 }
