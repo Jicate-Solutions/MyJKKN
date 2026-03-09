@@ -1086,6 +1086,8 @@ app/(routes)/pay/[token]/
 
 > **Stale `total_amount` in notifications:** The stored `total_amount` reflects the balance at link creation time. Notification templates using payment links should say "Pay your outstanding fees" rather than quoting a specific amount. If an amount must be shown, recalculate it at notification send time.
 
+> **SECURITY — Public page data minimization:** The `/pay/[token]` page is publicly accessible (no login). Minimize PII exposure: show only institution name, a masked student identifier (e.g., "J***N - CSE"), total amount due, and a "Pay Now" button. Full bill breakdown (component-wise amounts, scholarship details) should require the student to enter a lightweight verification (date of birth or last 4 digits of registered phone). Add rate limiting on the `/pay/[token]` endpoint (e.g., 10 requests per minute per IP) to slow token enumeration. For expired links: "This payment link has expired. Contact your institution's accounts office." For invalid tokens: generic 404 with no information leakage.
+
 > **CRITICAL — Stale amount protection:** When a payment link is accessed, the system MUST recalculate the current outstanding balance from `billing_student_bills` at render time — NOT use the stored `total_amount`. If the bill has been partially paid (offline or via another link) since the link was created, the payment page shows the CURRENT balance. The stored `total_amount` is for reference/audit only. Implementation: the `/pay/[token]` page queries the live bill balance on every load.
 
 ### 5.3 Defaulter Escalation Engine
