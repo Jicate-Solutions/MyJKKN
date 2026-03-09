@@ -696,6 +696,8 @@ CREATE POLICY "case_outcomes_delete" ON case_student_outcomes FOR DELETE
 COMMENT ON TABLE case_student_outcomes IS 'Student outcomes from CASE courses — gigs, placements, earnings for NAAC Metric 7.6';
 ```
 
+**URL Validation:** All URL fields (evidence_url, presentation_url, report_url) must be validated as HTTPS-only at the application layer. The service methods should reject non-HTTPS URLs.
+
 ### 4.8 `updated_at` Triggers for New Tables
 
 All new tables with `updated_at` columns need auto-update triggers (uses existing `public.update_updated_at_column()` function):
