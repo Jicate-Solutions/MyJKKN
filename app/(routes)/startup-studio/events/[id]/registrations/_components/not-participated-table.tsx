@@ -32,6 +32,7 @@ import {
   Loader2,
   Search,
   SlidersHorizontal,
+  UserCheck,
   UserX,
   X,
   ChevronDown,
@@ -76,16 +77,18 @@ async function exportExcel(
   if (allRows.length === 0) return;
 
   const sheetData = allRows.map((r: NotParticipatedLearner) => ({
-    'Roll Number':    r.roll_number       ?? '',
-    'First Name':     r.first_name        ?? '',
-    'Last Name':      r.last_name         ?? '',
-    'College Email':  r.college_email     ?? '',
-    'Student Email':  r.student_email     ?? '',
-    'Institution':    r.institution_name  ?? '',
-    'Degree':         r.degree_name       ?? '',
-    'Department':     r.department_name   ?? '',
-    'Program':        r.program_name      ?? '',
-    'Semester':       r.semester_name     ?? '',
+    'Roll Number':      r.roll_number          ?? '',
+    'First Name':       r.first_name           ?? '',
+    'Last Name':        r.last_name            ?? '',
+    'College Email':    r.college_email        ?? '',
+    'Student Email':    r.student_email        ?? '',
+    'Institution':      r.institution_name     ?? '',
+    'Degree':           r.degree_name          ?? '',
+    'Department':       r.department_name      ?? '',
+    'Program':          r.program_name         ?? '',
+    'Semester':         r.semester_name        ?? '',
+    'Section':          r.section_name         ?? '',
+    'Class Incharge(s)': r.class_incharge_names ?? 'Not Assigned',
   }));
 
   const worksheet  = XLSX.utils.json_to_sheet(sheetData);
@@ -466,12 +469,14 @@ export function NotParticipatedTable({
                   <TableHead className="min-w-[130px]">Department</TableHead>
                   <TableHead className="min-w-[130px]">Program</TableHead>
                   <TableHead className="min-w-[100px]">Semester</TableHead>
+                  <TableHead className="min-w-[90px]">Section</TableHead>
+                  <TableHead className="min-w-[180px]">Class Incharge</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {rows.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center py-16">
+                    <TableCell colSpan={9} className="text-center py-16">
                       <div className="flex flex-col items-center gap-2 text-muted-foreground">
                         <GraduationCap className="h-8 w-8 opacity-30" />
                         <p className="text-sm">
@@ -509,6 +514,26 @@ export function NotParticipatedTable({
                             {learner.semester_name}
                           </Badge>
                         ) : '—'}
+                      </TableCell>
+                      <TableCell className="text-xs">
+                        {learner.section_name ?? '—'}
+                      </TableCell>
+                      <TableCell className="text-xs">
+                        {learner.class_incharge_count > 0 ? (
+                          <div className="flex items-center gap-1.5">
+                            <UserCheck className="h-3.5 w-3.5 text-green-600 shrink-0" />
+                            <span className="text-foreground leading-tight">
+                              {learner.class_incharge_names}
+                            </span>
+                          </div>
+                        ) : (
+                          <Badge
+                            variant="outline"
+                            className="text-xs font-normal border-orange-300 text-orange-600 dark:border-orange-700 dark:text-orange-400"
+                          >
+                            Not Assigned
+                          </Badge>
+                        )}
                       </TableCell>
                     </TableRow>
                   ))

@@ -437,11 +437,15 @@ export interface NotParticipatedLearner {
   department_id: string | null;
   program_id: string | null;
   semester_id: string | null;
+  section_id: string | null;
   institution_name: string | null;
   degree_name: string | null;
   department_name: string | null;
   program_name: string | null;
   semester_name: string | null;
+  section_name: string | null;
+  class_incharge_names: string | null;
+  class_incharge_count: number;
 }
 
 export interface NotParticipatedLearnersResult {

@@ -21,7 +21,7 @@ import { TeamVoteCard } from './_components/team-vote-card'
 
 export default function VotePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
-  const { profile } = useAuth()
+  const { profile, isLoading: authLoading } = useAuth()
   const profileId = profile?.id ?? ''
 
   const [submittingId, setSubmittingId] = useState<string | null>(null)
@@ -61,7 +61,7 @@ export default function VotePage({ params }: { params: Promise<{ id: string }> }
       return slotA - slotB
     })
 
-  if (eventLoading) {
+  if (authLoading || eventLoading) {
     return (
       <ContentLayout title="Live Voting">
         <div className="flex justify-center items-center p-12">

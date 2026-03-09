@@ -18,17 +18,24 @@ import {
   DialogDescription,
 } from '@/components/ui/dialog';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from '@/components/ui/command';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { X, Plus, Loader2 } from 'lucide-react';
+import { X, Plus, Loader2, ChevronsUpDown, Check } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 interface Props {
   section: SectionWithIncharges;
@@ -42,6 +49,7 @@ function getInitials(first: string, last: string) {
 
 export function AssignInchargeDialog({ section, open, onOpenChange }: Props) {
   const [selectedStaffId, setSelectedStaffId] = useState<string>('');
+  const [comboboxOpen, setComboboxOpen] = useState(false);
 
   const { canAccess } = usePermissions();
   const canCreate = canAccess('staff', 'class_incharges.create') || canAccess('staff', 'edit');
@@ -96,7 +104,7 @@ export function AssignInchargeDialog({ section, open, onOpenChange }: Props) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>
             Manage Class Incharges — {section.section_name}
@@ -155,31 +163,67 @@ export function AssignInchargeDialog({ section, open, onOpenChange }: Props) {
           <div className="flex flex-col gap-2">
             <Label className="text-sm font-medium">Add Incharge</Label>
             <div className="flex gap-2">
-              <Select
-                value={selectedStaffId}
-                onValueChange={setSelectedStaffId}
-                disabled={staffLoading || availableStaff.length === 0}
-              >
-                <SelectTrigger className="flex-1 h-9 text-sm">
-                  <SelectValue
-                    placeholder={
-                      staffLoading
-                        ? 'Loading staff...'
-                        : availableStaff.length === 0
-                        ? 'No staff available'
-                        : 'Search staff by name...'
-                    }
-                  />
-                </SelectTrigger>
-                <SelectContent>
-                  {availableStaff.map((s) => (
-                    <SelectItem key={s.id} value={s.id}>
-                      {s.first_name} {s.last_name}
-                      {s.staff_id ? ` (${s.staff_id})` : ''}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Popover open={comboboxOpen} onOpenChange={setComboboxOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={comboboxOpen}
+                    className="flex-1 h-9 justify-between text-sm font-normal"
+                    disabled={staffLoading || availableStaff.length === 0}
+                  >
+                    {selectedStaffId
+                      ? (() => {
+                          const s = availableStaff.find((s) => s.id === selectedStaffId);
+                          return s
+                            ? `${s.first_name} ${s.last_name}${s.staff_id ? ` (${s.staff_id})` : ''}`
+                            : 'Select staff...';
+                        })()
+                      : staffLoading
+                      ? 'Loading staff...'
+                      : availableStaff.length === 0
+                      ? 'No staff available'
+                      : 'Search staff by name...'}
+                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                  <Command>
+                    <CommandInput placeholder="Search by name or staff ID..." />
+                    <CommandList>
+                      <CommandEmpty>No staff found.</CommandEmpty>
+                      <CommandGroup>
+                        {availableStaff.map((s) => (
+                          <CommandItem
+                            key={s.id}
+                            value={`${s.first_name} ${s.last_name} ${s.staff_id || ''} ${s.email || ''}`}
+                            onSelect={() => {
+                              setSelectedStaffId(s.id === selectedStaffId ? '' : s.id);
+                              setComboboxOpen(false);
+                            }}
+                          >
+                            <Check
+                              className={cn(
+                                'mr-2 h-4 w-4',
+                                selectedStaffId === s.id ? 'opacity-100' : 'opacity-0'
+                              )}
+                            />
+                            <div className="flex flex-col">
+                              <span>
+                                {s.first_name} {s.last_name}
+                                {s.staff_id ? ` (${s.staff_id})` : ''}
+                              </span>
+                              {s.email && (
+                                <span className="text-xs text-muted-foreground">{s.email}</span>
+                              )}
+                            </div>
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
               <Button
                 size="sm"
                 disabled={!selectedStaffId || assignMutation.isPending || !canCreate}

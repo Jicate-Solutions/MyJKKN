@@ -4927,6 +4927,8 @@ $$;
 -- =====================================================
 -- STARTUP STUDIO: get_not_participated_learners
 -- Added: 2026-03-08
+-- Updated: 2026-03-09 - Added section_id, section_name, class_incharge_names,
+--                       class_incharge_count to show staff class incharge per student
 -- Returns paginated list of active learners who have NOT participated
 -- (i.e. not accepted into any team) for the given event.
 -- Mirrors the CTEs in get_learner_participation_stats but returns rows.
@@ -4962,17 +4964,33 @@ AS $$
             lp.department_id,
             lp.program_id,
             lp.semester_id,
+            lp.section_id,
             i.name                   AS institution_name,
             deg.degree_name,
             dept.department_name,
             prog.program_name,
-            sem.semester_name
+            sem.semester_name,
+            sec.section_name,
+            (
+                SELECT STRING_AGG(st.first_name || ' ' || st.last_name, ', ' ORDER BY st.first_name)
+                FROM   class_incharges ci
+                JOIN   staff st ON st.id = ci.staff_id
+                WHERE  ci.section_id = lp.section_id
+                  AND  ci.is_active  = true
+            ) AS class_incharge_names,
+            (
+                SELECT COUNT(*)::int
+                FROM   class_incharges ci
+                WHERE  ci.section_id = lp.section_id
+                  AND  ci.is_active  = true
+            ) AS class_incharge_count
         FROM   learners_profiles lp
         LEFT JOIN institutions  i    ON i.id    = lp.institution_id
         LEFT JOIN degrees       deg  ON deg.id  = lp.degree_id
         LEFT JOIN departments   dept ON dept.id = lp.department_id
         LEFT JOIN programs      prog ON prog.id = lp.program_id
         LEFT JOIN semesters     sem  ON sem.id  = lp.semester_id
+        LEFT JOIN sections      sec  ON sec.id  = lp.section_id
         WHERE  lp.lifecycle_status = 'active'
           AND (p_institution_id IS NULL OR lp.institution_id = p_institution_id)
           AND (p_degree_id      IS NULL OR lp.degree_id      = p_degree_id)
