@@ -804,6 +804,13 @@ CREATE TRIGGER enforce_case_course_status
 
 **IMPORTANT:** M1 now includes the RLS drop+recreate (was previously in M3), so deploying M1 alone is safe — tables never have old permissive policies. The 3-migration split is for local debugging; deploy together in production as a single transaction for atomicity.
 
+**Track value migration SQL (runs in M1):**
+```sql
+-- Migrate track values
+UPDATE case_courses SET track = 'ai_mastery' WHERE track = 'ai';
+-- 'matlab' stays as-is
+```
+
 ---
 
 ## 6. RLS Policies (All New Tables + Renamed Tables)
