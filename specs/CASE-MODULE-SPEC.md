@@ -771,7 +771,7 @@ CREATE TRIGGER enforce_case_course_status
 | **M2: New Tables** | Create case_course_reviews, case_certifications, case_capstone_projects, case_faculty, case_student_outcomes. All indexes, triggers, RLS. Also: `ALTER TABLE case_courses ADD CONSTRAINT fk_case_courses_faculty FOREIGN KEY (faculty_id) REFERENCES case_faculty(id) ON DELETE SET NULL` (FK added here since case_faculty is created in M2) | Low — all new, no existing data affected |
 | **M3: Permissions + Triggers** | Add `case_reviewer` custom_role row + case.* permissions, add status transition enforcement trigger. **Note:** Old VAC RLS policies are dropped and replaced in M1 (immediately after rename) to close the permissive window. | Low — permissions only |
 
-**IMPORTANT:** M1, M2, and M3 must be deployed together in production as a single transaction. The 3-migration split is for local debugging only — deploying M1 without M3 leaves tables with old permissive RLS policies.
+**IMPORTANT:** M1 now includes the RLS drop+recreate (was previously in M3), so deploying M1 alone is safe — tables never have old permissive policies. The 3-migration split is for local debugging; deploy together in production as a single transaction for atomicity.
 
 ---
 
