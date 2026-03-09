@@ -386,6 +386,17 @@ export interface AssignInchargeDto {
   staff_id: string;
 }
 
+export interface BulkAssignInchargeDto {
+  institution_id: string;
+  section_ids: string[];
+  staff_id: string;
+}
+
+export interface BulkAssignResult {
+  assigned: number;
+  skipped: number;
+}
+
 export interface SectionWithInchargesResponse {
   data: SectionWithIncharges[];
   metadata: {
