@@ -1549,7 +1549,7 @@ This is a **read-only integration** — CoE never writes to attendance tables, i
 
 ### Phase 1: Core Lifecycle + Committee Review + Proposals
 - **Tables:** `coe_projects`, `coe_trajectory_assessments`, `coe_project_stage_history`, `coe_committee_reviews`, `coe_committee_members`, `coe_committee_votes` (6 tables)
-- **API Routes:** 9 files
+- **API Routes:** 10 files
 - **Pages:** 5 (dashboard, project list, project detail, new proposal, reviews)
 - **Service:** `coe-service.ts`
 - **Hooks:** `use-coe.ts`
