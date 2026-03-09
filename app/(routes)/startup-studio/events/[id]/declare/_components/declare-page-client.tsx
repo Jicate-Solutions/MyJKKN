@@ -21,6 +21,7 @@ export function DeclarePageClient({ eventId }: Props) {
     registration?.id ?? null
   )
 
+  const isSuperAdmin = profile?.role === 'super_admin'
   const isLoading = regLoading || subLoading || declLoading
 
   if (isLoading) {
@@ -35,8 +36,8 @@ export function DeclarePageClient({ eventId }: Props) {
     )
   }
 
-  // Only team leader (owner_id) can submit the declaration
-  if (registration.owner_id !== profile?.id) {
+  // Only team leader (owner_id) can submit the declaration — super_admin bypasses this
+  if (!isSuperAdmin && registration.owner_id !== profile?.id) {
     return (
       <div className="text-center space-y-2 py-10">
         <p className="font-medium">Only the team leader can declare the track.</p>
