@@ -923,11 +923,12 @@ All under `/api/startup-studio/coe/`, following existing pattern: `withAuth` + `
 
 **Note on `submitForReview` routing:** Two paths exist: (1) the `/advance` route detects `toStage === 'committee_review'` and delegates to `submitForReview()` internally, or (2) the dedicated `/submit-for-review` route calls it directly. Both produce identical results. The dedicated route exists for UX clarity — the "Submit for Review" button on the proposal page calls this route, making the action explicit.
 
-### Phase 2 Routes (5 files)
+### Phase 2 Routes (6 files)
 
 | Route | Methods | Purpose |
 |-------|---------|---------|
-| `coe/projects/[id]/incentives/route.ts` | GET, POST | List + create incentive entries |
+| `coe/projects/[id]/incentives/route.ts` | GET, POST | List + create individual incentive entries |
+| `coe/projects/[id]/external-milestone/route.ts` | POST | Record post-trajectory milestone (admin only). Batch-creates incentive entries for ALL team members. Input: `RecordExternalMilestoneInput`. |
 | `coe/cia/configs/route.ts` | GET, POST | List + create CIA configs (admin only) |
 | `coe/cia/configs/[id]/route.ts` | PATCH, DELETE | Update/delete CIA config |
 | `coe/cia/marks/route.ts` | GET, POST | List + record student CIA marks |
