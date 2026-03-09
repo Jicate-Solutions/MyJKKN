@@ -704,7 +704,7 @@ Enhance existing receipt system to:
 > 2. Cheque clears → `clearance_status = 'cleared'` → Receipt auto-generated
 > 3. Cheque bounces → `clearance_status = 'bounced'` → No receipt; if one was erroneously generated, set `status = 'voided'` with bounce reason
 >
-> Cash and bank transfer payments generate receipts immediately upon recording + verification.
+> Cash, UPI offline, POS swipe, and bank transfer payments generate receipts immediately upon recording + verification (these modes have `clearance_status = 'na'`). Receipt generation logic should check `clearance_status IN ('cleared', 'na')` — never generate a receipt when `clearance_status = 'pending'`.
 
 ### 2.5 Student/Parent Fee Portal
 
