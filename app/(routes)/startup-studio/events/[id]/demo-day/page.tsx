@@ -48,6 +48,7 @@ import {
   useEvaluatorProgress,
 } from '@/hooks/startup-studio/use-appathon-verifications';
 import { useOpenVoting, useCloseVoting } from '@/hooks/startup-studio/use-audience-votes';
+import { useAutoAssignLevel1 } from '@/hooks/startup-studio/use-progression';
 import {
   AlertDialog,
   AlertDialogTrigger,
@@ -79,6 +80,7 @@ export default function DemoDayPage({ params }: { params: Promise<{ id: string }
   const publishResults = usePublishVerifiedResults(id);
   const openVoting = useOpenVoting(id);
   const closeVoting = useCloseVoting(id);
+  const autoAssignLevel1 = useAutoAssignLevel1(id);
   const { data: flaggedVerifications } = useFlaggedVerifications(id);
   const adminUpdate = useAdminUpdateVerification(id);
   const { data: evaluatorProgressData } = useEvaluatorProgress(id);
@@ -247,6 +249,26 @@ export default function DemoDayPage({ params }: { params: Promise<{ id: string }
                 </AlertDialog>
               )}
             </div>
+
+            {/* Progression Levels */}
+            {event?.is_results_published && (
+              <div className="border rounded-lg p-4 space-y-2">
+                <h3 className="text-sm font-semibold">Progression Levels</h3>
+                <p className="text-xs text-muted-foreground">
+                  Auto-assign Level 1 (App Builder) to all learners whose team presented with a live app.
+                  Safe to run multiple times — uses ON CONFLICT DO NOTHING.
+                </p>
+                <Button
+                  variant="outline"
+                  onClick={() => autoAssignLevel1.mutate()}
+                  disabled={autoAssignLevel1.isPending}
+                  size="sm"
+                >
+                  {autoAssignLevel1.isPending && <Loader2 className="mr-2 h-3 w-3 animate-spin" />}
+                  Auto-Assign Level 1 (App Builder)
+                </Button>
+              </div>
+            )}
 
             {/* Audience Voting */}
             {isSuperAdmin && (() => {
