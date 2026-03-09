@@ -1467,6 +1467,16 @@ export function GetPages(pathname: string): MenuGroup[] {
                 label: 'Checklists',
                 active: pathname.includes('/checklists')
               },
+              {
+                href: `/startup-studio/events/${activeId}/declare`,
+                label: 'Declare Track',
+                active: pathname.includes('/declare')
+              },
+              {
+                href: `/startup-studio/events/${activeId}/case-study`,
+                label: 'Case Study',
+                active: pathname.includes('/case-study')
+              },
             ] : []
           }
         ];
