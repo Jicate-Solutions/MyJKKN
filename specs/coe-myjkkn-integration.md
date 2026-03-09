@@ -122,7 +122,7 @@ CREATE TABLE coe_projects (
 
   -- Origin: MULTIPLE entry points (all nullable)
   origin_type TEXT NOT NULL DEFAULT 'fresh'
-    CHECK (origin_type IN ('cycle', 'submission', 'fresh')),
+    CHECK (origin_type IN ('cycle', 'submission', 'fresh', 'handover')),
   origin_cycle_id UUID REFERENCES ss_cycles(id),          -- from a cycle
   origin_submission_id UUID REFERENCES ss_appathon_submissions(id), -- from Appathon
   -- 'fresh' = learner-initiated proposal with no prior cycle/submission
