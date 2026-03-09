@@ -817,6 +817,8 @@ CREATE TABLE billing_data_imports (
 );
 ```
 
+> **SECURITY — Import file storage:** Import files contain sensitive student financial data. Files MUST be stored in a private Supabase Storage bucket (`billing-imports`) with RLS restricting access to `institution_admin`, `super_admin`, and the `imported_by` user. Use signed URLs with 15-minute expiry for download access. Consider deleting files from storage 90 days after import completion.
+
 **Import flow:**
 1. Admin uploads Excel/CSV (standard Tally export format)
 2. System validates: column mapping, data types, student matching
