@@ -2255,6 +2255,8 @@ CREATE TABLE IF NOT EXISTS track_declarations (
   mentor_notes TEXT,
   approved_at TIMESTAMPTZ,
   approved_by UUID REFERENCES profiles(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (event_id, team_id),
   CHECK (track IN ('solve_for_100', 'jicate_solutions', 'solve_for_industry', 'completed'))
 );
@@ -2282,7 +2284,6 @@ CREATE TABLE IF NOT EXISTS progression_levels (
 CREATE INDEX IF NOT EXISTS idx_progression_levels_profile ON progression_levels(profile_id);
 CREATE INDEX IF NOT EXISTS idx_progression_levels_event ON progression_levels(event_id);
 CREATE INDEX IF NOT EXISTS idx_progression_levels_team ON progression_levels(team_id);
-CREATE INDEX IF NOT EXISTS idx_progression_levels_level ON progression_levels(level);
 
 -- Case Studies: Structured narratives for solve_for_industry and jicate_solutions tracks
 CREATE TABLE IF NOT EXISTS case_studies (
@@ -2297,7 +2298,7 @@ CREATE TABLE IF NOT EXISTS case_studies (
   demo_url TEXT,
   app_name TEXT,
   app_url TEXT,
-  score INTEGER,
+  score INTEGER CHECK (score IS NULL OR score BETWEEN 0 AND 500),
   featured BOOLEAN NOT NULL DEFAULT false,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),

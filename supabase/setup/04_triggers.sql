@@ -578,6 +578,10 @@ CREATE TRIGGER update_case_studies_updated_at
   BEFORE UPDATE ON case_studies
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+CREATE TRIGGER update_track_declarations_updated_at
+  BEFORE UPDATE ON track_declarations
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
 -- ================================================================================
 -- End of Triggers File
 -- Total Triggers: 79 (Updated: 2026-03-08)

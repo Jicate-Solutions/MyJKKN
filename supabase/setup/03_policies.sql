@@ -3292,7 +3292,6 @@ CREATE POLICY "track_declarations_update_leader"
   ON track_declarations FOR UPDATE
   USING (
     declared_by = auth.uid()
-    AND declared_at > NOW() - INTERVAL '7 days'
   )
   WITH CHECK (
     declared_by = auth.uid()
@@ -3305,6 +3304,17 @@ CREATE POLICY "track_declarations_update_admin"
       SELECT 1 FROM profiles p
       WHERE p.id = auth.uid()
         AND p.role IN ('super_admin', 'admin', 'faculty', 'hod', 'principal')
+    )
+  );
+
+-- DELETE: Admin only (no user-initiated deletes)
+CREATE POLICY "track_declarations_delete_admin"
+  ON track_declarations FOR DELETE
+  USING (
+    EXISTS (
+      SELECT 1 FROM profiles p
+      WHERE p.id = auth.uid()
+        AND p.role IN ('super_admin', 'admin')
     )
   );
 
@@ -3441,3 +3451,17 @@ CREATE POLICY "case_studies_update_admin"
         AND p.role IN ('super_admin', 'admin')
     )
   );
+
+-- DELETE: Admin only (no user-initiated deletes)
+CREATE POLICY "case_studies_delete_admin"
+  ON case_studies FOR DELETE
+  USING (
+    EXISTS (
+      SELECT 1 FROM profiles p
+      WHERE p.id = auth.uid()
+        AND p.role IN ('super_admin', 'admin')
+    )
+  );
+
+-- NOTE: progression_levels has no DELETE policy intentionally — levels are permanent records.
+-- Admin cleanup must be done via service role key directly in Supabase dashboard.
