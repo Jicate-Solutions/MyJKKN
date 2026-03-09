@@ -1368,6 +1368,31 @@ export interface CiaMarkInput {
   academic_year?: string;
   marks_obtained: number;
 }
+
+// Input for recording post-trajectory external milestones (admin only)
+export interface RecordExternalMilestoneInput {
+  milestone: 'incubation_accepted' | 'publication_accepted' | 'solution_implemented';
+  evidence: {
+    url: string;
+    title: string;
+    description?: string;
+  };
+}
+
+// Input for initiating handover (Step 2 of handover flow)
+export interface CreateHandoverInput {
+  new_proposed_by: string;  // user_id of V(n+1) proposer — required, no orphan projects
+  new_team_id?: string;     // team_id for V(n+1) — optional, can be formed later
+}
+
+// Filters for incentive queries
+export interface CoeIncentiveFilters extends PaginationParams {
+  incentive_type?: CoeIncentiveType;
+  status?: CoeIncentiveStatus;
+  recipient_role?: 'learner' | 'facilitator';
+  user_id?: string;
+  project_id?: string;
+}
 ```
 
 ---
