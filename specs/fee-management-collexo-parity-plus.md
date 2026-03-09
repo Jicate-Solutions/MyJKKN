@@ -1090,7 +1090,7 @@ CREATE TABLE billing_reminder_config (
   reminder_name text NOT NULL,
   trigger_type text NOT NULL
     CHECK (trigger_type IN ('before_due', 'on_due', 'after_due')),
-  days_offset int NOT NULL,                      -- -7 = 7 days before, +3 = 3 days after
+  days_offset int NOT NULL CHECK (days_offset BETWEEN -90 AND 365),  -- Bounded: no reminder >90 days before or >1 year after due
   -- Enforce sign convention matches trigger_type
   CHECK (
     (trigger_type = 'before_due' AND days_offset < 0)
