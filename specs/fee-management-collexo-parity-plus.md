@@ -486,6 +486,10 @@ app/(routes)/billing/fee-config/
 ```
 └── revisions/
     └── page.tsx                — Year-over-year fee change report
+                                    Year picker: "Compare [Year A] to [Year B]" (default: last 2 years)
+                                    Table: Program × Component with old/new/change% per cell
+                                    Highlight cells with changes > 10% in red
+                                    Export to PDF/Excel for NAAC submission
 ```
 
 > **Fee matrix coverage validation:** The matrix overview page (`fee-config/matrix/page.tsx`) MUST include a coverage heatmap showing:
