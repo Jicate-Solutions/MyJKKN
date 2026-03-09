@@ -2277,6 +2277,7 @@ CREATE TABLE IF NOT EXISTS progression_levels (
   achieved_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   evidence JSONB NOT NULL DEFAULT '{}'::jsonb,
   awarded_by TEXT NOT NULL DEFAULT 'system',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (profile_id, event_id, level),
   CHECK (level BETWEEN 1 AND 5)
 );
