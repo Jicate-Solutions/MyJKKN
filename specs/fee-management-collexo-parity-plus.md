@@ -1087,7 +1087,18 @@ CREATE TABLE billing_escalation_log (
   metadata jsonb DEFAULT '{}',
   created_at timestamptz DEFAULT now()
 );
+
+-- Prevent duplicate escalation actions for the same student + bill + step
+CREATE UNIQUE INDEX unique_escalation_per_step
+  ON billing_escalation_log(student_id, bill_id, step_id)
+  WHERE status != 'skipped';
 ```
+
+> **institution_id denormalization:** `billing_escalation_steps` and `billing_escalation_log` carry their own `institution_id` even though it can be derived from the parent policy/bill FK. This is intentional — RLS policies need `institution_id` directly on each table for efficient filtering. Implementation MUST ensure `steps.institution_id = policy.institution_id` and `log.institution_id = bill.institution_id` at insert time.
+
+> **`late_fee_apply` financial recording:** When the escalation engine executes a `late_fee_apply` step, it MUST create a corresponding financial record — not just an escalation log entry. The late fee should be added as a surcharge line item on the student's bill (updating `billing_student_bills.total_amount`) and recorded in `billing_audit_trail`. Without this, late fees exist in escalation-land but never appear on the student's actual bill.
+
+> **Step reordering:** The `UNIQUE(policy_id, step_order)` constraint means reordering steps requires careful handling. Use a transaction with temporary step_order values (e.g., `step_order + 1000`) to avoid UNIQUE violations during swaps, or make the constraint `DEFERRABLE INITIALLY DEFERRED`.
 
 ### 5.3b Escalation Safeguards
 
