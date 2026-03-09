@@ -19,7 +19,9 @@ import {
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
@@ -62,6 +64,7 @@ import {
   useVenueAttendance,
   useMarkAttendance,
   useTeamAcademicDetails,
+  useAllEventAllocations,
 } from '@/hooks/startup-studio/use-event-venues';
 import { useEventRegistrations } from '@/hooks/startup-studio/use-event-registrations';
 import { useQuery } from '@tanstack/react-query';
@@ -903,14 +906,31 @@ function AssignTeamDialog({
   dayType: DayType;
 }) {
   const { data: registrations = [] } = useEventRegistrations({ event_id: eventId });
-  const { data: venue } = useVenue(venueId);
+  const { data: allAllocations = [] } = useAllEventAllocations(eventId, dayType);
   const manualAllocate = useManualAllocate();
   const [selectedTeam, setSelectedTeam] = useState('');
 
-  const allocatedRegIds = new Set(
-    (venue?.team_allocations || []).map((a: any) => a.registration_id)
+  // Map: registrationId → venue name (across ALL venues for this event + day)
+  const globalAllocationMap = new Map(
+    allAllocations.map((a) => {
+      const va = a.venue_assignment;
+      const venueName = va?.manual_name || va?.resource?.name || 'Another Venue';
+      return [a.registration_id, venueName];
+    })
   );
-  const unallocatedTeams = registrations.filter((r) => !allocatedRegIds.has(r.id));
+
+  // Teams already in THIS venue
+  const inThisVenueIds = new Set(
+    allAllocations
+      .filter((a) => a.venue_assignment_id === venueId)
+      .map((a) => a.registration_id)
+  );
+
+  // Split: truly unallocated vs. assigned to a different venue
+  const freeTeams = registrations.filter((r) => !globalAllocationMap.has(r.id));
+  const elsewhereTeams = registrations.filter(
+    (r) => globalAllocationMap.has(r.id) && !inThisVenueIds.has(r.id)
+  );
 
   const handleAssign = () => {
     if (!selectedTeam) return;
@@ -932,6 +952,7 @@ function AssignTeamDialog({
           <DialogTitle>Assign Team to Venue</DialogTitle>
           <DialogDescription>
             Select a team for {dayType === 'build_day' ? 'Build Day' : 'Demo Day'}.
+            Unallocated teams are listed first.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4 pt-2">
@@ -944,26 +965,62 @@ function AssignTeamDialog({
                 <SelectValue placeholder="Select a team..." />
               </SelectTrigger>
               <SelectContent>
-                {unallocatedTeams.length === 0 ? (
+                {freeTeams.length === 0 && elsewhereTeams.length === 0 ? (
                   <SelectItem value="_none" disabled>
                     All teams are already allocated
                   </SelectItem>
                 ) : (
-                  unallocatedTeams.map((r) => (
-                    <SelectItem key={r.id} value={r.id}>
-                      {r.team_name}
-                    </SelectItem>
-                  ))
+                  <>
+                    {/* Unallocated group — primary assignment targets */}
+                    {freeTeams.length > 0 && (
+                      <SelectGroup>
+                        <SelectLabel className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1">
+                          Unallocated ({freeTeams.length})
+                        </SelectLabel>
+                        {freeTeams.map((r) => (
+                          <SelectItem key={r.id} value={r.id}>
+                            {r.team_name}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    )}
+
+                    {/* Already assigned to another venue — still selectable but clearly marked */}
+                    {elsewhereTeams.length > 0 && (
+                      <SelectGroup>
+                        <SelectLabel className="text-xs text-muted-foreground flex items-center gap-1">
+                          Assigned Elsewhere ({elsewhereTeams.length})
+                        </SelectLabel>
+                        {elsewhereTeams.map((r) => (
+                          <SelectItem key={r.id} value={r.id}>
+                            <span>{r.team_name}</span>
+                            <span className="text-muted-foreground text-xs ml-1.5">
+                              → {globalAllocationMap.get(r.id)}
+                            </span>
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    )}
+                  </>
                 )}
               </SelectContent>
             </Select>
-            {unallocatedTeams.length > 0 && (
-              <p className="text-xs text-muted-foreground">
-                {unallocatedTeams.length} unallocated team
-                {unallocatedTeams.length !== 1 ? 's' : ''} available
-              </p>
-            )}
+
+            {/* Count summary below the select */}
+            <div className="flex gap-3 text-xs">
+              {freeTeams.length > 0 && (
+                <span className="text-green-600 dark:text-green-400 font-medium">
+                  {freeTeams.length} unallocated
+                </span>
+              )}
+              {elsewhereTeams.length > 0 && (
+                <span className="text-muted-foreground">
+                  {elsewhereTeams.length} assigned elsewhere
+                </span>
+              )}
+            </div>
           </div>
+
           <Button
             onClick={handleAssign}
             disabled={!selectedTeam || manualAllocate.isPending}

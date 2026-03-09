@@ -263,6 +263,40 @@ export function useTeamAcademicDetails(registrationIds: string[]) {
 // Used by team members (non-leaders) who don't have an event_registrations row
 // of their own — they only have a registration_id via their team membership.
 // RLS: event_team_venue_allocations allows SELECT for all authenticated users.
+// Returns all team-venue allocations for an event + day type across every venue.
+// Used by AssignTeamDialog to split teams into "unallocated" vs "assigned elsewhere".
+export function useAllEventAllocations(eventId: string, dayType: DayType) {
+  const { isLoading: authLoading } = useAuth();
+  return useQuery({
+    queryKey: ['all-event-allocations', eventId, dayType],
+    queryFn: async () => {
+      const supabase = createClientSupabaseClient();
+      const { data, error } = await (supabase as any)
+        .from('event_team_venue_allocations')
+        .select(`
+          registration_id,
+          venue_assignment_id,
+          venue_assignment:event_venue_assignments(id, manual_name, manual_building, manual_room, resource:resources(name))
+        `)
+        .eq('event_id', eventId)
+        .eq('day_type', dayType);
+
+      if (error) {
+        console.error('[startup/venues] useAllEventAllocations failed:', error);
+        throw error;
+      }
+      return (data ?? []) as Array<{
+        registration_id: string;
+        venue_assignment_id: string;
+        venue_assignment: { id: string; manual_name: string | null; manual_building: string | null; manual_room: string | null; resource: { name: string } | null };
+      }>;
+    },
+    enabled: !authLoading && isValidUUID(eventId),
+    staleTime: 15 * 1000,
+    retry: 2,
+  });
+}
+
 export function useRegistrationVenueAllocations(registrationId: string | null | undefined) {
   const { isLoading: authLoading } = useAuth();
   return useQuery({
