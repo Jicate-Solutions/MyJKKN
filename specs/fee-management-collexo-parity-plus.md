@@ -697,6 +697,15 @@ CREATE TABLE billing_offline_payments (
 
 > **Verification role restriction:** The UPDATE RLS policy for `billing_offline_payments` must enforce role restrictions on verification — only `accountant`, `admin`, `institution_admin`, or `super_admin` can set `verified_by`.
 
+> **Payment reversal flow (CRITICAL):** Misapplied payments (wrong student, wrong amount, duplicate entry) need a correction mechanism. Add a "Reverse Payment" flow:
+> - Only `admin` or `institution_admin` role can reverse
+> - Requires reason: wrong student, wrong amount, duplicate entry
+> - Auto-voids the linked receipt (`billing_receipts.status = 'voided'`)
+> - Auto-reverts bill balance
+> - Creates audit trail entry with reversal reason
+> - Original payment record is marked with a `reversed_at` timestamp (not deleted — preserves audit trail)
+> - Consider adding `reversed_by uuid REFERENCES profiles(id)`, `reversed_at timestamptz`, `reversal_reason text` columns to `billing_offline_payments`
+
 **Why a separate table (not just payment_transactions)?** Offline payments have fundamentally different fields:
 - Cheque/DD need bank details, clearance tracking, bounce handling
 - Cash needs recorded_by (who accepted it) and verification
