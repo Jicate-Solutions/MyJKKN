@@ -625,8 +625,10 @@ app/(routes)/billing/generate/
 ├── page.tsx                    — Bulk bill generation wizard
 │                                 Step 1: Select institution + program + year
 │                                 Step 2: Preview bills (sample of 5 students)
-│                                 Step 3: Confirm and generate (shows progress bar)
-│                                 Step 4: Results summary
+│                                 Step 3: Confirm and generate (shows progress bar + cancel button)
+│                                   Cancel: confirmation dialog ("Cancel? X of Y processed. Generated bills remain.")
+│                                   No resume — restart job (idempotency skips already-billed students)
+│                                 Step 4: Results summary (if cancelled: "X generated, Y remaining (not processed)")
 └── preview/page.tsx            — Bill preview before generation
 ```
 
