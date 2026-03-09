@@ -1296,7 +1296,7 @@ These features create competitive advantages Collexo structurally cannot match.
 | 17 | Online payment gateway | EXISTS | HDFC SmartGateway |
 | 18 | Refund management | EXISTS | 7 categories + approval |
 | 19 | Discount management | EXISTS | 5 categories + outcome-based |
-| 20 | Bulk bill creation | EXISTS | Bulk import supported |
+| 20 | Bulk bill creation | P2 | Bulk generation engine (new — existing bulk import is for data, not bill creation) |
 
 ## Beyond-Collexo Exclusive Features
 
