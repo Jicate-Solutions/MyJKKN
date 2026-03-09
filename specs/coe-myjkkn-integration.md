@@ -942,7 +942,7 @@ All under `/api/startup-studio/coe/`, following existing pattern: `withAuth` + `
 | `coe/projects/[id]/handover/route.ts` | POST | Create V(n+1) project linked to parent |
 | `coe/handover/chains/route.ts` | GET | List all V1->V2->V3 chains |
 
-**Total: 17 new route files.**
+**Total: 19 new route files.**
 
 ---
 
