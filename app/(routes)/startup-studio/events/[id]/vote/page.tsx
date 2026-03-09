@@ -137,7 +137,7 @@ export default function VotePage({ params }: { params: Promise<{ id: string }> }
 
               return (
                 <TeamVoteCard
-                  key={submissionId}
+                  key={reg.id}
                   teamName={reg.team_name}
                   appName={reg.submission!.app_name}
                   institutionName={institutionName}
