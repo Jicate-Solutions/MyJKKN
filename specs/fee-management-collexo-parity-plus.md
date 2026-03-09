@@ -486,6 +486,13 @@ app/(routes)/billing/fee-config/
 > - **Filter:** By academic year
 >
 > This gives the admin instant visibility into which program × admission_type combinations are missing fee structures. Without this, bill generation will silently fail for unconfigured students.
+>
+> **Heatmap empty/loading states:**
+> - No programs exist yet: "No programs found. Add programs in Academic Settings first." with link
+> - No year selected: Default to current academic year, show year picker prominently
+> - Zero matrices for selected year: Show full red grid with "Start configuring" CTA
+> - Loading: Skeleton grid matching expected row/column count
+> - **Accessibility:** Use icons/patterns in addition to color (checkmark + green, X + red, warning + yellow) — green/red is problematic for the ~8% of men with red-green color blindness
 
 ### 1.6 Audit Trail (Moved from Phase 6 — MUST be Phase 1)
 
