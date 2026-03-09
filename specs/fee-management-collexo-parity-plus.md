@@ -738,6 +738,8 @@ Enhance existing receipt system to:
 > 2. Cheque clears → `clearance_status = 'cleared'` → Receipt auto-generated
 > 3. Cheque bounces → `clearance_status = 'bounced'` → No receipt; if one was erroneously generated, set `status = 'voided'` with bounce reason
 >
+> **Cheque bounce notification:** When a cheque bounces (`clearance_status = 'bounced'`), the system MUST auto-notify the student and parent via SMS/WhatsApp: "Your cheque [ref] for Rs X has been returned unpaid. Please arrange alternative payment by [date]. Contact accounts office for assistance." The outstanding balance auto-reverts to the pre-payment amount. The bounced cheque should appear in the student portal with a clear status indicator.
+>
 > Cash, UPI offline, POS swipe, and bank transfer payments generate receipts immediately upon recording + verification (these modes have `clearance_status = 'na'`). Receipt generation logic should check `clearance_status IN ('cleared', 'na')` — never generate a receipt when `clearance_status = 'pending'`.
 
 ### 2.5 Student/Parent Fee Portal
