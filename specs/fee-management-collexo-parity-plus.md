@@ -419,8 +419,8 @@ CREATE TABLE billing_fee_revisions (
   from_academic_year_id uuid NOT NULL REFERENCES academic_years(id),
   to_academic_year_id uuid NOT NULL REFERENCES academic_years(id),
   component_name text NOT NULL,                  -- e.g., "Tuition", "Hostel"
-  old_amount decimal(12,2) NOT NULL,
-  new_amount decimal(12,2) NOT NULL,
+  old_amount decimal(12,2) NOT NULL CHECK (old_amount >= 0),
+  new_amount decimal(12,2) NOT NULL CHECK (new_amount >= 0),
   change_percentage decimal(7,2) GENERATED ALWAYS AS (
     CASE WHEN old_amount > 0
     THEN ROUND(((new_amount - old_amount) / old_amount) * 100, 2)
