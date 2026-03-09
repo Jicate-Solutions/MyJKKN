@@ -329,7 +329,8 @@ CREATE TABLE billing_scholarship_rules (
   -- Enforce: full_waiver needs no value; percentage/fixed_amount require a positive value
   CHECK (
     (reduction_type = 'full_waiver' AND reduction_value IS NULL)
-    OR (reduction_type IN ('percentage', 'fixed_amount') AND reduction_value IS NOT NULL AND reduction_value > 0)
+    OR (reduction_type = 'percentage' AND reduction_value IS NOT NULL AND reduction_value > 0 AND reduction_value <= 100)
+    OR (reduction_type = 'fixed_amount' AND reduction_value IS NOT NULL AND reduction_value > 0)
   ),
   applies_to_components text[],                  -- {'tuition', 'hostel'} — which fee components
   applies_to_all_components boolean DEFAULT false, -- true = covers everything
