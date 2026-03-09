@@ -943,9 +943,25 @@ app/(routes)/billing/analytics/
 
 ### 5.1 Fee Reminders
 
-**New tables:** `billing_reminder_config`, `billing_reminder_templates`, `billing_reminder_log`
+**New tables:** `billing_reminder_templates`, `billing_reminder_config`, `billing_reminder_log`
+
+> **Migration ordering:** `billing_reminder_templates` MUST be created before `billing_reminder_config` (FK dependency).
 
 ```sql
+-- Create templates FIRST (referenced by config)
+CREATE TABLE billing_reminder_templates (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  institution_id uuid NOT NULL REFERENCES institutions(id),
+  template_name text NOT NULL,
+  channel text NOT NULL
+    CHECK (channel IN ('email', 'sms', 'whatsapp')),
+  subject text,
+  body text NOT NULL,                            -- {{student_name}}, {{amount}}, {{due_date}}, {{payment_link}}
+  variables text[] DEFAULT '{}',
+  is_active boolean DEFAULT true,
+  created_at timestamptz DEFAULT now()
+);
+
 CREATE TABLE billing_reminder_config (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   institution_id uuid NOT NULL REFERENCES institutions(id),
@@ -960,20 +976,7 @@ CREATE TABLE billing_reminder_config (
     OR (trigger_type = 'after_due' AND days_offset > 0)
   ),
   channels text[] NOT NULL DEFAULT '{email}',    -- email, sms, whatsapp
-  template_id uuid REFERENCES billing_reminder_templates(id),  -- NOTE: Forward reference — create billing_reminder_templates BEFORE this table, or add this FK via ALTER TABLE
-  is_active boolean DEFAULT true,
-  created_at timestamptz DEFAULT now()
-);
-
-CREATE TABLE billing_reminder_templates (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  institution_id uuid NOT NULL REFERENCES institutions(id),
-  template_name text NOT NULL,
-  channel text NOT NULL
-    CHECK (channel IN ('email', 'sms', 'whatsapp')),
-  subject text,
-  body text NOT NULL,                            -- {{student_name}}, {{amount}}, {{due_date}}, {{payment_link}}
-  variables text[] DEFAULT '{}',
+  template_id uuid REFERENCES billing_reminder_templates(id),
   is_active boolean DEFAULT true,
   created_at timestamptz DEFAULT now()
 );
