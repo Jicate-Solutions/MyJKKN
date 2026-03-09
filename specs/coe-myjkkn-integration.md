@@ -129,7 +129,7 @@ CREATE TABLE coe_projects (
 
   -- Enforce origin_type <-> FK consistency
   -- Note: 'fresh' allows origin_cycle_id to be populated AFTER auto-cycle creation at orientation
-  -- Note: 'handover' is set by createHandover for V(n+1) projects — preserves cross-batch provenance
+  -- Note: 'handover' is set by finalizeHandover for V(n+1) projects — preserves cross-batch provenance
   CONSTRAINT origin_fk_consistency CHECK (
     (origin_type = 'cycle' AND origin_cycle_id IS NOT NULL AND origin_submission_id IS NULL)
     OR (origin_type = 'submission' AND origin_submission_id IS NOT NULL AND origin_cycle_id IS NULL)
