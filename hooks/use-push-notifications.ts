@@ -43,6 +43,9 @@ export function usePushNotifications() {
   useEffect(() => {
     if (!state.isSupported) return;
 
+    // Skip SW registration in development — Serwist only generates sw.js in production
+    if (process.env.NODE_ENV !== 'production') return;
+
     const registerServiceWorkerAndCheckSubscription = async () => {
       try {
         setState((prev) => ({ ...prev, isLoading: true }));
