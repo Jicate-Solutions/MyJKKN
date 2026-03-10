@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerSupabaseClient } from '@/lib/supabase/server';
+import {
+  createServerSupabaseClient,
+  createServiceRoleClient
+} from '@/lib/supabase/server';
 import webpush from 'web-push';
 import { CreateNotificationRequest } from '@/types/notifications';
 
@@ -122,7 +125,6 @@ export async function POST(request: NextRequest) {
 
     // Send web push notifications
     const pushResult = await sendWebPushNotifications(
-      supabase,
       targetUsers,
       notification
     );
@@ -267,7 +269,6 @@ async function findTargetUsers(
 }
 
 async function sendWebPushNotifications(
-  supabase: any,
   userIds: string[],
   notification: any
 ): Promise<{ sent: number; failed: number }> {
@@ -278,11 +279,21 @@ async function sendWebPushNotifications(
       return { sent: 0, failed: 0 };
     }
 
+    // Use service role client to bypass RLS — the "push_subscriptions_own" policy
+    // only allows users to read their OWN subscriptions, so an admin's auth context
+    // would return 0 rows when querying other users' subscriptions.
+    const serviceClient = createServiceRoleClient();
+
     // Get push subscriptions for target users
-    const { data: subscriptions } = await supabase
+    const { data: subscriptions, error: subError } = await serviceClient
       .from('push_subscriptions')
       .select('id, subscription, user_id')
       .in('user_id', userIds);
+
+    if (subError) {
+      console.error('Error fetching push subscriptions:', subError);
+      return { sent: 0, failed: 0 };
+    }
 
     if (!subscriptions || subscriptions.length === 0) {
       console.log('No push subscriptions found for target users');
@@ -316,7 +327,7 @@ async function sendWebPushNotifications(
         );
         // Remove expired/invalid subscriptions (410 Gone or 404 Not Found)
         if (error.statusCode === 410 || error.statusCode === 404) {
-          await supabase
+          await serviceClient
             .from('push_subscriptions')
             .delete()
             .eq('id', sub.id);
