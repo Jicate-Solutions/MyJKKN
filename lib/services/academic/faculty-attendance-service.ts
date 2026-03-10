@@ -102,21 +102,42 @@ export class FacultyAttendanceService {
 
       logger.dev('academic/faculty-attendance', 'Staff found', { staffId: staffData.id, institutionId: staffData.institution_id });
 
-      // Get current academic year for the institution
+      // Updated: 2026-03-10 - Pick the academic year that contains the target date
+      // Previously used order('start_date', desc).limit(1) which could pick a future academic year
       const { data: academicYears, error: yearError } = (await this.supabase
         .from('academic_years')
-        .select('id, academic_year_name')
+        .select('id, academic_year_name, start_date, end_date')
         .eq('institution_id', staffData.institution_id)
         .eq('is_active', true)
-        .order('start_date', { ascending: false })
+        .lte('start_date', targetDate)
+        .gte('end_date', targetDate)
         .limit(1)) as { data: AcademicYearBasic[] | null; error: any };
 
-      if (yearError || !academicYears || academicYears.length === 0) {
-        logger.error('academic/faculty-attendance', 'No active academic year found', yearError);
-        return { periods: [], searchContext: {} };
-      }
+      let academicYear: AcademicYearBasic;
 
-      const academicYear = academicYears[0];
+      if (yearError || !academicYears || academicYears.length === 0) {
+        // Fallback: if no academic year contains the target date, use the most recent one
+        const { data: fallbackYears } = (await this.supabase
+          .from('academic_years')
+          .select('id, academic_year_name')
+          .eq('institution_id', staffData.institution_id)
+          .eq('is_active', true)
+          .order('start_date', { ascending: false })
+          .limit(1)) as { data: AcademicYearBasic[] | null; error: any };
+
+        if (!fallbackYears || fallbackYears.length === 0) {
+          logger.error('academic/faculty-attendance', 'No active academic year found', yearError);
+          return { periods: [], searchContext: {} };
+        }
+
+        logger.warn('academic/faculty-attendance', 'No academic year contains target date, using most recent', {
+          targetDate, fallbackYear: fallbackYears[0].academic_year_name
+        });
+
+        academicYear = fallbackYears[0];
+      } else {
+        academicYear = academicYears[0];
+      }
 
       logger.dev('academic/faculty-attendance', 'Academic year found', { id: academicYear.id, name: academicYear.academic_year_name });
 
@@ -560,20 +581,35 @@ export class FacultyAttendanceService {
         return { periodsByDay: {}, searchContext: {} };
       }
 
-      // Get current academic year (take the latest if multiple active)
+      // Updated: 2026-03-10 - Pick the academic year that contains today's date
+      const today = format(new Date(), 'yyyy-MM-dd');
       const { data: academicYears } = (await this.supabase
         .from('academic_years')
         .select('id')
         .eq('institution_id', staffData.institution_id)
         .eq('is_active', true)
-        .order('start_date', { ascending: false })
+        .lte('start_date', today)
+        .gte('end_date', today)
         .limit(1)) as { data: AcademicYearBasic[] | null; error: any };
 
+      // Fallback: if no academic year contains today, use the most recent active one
+      let academicYear: AcademicYearBasic;
       if (!academicYears || academicYears.length === 0) {
-        return { periodsByDay: {}, searchContext: {} };
-      }
+        const { data: fallbackYears } = (await this.supabase
+          .from('academic_years')
+          .select('id')
+          .eq('institution_id', staffData.institution_id)
+          .eq('is_active', true)
+          .order('start_date', { ascending: false })
+          .limit(1)) as { data: AcademicYearBasic[] | null; error: any };
 
-      const academicYear = academicYears[0];
+        if (!fallbackYears || fallbackYears.length === 0) {
+          return { periodsByDay: {}, searchContext: {} };
+        }
+        academicYear = fallbackYears[0];
+      } else {
+        academicYear = academicYears[0];
+      }
 
       // Fetch all timetables for this staff
       const { data: timetables } = (await this.supabase

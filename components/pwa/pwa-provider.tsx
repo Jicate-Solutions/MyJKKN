@@ -118,8 +118,8 @@ export function PWAProvider({ children }: { children: React.ReactNode }) {
       mediaQuery.addListener(handleDisplayModeChange);
     }
 
-    // Service worker setup
-    if ('serviceWorker' in navigator) {
+    // Service worker setup - skip in development (Serwist only generates sw.js in production)
+    if ('serviceWorker' in navigator && process.env.NODE_ENV === 'production') {
       // Check if SW is already registered to prevent multiple registrations
       navigator.serviceWorker.getRegistration().then(existingRegistration => {
         if (existingRegistration) {

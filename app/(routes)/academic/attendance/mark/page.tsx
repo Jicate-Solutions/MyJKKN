@@ -179,6 +179,7 @@ export default function AttendanceMarkPage() {
 
         // Build query
         // Updated: 2025-10-09 - Added timetable_format to query for batch timetable support
+        // Updated: 2026-03-10 - Include semesters join to eliminate separate semester query
         let query = supabase
           .from('timetables')
           .select(
@@ -198,7 +199,8 @@ export default function AttendanceMarkPage() {
             academic_years(id, academic_year_name),
             degrees(id, degree_name),
             programs(id, program_name),
-            departments(id, department_name)
+            departments(id, department_name),
+            semesters(id, semester_name)
           `
           )
           .eq('id', timetableId);
@@ -326,29 +328,25 @@ export default function AttendanceMarkPage() {
           return;
         }
 
-        // Updated: 2025-10-08 - Fetch semester name from timetable or section
-        let semesterName: string | null = null;
-        const semesterId =
-          sectionData?.semester_id || timetable.semester_id;
+        // Updated: 2026-03-10 - Semester name now comes from timetable join (no separate query)
+        const semesterId = sectionData?.semester_id || timetable.semester_id;
+        let semesterName: string | null = (timetableData as any).semesters?.semester_name || null;
 
-        if (semesterId) {
+        // If section has a different semester_id than the timetable, we may need a separate fetch
+        if (!semesterName && sectionData?.semester_id && sectionData.semester_id !== timetable.semester_id) {
           try {
-            const { data: semesterData, error: semesterError } = await supabase
+            const { data: semData } = await supabase
               .from('semesters')
-              .select('id, semester_name')
-              .eq('id', semesterId)
+              .select('semester_name')
+              .eq('id', sectionData.semester_id)
               .single();
-
-            if (!semesterError && semesterData) {
-              const semester = semesterData as { id: string; semester_name: string };
-              semesterName = semester.semester_name;
-            } else {
-              logger.error('academic/attendance/mark', 'Failed to fetch semester name', semesterError);
-            }
-          } catch (error) {
-            logger.error('academic/attendance/mark', 'Error fetching semester data', error);
+            if (semData) semesterName = semData.semester_name;
+          } catch {
+            // Non-critical - continue with null
           }
-        } else {
+        }
+
+        if (!semesterName && !semesterId) {
           logger.warn('academic/attendance/mark', 'No semester_id found in section or timetable data');
         }
 
@@ -362,15 +360,22 @@ export default function AttendanceMarkPage() {
           const timetableSlots = timetable.timetable_data as Record<string, Record<string, any>>;
 
           // Updated: 2025-10-08 - The periodId is the slot_id, not the key in timetable_data
-          // We need to search through all slots to find where slot.slot_id === periodId
+          // Updated: 2026-03-10 - Strip _group_X suffix for subdivided periods (matches logic at line ~927)
+          // Subdivision periods have IDs like "original-slot-id_group_1"
+          let searchPeriodId = periodId;
+          if (periodId && periodId.includes('_group_')) {
+            searchPeriodId = periodId.split('_group_')[0];
+          }
+
+          // We need to search through all slots to find where slot.slot_id matches
           for (const day in timetableSlots) {
             const daySlots = timetableSlots[day];
             if (daySlots) {
               // Search through all period keys in this day
               for (const periodKey in daySlots) {
                 const slot = daySlots[periodKey];
-                // Match by slot_id instead of periodKey
-                if (slot && slot.slot_id === periodId) {
+                // Match by slot_id - try both original and grouped periodId
+                if (slot && (slot.slot_id === periodId || slot.slot_id === searchPeriodId)) {
                   // NEW: Check if this is a subdivided slot (Updated: 2025-10-11)
                   if (
                     slot.is_subdivided &&
@@ -543,17 +548,18 @@ export default function AttendanceMarkPage() {
     periodId
   ]);
 
-  // Updated: 2025-01-16 - Check for leave blocks on selected date
+  // Updated: 2026-03-10 - Parallelized: leave block check + existing attendance + staff loading
+  // These 3 operations all depend on contextData but are independent of each other
   useEffect(() => {
+    if (!contextData || !date) return;
+
     const checkLeaveBlock = async () => {
-      if (!date || !contextData || !contextData.institution_id) {
+      if (!contextData.institution_id) {
         setLeaveBlockInfo(null);
         return;
       }
-
       try {
         setCheckingLeave(true);
-
         const result = await LeaveCalendarService.checkLeaveBlockForAttendance({
           institution_id: contextData.institution_id,
           date,
@@ -561,33 +567,174 @@ export default function AttendanceMarkPage() {
           semester_id: contextData.semester_id || undefined,
           section_id: contextData.section_id || undefined
         });
-
-        // If blocked, store the leave info
         if (!result.allowed && result.leave) {
           setLeaveBlockInfo(result.leave);
-          logger.warn('academic/attendance/mark', 'Date is blocked by approved leave', {
-            date,
-            leave: result.leave
-          });
         } else {
           setLeaveBlockInfo(null);
         }
       } catch (error) {
-        logger.error('academic/attendance/mark', 'Error checking leave block', {
-          error_message: error instanceof Error ? error.message : 'Unknown error',
-          date,
-          institution_id: contextData.institution_id,
-          section_id: contextData.section_id
-        });
-        // On error, don't block (fail open)
+        logger.error('academic/attendance/mark', 'Error checking leave block', error);
         setLeaveBlockInfo(null);
       } finally {
         setCheckingLeave(false);
       }
     };
 
-    checkLeaveBlock();
-  }, [date, contextData]);
+    const checkExisting = async () => {
+      if (!timetableId) return;
+      try {
+        setLoadingExistingAttendance(true);
+        const existingRecord = await AttendanceService.getConsolidatedAttendance(
+          timetableId,
+          contextData.section_id,
+          date,
+          periodId || undefined
+        );
+        if (existingRecord) {
+          setExistingAttendance(existingRecord);
+          if (isSuperAdmin) {
+            toast.error('Attendance was already marked for this class. You can review and update it if needed.');
+          } else {
+            toast.error('Attendance was already marked for this class. This record is read-only.');
+          }
+          if (existingRecord.attendance_data) {
+            const existingData: Record<string, 'Present' | 'Absent'> = {};
+            Object.values(existingRecord.attendance_data).forEach((periodData: any) => {
+              if (periodData.students && Array.isArray(periodData.students)) {
+                periodData.students.forEach((student: any) => {
+                  if (student.student_id && student.status) {
+                    existingData[student.student_id] = student.status;
+                  }
+                });
+              }
+            });
+            setAttendanceData(existingData);
+          }
+        } else {
+          setExistingAttendance(null);
+        }
+      } catch (error) {
+        logger.error('academic/attendance/mark', 'Error checking existing attendance', error);
+      } finally {
+        setLoadingExistingAttendance(false);
+      }
+    };
+
+    const loadStaff = async () => {
+      if (!contextData?.timetable_data || !periodId) return;
+      try {
+        setLoadingStaff(true);
+        let actualTimetableData = contextData.timetable_data?.timetable_data;
+        if (!actualTimetableData && contextData.timetable_data) {
+          const hasDirectDays = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY']
+            .some((day) => contextData.timetable_data[day]);
+          if (hasDirectDays) actualTimetableData = contextData.timetable_data;
+        }
+        if (!actualTimetableData) return;
+
+        const timetableFormat = contextData.timetable_data?.timetable_format || 'regular';
+        let dayKey: string;
+        if (timetableFormat === 'batch') {
+          const timetableKeys = Object.keys(actualTimetableData);
+          let foundKey: string | null = null;
+          for (const dateKey of timetableKeys) {
+            const daySlots = actualTimetableData[dateKey];
+            if (daySlots && typeof daySlots === 'object') {
+              if (daySlots[periodId] || Object.values(daySlots).some((slot: any) => slot?.slot_id === periodId)) {
+                foundKey = dateKey;
+                break;
+              }
+            }
+          }
+          dayKey = foundKey || date;
+        } else {
+          dayKey = new Date(date).toLocaleDateString('en-US', { weekday: 'long' }).toUpperCase();
+        }
+
+        const dayData = actualTimetableData[dayKey];
+        if (!dayData) return;
+
+        let searchSlotId = periodId;
+        if (periodId && periodId.includes('_group_')) {
+          searchSlotId = periodId.split('_group_')[0];
+        }
+
+        let periodSlot = dayData[periodId] || dayData[searchSlotId];
+        if (!periodSlot) {
+          for (const [, slot] of Object.entries(dayData)) {
+            if (slot && typeof slot === 'object' && 'slot_id' in slot) {
+              if ((slot as any).slot_id === periodId || (slot as any).slot_id === searchSlotId) {
+                periodSlot = slot as any;
+                break;
+              }
+            }
+          }
+        }
+        if (!periodSlot) return;
+
+        const staffIds: string[] = [];
+        let primaryStaffId: string | null = null;
+        if (isSubdividedFromUrl && subdivisionStaffIds) {
+          const groupStaffIds = subdivisionStaffIds.split(',');
+          staffIds.push(...groupStaffIds);
+          primaryStaffId = groupStaffIds[0] || null;
+        } else {
+          if (periodSlot.primary_staff_id && typeof periodSlot.primary_staff_id === 'string') {
+            primaryStaffId = periodSlot.primary_staff_id;
+            staffIds.push(periodSlot.primary_staff_id);
+          }
+          if (Array.isArray(periodSlot.staff_ids) && periodSlot.staff_ids.length > 0) {
+            periodSlot.staff_ids.forEach((id: string) => {
+              if (id && !staffIds.includes(id)) staffIds.push(id);
+            });
+          }
+        }
+
+        if (staffIds.length === 0) {
+          setAssignedStaff([]);
+          return;
+        }
+
+        const { createClientSupabaseClient } = await import('@/lib/supabase/client');
+        const sb = createClientSupabaseClient();
+        const { data: staffData, error: staffError } = await sb
+          .from('staff')
+          .select('id, first_name, last_name, email, institution_email, staff_id, phone')
+          .in('id', staffIds);
+
+        if (staffError) {
+          logger.error('academic/attendance/mark', 'Error fetching staff data', staffError);
+          setAssignedStaff([]);
+          return;
+        }
+
+        if (staffData) {
+          const enrichedStaffData = staffData
+            .map((staff: any) => ({
+              ...staff,
+              is_primary: staff.id === primaryStaffId,
+              full_name: `${staff.first_name || ''} ${staff.last_name || ''}`.trim()
+            }))
+            .sort((a, b) => {
+              if (a.is_primary && !b.is_primary) return -1;
+              if (!a.is_primary && b.is_primary) return 1;
+              return a.full_name.localeCompare(b.full_name);
+            });
+          setAssignedStaff(enrichedStaffData);
+        } else {
+          setAssignedStaff([]);
+        }
+      } catch (error) {
+        logger.error('academic/attendance/mark', 'Error loading assigned staff', error);
+        setAssignedStaff([]);
+      } finally {
+        setLoadingStaff(false);
+      }
+    };
+
+    // Run all three in parallel — they're independent of each other
+    Promise.allSettled([checkLeaveBlock(), checkExisting(), loadStaff()]);
+  }, [contextData, date, timetableId, periodId, isSuperAdmin, isSubdividedFromUrl, subdivisionStaffIds]);
 
   // Load students using the resolved context
   useEffect(() => {
@@ -773,290 +920,8 @@ export default function AttendanceMarkPage() {
     loadApprovedLeave();
   }, [sectionId, date, periodId, students, existingAttendance]);
 
-  // Check for existing attendance after context is loaded
-  useEffect(() => {
-    const checkExistingAttendance = async () => {
-      if (!contextData || !timetableId || !date) {
-        return;
-      }
-
-      try {
-        setLoadingExistingAttendance(true);
-
-        const existingRecord =
-          await AttendanceService.getConsolidatedAttendance(
-            timetableId,
-            contextData.section_id,
-            date,
-            periodId || undefined
-          );
-
-        if (existingRecord) {
-          setExistingAttendance(existingRecord);
-
-          // Show appropriate toast based on user permissions
-          if (isSuperAdmin) {
-            toast.error(
-              'Attendance was already marked for this class. You can review and update it if needed.'
-            );
-          } else {
-            toast.error(
-              'Attendance was already marked for this class. This record is read-only.'
-            );
-          }
-
-          // Pre-populate attendance data from existing record
-          if (existingRecord.attendance_data) {
-            const existingData: Record<string, 'Present' | 'Absent'> = {};
-
-            // Parse the existing attendance data
-            Object.values(existingRecord.attendance_data).forEach(
-              (periodData: any) => {
-                if (periodData.students && Array.isArray(periodData.students)) {
-                  periodData.students.forEach((student: any) => {
-                    if (student.student_id && student.status) {
-                      existingData[student.student_id] = student.status;
-                    }
-                  });
-                }
-              }
-            );
-
-            setAttendanceData(existingData);
-          }
-        } else {
-          setExistingAttendance(null);
-        }
-      } catch (error) {
-        logger.error('academic/attendance/mark', 'Error checking existing attendance', error);
-        // Don't show error to user, just log it
-      } finally {
-        setLoadingExistingAttendance(false);
-      }
-    };
-
-    checkExistingAttendance();
-  }, [contextData, timetableId, date, periodId, isSuperAdmin]);
-
-  // Load assigned staff information for the current period
-  useEffect(() => {
-    const loadAssignedStaff = async () => {
-      if (!contextData?.timetable_data || !periodId || !date) {
-        return;
-      }
-
-      try {
-        setLoadingStaff(true);
-
-        // Access the actual timetable data - it's nested in timetable_data.timetable_data
-        // The contextData.timetable_data contains the full timetable record,
-        // and the actual schedule is in its timetable_data property
-        let actualTimetableData = contextData.timetable_data?.timetable_data;
-
-        // Fallback: Check if the days are directly in timetable_data (for backward compatibility)
-        if (!actualTimetableData && contextData.timetable_data) {
-          // Check if timetable_data has day keys directly
-          const hasDirectDays = [
-            'MONDAY',
-            'TUESDAY',
-            'WEDNESDAY',
-            'THURSDAY',
-            'FRIDAY',
-            'SATURDAY',
-            'SUNDAY'
-          ].some((day) => contextData.timetable_data[day]);
-
-          if (hasDirectDays) {
-            actualTimetableData = contextData.timetable_data;
-          }
-        }
-
-        if (!actualTimetableData) {
-          return;
-        }
-
-        // Updated: 2025-10-09 - Detect timetable format and use appropriate key
-        const timetableFormat =
-          contextData.timetable_data?.timetable_format || 'regular';
-
-        let dayKey: string;
-        if (timetableFormat === 'batch') {
-          // For batch timetables, we need to find the actual date key in timetable_data
-          // The slot might have been applied from a different date using "range pattern"
-          // So we search through all date keys to find which one contains our periodId
-
-          const timetableKeys = Object.keys(actualTimetableData);
-          let foundKey: string | null = null;
-
-          // Search for the period across all dates
-          for (const dateKey of timetableKeys) {
-            const daySlots = actualTimetableData[dateKey];
-            if (daySlots && typeof daySlots === 'object') {
-              // Check if this date has our period
-              if (
-                daySlots[periodId] ||
-                Object.values(daySlots).some(
-                  (slot: any) => slot?.slot_id === periodId
-                )
-              ) {
-                foundKey = dateKey;
-
-                break;
-              }
-            }
-          }
-
-          // Use found key, or fallback to query date
-          dayKey = foundKey || date;
-        } else {
-          // For regular timetables, use day of week (e.g., "MONDAY")
-          dayKey = new Date(date)
-            .toLocaleDateString('en-US', { weekday: 'long' })
-            .toUpperCase();
-        }
-
-        const dayData = actualTimetableData[dayKey];
-        if (!dayData) {
-          return;
-        }
-
-        // Updated: 2025-10-13 - Extract original slot_id for subdivided periods
-        // Subdivision periods have IDs like "original-slot-id_group_1"
-        // We need to search using the original slot_id
-        let searchSlotId = periodId;
-        if (periodId && periodId.includes('_group_')) {
-          searchSlotId = periodId.split('_group_')[0];
-        }
-
-        // Find the specific period slot
-        // The periodId might be used as a key directly OR it might be a slot_id within the period data
-        let periodSlot = dayData[periodId] || dayData[searchSlotId];
-
-        // If not found directly, search for it as a slot_id
-        if (!periodSlot) {
-          // Search through all periods in the day to find one with matching slot_id
-          for (const [periodKey, slot] of Object.entries(dayData)) {
-            if (slot && typeof slot === 'object' && 'slot_id' in slot) {
-              if (
-                (slot as any).slot_id === periodId ||
-                (slot as any).slot_id === searchSlotId
-              ) {
-                periodSlot = slot as any;
-                break;
-              }
-            }
-          }
-        }
-
-        if (!periodSlot) {
-          return;
-        }
-
-        // Updated: 2025-10-13 - Extract staff IDs from subdivision group if applicable
-        const staffIds: string[] = [];
-        let primaryStaffId: string | null = null;
-
-        // Priority 1: Use subdivision group staff IDs from URL if this is a subdivided period
-        if (isSubdividedFromUrl && subdivisionStaffIds) {
-          const groupStaffIds = subdivisionStaffIds.split(',');
-          staffIds.push(...groupStaffIds);
-          primaryStaffId = groupStaffIds[0] || null;
-        } else {
-          // Priority 2: Get primary staff ID from slot
-          if (
-            periodSlot.primary_staff_id &&
-            typeof periodSlot.primary_staff_id === 'string'
-          ) {
-            primaryStaffId = periodSlot.primary_staff_id;
-            staffIds.push(periodSlot.primary_staff_id);
-          }
-
-          // Get additional staff from staff_ids array
-          if (
-            Array.isArray(periodSlot.staff_ids) &&
-            periodSlot.staff_ids.length > 0
-          ) {
-            periodSlot.staff_ids.forEach((id: string) => {
-              if (id && !staffIds.includes(id)) {
-                staffIds.push(id);
-              }
-            });
-          }
-        }
-
-        if (staffIds.length === 0) {
-          logger.warn('academic/attendance/mark', 'No staff IDs found for period');
-          setAssignedStaff([]);
-          return;
-        }
-
-        // Fetch staff information
-        const { createClientSupabaseClient } = await import(
-          '@/lib/supabase/client'
-        );
-        const supabase = createClientSupabaseClient();
-
-        const { data: staffData, error: staffError } = await supabase
-          .from('staff')
-          .select(
-            `
-            id,
-            first_name,
-            last_name,
-            email,
-            institution_email,
-            staff_id,
-            phone
-          `
-          )
-          .in('id', staffIds);
-
-        if (staffError) {
-          logger.error('academic/attendance/mark', 'Error fetching staff data', staffError);
-          setAssignedStaff([]);
-          return;
-        }
-
-        if (staffData) {
-          // Mark primary staff and sort
-          const enrichedStaffData = staffData
-            .map((staff: any) => ({
-              ...staff,
-              is_primary: staff.id === primaryStaffId,
-              full_name: `${staff.first_name || ''} ${
-                staff.last_name || ''
-              }`.trim()
-            }))
-            .sort((a, b) => {
-              // Primary staff first
-              if (a.is_primary && !b.is_primary) return -1;
-              if (!a.is_primary && b.is_primary) return 1;
-              // Then by name
-              return a.full_name.localeCompare(b.full_name);
-            });
-
-          setAssignedStaff(enrichedStaffData);
-        } else {
-          logger.warn('academic/attendance/mark', 'No staff data returned from query');
-          setAssignedStaff([]);
-        }
-      } catch (error) {
-        logger.error('academic/attendance/mark', 'Error loading assigned staff', error);
-        setAssignedStaff([]);
-      } finally {
-        setLoadingStaff(false);
-      }
-    };
-
-    loadAssignedStaff();
-  }, [
-    contextData,
-    periodId,
-    date,
-    isSubdividedFromUrl,
-    subdivisionStaffIds,
-    subdivisionGroupName
-  ]);
+  // NOTE: Existing attendance check and staff loading have been merged into the
+  // parallelized useEffect above (2026-03-10 optimization)
 
   // Early return for missing auth data - but allow super admins without institution_id
   if (!isSuperAdmin && !profile?.institution_id) {

@@ -597,39 +597,9 @@ export class AttendanceRosterService {
     section_ids?: string[]; // Multiple sections (new feature)
   }): Promise<AttendanceStudent[]> {
     try {
-      // First, check current user authentication and profile
-      const {
-        data: { user },
-        error: authError
-      } = await this.supabase.auth.getUser();
-      if (authError || !user) {
-        logger.error('academic/attendance', 'Authentication error in getStudentsForAttendance', authError);
-        throw new Error('User not authenticated');
-      }
-
-      // Get current user's profile to understand RLS context
-      const { data: profileData, error: profileError } = await this.supabase
-        .from('profiles')
-        .select(
-          'id, role, institution_id, department_id, is_super_admin, email'
-        )
-        .eq('id', user.id)
-        .single();
-
-      if (profileError) {
-        logger.error('academic/attendance', 'Error fetching user profile', profileError);
-        throw new Error('Failed to fetch user profile');
-      }
-
-      // Check if user meets RLS policy requirements
-      const hasInstitutionAccess =
-        (profileData as any).institution_id === filters.institution_id;
-      const hasDepartmentAccess =
-        (profileData as any).department_id === filters.department_id;
-      const isSuperAdmin = (profileData as any).is_super_admin === true;
-      const isPrivilegedRole = ['admission', 'administrator'].includes(
-        (profileData as any).role
-      );
+      // Updated: 2026-03-10 - Removed redundant auth + profile queries
+      // RLS policies on learners_profiles already enforce institution-level access
+      // The caller (mark page) already has auth context from useAuth/usePermissions
 
       let query = this.supabase
         .from('learners_profiles')
@@ -662,10 +632,8 @@ export class AttendanceRosterService {
 
       // Updated: 2025-10-13 - Skip department_id filter for faculty users
       // Faculty can teach students from other departments (e.g., subdivision groups, electives)
-      // Only apply department filter for super admin and privileged roles
-      if (filters.department_id && (isSuperAdmin || isPrivilegedRole)) {
-        query = query.eq('department_id', filters.department_id);
-      }
+      // Department filter is intentionally omitted — section_id/section_ids
+      // already scope students correctly, and RLS enforces institution access
 
       if (filters.semester_id) {
         query = query.eq('semester_id', filters.semester_id);
