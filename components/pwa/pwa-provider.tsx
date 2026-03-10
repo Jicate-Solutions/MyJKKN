@@ -209,12 +209,13 @@ export function PWAProvider({ children }: { children: React.ReactNode }) {
     try {
       const registration = await navigator.serviceWorker.ready;
       if (registration.waiting) {
-        // Serwist handles skipWaiting internally, but we send the message
-        // as a fallback for any edge cases
+        // Listen for controller change BEFORE sending skip waiting
+        // to avoid race condition (reload before new SW activates)
+        navigator.serviceWorker.addEventListener('controllerchange', () => {
+          window.location.reload();
+        });
         registration.waiting.postMessage({ type: 'SKIP_WAITING' });
       }
-      // Force reload to pick up new service worker
-      window.location.reload();
     } catch (error) {
       window.location.reload();
     }
