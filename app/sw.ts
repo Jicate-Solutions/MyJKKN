@@ -52,16 +52,25 @@ const serwist = new Serwist({
 
 serwist.addEventListeners();
 
-// Push Notification Handlers (preserved from original sw.js)
+// Push Notification Handlers
 self.addEventListener("push", (event: PushEvent) => {
+  // Parse payload — server sends JSON with { title, body, icon, url, data }
+  let payload: { title?: string; body?: string; icon?: string; url?: string; data?: Record<string, unknown> };
+  try {
+    payload = event.data?.json() ?? {};
+  } catch {
+    payload = { body: event.data?.text() ?? "New notification from MyJKKN" };
+  }
+
+  const title = payload.title || "MyJKKN";
   const options: NotificationOptions = {
-    body: event.data ? event.data.text() : "New notification from MyJKKN",
-    icon: "/icons/icon-192x192.png",
+    body: payload.body || "New notification from MyJKKN",
+    icon: payload.icon || "/icons/icon-192x192.png",
     badge: "/icons/icon-96x96.png",
     vibrate: [100, 50, 100],
     data: {
-      dateOfArrival: Date.now(),
-      primaryKey: "1",
+      url: payload.url || "/",
+      ...payload.data,
     },
     actions: [
       {
@@ -75,20 +84,29 @@ self.addEventListener("push", (event: PushEvent) => {
     ],
   };
 
-  event.waitUntil(self.registration.showNotification("MyJKKN", options));
+  event.waitUntil(self.registration.showNotification(title, options));
 });
 
 self.addEventListener("notificationclick", (event: NotificationEvent) => {
   event.notification.close();
 
-  if (event.action === "explore" || !event.action) {
-    event.waitUntil(
-      self.clients.matchAll({ type: "window" }).then((clientList) => {
-        for (const client of clientList) {
-          if ("focus" in client) return client.focus();
+  // Use the URL from notification data (set by push handler above)
+  const targetUrl = event.notification.data?.url || "/";
+
+  if (event.action === "close") return;
+
+  event.waitUntil(
+    self.clients.matchAll({ type: "window" }).then((clientList) => {
+      // Focus existing window and navigate if available
+      for (const client of clientList) {
+        if ("focus" in client) {
+          client.focus();
+          if ("navigate" in client) (client as WindowClient).navigate(targetUrl);
+          return;
         }
-        return self.clients.openWindow("/");
-      })
-    );
-  }
+      }
+      // Otherwise open new window at the target URL
+      return self.clients.openWindow(targetUrl);
+    })
+  );
 });
