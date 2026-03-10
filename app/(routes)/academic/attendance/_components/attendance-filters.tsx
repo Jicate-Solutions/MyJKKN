@@ -30,6 +30,7 @@ import { useAuth } from '@/hooks/use-auth';
 import type { AttendanceSearchContext } from '@/types/attendance';
 import { cn } from '@/lib/utils';
 import { AttendanceService } from '@/lib/services/academic/attendance-service';
+import { DepartmentService } from '@/lib/services/organization/department-service';
 
 interface AttendanceFiltersProps {
   searchContext: AttendanceSearchContext;
@@ -80,7 +81,8 @@ export function AttendanceFilters({
 
   const { data: departmentsData, refetch: fetchDepartments } = useDepartments({
     institution_id: searchContext.institution_id || undefined,
-    degree_id: searchContext.degree_id || undefined
+    degree_id: searchContext.degree_id || undefined,
+    limit: 100 // Fetch all departments for the filter dropdown
   });
   const departments = departmentsData?.data ?? [];
 
@@ -177,15 +179,59 @@ export function AttendanceFilters({
     fetchSections
   ]);
 
-  // Auto-select department for HOD users
+  // Auto-select degree AND department for HOD users on initial load
+  // The HOD's department belongs to a specific degree, so we must set both
   useEffect(() => {
-    if (profile?.role === 'hod' && profile?.department_id && !isSuperAdmin) {
-      // Only auto-select if department is not already set
-      if (!searchContext.department_id) {
+    const autoSelectForHOD = async () => {
+      if (
+        profile?.role === 'hod' &&
+        profile?.department_id &&
+        !isSuperAdmin &&
+        searchContext.institution_id &&
+        !searchContext.degree_id
+      ) {
+        try {
+          const dept = await DepartmentService.getDepartment(profile.department_id);
+          if (dept?.degree_id) {
+            onContextChange({
+              degree_id: dept.degree_id,
+              department_id: profile.department_id
+            });
+          }
+        } catch (error) {
+          // Fallback: just set department_id without degree
+          onContextChange({ department_id: profile.department_id });
+        }
+      }
+    };
+    autoSelectForHOD();
+  }, [profile?.role, profile?.department_id, searchContext.institution_id, searchContext.degree_id, onContextChange, isSuperAdmin]);
+
+  // Auto-select department for HOD when departments list loads and matches
+  // This handles the case when HOD's degree is already selected (their department will be in the list)
+  useEffect(() => {
+    if (
+      profile?.role === 'hod' &&
+      profile?.department_id &&
+      !isSuperAdmin &&
+      !searchContext.department_id &&
+      departments.length > 0
+    ) {
+      // Only auto-select if the HOD's department exists in the current filtered list
+      const hodDeptInList = departments.some(
+        (d: { id: string }) => d.id === profile.department_id
+      );
+      if (hodDeptInList) {
         onContextChange({ department_id: profile.department_id });
       }
     }
-  }, [profile?.role, profile?.department_id, searchContext.department_id, onContextChange, isSuperAdmin]);
+  }, [profile?.role, profile?.department_id, searchContext.department_id, departments, onContextChange, isSuperAdmin]);
+
+  // Check if HOD's department belongs to the currently selected degree
+  const isHodDepartmentInCurrentDegree =
+    profile?.role === 'hod' &&
+    !isSuperAdmin &&
+    departments.some((d: { id: string }) => d.id === profile?.department_id);
 
   // Updated: 2025-10-09 - Detect timetable type when semester changes
   useEffect(() => {
@@ -374,13 +420,13 @@ export function AttendanceFilters({
                     section_id: null
                   });
                 }}
-                disabled={!searchContext.degree_id || (profile?.role === 'hod' && !isSuperAdmin)}
+                disabled={!searchContext.degree_id || isHodDepartmentInCurrentDegree}
               >
                 <SelectTrigger>
                   <SelectValue
                     placeholder={
-                      profile?.role === 'hod' && !isSuperAdmin
-                        ? 'Your department will be auto-selected'
+                      isHodDepartmentInCurrentDegree
+                        ? 'Your department (auto-selected)'
                         : 'Select department'
                     }
                   />
