@@ -163,10 +163,11 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
             ...planData,
             courses: coursesData
           });
+          // Note: loading stays true until loadInitialEditData completes
+          // to prevent form rendering before dropdown options are ready
         } catch (error) {
           logger.error('academic/staff-planning', 'Error loading staff plan', error);
           toast.error('Failed to load staff plan');
-        } finally {
           setLoading(false);
         }
       }
@@ -255,7 +256,7 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
               return acc;
             }, [] as FormValues['courses']) || [];
 
-          // Set form values
+          // Set form values after dropdown options are ready
           form.reset({
             institution_id: staffPlan.institution_id,
             degree_id: staffPlan.degree_id,
@@ -271,6 +272,12 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
         } catch (error) {
           logger.error('academic/staff-planning', 'Error loading initial edit data', error);
           toast.error('Failed to load form data');
+        } finally {
+          // Only clear loading after all dropdown data AND form values are set
+          // This prevents the Select components from rendering with values but no options
+          if (isEditing) {
+            setLoading(false);
+          }
         }
       } else {
         // Load only institutions for new form
