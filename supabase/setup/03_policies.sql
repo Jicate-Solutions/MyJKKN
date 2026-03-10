@@ -693,6 +693,80 @@ CREATE POLICY "students_all_admin" ON students
         )
     );
 
+-- LEARNERS_PROFILES TABLE (6 policies)
+-- Updated: 2026-03-10 - Added to setup file, fixed DELETE policy to include HOD role
+-- Note: Previously only existed in migration files
+ALTER TABLE learners_profiles ENABLE ROW LEVEL SECURITY;
+
+-- SELECT: Super admins or users with institution access
+CREATE POLICY "learners_profiles_select_policy" ON learners_profiles
+    FOR SELECT USING (
+        is_super_admin()
+        OR user_has_institution_access(auth.uid(), institution_id)
+    );
+
+-- INSERT: Super admins or administrator/admission/faculty/hod with institution access
+CREATE POLICY "learners_profiles_insert_policy" ON learners_profiles
+    FOR INSERT WITH CHECK (
+        is_super_admin()
+        OR (
+            user_has_institution_access(auth.uid(), institution_id)
+            AND (get_my_role() = ANY (ARRAY['administrator', 'admission', 'faculty', 'hod']))
+        )
+    );
+
+-- UPDATE: Super admins or administrator/admission/faculty/hod with institution access
+CREATE POLICY "learners_profiles_update_policy" ON learners_profiles
+    FOR UPDATE USING (
+        is_super_admin()
+        OR (
+            user_has_institution_access(auth.uid(), institution_id)
+            AND (get_my_role() = ANY (ARRAY['administrator', 'admission', 'faculty', 'hod']))
+        )
+    );
+
+-- DELETE: Super admins or administrator/hod with institution access
+-- Fixed: 2026-03-10 - Previously only allowed is_super_admin() OR is_admin(),
+-- which excluded HOD role. Now HOD can delete learners in their institution.
+CREATE POLICY "learners_profiles_delete_policy" ON learners_profiles
+    FOR DELETE USING (
+        is_super_admin()
+        OR (
+            user_has_institution_access(auth.uid(), institution_id)
+            AND (get_my_role() = ANY (ARRAY['administrator', 'hod']))
+        )
+    );
+
+-- Student self-access: View own profile via profiles.learner_id linkage
+CREATE POLICY "students_view_own_learner_profile" ON learners_profiles
+    FOR SELECT USING (
+        EXISTS (
+            SELECT 1 FROM profiles p
+            WHERE p.id = auth.uid()
+            AND p.learner_id = learners_profiles.id
+            AND p.role = 'student'
+        )
+    );
+
+-- Student self-access: Update own profile via profiles.learner_id linkage
+CREATE POLICY "students_update_own_learner_profile" ON learners_profiles
+    FOR UPDATE USING (
+        EXISTS (
+            SELECT 1 FROM profiles p
+            WHERE p.id = auth.uid()
+            AND p.learner_id = learners_profiles.id
+            AND p.role = 'student'
+        )
+    )
+    WITH CHECK (
+        EXISTS (
+            SELECT 1 FROM profiles p
+            WHERE p.id = auth.uid()
+            AND p.learner_id = learners_profiles.id
+            AND p.role = 'student'
+        )
+    );
+
 -- INTAKE_HISTORY TABLE (Added: 2025-01-31)
 -- Purpose: Capacity analytics and 3-year stability index tracking
 ALTER TABLE intake_history ENABLE ROW LEVEL SECURITY;

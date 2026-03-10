@@ -16,6 +16,11 @@ const nextConfig: NextConfig = {
   // Enable Cache Components for server-side caching (Next.js 16.1.1)
   cacheComponents: true,
 
+  // Turbopack is the default bundler in Next.js 16. The @serwist/next plugin
+  // injects a webpack config for SW compilation (production only). This empty
+  // turbopack key tells Next.js we're aware and silences the mismatch error.
+  turbopack: {},
+
   // TEMPORARY: Skip type checking during build (pre-existing type errors from
   // Next.js 16 migration — searchParams must be Promise<> in App Router).
   // Matches the relaxed strict:false in tsconfig.json.
