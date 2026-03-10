@@ -288,8 +288,12 @@ export function NotificationForm() {
 
       const result = await response.json();
 
+      const pushInfo =
+        result.push_sent > 0
+          ? ` (${result.push_sent} push notification${result.push_sent > 1 ? 's' : ''} delivered)`
+          : '';
       toast.success(
-        `Notification sent successfully to ${result.target_users_count} users!`
+        `Notification sent to ${result.target_users_count} users!${pushInfo}`
       );
       router.push('/admin/notifications');
     } catch (error) {

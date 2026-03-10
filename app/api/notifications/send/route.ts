@@ -121,12 +121,18 @@ export async function POST(request: NextRequest) {
     }
 
     // Send web push notifications
-    await sendWebPushNotifications(supabase, targetUsers, notification);
+    const pushResult = await sendWebPushNotifications(
+      supabase,
+      targetUsers,
+      notification
+    );
 
     return NextResponse.json({
       message: 'Notification sent successfully',
       notification_id: notification.id,
-      target_users_count: targetUsers.length
+      target_users_count: targetUsers.length,
+      push_sent: pushResult.sent,
+      push_failed: pushResult.failed
     });
   } catch (error) {
     console.error('Error in send notification endpoint:', error);
@@ -146,8 +152,8 @@ async function findTargetUsers(
     targeting.institution_id ||
     targeting.department_id ||
     targeting.program_id ||
-    targeting.semester ||
-    targeting.section;
+    targeting.semester_id ||
+    targeting.section_id;
   const hasRoleTargeting =
     targeting.target_roles && targeting.target_roles.length > 0;
 
@@ -187,8 +193,8 @@ async function findTargetUsers(
     targeting.institution_id &&
     !targeting.department_id &&
     !targeting.program_id &&
-    !targeting.semester &&
-    !targeting.section
+    !targeting.semester_id &&
+    !targeting.section_id
   ) {
     let query = supabase
       .from('profiles')
@@ -222,11 +228,11 @@ async function findTargetUsers(
   if (targeting.program_id) {
     query = query.eq('program_id', targeting.program_id);
   }
-  if (targeting.semester) {
-    query = query.eq('semester_id', targeting.semester);
+  if (targeting.semester_id) {
+    query = query.eq('semester_id', targeting.semester_id);
   }
-  if (targeting.section) {
-    query = query.eq('section_id', targeting.section);
+  if (targeting.section_id) {
+    query = query.eq('section_id', targeting.section_id);
   }
 
   const { data: students, error: studentsError } = await query;
@@ -264,51 +270,68 @@ async function sendWebPushNotifications(
   supabase: any,
   userIds: string[],
   notification: any
-) {
+): Promise<{ sent: number; failed: number }> {
   try {
+    // Check if VAPID keys are configured
+    if (!process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY) {
+      console.warn('VAPID keys not configured - skipping push notifications');
+      return { sent: 0, failed: 0 };
+    }
+
     // Get push subscriptions for target users
     const { data: subscriptions } = await supabase
       .from('push_subscriptions')
-      .select('subscription')
+      .select('id, subscription, user_id')
       .in('user_id', userIds);
 
     if (!subscriptions || subscriptions.length === 0) {
       console.log('No push subscriptions found for target users');
-      return;
+      return { sent: 0, failed: 0 };
     }
 
     const pushPayload = JSON.stringify({
       title: notification.title,
       body: notification.body,
-      icon: notification.icon || '/icon-192x192.png',
-      url: notification.url || '/',
+      icon: notification.icon || '/icons/icon-192x192.png',
+      url: notification.url || '/notifications',
       data: {
         notification_id: notification.id,
         priority: notification.priority
       }
     });
 
+    let sent = 0;
+    let failed = 0;
+
     // Send push notifications in parallel
     const pushPromises = subscriptions.map(async (sub: any) => {
       try {
         await webpush.sendNotification(sub.subscription, pushPayload);
+        sent++;
       } catch (error: any) {
-        console.error('Error sending push notification:', error);
-        // Optionally remove invalid subscriptions
-        if (error.statusCode === 410) {
+        failed++;
+        console.error(
+          `Push notification failed for user ${sub.user_id}:`,
+          error.statusCode || error.message
+        );
+        // Remove expired/invalid subscriptions (410 Gone or 404 Not Found)
+        if (error.statusCode === 410 || error.statusCode === 404) {
           await supabase
             .from('push_subscriptions')
             .delete()
-            .eq('subscription->endpoint', sub.subscription.endpoint);
+            .eq('id', sub.id);
         }
       }
     });
 
     await Promise.allSettled(pushPromises);
     console.log(
-      `Sent push notifications to ${subscriptions.length} subscriptions`
+      `Push notifications: ${sent} sent, ${failed} failed out of ${subscriptions.length} subscriptions`
     );
+
+    return { sent, failed };
   } catch (error) {
     console.error('Error in sendWebPushNotifications:', error);
+    return { sent: 0, failed: 0 };
   }
 }

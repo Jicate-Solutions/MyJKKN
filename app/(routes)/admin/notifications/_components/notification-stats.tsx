@@ -21,7 +21,7 @@ export function NotificationStats({ stats }: NotificationStatsProps) {
         </CardHeader>
         <CardContent>
           <div className='text-2xl font-bold'>
-            {stats.total_sent.toLocaleString()}
+            {(stats.total_sent ?? 0).toLocaleString()}
           </div>
           <p className='text-xs text-muted-foreground'>
             All time notifications
@@ -35,7 +35,7 @@ export function NotificationStats({ stats }: NotificationStatsProps) {
         </CardHeader>
         <CardContent>
           <div className='text-2xl font-bold'>
-            {stats.total_read.toLocaleString()}
+            {(stats.total_read ?? 0).toLocaleString()}
           </div>
           <p className='text-xs text-muted-foreground'>
             Notifications read by users
@@ -49,7 +49,7 @@ export function NotificationStats({ stats }: NotificationStatsProps) {
         </CardHeader>
         <CardContent>
           <div className='text-2xl font-bold'>
-            {stats.target_users.toLocaleString()}
+            {(stats.target_users ?? 0).toLocaleString()}
           </div>
           <p className='text-xs text-muted-foreground'>
             Users targeted by notifications
@@ -62,7 +62,7 @@ export function NotificationStats({ stats }: NotificationStatsProps) {
           <CardTitle className='text-sm font-medium'>Read Rate</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className='text-2xl font-bold'>{stats.read_percentage}%</div>
+          <div className='text-2xl font-bold'>{stats.read_percentage ?? 0}%</div>
           <p className='text-xs text-muted-foreground'>
             Notification read rate
           </p>

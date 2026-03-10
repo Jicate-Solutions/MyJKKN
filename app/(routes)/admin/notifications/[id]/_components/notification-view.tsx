@@ -45,8 +45,8 @@ interface NotificationDetails {
     institution_id?: string;
     department_id?: string;
     program_id?: string;
-    semester?: string;
-    section?: string;
+    semester_id?: string;
+    section_id?: string;
     target_roles?: string[];
     institution_name?: string;
     department_name?: string;
@@ -161,8 +161,8 @@ export function NotificationView({ notificationId }: NotificationViewProps) {
     if (notification.targeting.institution_id) parts.push('Institution');
     if (notification.targeting.department_id) parts.push('Department');
     if (notification.targeting.program_id) parts.push('Program');
-    if (notification.targeting.semester) parts.push('Semester');
-    if (notification.targeting.section) parts.push('Section');
+    if (notification.targeting.semester_id) parts.push('Semester');
+    if (notification.targeting.section_id) parts.push('Section');
     if (
       notification.targeting.target_roles &&
       notification.targeting.target_roles.length > 0
@@ -325,19 +325,19 @@ export function NotificationView({ notificationId }: NotificationViewProps) {
                   </span>
                 </div>
               )}
-              {notification.targeting.semester && (
+              {notification.targeting.semester_id && (
                 <div className='flex flex-col items-start justify-between gap-2 py-2 px-3'>
                   <span className='capitalize text-slate-500'>Semester</span>
                   <Badge variant='secondary' className='font-mono'>
-                    {notification.targeting.semester}
+                    {notification.targeting.semester_id}
                   </Badge>
                 </div>
               )}
-              {notification.targeting.section && (
+              {notification.targeting.section_id && (
                 <div className='flex flex-col items-start justify-between gap-2 py-2 px-3'>
                   <span className='capitalize text-slate-500'>Section</span>
                   <Badge variant='secondary' className='font-mono'>
-                    {notification.targeting.section}
+                    {notification.targeting.section_id}
                   </Badge>
                 </div>
               )}

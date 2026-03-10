@@ -45,8 +45,9 @@ export interface NotificationTargeting {
   institution_id?: string;
   department_id?: string;
   program_id?: string;
-  semester?: number;
-  section?: string;
+  semester_id?: string;
+  section_id?: string;
+  target_roles?: string[];
 }
 
 export interface CreateNotificationRequest {

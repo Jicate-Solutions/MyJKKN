@@ -62,12 +62,12 @@ export function NotificationsDataTable({
       parts.push('Department');
     if (targeting.program_id || notification.target_program_id)
       parts.push('Program');
-    if (targeting.semester || notification.target_semester) {
-      const semester = targeting.semester || notification.target_semester;
+    if (targeting.semester_id || notification.target_semester) {
+      const semester = targeting.semester_id || notification.target_semester;
       parts.push(`Semester ${semester}`);
     }
-    if (targeting.section || notification.target_section) {
-      const section = targeting.section || notification.target_section;
+    if (targeting.section_id || notification.target_section) {
+      const section = targeting.section_id || notification.target_section;
       parts.push(`Section ${section}`);
     }
     if (targeting.target_roles && targeting.target_roles.length > 0) {

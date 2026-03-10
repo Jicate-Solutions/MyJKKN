@@ -1,8 +1,7 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 
-
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
     const supabase = await createServerSupabaseClient();
 
@@ -45,46 +44,32 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Get current date for time-based queries
-    const now = new Date();
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-    const startOfDay = new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      now.getDate()
-    );
-
     // Get total notifications sent
     const { count: totalSent } = await supabase
       .from('notifications')
       .select('*', { count: 'exact', head: true });
 
-    // Get notifications sent this month
-    const { count: thisMonth } = await supabase
-      .from('notifications')
-      .select('*', { count: 'exact', head: true })
-      .gte('sent_at', startOfMonth.toISOString());
-
-    // Get notifications sent today
-    const { count: today } = await supabase
-      .from('notifications')
-      .select('*', { count: 'exact', head: true })
-      .gte('sent_at', startOfDay.toISOString());
-
-    // Get total user notifications for success rate calculation
-    const { count: totalUserNotifications } = await supabase
+    // Get total user_notifications (target users across all notifications)
+    const { count: totalTargetUsers } = await supabase
       .from('user_notifications')
       .select('*', { count: 'exact', head: true });
 
-    // Calculate success rate (assuming all user_notifications represent successful deliveries)
-    // Success rate is typically close to 100% for push notifications
-    const successRate = totalSent ? 95 : 0; // Simple default success rate
+    // Get read notifications count
+    const { count: totalRead } = await supabase
+      .from('user_notifications')
+      .select('*', { count: 'exact', head: true })
+      .not('read_at', 'is', null);
+
+    // Calculate read percentage
+    const readPercentage = totalTargetUsers
+      ? Math.round(((totalRead || 0) / totalTargetUsers) * 100)
+      : 0;
 
     return NextResponse.json({
-      totalSent: totalSent || 0,
-      thisMonth: thisMonth || 0,
-      today: today || 0,
-      successRate: Math.min(successRate, 100) // Cap at 100%
+      total_sent: totalSent || 0,
+      total_read: totalRead || 0,
+      read_percentage: readPercentage,
+      target_users: totalTargetUsers || 0
     });
   } catch (error) {
     console.error('Error fetching notification stats:', error);
