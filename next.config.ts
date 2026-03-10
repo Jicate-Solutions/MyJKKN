@@ -1,4 +1,15 @@
+import withSerwistInit from "@serwist/next";
 import type { NextConfig } from 'next';
+
+const withSerwist = withSerwistInit({
+  swSrc: "app/sw.ts",
+  swDest: "public/sw.js",
+  reloadOnOnline: true,
+  cacheOnNavigation: true,
+  additionalPrecacheEntries: [
+    { url: "/offline", revision: "1" },
+  ],
+});
 
 const nextConfig: NextConfig = {
   // Enable Cache Components for server-side caching (Next.js 16.1.1)
@@ -118,4 +129,4 @@ const nextConfig: NextConfig = {
   }
 };
 
-export default nextConfig;
+export default withSerwist(nextConfig);

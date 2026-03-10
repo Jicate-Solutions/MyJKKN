@@ -4,11 +4,13 @@
     "lib": [
       "dom",
       "dom.iterable",
-      "esnext"
+      "esnext",
+      "webworker"
     ],
     "allowJs": true,
     "types": [
-      "node"
+      "node",
+      "@serwist/next/typings"
     ],
     "skipLibCheck": true,
     // TEMPORARY: Relaxed for Next.js 16 migration - Re-enable strict mode incrementally
@@ -56,6 +58,7 @@
   "exclude": [
     "node_modules",
     "scripts",
-    "__tests__"
+    "__tests__",
+    "public/sw.js"
   ]
 }
