@@ -54,3 +54,9 @@ tmpclaude-*
 docs/features/mathswork/SAML_PRIVATE_KEY_B64.txt
 docs/features/mathswork/SAML_PUBLIC_CERTIFICATE_B64.txt
 docs/features/mathswork/myjkkn-saml-private.pem
+
+# Serwist PWA (generated at build time)
+public/sw.js
+public/sw.js.map
+public/swe-worker-*.js
+public/swe-worker-*.js.map

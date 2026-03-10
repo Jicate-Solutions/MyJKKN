@@ -31,7 +31,7 @@ export const metadata: Metadata = {
   description:
     'Central Hub Application for JKKN Institutions - Manage admissions, students, billing, attendance and more',
   generator: 'Next.js',
-  manifest: '/manifest.json',
+  manifest: '/manifest.webmanifest',
   keywords: [
     'education',
     'JKKN',

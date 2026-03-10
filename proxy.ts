@@ -62,31 +62,6 @@ export async function proxy(request: NextRequest) {
       return response;
     };
 
-    // Special handling for PWA files
-    if (currentPath === '/manifest.json') {
-      const response = NextResponse.next();
-      response.headers.set('Content-Type', 'application/manifest+json');
-      response.headers.set(
-        'Cache-Control',
-        'public, max-age=31536000, immutable'
-      );
-      return response;
-    }
-
-    if (currentPath === '/sw.js') {
-      const response = NextResponse.next();
-      response.headers.set(
-        'Content-Type',
-        'application/javascript; charset=utf-8'
-      );
-      response.headers.set('Service-Worker-Allowed', '/');
-      response.headers.set(
-        'Cache-Control',
-        'no-cache, no-store, must-revalidate'
-      );
-      return response;
-    }
-
     // Root path — allow CDN caching with short revalidation (was: aggressive no-store killing perf)
     if (currentPath === '/') {
       const response = NextResponse.next();
