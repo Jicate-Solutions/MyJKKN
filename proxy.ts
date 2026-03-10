@@ -18,7 +18,7 @@ const PUBLIC_PATHS_SET = new Set([
   '/billing/payment/success', // HDFC payment success callback
   '/billing/payment/failed', // HDFC payment failure callback
   '/sw.js',
-  '/manifest.json',
+  '/manifest.webmanifest',
   '/browserconfig.xml',
   '/pwa-test.html'
 ]);
@@ -365,7 +365,7 @@ export async function proxy(request: NextRequest) {
 export const config = {
   matcher: [
     // PWA files (must be explicitly handled)
-    '/manifest.json',
+    '/manifest.webmanifest',
     '/sw.js',
     '/browserconfig.xml',
     // Protected routes

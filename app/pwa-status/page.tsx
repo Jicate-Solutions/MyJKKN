@@ -40,7 +40,7 @@ export default function PWAStatusPage() {
     if (!isHydrated) return;
 
     // Load manifest data
-    fetch('/manifest.json')
+    fetch('/manifest.webmanifest')
       .then(response => response.json())
       .then(data => setManifestData(data))
       .catch(error => {});
@@ -190,7 +190,7 @@ export default function PWAStatusPage() {
               Web App Manifest
             </CardTitle>
             <CardDescription>
-              Configuration details from manifest.json
+              Configuration details from manifest.webmanifest
             </CardDescription>
           </CardHeader>
           <CardContent>
