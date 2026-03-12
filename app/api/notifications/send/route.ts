@@ -134,7 +134,9 @@ export async function POST(request: NextRequest) {
       notification_id: notification.id,
       target_users_count: targetUsers.length,
       push_sent: pushResult.sent,
-      push_failed: pushResult.failed
+      push_failed: pushResult.failed,
+      push_total_subscriptions: pushResult.total_subscriptions,
+      push_delivery_details: pushResult.details
     });
   } catch (error) {
     console.error('Error in send notification endpoint:', error);
@@ -316,15 +318,32 @@ async function findTargetUsers(
   return userIds;
 }
 
+interface PushDeliveryDetail {
+  user_id: string;
+  email: string;
+  role: string;
+  status: 'delivered' | 'failed' | 'stale_removed';
+  error?: string;
+}
+
+interface PushResult {
+  sent: number;
+  failed: number;
+  total_subscriptions: number;
+  details: PushDeliveryDetail[];
+}
+
 async function sendWebPushNotifications(
   userIds: string[],
   notification: any
-): Promise<{ sent: number; failed: number }> {
+): Promise<PushResult> {
+  const emptyResult: PushResult = { sent: 0, failed: 0, total_subscriptions: 0, details: [] };
+
   try {
     // Check if VAPID keys are configured
     if (!process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY) {
       console.warn('VAPID keys not configured - skipping push notifications');
-      return { sent: 0, failed: 0 };
+      return emptyResult;
     }
 
     // Use service role client to bypass RLS — the "push_subscriptions_own" policy
@@ -332,20 +351,20 @@ async function sendWebPushNotifications(
     // would return 0 rows when querying other users' subscriptions.
     const serviceClient = createServiceRoleClient();
 
-    // Get push subscriptions for target users
+    // Get push subscriptions for target users along with profile info
     const { data: subscriptions, error: subError } = await serviceClient
       .from('push_subscriptions')
-      .select('id, subscription, user_id')
+      .select('id, subscription, user_id, profiles!inner(email, role)')
       .in('user_id', userIds);
 
     if (subError) {
       console.error('Error fetching push subscriptions:', subError);
-      return { sent: 0, failed: 0 };
+      return emptyResult;
     }
 
     if (!subscriptions || subscriptions.length === 0) {
       console.log('No push subscriptions found for target users');
-      return { sent: 0, failed: 0 };
+      return emptyResult;
     }
 
     const pushPayload = JSON.stringify({
@@ -361,44 +380,54 @@ async function sendWebPushNotifications(
 
     let sent = 0;
     let failed = 0;
+    const details: PushDeliveryDetail[] = [];
 
     // Send push notifications in parallel
     const pushPromises = subscriptions.map(async (sub: any) => {
+      const profile = sub.profiles || {};
+      const email = profile.email || 'unknown';
+      const role = profile.role || 'unknown';
       const endpointShort = sub.subscription?.endpoint
         ? sub.subscription.endpoint.slice(-20)
         : 'unknown';
       try {
         await webpush.sendNotification(sub.subscription, pushPayload);
         sent++;
+        details.push({ user_id: sub.user_id, email, role, status: 'delivered' });
         console.log(
-          `[Push OK] user=${sub.user_id.slice(0, 8)} endpoint=...${endpointShort}`
+          `[Push OK] ${email} (${role}) endpoint=...${endpointShort}`
         );
       } catch (error: any) {
         failed++;
-        console.error(
-          `[Push FAIL] user=${sub.user_id.slice(0, 8)} endpoint=...${endpointShort} status=${error.statusCode || 'N/A'} error=${error.message || 'unknown'}`
-        );
+        const errorMsg = `${error.statusCode || 'N/A'}: ${error.message || 'unknown'}`;
         // Remove expired/invalid subscriptions (410 Gone or 404 Not Found)
         if (error.statusCode === 410 || error.statusCode === 404) {
+          details.push({ user_id: sub.user_id, email, role, status: 'stale_removed', error: errorMsg });
           console.log(
-            `[Push CLEANUP] Removing stale subscription ${sub.id} (${error.statusCode})`
+            `[Push CLEANUP] ${email} (${role}) — stale subscription removed (${error.statusCode})`
           );
           await serviceClient
             .from('push_subscriptions')
             .delete()
             .eq('id', sub.id);
+        } else {
+          details.push({ user_id: sub.user_id, email, role, status: 'failed', error: errorMsg });
+          console.error(
+            `[Push FAIL] ${email} (${role}) endpoint=...${endpointShort} ${errorMsg}`
+          );
         }
       }
     });
 
     await Promise.allSettled(pushPromises);
+    // Single summary line with all results for easy log searching
     console.log(
-      `Push notifications: ${sent} sent, ${failed} failed out of ${subscriptions.length} subscriptions`
+      `[Push Summary] ${sent}/${subscriptions.length} delivered | ${details.map(d => `${d.email}:${d.status}`).join(', ')}`
     );
 
-    return { sent, failed };
+    return { sent, failed, total_subscriptions: subscriptions.length, details };
   } catch (error) {
     console.error('Error in sendWebPushNotifications:', error);
-    return { sent: 0, failed: 0 };
+    return emptyResult;
   }
 }

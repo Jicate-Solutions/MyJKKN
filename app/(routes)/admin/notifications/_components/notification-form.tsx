@@ -288,14 +288,52 @@ export function NotificationForm() {
 
       const result = await response.json();
 
-      const pushInfo =
-        result.push_sent > 0
-          ? ` (${result.push_sent} push notification${result.push_sent > 1 ? 's' : ''} delivered)`
-          : '';
-      toast.success(
-        `Notification sent to ${result.target_users_count} users!${pushInfo}`
-      );
-      router.push('/admin/notifications');
+      // Show detailed push delivery results
+      if (result.push_delivery_details && result.push_delivery_details.length > 0) {
+        const delivered = result.push_delivery_details.filter((d: any) => d.status === 'delivered');
+        const failed = result.push_delivery_details.filter((d: any) => d.status === 'failed');
+        const stale = result.push_delivery_details.filter((d: any) => d.status === 'stale_removed');
+
+        // Show success toast with summary
+        toast.success(
+          `Notification sent to ${result.target_users_count} users! Push: ${delivered.length}/${result.push_total_subscriptions} delivered`,
+          { duration: 6000 }
+        );
+
+        // Show individual delivery details
+        if (delivered.length > 0) {
+          toast.success(
+            `Push delivered to: ${delivered.map((d: any) => `${d.email} (${d.role})`).join(', ')}`,
+            { duration: 8000 }
+          );
+        }
+        if (failed.length > 0) {
+          toast.error(
+            `Push failed for: ${failed.map((d: any) => `${d.email} — ${d.error}`).join(', ')}`,
+            { duration: 10000 }
+          );
+        }
+        if (stale.length > 0) {
+          toast(
+            `Stale subscriptions removed: ${stale.map((d: any) => d.email).join(', ')}`,
+            { icon: '🧹', duration: 8000 }
+          );
+        }
+      } else {
+        const pushInfo =
+          result.push_sent > 0
+            ? ` (${result.push_sent} push delivered)`
+            : result.push_total_subscriptions === 0
+              ? ' (no push subscriptions found)'
+              : '';
+        toast.success(
+          `Notification sent to ${result.target_users_count} users!${pushInfo}`,
+          { duration: 5000 }
+        );
+      }
+
+      // Delay redirect so user can read the delivery details
+      setTimeout(() => router.push('/admin/notifications'), 3000);
     } catch (error) {
       console.error('Error sending notification:', error);
       toast.error(
