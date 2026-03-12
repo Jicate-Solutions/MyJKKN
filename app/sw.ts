@@ -1,4 +1,3 @@
-import { defaultCache } from "@serwist/next/worker";
 import type { PrecacheEntry, SerwistGlobalConfig } from "serwist";
 import { Serwist } from "serwist";
 
@@ -10,6 +9,9 @@ declare global {
 
 declare const self: ServiceWorkerGlobalScope & WorkerGlobalScope;
 
+// NOTE: `defaultCache` from "@serwist/next/worker" uses `matcher` property
+// which is incompatible with `runtimeCaching` (expects `urlPattern`).
+// Defining our own cache rules instead.
 const serwist = new Serwist({
   precacheEntries: self.__SW_MANIFEST,
   skipWaiting: true,
@@ -36,7 +38,50 @@ const serwist = new Serwist({
       urlPattern: /\/auth\/.*/,
       handler: "NetworkOnly" as const,
     },
-    ...defaultCache,
+    {
+      urlPattern: /\/_next\/static\/.*/,
+      handler: "CacheFirst" as const,
+      options: {
+        cacheName: "next-static",
+        expiration: {
+          maxEntries: 64,
+          maxAgeSeconds: 30 * 24 * 60 * 60, // 30 days
+        },
+      },
+    },
+    {
+      urlPattern: /\/_next\/image\?.*/,
+      handler: "StaleWhileRevalidate" as const,
+      options: {
+        cacheName: "next-image",
+        expiration: {
+          maxEntries: 64,
+          maxAgeSeconds: 24 * 60 * 60, // 1 day
+        },
+      },
+    },
+    {
+      urlPattern: /\.(?:png|jpg|jpeg|svg|gif|webp|ico)$/i,
+      handler: "StaleWhileRevalidate" as const,
+      options: {
+        cacheName: "static-images",
+        expiration: {
+          maxEntries: 64,
+          maxAgeSeconds: 30 * 24 * 60 * 60,
+        },
+      },
+    },
+    {
+      urlPattern: /\.(?:js|css|woff2?)$/i,
+      handler: "StaleWhileRevalidate" as const,
+      options: {
+        cacheName: "static-resources",
+        expiration: {
+          maxEntries: 32,
+          maxAgeSeconds: 24 * 60 * 60,
+        },
+      },
+    },
   ],
   fallbacks: {
     entries: [
