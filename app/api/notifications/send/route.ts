@@ -215,7 +215,32 @@ async function findTargetUsers(
       return [];
     }
 
-    return data?.map((item: any) => item.id).filter(Boolean) || [];
+    const userIds: string[] =
+      data?.map((item: any) => item.id).filter(Boolean) || [];
+
+    // Super admins have institution_id = null, so they're excluded by the
+    // institution filter above. Always include them when super_admin is
+    // in the target roles, since they oversee all institutions.
+    if (
+      hasRoleTargeting &&
+      targeting.target_roles.includes('super_admin')
+    ) {
+      const { data: superAdmins } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('role', 'super_admin')
+        .is('institution_id', null);
+
+      if (superAdmins) {
+        for (const sa of superAdmins) {
+          if (sa.id && !userIds.includes(sa.id)) {
+            userIds.push(sa.id);
+          }
+        }
+      }
+    }
+
+    return userIds;
   }
 
   // For department/program/semester/section targeting, use students table
@@ -265,7 +290,30 @@ async function findTargetUsers(
     return [];
   }
 
-  return profiles?.map((p: any) => p.id).filter(Boolean) || [];
+  const userIds: string[] =
+    profiles?.map((p: any) => p.id).filter(Boolean) || [];
+
+  // Include super_admins when targeted (they have null institution_id)
+  if (
+    hasRoleTargeting &&
+    targeting.target_roles.includes('super_admin')
+  ) {
+    const { data: superAdmins } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('role', 'super_admin')
+      .is('institution_id', null);
+
+    if (superAdmins) {
+      for (const sa of superAdmins) {
+        if (sa.id && !userIds.includes(sa.id)) {
+          userIds.push(sa.id);
+        }
+      }
+    }
+  }
+
+  return userIds;
 }
 
 async function sendWebPushNotifications(
