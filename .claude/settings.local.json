@@ -254,7 +254,9 @@
       "Bash(tasklist:*)",
       "Bash(MSYS_NO_PATHCONV=1 /usr/bin/sleep 5:*)",
       "WebFetch(domain:serwist.pages.dev)",
-      "mcp__vercel__list_deployments"
+      "mcp__vercel__list_deployments",
+      "mcp__vercel__web_fetch_vercel_url",
+      "mcp__vercel__get_deployment_build_logs"
     ],
     "deny": [],
     "ask": []
