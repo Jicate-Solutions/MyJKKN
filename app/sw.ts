@@ -1,3 +1,4 @@
+import { defaultCache } from "@serwist/next/worker";
 import type { PrecacheEntry, SerwistGlobalConfig } from "serwist";
 import { Serwist } from "serwist";
 
@@ -9,9 +10,7 @@ declare global {
 
 declare const self: ServiceWorkerGlobalScope & WorkerGlobalScope;
 
-// NOTE: `defaultCache` from "@serwist/next/worker" uses `matcher` property
-// which is incompatible with `runtimeCaching` (expects `urlPattern`).
-// Defining our own cache rules instead.
+// Serwist 9.x uses `matcher` (not Workbox's `urlPattern`) for runtimeCaching.
 const serwist = new Serwist({
   precacheEntries: self.__SW_MANIFEST,
   skipWaiting: true,
@@ -19,11 +18,11 @@ const serwist = new Serwist({
   navigationPreload: true,
   runtimeCaching: [
     {
-      urlPattern: /\/api\/auth\/.*/,
+      matcher: /\/api\/auth\/.*/,
       handler: "NetworkOnly" as const,
     },
     {
-      urlPattern: /\/api\/.*/,
+      matcher: /\/api\/.*/,
       handler: "NetworkFirst" as const,
       options: {
         cacheName: "api-cache",
@@ -35,11 +34,11 @@ const serwist = new Serwist({
       },
     },
     {
-      urlPattern: /\/auth\/.*/,
+      matcher: /\/auth\/.*/,
       handler: "NetworkOnly" as const,
     },
     {
-      urlPattern: /\/_next\/static\/.*/,
+      matcher: /\/_next\/static\/.*/,
       handler: "CacheFirst" as const,
       options: {
         cacheName: "next-static",
@@ -50,7 +49,7 @@ const serwist = new Serwist({
       },
     },
     {
-      urlPattern: /\/_next\/image\?.*/,
+      matcher: /\/_next\/image\?.*/,
       handler: "StaleWhileRevalidate" as const,
       options: {
         cacheName: "next-image",
@@ -61,7 +60,7 @@ const serwist = new Serwist({
       },
     },
     {
-      urlPattern: /\.(?:png|jpg|jpeg|svg|gif|webp|ico)$/i,
+      matcher: /\.(?:png|jpg|jpeg|svg|gif|webp|ico)$/i,
       handler: "StaleWhileRevalidate" as const,
       options: {
         cacheName: "static-images",
@@ -72,7 +71,7 @@ const serwist = new Serwist({
       },
     },
     {
-      urlPattern: /\.(?:js|css|woff2?)$/i,
+      matcher: /\.(?:js|css|woff2?)$/i,
       handler: "StaleWhileRevalidate" as const,
       options: {
         cacheName: "static-resources",
@@ -82,6 +81,7 @@ const serwist = new Serwist({
         },
       },
     },
+    ...defaultCache,
   ],
   fallbacks: {
     entries: [
