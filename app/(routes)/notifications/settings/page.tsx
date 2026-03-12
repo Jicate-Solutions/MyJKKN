@@ -30,12 +30,15 @@ import {
   useCreatePreference,
   useUpdatePreference
 } from '@/hooks/notification/use-notifications';
+import { usePushNotifications } from '@/hooks/use-push-notifications';
 import { useAuth } from '@/hooks/use-auth';
 import {
   NotificationCategory,
   NotificationChannel
 } from '@/types/notification';
 import { useToast } from '@/hooks/use-toast';
+import { Badge } from '@/components/ui/badge';
+import { Bell, BellOff } from 'lucide-react';
 
 export default function NotificationSettingsPage() {
   const { profile: user } = useAuth();
@@ -45,6 +48,14 @@ export default function NotificationSettingsPage() {
   );
   const createPreference = useCreatePreference();
   const updatePreference = useUpdatePreference();
+  const {
+    isSupported: pushSupported,
+    isSubscribed: pushSubscribed,
+    permission: pushPermission,
+    subscribe: pushSubscribe,
+    unsubscribe: pushUnsubscribe,
+    isLoading: pushLoading
+  } = usePushNotifications();
 
   const [settings, setSettings] = useState<
     Record<
@@ -252,6 +263,102 @@ export default function NotificationSettingsPage() {
       </div>
 
       <div className='space-y-6'>
+        {/* Push Notification Status Card */}
+        <Card>
+          <CardHeader>
+            <div className='flex items-center justify-between'>
+              <div className='flex items-center gap-3'>
+                {pushSubscribed ? (
+                  <Bell className='h-5 w-5 text-green-600' />
+                ) : (
+                  <BellOff className='h-5 w-5 text-muted-foreground' />
+                )}
+                <div>
+                  <CardTitle>Push Notifications</CardTitle>
+                  <CardDescription>
+                    Receive push notifications on this device even when the app
+                    is in the background
+                  </CardDescription>
+                </div>
+              </div>
+              <div className='flex items-center gap-3'>
+                {!pushSupported ? (
+                  <Badge variant='secondary'>Not Supported</Badge>
+                ) : pushPermission === 'denied' ? (
+                  <Badge variant='destructive'>Blocked by Browser</Badge>
+                ) : pushSubscribed ? (
+                  <Badge variant='default' className='bg-green-600'>
+                    Active
+                  </Badge>
+                ) : (
+                  <Badge variant='secondary'>Inactive</Badge>
+                )}
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {!pushSupported ? (
+              <p className='text-sm text-muted-foreground'>
+                Push notifications are not supported in this browser. Try using
+                Chrome, Edge, or Firefox.
+              </p>
+            ) : pushPermission === 'denied' ? (
+              <p className='text-sm text-muted-foreground'>
+                Push notifications are blocked. Please enable them in your
+                browser settings (click the lock icon in the address bar).
+              </p>
+            ) : pushSubscribed ? (
+              <div className='flex items-center justify-between'>
+                <p className='text-sm text-muted-foreground'>
+                  Push notifications are active on this device.
+                </p>
+                <Button
+                  variant='outline'
+                  size='sm'
+                  onClick={async () => {
+                    const success = await pushUnsubscribe();
+                    if (success) {
+                      toast({
+                        title: 'Push notifications disabled',
+                        description:
+                          'You will no longer receive push notifications on this device.'
+                      });
+                    }
+                  }}
+                  disabled={pushLoading}
+                >
+                  <BellOff className='mr-2 h-4 w-4' />
+                  Disable Push
+                </Button>
+              </div>
+            ) : (
+              <div className='flex items-center justify-between'>
+                <p className='text-sm text-muted-foreground'>
+                  Enable push notifications to stay updated even when the app is
+                  closed.
+                </p>
+                <Button
+                  size='sm'
+                  onClick={async () => {
+                    const success = await pushSubscribe();
+                    if (success) {
+                      toast({
+                        title: 'Push notifications enabled',
+                        description:
+                          'You will now receive push notifications on this device.'
+                      });
+                    }
+                  }}
+                  disabled={pushLoading}
+                >
+                  <Bell className='mr-2 h-4 w-4' />
+                  Enable Push
+                </Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
         {Object.values(NotificationCategory).map((category) => (
           <Card key={category}>
             <CardHeader>

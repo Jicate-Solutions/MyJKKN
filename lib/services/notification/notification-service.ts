@@ -83,7 +83,35 @@ export async function getNotifications(
   const { data, error } = await query;
 
   if (error) throw error;
-  return (data as unknown as Notification[]) || [];
+
+  // Map the nested Supabase result to the flat Notification interface
+  // DB returns: { user_id, notification_id, read_at, notification: { title, body, ... } }
+  // UI expects: { title, message, is_read, is_archived, ... }
+  return (
+    (data || []).map((row: any) => {
+      const n = row.notification || {};
+      return {
+        id: row.id,
+        user_id: row.user_id,
+        notification_id: row.notification_id,
+        title: n.title || '',
+        message: n.body || '',
+        type: n.metadata?.type || 'info',
+        category: n.category || 'system',
+        priority: n.priority || 'normal',
+        status: row.read_at ? 'read' : 'unread',
+        is_read: !!row.read_at,
+        is_archived: false,
+        read_at: row.read_at,
+        action_url: n.url,
+        metadata: n.metadata,
+        channels: ['in_app'],
+        created_at: row.created_at,
+        updated_at: row.created_at,
+        user: row.user
+      } as Notification;
+    }) || []
+  );
 }
 
 export async function getNotification(
@@ -112,7 +140,30 @@ export async function getNotification(
     .single();
 
   if (error) throw error;
-  return data as unknown as Notification | null;
+  if (!data) return null;
+
+  const row = data as any;
+  const n = row.notification || {};
+  return {
+    id: row.id,
+    user_id: row.user_id,
+    notification_id: row.notification_id,
+    title: n.title || '',
+    message: n.body || '',
+    type: n.metadata?.type || 'info',
+    category: n.category || 'system',
+    priority: n.priority || 'normal',
+    status: row.read_at ? 'read' : 'unread',
+    is_read: !!row.read_at,
+    is_archived: false,
+    read_at: row.read_at,
+    action_url: n.url,
+    metadata: n.metadata,
+    channels: ['in_app'],
+    created_at: row.created_at,
+    updated_at: row.created_at,
+    user: row.user
+  } as Notification;
 }
 
 export async function createNotification(

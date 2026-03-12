@@ -2,181 +2,177 @@
 
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Download, X, Smartphone } from 'lucide-react';
+import { Download, X } from 'lucide-react';
 
 interface BeforeInstallPromptEvent extends Event {
   prompt(): Promise<void>;
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>;
 }
 
+const INSTALL_DISMISSED_KEY = 'pwa-install-dismissed-until';
+const INSTALL_COMPLETED_KEY = 'pwa-install-completed';
+const DISMISS_DURATION_DAYS = 7;
+const AUTO_CLOSE_MS = 5000; // Auto-close after 5 seconds
+
 export function InstallPrompt() {
-  const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
+  const [deferredPrompt, setDeferredPrompt] =
+    useState<BeforeInstallPromptEvent | null>(null);
   const [showPrompt, setShowPrompt] = useState(false);
-  const [isInstalled, setIsInstalled] = useState(false);
+  const [isInstalled, setIsInstalled] = useState(true);
 
   useEffect(() => {
-    // Check if already installed
-    const checkInstalled = () => {
-      return (
-        window.matchMedia('(display-mode: standalone)').matches ||
-        (window.navigator as any).standalone === true ||
-        document.referrer.includes('android-app://')
-      );
-    };
+    const isStandalone =
+      window.matchMedia('(display-mode: standalone)').matches ||
+      (window.navigator as any).standalone === true;
 
-    if (checkInstalled()) {
+    const installCompleted =
+      localStorage.getItem(INSTALL_COMPLETED_KEY) === 'true';
+
+    const dismissedUntil = localStorage.getItem(INSTALL_DISMISSED_KEY);
+    const isDismissed =
+      dismissedUntil && new Date() < new Date(dismissedUntil);
+
+    if (isStandalone || installCompleted) {
       setIsInstalled(true);
       return;
+    }
+
+    setIsInstalled(false);
+
+    if ('getInstalledRelatedApps' in navigator) {
+      (navigator as any)
+        .getInstalledRelatedApps()
+        .then((apps: any[]) => {
+          if (apps.length > 0) {
+            setIsInstalled(true);
+            localStorage.setItem(INSTALL_COMPLETED_KEY, 'true');
+          }
+        })
+        .catch(() => {});
     }
 
     const handleBeforeInstallPrompt = (e: Event) => {
       e.preventDefault();
       setDeferredPrompt(e as BeforeInstallPromptEvent);
 
-      // Don't show immediately - wait for user to interact with the site
-      setTimeout(() => {
-        if (typeof window !== 'undefined' && !sessionStorage.getItem('installPromptDismissed')) {
+      if (!isDismissed) {
+        setTimeout(() => {
           setShowPrompt(true);
-        }
-      }, 30000); // Show after 30 seconds
+        }, 10000);
+      }
     };
 
     const handleAppInstalled = () => {
       setIsInstalled(true);
       setShowPrompt(false);
       setDeferredPrompt(null);
-      if (typeof window !== 'undefined') {
-        sessionStorage.removeItem('installPromptDismissed');
-      }
-    };
-
-    const handleVisibilityChange = () => {
-      // If user returns to tab and it's now standalone, they installed it
-      if (!document.hidden && checkInstalled() && !isInstalled) {
-        handleAppInstalled();
-      }
+      localStorage.setItem(INSTALL_COMPLETED_KEY, 'true');
+      localStorage.removeItem(INSTALL_DISMISSED_KEY);
     };
 
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
     window.addEventListener('appinstalled', handleAppInstalled);
-    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
-      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+      window.removeEventListener(
+        'beforeinstallprompt',
+        handleBeforeInstallPrompt
+      );
       window.removeEventListener('appinstalled', handleAppInstalled);
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [isInstalled]);
+  }, []);
+
+  // Auto-close after 5 seconds
+  useEffect(() => {
+    if (!showPrompt) return;
+
+    const timer = setTimeout(() => {
+      setShowPrompt(false);
+    }, AUTO_CLOSE_MS);
+
+    return () => clearTimeout(timer);
+  }, [showPrompt]);
 
   const handleInstall = async () => {
-    if (!deferredPrompt) {
-      return;
-    }
+    if (!deferredPrompt) return;
 
     try {
-      // Show the install prompt
       deferredPrompt.prompt();
-
-      // Wait for user choice
       const { outcome } = await deferredPrompt.userChoice;
 
       if (outcome === 'accepted') {
         setShowPrompt(false);
-        // The appinstalled event will handle the rest
+        localStorage.setItem(INSTALL_COMPLETED_KEY, 'true');
       }
-
       setDeferredPrompt(null);
-    } catch (error) {
-      // Handle installation error silently
+    } catch {
+      // Handle silently
     }
   };
 
   const handleDismiss = () => {
     setShowPrompt(false);
-    // Don't show again for this session
-    if (typeof window !== 'undefined') {
-      sessionStorage.setItem('installPromptDismissed', 'true');
-    }
+    const dismissUntil = new Date();
+    dismissUntil.setDate(dismissUntil.getDate() + DISMISS_DURATION_DAYS);
+    localStorage.setItem(INSTALL_DISMISSED_KEY, dismissUntil.toISOString());
   };
 
-  const handleLater = () => {
-    setShowPrompt(false);
-    // Show again after 24 hours
-    const tomorrow = new Date();
-    tomorrow.setHours(tomorrow.getHours() + 24);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('installPromptDismissedUntil', tomorrow.toISOString());
-    }
-  };
-
-  // Don't show if:
-  // - Already installed
-  // - No deferred prompt available
-  // - User dismissed it
-  // - Not showing
   if (isInstalled || !showPrompt || !deferredPrompt) {
     return null;
   }
 
-  // Check if user dismissed until later (client-side only)
-  if (typeof window !== 'undefined') {
-    const dismissedUntil = localStorage.getItem('installPromptDismissedUntil');
-    if (dismissedUntil && new Date() < new Date(dismissedUntil)) {
-      return null;
-    }
-  }
-
   return (
-    <Card className="fixed bottom-4 right-4 z-50 w-80 shadow-lg border-blue-200 bg-blue-50 dark:bg-blue-950 dark:border-blue-800">
-      <CardHeader className="pb-2">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-100 dark:bg-blue-800">
-              <Smartphone className="h-4 w-4 text-blue-600 dark:text-blue-300" />
-            </div>
-            <CardTitle className="text-sm text-blue-900 dark:text-blue-100">
-              Install MyJKKN
-            </CardTitle>
-          </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={handleDismiss}
-            className="h-6 w-6 p-0 text-blue-600 hover:text-blue-700 dark:text-blue-300"
-          >
-            <X className="h-3 w-3" />
-          </Button>
+    <div className="fixed bottom-20 right-4 z-[100] animate-in slide-in-from-bottom-4 fade-in duration-300">
+      <div className="flex items-center gap-3 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl px-4 py-3 w-72 sm:w-80">
+        {/* App icon */}
+        <div className="flex-shrink-0 h-10 w-10 rounded-lg bg-green-600 flex items-center justify-center">
+          <Download className="h-5 w-5 text-white" />
         </div>
-      </CardHeader>
-      <CardContent>
-        <CardDescription className="mb-3 text-xs text-blue-700 dark:text-blue-200">
-          Install MyJKKN app for faster access, offline functionality, and native app experience.
-        </CardDescription>
-        <div className="flex gap-2">
+
+        {/* Content */}
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+            Install MyJKKN
+          </p>
+          <p className="text-xs text-gray-500 dark:text-gray-400">
+            Faster &bull; Offline &bull; Native feel
+          </p>
+        </div>
+
+        {/* Actions */}
+        <div className="flex items-center gap-1.5 flex-shrink-0">
           <Button
             onClick={handleInstall}
             size="sm"
-            className="flex-1 bg-blue-600 hover:bg-blue-700 text-white"
+            className="h-7 bg-green-600 hover:bg-green-700 text-white text-xs font-semibold px-2.5"
           >
-            <Download className="mr-2 h-3 w-3" />
             Install
           </Button>
-          <Button
-            onClick={handleLater}
-            variant="outline"
-            size="sm"
-            className="border-blue-300 text-blue-700 hover:bg-blue-100 dark:border-blue-600 dark:text-blue-300"
+          <button
+            onClick={handleDismiss}
+            className="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+            aria-label="Dismiss"
+            title="Remind me in 7 days"
           >
-            Later
-          </Button>
+            <X className="h-3.5 w-3.5" />
+          </button>
         </div>
-        <div className="mt-2 text-xs text-blue-600 dark:text-blue-300">
-          • Works offline
-          • Faster loading
-          • Native app feel
-        </div>
-      </CardContent>
-    </Card>
+      </div>
+      {/* Auto-close progress bar */}
+      <div className="mt-1 mx-2 h-0.5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+        <div
+          className="h-full bg-green-600 rounded-full"
+          style={{
+            animation: `shrink ${AUTO_CLOSE_MS}ms linear forwards`
+          }}
+        />
+      </div>
+      <style jsx>{`
+        @keyframes shrink {
+          from { width: 100%; }
+          to { width: 0%; }
+        }
+      `}</style>
+    </div>
   );
 }

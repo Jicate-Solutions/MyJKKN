@@ -7,6 +7,7 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import Sidebar from '@/components/Sidebar/Sidebar';
 import { Footer } from '@/components/Footer/Footer';
 import { BottomNavbar } from '@/components/BottomNav';
+import { PushNotificationBanner } from '@/components/notifications/push-notification-banner';
 
 export default function AdminPanelLayout({
   children
@@ -29,6 +30,7 @@ export default function AdminPanelLayout({
           isMobile && 'pb-20'
         )}
       >
+        <PushNotificationBanner />
         {children}
       </main>
       <footer

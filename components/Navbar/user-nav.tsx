@@ -1,10 +1,11 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { LogOut, Sun, Moon, Monitor } from 'lucide-react';
+import { LogOut, Sun, Moon, Monitor, Download } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { useAuth } from '@/hooks/use-auth';
 import { AuthService } from '@/lib/auth/auth-service';
+import { usePWA } from '@/components/pwa/pwa-provider';
 import { Button } from '@/components/ui/button';
 import { RoleService } from '@/lib/services/roles/role-service';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -23,6 +24,7 @@ import { CustomRole } from '@/types/auth';
 export function UserNav() {
   const { profile } = useAuth();
   const { theme, setTheme } = useTheme();
+  const { isInstalled, canInstall, installApp } = usePWA();
   const [roleName, setRoleName] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
 
@@ -142,6 +144,19 @@ export function UserNav() {
               </DropdownMenuItem>
             </DropdownMenuGroup>
 
+            <DropdownMenuSeparator />
+          </>
+        )}
+
+        {!isInstalled && canInstall && (
+          <>
+            <DropdownMenuItem
+              className='cursor-pointer text-green-700 dark:text-green-400'
+              onClick={installApp}
+            >
+              <Download className='mr-2 h-4 w-4' />
+              Install App
+            </DropdownMenuItem>
             <DropdownMenuSeparator />
           </>
         )}

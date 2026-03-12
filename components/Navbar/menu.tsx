@@ -1,10 +1,11 @@
 'use client';
 
 import Link from 'next/link';
-import { Ellipsis, LogOut } from 'lucide-react';
+import { Ellipsis, LogOut, Download } from 'lucide-react';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
+import { usePWA } from '@/components/pwa/pwa-provider';
 import {
   Tooltip,
   TooltipTrigger,
@@ -29,6 +30,7 @@ export function Menu({ isOpen }: MenuProps) {
     isLoading: permissionsLoading,
     userProfile
   } = usePermissions();
+  const { isInstalled, canInstall, installApp } = usePWA();
 
   // Build RolePermissionData from usePermissions (multi-role merged)
   const roleData = useMemo((): RolePermissionData | null => {
@@ -162,32 +164,64 @@ export function Menu({ isOpen }: MenuProps) {
               </li>
             ))}
             <li className='w-full grow flex items-end'>
-              <TooltipProvider disableHoverableContent>
-                <Tooltip delayDuration={100}>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant='outline'
-                      className='w-full justify-center h-10 mt-4'
-                      onClick={handleLogout}
-                    >
-                      <span className={cn(isOpen === false ? '' : 'mr-4')}>
-                        <LogOut size={18} />
-                      </span>
-                      <p
-                        className={cn(
-                          'whitespace-nowrap',
-                          isOpen === false ? 'opacity-0 hidden' : 'opacity-100'
-                        )}
+              <div className='w-full'>
+                {!isInstalled && canInstall && (
+                  <TooltipProvider disableHoverableContent>
+                    <Tooltip delayDuration={100}>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant='ghost'
+                          className='w-full justify-start h-10 mb-1 text-green-700 dark:text-green-400 hover:text-green-800 dark:hover:text-green-300 hover:bg-green-50 dark:hover:bg-green-950'
+                          onClick={installApp}
+                        >
+                          <span className={cn(isOpen === false ? '' : 'mr-4')}>
+                            <Download size={18} />
+                          </span>
+                          <p
+                            className={cn(
+                              'max-w-[200px] truncate',
+                              isOpen === false
+                                ? '-translate-x-96 opacity-0'
+                                : 'translate-x-0 opacity-100'
+                            )}
+                          >
+                            Install App
+                          </p>
+                        </Button>
+                      </TooltipTrigger>
+                      {isOpen === false && (
+                        <TooltipContent side='right'>Install App</TooltipContent>
+                      )}
+                    </Tooltip>
+                  </TooltipProvider>
+                )}
+                <TooltipProvider disableHoverableContent>
+                  <Tooltip delayDuration={100}>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant='outline'
+                        className='w-full justify-center h-10 mt-4'
+                        onClick={handleLogout}
                       >
-                        Sign out
-                      </p>
-                    </Button>
-                  </TooltipTrigger>
-                  {isOpen === false && (
-                    <TooltipContent side='right'>Sign out</TooltipContent>
-                  )}
-                </Tooltip>
-              </TooltipProvider>
+                        <span className={cn(isOpen === false ? '' : 'mr-4')}>
+                          <LogOut size={18} />
+                        </span>
+                        <p
+                          className={cn(
+                            'whitespace-nowrap',
+                            isOpen === false ? 'opacity-0 hidden' : 'opacity-100'
+                          )}
+                        >
+                          Sign out
+                        </p>
+                      </Button>
+                    </TooltipTrigger>
+                    {isOpen === false && (
+                      <TooltipContent side='right'>Sign out</TooltipContent>
+                    )}
+                  </Tooltip>
+                </TooltipProvider>
+              </div>
             </li>
           </ul>
         )}

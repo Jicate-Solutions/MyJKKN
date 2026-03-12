@@ -30,7 +30,7 @@ export async function POST(request: NextRequest) {
       .from('push_subscriptions')
       .select('id')
       .eq('user_id', user.id)
-      .eq('subscription->endpoint', subscription.endpoint)
+      .eq('subscription->>endpoint', subscription.endpoint)
       .single();
 
     if (existingSubscription) {
@@ -100,7 +100,7 @@ export async function DELETE(request: NextRequest) {
       .from('push_subscriptions')
       .delete()
       .eq('user_id', user.id)
-      .eq('subscription->endpoint', endpoint);
+      .eq('subscription->>endpoint', endpoint);
 
     if (error) {
       console.error('Error deleting push subscription:', error);

@@ -43,9 +43,6 @@ export function usePushNotifications() {
   useEffect(() => {
     if (!state.isSupported) return;
 
-    // Skip SW registration in development — Serwist only generates sw.js in production
-    if (process.env.NODE_ENV !== 'production') return;
-
     const registerServiceWorkerAndCheckSubscription = async () => {
       try {
         setState((prev) => ({ ...prev, isLoading: true }));
@@ -58,13 +55,26 @@ export function usePushNotifications() {
         // Wait a bit to ensure the page is fully loaded
         await new Promise((resolve) => setTimeout(resolve, 1000));
 
-        // Register service worker with better error handling
-        const registration = await navigator.serviceWorker.register('/sw.js', {
-          scope: '/',
-          updateViaCache: 'none'
-        });
-
-       
+        // Check if sw.js exists before trying to register
+        // (In development, Serwist may not generate it — but it could exist from a prior build)
+        let registration: ServiceWorkerRegistration;
+        const existingReg = await navigator.serviceWorker.getRegistration('/');
+        if (existingReg) {
+          registration = existingReg;
+        } else {
+          // Only attempt registration if sw.js is available
+          try {
+            registration = await navigator.serviceWorker.register('/sw.js', {
+              scope: '/',
+              updateViaCache: 'none'
+            });
+          } catch (regError) {
+            // sw.js doesn't exist (e.g. fresh dev with no prior build) — silently bail
+            console.warn('Service worker registration skipped:', regError);
+            setState((prev) => ({ ...prev, isLoading: false }));
+            return;
+          }
+        }
 
         // Wait for service worker to be ready
         await navigator.serviceWorker.ready;

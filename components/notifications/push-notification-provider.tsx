@@ -4,7 +4,6 @@ import { useEffect } from 'react';
 import { usePushNotifications } from '@/hooks/use-push-notifications';
 import toast from 'react-hot-toast';
 
-
 interface PushNotificationProviderProps {
   children: React.ReactNode;
 }
@@ -17,44 +16,33 @@ export function PushNotificationProvider({
     isSubscribed,
     permission,
     subscribe,
-    requestPermission,
+    isLoading,
     error
   } = usePushNotifications();
 
   useEffect(() => {
-    // Auto-request permission and subscribe if supported and not already done
-    const initializePushNotifications = async () => {
-      if (!isSupported) return;
+    if (!isSupported || isLoading) return;
 
-      // If permission is default, show a toast to ask user
-      if (permission === 'default') {
-        toast('Enable Notifications', {
-          
-        });
-      }
-      // If permission is granted but not subscribed, auto-subscribe
-      else if (permission === 'granted' && !isSubscribed) {
+    // If permission is already granted but not subscribed, auto-subscribe silently
+    // (The persistent banner handles the case where permission is 'default')
+    if (permission === 'granted' && !isSubscribed) {
+      const autoSubscribe = async () => {
         try {
           await subscribe();
-        } catch (error) {
-          console.error(
-            'Failed to auto-subscribe to push notifications:',
-            error
-          );
+        } catch (err) {
+          console.error('Failed to auto-subscribe to push notifications:', err);
         }
-      }
-    };
+      };
 
-    // Delay initialization to avoid showing toast immediately on page load
-    const timer = setTimeout(initializePushNotifications, 3000);
-
-    return () => clearTimeout(timer);
-  }, [isSupported, permission, isSubscribed, requestPermission, subscribe]);
+      const timer = setTimeout(autoSubscribe, 2000);
+      return () => clearTimeout(timer);
+    }
+  }, [isSupported, permission, isSubscribed, isLoading, subscribe]);
 
   // Show error toast if there's an error
   useEffect(() => {
     if (error) {
-      toast.error('Notification Error', {
+      toast.error(`Notification Error: ${error}`, {
         duration: 5000
       });
     }
