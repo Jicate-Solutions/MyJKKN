@@ -810,11 +810,11 @@ export function NotificationForm() {
                           </div>
                         </div>
                       ) : (
-                        <div className='grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3'>
+                        <div className='grid grid-cols-2 md:grid-cols-2 lg:grid-cols-3 gap-2 sm:gap-3'>
                           {availableRoles.map((role) => (
                             <div
                               key={role.value}
-                              className='flex items-center justify-center space-x-2 p-3 border rounded-lg hover:bg-muted/50 transition-colors'
+                              className='flex items-center justify-center space-x-2 p-2 sm:p-3 border rounded-lg hover:bg-muted/50 transition-colors'
                             >
                               <Checkbox
                                 id={role.value}
@@ -939,11 +939,12 @@ export function NotificationForm() {
           )}
 
           {/* Actions */}
-          <div className='flex items-center justify-between'>
+          <div className='flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-between gap-2'>
             <Button
               type='button'
               variant='outline'
               onClick={() => setPreviewMode(!previewMode)}
+              className='w-full sm:w-auto'
             >
               {previewMode ? 'Hide Preview' : 'Show Preview'}
             </Button>
@@ -953,16 +954,18 @@ export function NotificationForm() {
                 type='button'
                 variant='outline'
                 onClick={() => router.back()}
+                className='flex-1 sm:flex-none'
               >
                 Cancel
               </Button>
-              <Button type='submit' disabled={isSubmitting}>
+              <Button type='submit' disabled={isSubmitting} className='flex-1 sm:flex-none'>
                 {isSubmitting ? (
                   'Sending...'
                 ) : (
                   <>
                     <Send className='mr-2 h-4 w-4' />
-                    Send Notification
+                    Send
+                    <span className='hidden sm:inline'>&nbsp;Notification</span>
                   </>
                 )}
               </Button>

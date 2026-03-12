@@ -13,19 +13,19 @@ export default function NewNotificationPage() {
   return (
     <PermissionGuard module='notifications' action='create'>
       <ContentLayout title='Send Notification'>
-        <div className='flex-1 space-y-4 pt-4'>
-          <div className='flex items-center justify-between space-y-2'>
+        <div className='flex-1 space-y-4 pt-2 sm:pt-4'>
+          <div className='flex items-center justify-between'>
             <div>
-              <h2 className='text-3xl font-bold tracking-tight'>
+              <h2 className='text-2xl sm:text-3xl font-bold tracking-tight'>
                 Send Notification
               </h2>
-              <p className='text-muted-foreground'>
+              <p className='text-sm text-muted-foreground hidden sm:block'>
                 Create and send a new notification to your users
               </p>
             </div>
           </div>
 
-          <Card className='max-w-4xl'>
+          <Card className='max-w-4xl border-0 sm:border shadow-none sm:shadow-sm'>
             <CardHeader>
               <CardTitle>Notification Details</CardTitle>
               <CardDescription>

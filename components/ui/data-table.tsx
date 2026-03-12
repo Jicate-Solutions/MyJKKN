@@ -867,7 +867,7 @@ export function DataTable<TData, TValue>({
                   return (
                     <TableHead
                       key={header.id}
-                      className='px-2 py-2 sm:px-4 sm:py-3'
+                      className={`px-2 py-2 sm:px-4 sm:py-3 ${(header.column.columnDef.meta as any)?.className || ''}`}
                     >
                       {header.isPlaceholder
                         ? null
@@ -892,7 +892,7 @@ export function DataTable<TData, TValue>({
                   }
                 >
                   {row.getVisibleCells().map((cell) => (
-                    <TableCell key={cell.id} className='py-2 px-2 sm:px-4'>
+                    <TableCell key={cell.id} className={`py-2 px-2 sm:px-4 ${(cell.column.columnDef.meta as any)?.className || ''}`}>
                       {flexRender(
                         cell.column.columnDef.cell,
                         cell.getContext()

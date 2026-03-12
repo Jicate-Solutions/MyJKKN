@@ -14,56 +14,56 @@ export function NotificationStats({ stats }: NotificationStatsProps) {
   }
 
   return (
-    <div className='grid gap-4 md:grid-cols-2 lg:grid-cols-4'>
+    <div className='grid grid-cols-2 gap-2 sm:gap-4 md:grid-cols-2 lg:grid-cols-4'>
       <Card>
-        <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
-          <CardTitle className='text-sm font-medium'>Total Sent</CardTitle>
+        <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2 p-3 sm:p-6 sm:pb-2'>
+          <CardTitle className='text-xs sm:text-sm font-medium'>Total Sent</CardTitle>
         </CardHeader>
-        <CardContent>
-          <div className='text-2xl font-bold'>
+        <CardContent className='p-3 pt-0 sm:p-6 sm:pt-0'>
+          <div className='text-xl sm:text-2xl font-bold'>
             {(stats.total_sent ?? 0).toLocaleString()}
           </div>
-          <p className='text-xs text-muted-foreground'>
+          <p className='text-[10px] sm:text-xs text-muted-foreground'>
             All time notifications
           </p>
         </CardContent>
       </Card>
 
       <Card>
-        <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
-          <CardTitle className='text-sm font-medium'>Total Read</CardTitle>
+        <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2 p-3 sm:p-6 sm:pb-2'>
+          <CardTitle className='text-xs sm:text-sm font-medium'>Total Read</CardTitle>
         </CardHeader>
-        <CardContent>
-          <div className='text-2xl font-bold'>
+        <CardContent className='p-3 pt-0 sm:p-6 sm:pt-0'>
+          <div className='text-xl sm:text-2xl font-bold'>
             {(stats.total_read ?? 0).toLocaleString()}
           </div>
-          <p className='text-xs text-muted-foreground'>
+          <p className='text-[10px] sm:text-xs text-muted-foreground'>
             Notifications read by users
           </p>
         </CardContent>
       </Card>
 
       <Card>
-        <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
-          <CardTitle className='text-sm font-medium'>Target Users</CardTitle>
+        <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2 p-3 sm:p-6 sm:pb-2'>
+          <CardTitle className='text-xs sm:text-sm font-medium'>Target Users</CardTitle>
         </CardHeader>
-        <CardContent>
-          <div className='text-2xl font-bold'>
+        <CardContent className='p-3 pt-0 sm:p-6 sm:pt-0'>
+          <div className='text-xl sm:text-2xl font-bold'>
             {(stats.target_users ?? 0).toLocaleString()}
           </div>
-          <p className='text-xs text-muted-foreground'>
-            Users targeted by notifications
+          <p className='text-[10px] sm:text-xs text-muted-foreground'>
+            Users targeted
           </p>
         </CardContent>
       </Card>
 
       <Card>
-        <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2'>
-          <CardTitle className='text-sm font-medium'>Read Rate</CardTitle>
+        <CardHeader className='flex flex-row items-center justify-between space-y-0 pb-2 p-3 sm:p-6 sm:pb-2'>
+          <CardTitle className='text-xs sm:text-sm font-medium'>Read Rate</CardTitle>
         </CardHeader>
-        <CardContent>
-          <div className='text-2xl font-bold'>{stats.read_percentage ?? 0}%</div>
-          <p className='text-xs text-muted-foreground'>
+        <CardContent className='p-3 pt-0 sm:p-6 sm:pt-0'>
+          <div className='text-xl sm:text-2xl font-bold'>{stats.read_percentage ?? 0}%</div>
+          <p className='text-[10px] sm:text-xs text-muted-foreground'>
             Notification read rate
           </p>
         </CardContent>

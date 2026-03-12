@@ -190,37 +190,37 @@ export function NotificationView({ notificationId }: NotificationViewProps) {
   };
 
   return (
-    <div className='max-w-5xl mx-auto space-y-8'>
+    <div className='max-w-5xl mx-auto space-y-4 sm:space-y-8'>
       {/* Main Notification Preview Card */}
       <Card className='overflow-hidden shadow-lg border-2 border-slate-100'>
-        <div className='p-6'>
-          <div className='flex items-start gap-5'>
-            <div className='flex-shrink-0 w-12 h-12 bg-blue-600 rounded-xl flex items-center justify-center'>
-              <Bell className='h-6 w-6 text-white' />
+        <div className='p-4 sm:p-6'>
+          <div className='flex items-start gap-3 sm:gap-5'>
+            <div className='flex-shrink-0 w-10 h-10 sm:w-12 sm:h-12 bg-blue-600 rounded-xl flex items-center justify-center'>
+              <Bell className='h-5 w-5 sm:h-6 sm:w-6 text-white' />
             </div>
-            <div className='flex-1'>
-              <div className='flex items-center justify-between'>
-                <h1 className='text-2xl font-bold text-slate-800'>
+            <div className='flex-1 min-w-0'>
+              <div className='flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2'>
+                <h1 className='text-lg sm:text-2xl font-bold text-slate-800'>
                   {notification.title}
                 </h1>
                 <div className='flex items-center gap-2'>
                   <Badge
                     variant={getPriorityColor(notification.priority) as any}
-                    className='font-semibold'
+                    className='font-semibold text-xs'
                   >
                     {notification.priority}
                   </Badge>
-                  <Badge variant='outline'>{notification.category}</Badge>
+                  <Badge variant='outline' className='text-xs'>{notification.category}</Badge>
                 </div>
               </div>
-              <p className='text-base text-slate-600 mt-3 leading-relaxed'>
+              <p className='text-sm sm:text-base text-slate-600 mt-2 sm:mt-3 leading-relaxed'>
                 {notification.body}
               </p>
 
               {notification.url && (
-                <div className='mt-5'>
+                <div className='mt-3 sm:mt-5'>
                   <Link href={notification.url} target='_blank'>
-                    <Button variant='outline' size='sm'>
+                    <Button variant='outline' size='sm' className='h-8'>
                       <Globe className='mr-2 h-4 w-4' />
                       View Action URL
                     </Button>
@@ -230,7 +230,7 @@ export function NotificationView({ notificationId }: NotificationViewProps) {
             </div>
           </div>
         </div>
-        <CardFooter className='bg-slate-50/70 px-6 py-3 border-t text-xs text-slate-500 flex items-center justify-between'>
+        <CardFooter className='bg-slate-50/70 px-4 sm:px-6 py-3 border-t text-xs text-slate-500 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-1'>
           <div className='flex items-center gap-2'>
             <User className='h-3 w-3' />
             <span>
@@ -246,7 +246,7 @@ export function NotificationView({ notificationId }: NotificationViewProps) {
 
       {/* Details Grid - Show only for super admin or notification creator */}
       {canViewDetailedSections && (
-        <div className='grid grid-cols-1 lg:grid-cols-3 gap-6'>
+        <div className='grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6'>
           {/* Delivery Statistics Card */}
           {notification.delivery_stats && (
             <Card className='shadow-md border-slate-100'>

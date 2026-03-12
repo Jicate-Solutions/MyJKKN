@@ -89,23 +89,23 @@ export default function NotificationsPage() {
       anyAction={true}
     >
       <ContentLayout title='Notifications'>
-        <div className='space-y-6'>
-          <div className='flex-1 space-y-4 p-4 pt-6'>
-            <div className='flex items-center justify-between space-y-2'>
+        <div className='space-y-4 sm:space-y-6'>
+          <div className='flex-1 space-y-4 px-0 sm:p-4 pt-4 sm:pt-6'>
+            <div className='flex flex-col sm:flex-row sm:items-center justify-between gap-3'>
               <div>
-                <h2 className='text-3xl font-bold tracking-tight'>
+                <h2 className='text-2xl sm:text-3xl font-bold tracking-tight'>
                   Notifications
                 </h2>
-                <p className='text-muted-foreground'>
+                <p className='text-sm text-muted-foreground hidden sm:block'>
                   Manage and send notifications to your users
                 </p>
               </div>
-              <div className='flex items-center space-x-2'>
+              <div className='flex items-center gap-2'>
                 {canCreateNotifications && (
                   <Link href='/admin/notifications/new'>
-                    <Button>
-                      <Plus className='mr-2 h-4 w-4' />
-                      Send Notification
+                    <Button size='sm' className='h-9'>
+                      <Plus className='h-4 w-4 sm:mr-2' />
+                      <span className='hidden sm:inline'>Send Notification</span>
                     </Button>
                   </Link>
                 )}
@@ -129,10 +129,10 @@ export default function NotificationsPage() {
               <>
                 <NotificationStats stats={stats} />
                 <Card>
-                  <CardHeader>
-                    <CardTitle>Recent Notifications</CardTitle>
-                    <div className='flex justify-between items-center'>
-                      <CardDescription>
+                  <CardHeader className='px-3 sm:px-6'>
+                    <CardTitle className='text-base sm:text-lg'>Recent Notifications</CardTitle>
+                    <div className='flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2'>
+                      <CardDescription className='hidden sm:block'>
                         A list of all notifications sent through the system
                       </CardDescription>
                       <NotificationFilters
@@ -140,7 +140,7 @@ export default function NotificationsPage() {
                       />
                     </div>
                   </CardHeader>
-                  <CardContent>
+                  <CardContent className='px-2 sm:px-6'>
                     <NotificationsDataTable
                       notifications={notifications}
                       isLoading={false} // Loading is handled by the parent

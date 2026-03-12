@@ -24,13 +24,13 @@ export function NotificationFilters({
   );
 
   return (
-    <div className='flex items-center gap-4'>
-      <div className='relative w-full max-w-sm'>
+    <div className='flex items-center gap-4 w-full sm:w-auto'>
+      <div className='relative w-full sm:max-w-sm'>
         <Search className='absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground' />
         <Input
-          placeholder='Search by title, body, category...'
+          placeholder='Search notifications...'
           onChange={handleSearchChange}
-          className='pl-10'
+          className='pl-10 h-9'
         />
       </div>
       {/* Other filters can be added here in the future */}

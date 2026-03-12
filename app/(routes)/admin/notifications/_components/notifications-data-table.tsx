@@ -88,14 +88,23 @@ export function NotificationsDataTable({
       cell: ({ row }) => {
         const notification = row.original;
         return (
-          <div>
+          <div className='min-w-0'>
             <Link
               href={`/admin/notifications/${notification.id}`}
               className='hover:text-primary'
             >
-              <div className='font-medium'>{notification.title}</div>
-              <div className='text-sm text-muted-foreground line-clamp-2'>
+              <div className='font-medium text-sm line-clamp-1'>{notification.title}</div>
+              <div className='text-xs text-muted-foreground line-clamp-1 sm:line-clamp-2'>
                 {notification.body}
+              </div>
+              {/* Show priority + time inline on mobile */}
+              <div className='flex items-center gap-2 mt-1 sm:hidden'>
+                <Badge variant={getPriorityColor(notification.priority) as any} className='text-[10px] px-1.5 py-0'>
+                  {notification.priority}
+                </Badge>
+                <span className='text-[10px] text-muted-foreground'>
+                  {formatDistanceToNow(new Date(notification.sent_at), { addSuffix: true })}
+                </span>
               </div>
             </Link>
           </div>
@@ -105,12 +114,13 @@ export function NotificationsDataTable({
     {
       id: 'target',
       header: 'Target',
+      meta: { className: 'hidden lg:table-cell' },
       cell: ({ row }) => {
         const notification = row.original;
         return (
           <div className='flex items-center gap-1 text-sm'>
-            <Users className='h-3 w-3' />
-            {getTargetDescription(notification)}
+            <Users className='h-3 w-3 flex-shrink-0' />
+            <span className='line-clamp-1'>{getTargetDescription(notification)}</span>
           </div>
         );
       }
@@ -118,6 +128,7 @@ export function NotificationsDataTable({
     {
       id: 'priority',
       header: 'Priority',
+      meta: { className: 'hidden sm:table-cell' },
       cell: ({ row }) => {
         const notification = row.original;
         return (
@@ -130,6 +141,7 @@ export function NotificationsDataTable({
     {
       id: 'category',
       header: 'Category',
+      meta: { className: 'hidden md:table-cell' },
       cell: ({ row }) => {
         const notification = row.original;
         return <Badge variant='outline'>{notification.category}</Badge>;
@@ -138,6 +150,7 @@ export function NotificationsDataTable({
     {
       id: 'sent_at',
       header: 'Sent',
+      meta: { className: 'hidden sm:table-cell' },
       cell: ({ row }) => {
         const notification = row.original;
         return (

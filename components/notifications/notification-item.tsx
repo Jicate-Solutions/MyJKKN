@@ -69,7 +69,7 @@ export function NotificationItem({
   return (
     <div
       className={cn(
-        'p-4 hover:bg-gray-50 transition-colors cursor-pointer border-l-4',
+        'p-3 sm:p-4 hover:bg-gray-50 transition-colors cursor-pointer border-l-4',
         !notification.is_read && 'bg-blue-50/50',
         getTypeColor(notification.type)
       )}
