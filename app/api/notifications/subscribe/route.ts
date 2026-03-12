@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerSupabaseClient } from '@/lib/supabase/server';
+import {
+  createServerSupabaseClient,
+  createServiceRoleClient
+} from '@/lib/supabase/server';
 
 export async function POST(request: NextRequest) {
   try {
+    // Authenticate via cookie-based client
     const supabase = await createServerSupabaseClient();
-
-    // Get the current user
     const {
       data: { user },
       error: authError
@@ -15,7 +17,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Parse the subscription data from the request
     const { subscription } = await request.json();
 
     if (!subscription || !subscription.endpoint) {
@@ -25,8 +26,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Check if subscription already exists for this user
-    const { data: existingSubscription } = await supabase
+    // Use service role client for DB operations to bypass RLS
+    // (prevents issues on mobile PWA where RLS context may be inconsistent)
+    const serviceClient = createServiceRoleClient();
+
+    // Check if this exact subscription already exists
+    const { data: existingSubscription } = await serviceClient
       .from('push_subscriptions')
       .select('id')
       .eq('user_id', user.id)
@@ -34,6 +39,12 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (existingSubscription) {
+      // Update the subscription data in case keys rotated
+      await serviceClient
+        .from('push_subscriptions')
+        .update({ subscription })
+        .eq('id', existingSubscription.id);
+
       return NextResponse.json(
         { message: 'Subscription already exists' },
         { status: 200 }
@@ -41,7 +52,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Insert the new subscription
-    const { data, error } = await supabase
+    const { data, error } = await serviceClient
       .from('push_subscriptions')
       .insert({
         user_id: user.id,
@@ -73,9 +84,8 @@ export async function POST(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
+    // Authenticate via cookie-based client
     const supabase = await createServerSupabaseClient();
-
-    // Get the current user
     const {
       data: { user },
       error: authError
@@ -85,7 +95,6 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Parse the subscription endpoint from the request
     const { endpoint } = await request.json();
 
     if (!endpoint) {
@@ -95,8 +104,10 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
-    // Delete the subscription
-    const { error } = await supabase
+    // Use service role to bypass RLS
+    const serviceClient = createServiceRoleClient();
+
+    const { error } = await serviceClient
       .from('push_subscriptions')
       .delete()
       .eq('user_id', user.id)
