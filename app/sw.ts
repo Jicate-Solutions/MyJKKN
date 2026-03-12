@@ -1,6 +1,13 @@
 import { defaultCache } from "@serwist/next/worker";
 import type { PrecacheEntry, SerwistGlobalConfig } from "serwist";
-import { Serwist } from "serwist";
+import {
+  Serwist,
+  NetworkOnly,
+  NetworkFirst,
+  CacheFirst,
+  StaleWhileRevalidate,
+  ExpirationPlugin,
+} from "serwist";
 
 declare global {
   interface WorkerGlobalScope extends SerwistGlobalConfig {
@@ -10,7 +17,8 @@ declare global {
 
 declare const self: ServiceWorkerGlobalScope & WorkerGlobalScope;
 
-// Serwist 9.x uses `matcher` (not Workbox's `urlPattern`) for runtimeCaching.
+// Serwist 9.x runtimeCaching requires `matcher` (not `urlPattern`)
+// and handler instances (not string names).
 const serwist = new Serwist({
   precacheEntries: self.__SW_MANIFEST,
   skipWaiting: true,
@@ -19,67 +27,72 @@ const serwist = new Serwist({
   runtimeCaching: [
     {
       matcher: /\/api\/auth\/.*/,
-      handler: "NetworkOnly" as const,
+      handler: new NetworkOnly(),
     },
     {
       matcher: /\/api\/.*/,
-      handler: "NetworkFirst" as const,
-      options: {
+      handler: new NetworkFirst({
         cacheName: "api-cache",
-        expiration: {
-          maxEntries: 32,
-          maxAgeSeconds: 60,
-        },
+        plugins: [
+          new ExpirationPlugin({
+            maxEntries: 32,
+            maxAgeSeconds: 60,
+          }),
+        ],
         networkTimeoutSeconds: 10,
-      },
+      }),
     },
     {
       matcher: /\/auth\/.*/,
-      handler: "NetworkOnly" as const,
+      handler: new NetworkOnly(),
     },
     {
       matcher: /\/_next\/static\/.*/,
-      handler: "CacheFirst" as const,
-      options: {
+      handler: new CacheFirst({
         cacheName: "next-static",
-        expiration: {
-          maxEntries: 64,
-          maxAgeSeconds: 30 * 24 * 60 * 60, // 30 days
-        },
-      },
+        plugins: [
+          new ExpirationPlugin({
+            maxEntries: 64,
+            maxAgeSeconds: 30 * 24 * 60 * 60,
+          }),
+        ],
+      }),
     },
     {
       matcher: /\/_next\/image\?.*/,
-      handler: "StaleWhileRevalidate" as const,
-      options: {
+      handler: new StaleWhileRevalidate({
         cacheName: "next-image",
-        expiration: {
-          maxEntries: 64,
-          maxAgeSeconds: 24 * 60 * 60, // 1 day
-        },
-      },
+        plugins: [
+          new ExpirationPlugin({
+            maxEntries: 64,
+            maxAgeSeconds: 24 * 60 * 60,
+          }),
+        ],
+      }),
     },
     {
       matcher: /\.(?:png|jpg|jpeg|svg|gif|webp|ico)$/i,
-      handler: "StaleWhileRevalidate" as const,
-      options: {
+      handler: new StaleWhileRevalidate({
         cacheName: "static-images",
-        expiration: {
-          maxEntries: 64,
-          maxAgeSeconds: 30 * 24 * 60 * 60,
-        },
-      },
+        plugins: [
+          new ExpirationPlugin({
+            maxEntries: 64,
+            maxAgeSeconds: 30 * 24 * 60 * 60,
+          }),
+        ],
+      }),
     },
     {
       matcher: /\.(?:js|css|woff2?)$/i,
-      handler: "StaleWhileRevalidate" as const,
-      options: {
+      handler: new StaleWhileRevalidate({
         cacheName: "static-resources",
-        expiration: {
-          maxEntries: 32,
-          maxAgeSeconds: 24 * 60 * 60,
-        },
-      },
+        plugins: [
+          new ExpirationPlugin({
+            maxEntries: 32,
+            maxAgeSeconds: 24 * 60 * 60,
+          }),
+        ],
+      }),
     },
     ...defaultCache,
   ],
@@ -99,7 +112,6 @@ serwist.addEventListeners();
 
 // Push Notification Handlers
 self.addEventListener("push", (event: PushEvent) => {
-  // Parse payload — server sends JSON with { title, body, icon, url, data }
   let payload: { title?: string; body?: string; icon?: string; url?: string; data?: Record<string, unknown> };
   try {
     payload = event.data?.json() ?? {};
@@ -135,14 +147,12 @@ self.addEventListener("push", (event: PushEvent) => {
 self.addEventListener("notificationclick", (event: NotificationEvent) => {
   event.notification.close();
 
-  // Use the URL from notification data (set by push handler above)
   const targetUrl = event.notification.data?.url || "/";
 
   if (event.action === "close") return;
 
   event.waitUntil(
     self.clients.matchAll({ type: "window" }).then((clientList) => {
-      // Focus existing window and navigate if available
       for (const client of clientList) {
         if ("focus" in client) {
           client.focus();
@@ -150,7 +160,6 @@ self.addEventListener("notificationclick", (event: NotificationEvent) => {
           return;
         }
       }
-      // Otherwise open new window at the target URL
       return self.clients.openWindow(targetUrl);
     })
   );
