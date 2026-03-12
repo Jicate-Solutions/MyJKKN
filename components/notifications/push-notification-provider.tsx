@@ -50,6 +50,9 @@ export function PushNotificationProvider({
         const existingReg = await navigator.serviceWorker.getRegistration('/');
         if (existingReg) {
           registration = existingReg;
+          // Force check for updated sw.js — critical for mobile PWA where
+          // the cached service worker may lack push event handlers
+          registration.update().catch(() => {});
         } else {
           try {
             registration = await navigator.serviceWorker.register('/sw.js', {
@@ -80,6 +83,7 @@ export function PushNotificationProvider({
           isSubscribed: !!subscription,
           subscription,
           isLoading: false,
+          permission: Notification.permission,
           error: null
         }));
       } catch (error) {

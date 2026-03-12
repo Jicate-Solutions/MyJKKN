@@ -316,17 +316,25 @@ async function sendWebPushNotifications(
 
     // Send push notifications in parallel
     const pushPromises = subscriptions.map(async (sub: any) => {
+      const endpointShort = sub.subscription?.endpoint
+        ? sub.subscription.endpoint.slice(-20)
+        : 'unknown';
       try {
         await webpush.sendNotification(sub.subscription, pushPayload);
         sent++;
+        console.log(
+          `[Push OK] user=${sub.user_id.slice(0, 8)} endpoint=...${endpointShort}`
+        );
       } catch (error: any) {
         failed++;
         console.error(
-          `Push notification failed for user ${sub.user_id}:`,
-          error.statusCode || error.message
+          `[Push FAIL] user=${sub.user_id.slice(0, 8)} endpoint=...${endpointShort} status=${error.statusCode || 'N/A'} error=${error.message || 'unknown'}`
         );
         // Remove expired/invalid subscriptions (410 Gone or 404 Not Found)
         if (error.statusCode === 410 || error.statusCode === 404) {
+          console.log(
+            `[Push CLEANUP] Removing stale subscription ${sub.id} (${error.statusCode})`
+          );
           await serviceClient
             .from('push_subscriptions')
             .delete()

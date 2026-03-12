@@ -51,6 +51,25 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Before inserting, limit subscriptions per user to prevent stale endpoint buildup.
+    // Keep max 3 most recent subscriptions (covers desktop + mobile + tablet).
+    const { data: userSubs } = await serviceClient
+      .from('push_subscriptions')
+      .select('id, created_at')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false });
+
+    if (userSubs && userSubs.length >= 3) {
+      // Delete oldest subscriptions beyond the limit (keep newest 2 + new one = 3)
+      const idsToDelete = userSubs.slice(2).map((s: any) => s.id);
+      if (idsToDelete.length > 0) {
+        await serviceClient
+          .from('push_subscriptions')
+          .delete()
+          .in('id', idsToDelete);
+      }
+    }
+
     // Insert the new subscription
     const { data, error } = await serviceClient
       .from('push_subscriptions')
@@ -62,6 +81,13 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (error) {
+      // Handle unique constraint violation gracefully
+      if (error.code === '23505') {
+        return NextResponse.json(
+          { message: 'Subscription already exists' },
+          { status: 200 }
+        );
+      }
       console.error('Error saving push subscription:', error);
       return NextResponse.json(
         { error: 'Failed to save subscription' },
