@@ -95,6 +95,9 @@ export interface CreateProductInput {
   tags?: string[];
   notes?: string;
   created_by?: string;
+  technology_stack?: string[];
+  ss_cycle_id?: string;
+  ss_nif_candidate_id?: string;
 }
 
 export interface UpdateProductInput extends ServiceUpdateProductInput {}

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
@@ -27,6 +27,9 @@ import { useSolutions } from '@/hooks/solutions/use-solutions';
 
 export default function NewProductPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const fromNif = searchParams.get('from_nif');
+  const prefillTitle = searchParams.get('title') || '';
   const [isSubmitting, setIsSubmitting] = useState(false);
   const createProduct = useCreateProduct();
   const { data: solutionsData } = useSolutions();
@@ -34,14 +37,15 @@ export default function NewProductPage() {
 
   // Form state
   const [formData, setFormData] = useState({
-    title: '',
+    title: prefillTitle,
     description: '',
     domain: '',
     rdifSector: '',
     initialTRL: '1',
     originatingSolutions: [] as string[],
-    notes: '',
+    notes: fromNif ? `Originated from NIF candidate: ${fromNif}` : '',
     tags: '',
+    technologyStack: '' as string,
   });
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -71,6 +75,8 @@ export default function NewProductPage() {
         notes: formData.notes || undefined,
         tags: formData.tags ? formData.tags.split(',').map(t => t.trim()).filter(Boolean) : undefined,
         originating_solution_ids: formData.originatingSolutions.length > 0 ? formData.originatingSolutions : undefined,
+        technology_stack: formData.technologyStack ? formData.technologyStack.split(',').map(t => t.trim()).filter(Boolean) : undefined,
+        ss_nif_candidate_id: fromNif || undefined,
       });
 
       toast.success('Product created successfully');
@@ -341,6 +347,28 @@ export default function NewProductPage() {
                   e.g., ai, healthcare, prescription-analysis
                 </p>
               </div>
+            </CardContent>
+          </Card>
+
+          {/* Technology Stack */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Technology Stack</CardTitle>
+              <CardDescription>
+                Technologies and tools used in this product
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              <Label htmlFor="technologyStack">Technologies</Label>
+              <Input
+                id="technologyStack"
+                placeholder="e.g., MATLAB, Simulink, React, Python"
+                value={formData.technologyStack}
+                onChange={(e) => setFormData({ ...formData, technologyStack: e.target.value })}
+              />
+              <p className="text-sm text-muted-foreground">
+                Enter technologies separated by commas. Include MATLAB toolboxes if applicable.
+              </p>
             </CardContent>
           </Card>
 

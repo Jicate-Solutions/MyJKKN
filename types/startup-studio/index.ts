@@ -171,6 +171,10 @@ export interface SSBuild {
   deployed_url: string | null;
   screenshot_urls: string[] | null;
   notes: string | null;
+  build_tool: 'lovable' | 'matlab' | 'code' | 'other' | null;
+  matlab_toolboxes_used: string[] | null;
+  github_repo_url: string | null;
+  tool_name: string | null;
   started_at: string | null;
   completed_at: string | null;
   created_at: string;
@@ -231,6 +235,7 @@ export interface SSProblemBank {
   is_open_for_attempts: boolean;
   best_solution_cycle_id: string | null;
   best_solution_url: string | null;
+  recommended_tools: string[];
   metadata: Record<string, any>;
   created_at: string;
   updated_at: string;
@@ -304,6 +309,9 @@ export interface SSNifCandidate {
   team_members: any[];
   funding_stage: string | null;
   funding_amount: number | null;
+  deployment_platform: string | null;
+  sh_product_id: string | null;
+  sh_solution_id: string | null;
   jobs_created: number;
   revenue_generated: number;
   created_at: string;
@@ -441,6 +449,7 @@ export interface CreateProblemBankInput {
   department?: string;
   submitted_by?: string;
   original_cycle_id?: string;
+  recommended_tools?: string[];
 }
 
 export interface CreateNifCandidateInput {

@@ -81,6 +81,9 @@ export interface SHProduct {
   tags: string[] | null;
   notes: string | null;
   metadata: Record<string, unknown>;
+  technology_stack: string[];
+  ss_cycle_id: string | null;
+  ss_nif_candidate_id: string | null;
   created_at: string;
   updated_at: string;
   created_by: string | null;

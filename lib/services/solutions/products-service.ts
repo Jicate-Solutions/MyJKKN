@@ -154,6 +154,9 @@ export interface CreateProductInput {
   tags?: string[];
   notes?: string;
   created_by?: string;
+  technology_stack?: string[];
+  ss_cycle_id?: string;
+  ss_nif_candidate_id?: string;
 }
 
 export interface UpdateProductInput {
@@ -499,6 +502,9 @@ export class ProductsService extends BaseService {
         notes: input.notes || null,
         metadata: {},
         created_by: input.created_by || null,
+        technology_stack: input.technology_stack || [],
+        ss_cycle_id: input.ss_cycle_id || null,
+        ss_nif_candidate_id: input.ss_nif_candidate_id || null,
       })
       .select()
       .single();

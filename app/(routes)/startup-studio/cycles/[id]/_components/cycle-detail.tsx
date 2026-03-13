@@ -26,7 +26,9 @@ import {
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
-import { useCycle, useAdvanceStep, useCompleteCycle } from '@/hooks/startup-studio';
+import { useCycle, useAdvanceStep, useCompleteCycle, useUpsertBuild } from '@/hooks/startup-studio';
+import { BuildToolSelector } from '@/components/startup-studio/build-tool-selector';
+import { MatlabSuggestionCard } from '@/components/startup-studio/matlab-suggestion-card';
 
 interface CycleDetailProps {
   id: string;
@@ -54,6 +56,7 @@ export function CycleDetail({ id }: CycleDetailProps) {
   const { data: rawData, isLoading } = useCycle(id);
   const advanceStep = useAdvanceStep();
   const completeCycle = useCompleteCycle();
+  const upsertBuild = useUpsertBuild();
 
   const cycle = rawData as any;
 
@@ -297,7 +300,17 @@ export function CycleDetail({ id }: CycleDetailProps) {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                {stepData ? (
+                {/* Step 6: Custom Build Tool Selector */}
+                {step === 6 ? (
+                  <BuildToolSelector
+                    buildData={stepData as any}
+                    onSave={async (data) => {
+                      await upsertBuild.mutateAsync({ cycleId: id, data });
+                    }}
+                    isSaving={upsertBuild.isPending}
+                    readOnly={status !== 'active'}
+                  />
+                ) : stepData ? (
                   <div className="space-y-2">
                     {typeof stepData === 'string' ? (
                       <p className="text-sm whitespace-pre-wrap">{stepData}</p>
@@ -317,6 +330,10 @@ export function CycleDetail({ id }: CycleDetailProps) {
                       })
                     ) : (
                       <p className="text-sm">{String(stepData)}</p>
+                    )}
+                    {/* Step 4: MATLAB Suggestion after workflow classification */}
+                    {step === 4 && typeof stepData === 'object' && (stepData as any)?.workflow_type && (
+                      <MatlabSuggestionCard workflowType={(stepData as any).workflow_type} />
                     )}
                   </div>
                 ) : (

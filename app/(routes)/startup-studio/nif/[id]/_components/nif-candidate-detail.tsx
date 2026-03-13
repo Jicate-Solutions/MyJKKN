@@ -27,6 +27,7 @@ import {
   useAdvanceNifStage,
   useRejectNifCandidate,
 } from '@/hooks/startup-studio';
+import { DEPLOYMENT_PLATFORM_OPTIONS } from '@/lib/constants/startup-studio/matlab-toolbox-map';
 
 interface NifCandidateDetailProps {
   id: string;
@@ -320,6 +321,56 @@ export function NifCandidateDetail({ id }: NifCandidateDetailProps) {
           </CardContent>
         </Card>
       )}
+
+      {/* Deployment & Product Link */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Globe className="h-5 w-5 text-teal-600" />
+            Deployment & Product
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div>
+            <p className="text-sm font-medium text-muted-foreground mb-1">Deployment Platform</p>
+            {candidate.deployment_platform ? (
+              <Badge variant="outline" className="capitalize">
+                {DEPLOYMENT_PLATFORM_OPTIONS.find(
+                  (o) => o.value === candidate.deployment_platform
+                )?.label ?? candidate.deployment_platform}
+              </Badge>
+            ) : (
+              <p className="text-sm text-muted-foreground">Not set</p>
+            )}
+          </div>
+          {candidate.sh_product_id ? (
+            <div>
+              <p className="text-sm font-medium text-muted-foreground mb-1">Linked Product</p>
+              <Button variant="outline" size="sm" asChild>
+                <Link href={`/solutions/products/${candidate.sh_product_id}`}>
+                  View in Solution Hub
+                  <ArrowRight className="ml-1 h-3.5 w-3.5" />
+                </Link>
+              </Button>
+            </div>
+          ) : currentStage === 'graduated' ? (
+            <Button
+              variant="outline"
+              size="sm"
+              asChild
+            >
+              <Link
+                href={`/solutions/products/new?from_nif=${id}&title=${encodeURIComponent(
+                  candidate.problem?.title ?? ''
+                )}`}
+              >
+                <Rocket className="mr-1 h-3.5 w-3.5" />
+                Create Solution Hub Product
+              </Link>
+            </Button>
+          ) : null}
+        </CardContent>
+      </Card>
 
       {/* Stage History Timeline */}
       <Card>

@@ -215,6 +215,27 @@ export function ProblemDetail({ id }: ProblemDetailProps) {
         </CardContent>
       </Card>
 
+      {/* Recommended Tools */}
+      {problem.recommended_tools && problem.recommended_tools.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Wrench className="h-5 w-5 text-teal-600" />
+              Recommended Tools
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-wrap gap-2">
+              {problem.recommended_tools.map((tool: string) => (
+                <Badge key={tool} variant="outline" className="border-teal-300 text-teal-800">
+                  {tool}
+                </Badge>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Tags */}
       <Card>
         <CardHeader>
