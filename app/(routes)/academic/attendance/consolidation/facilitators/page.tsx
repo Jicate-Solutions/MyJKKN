@@ -37,6 +37,7 @@ import { FacilitatorTrendChart } from './_components/facilitator-trend-chart';
 import { FacilitatorHeatmap } from './_components/facilitator-heatmap';
 import { FacilitatorDataTable } from './_components/facilitator-data-table';
 import { DepartmentBreakdown } from './_components/department-breakdown';
+import { FacilitatorExportActions } from './_components/facilitator-export-actions';
 
 export default function FacilitatorAttendancePage() {
   const { profile } = useAuth();
@@ -179,7 +180,7 @@ export default function FacilitatorAttendancePage() {
 
             {/* Filters bar (horizontal on md+, stacked on mobile) */}
             <div className="rounded-lg border bg-card p-4">
-              <div className="flex flex-col gap-4 md:flex-row md:items-end md:flex-wrap">
+              <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between md:flex-wrap">
                 <div className="shrink-0">
                   <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">
                     Filters
@@ -192,6 +193,13 @@ export default function FacilitatorAttendancePage() {
                     facilitatorSearchQuery={facilitatorSearch}
                   />
                 </div>
+                <FacilitatorExportActions
+                  facilitators={facilitators}
+                  summary={summary}
+                  departmentBreakdown={departmentBreakdown}
+                  filters={filters}
+                  facilitatorSearch={facilitatorSearch}
+                />
               </div>
             </div>
 
