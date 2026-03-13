@@ -1243,3 +1243,31 @@ export function useFunnelHistory(filters?: any) {
     enabled: !!(filters?.institution_id || filters?.institutionId || filters?.lead_id || filters?.leadId)
   });
 }
+
+// Re-export expo hooks
+export {
+  expoKeys,
+  useExpoMasters,
+  useExpoMaster,
+  useCreateExpoMaster,
+  useUpdateExpoMaster,
+  useDeleteExpoMaster,
+  useExpoEvents,
+  useExpoEvent,
+  useCreateExpoEvent,
+  useUpdateExpoEvent,
+  useUpdateExpoEventStatus,
+  useExpoTeamMembers,
+  useAddExpoTeamMember,
+  useRemoveExpoTeamMember,
+  useExpoDailyReports,
+  useExpoDailyReport,
+  useCreateDailyReport,
+  useUpdateDailyReport,
+  useDeleteDailyReport,
+  useExpoSummaryStats,
+  useExpoExpenseBreakdown,
+  useExpoLeadFunnel,
+  useExpoComparison,
+  useExpoDailyTrends,
+} from './use-expos';

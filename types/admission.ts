@@ -524,3 +524,290 @@ export interface AdmissionAIInsights {
     recommendation: string;
   }[];
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// EXPOS (Education Fairs & Exhibition Events)
+// ═══════════════════════════════════════════════════════════════════════════
+
+export type ExpoEventStatus = 'planned' | 'confirmed' | 'in_progress' | 'completed' | 'cancelled';
+export type ExpoFrequency = 'annual' | 'biannual' | 'quarterly' | 'one_time';
+export type ExpoTeamMemberType = 'staff' | 'student' | 'external';
+export type ExpoTeamMemberRole = 'team_leader' | 'counselor' | 'volunteer' | 'support';
+export type TravelMode = 'bus' | 'train' | 'flight' | 'own_vehicle' | 'other';
+
+// ─── Expo Master (Reusable Event Catalog) ─────────────────────────────────
+
+export interface ExpoMaster {
+  id: string;
+  institution_id: string;
+  event_name: string;
+  organizer_name: string | null;
+  city: string | null;
+  venue_name: string | null;
+  description: string | null;
+  frequency: ExpoFrequency | null;
+  tags: string[] | null;
+  is_active: boolean;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateExpoMasterInput {
+  institution_id: string;
+  event_name: string;
+  organizer_name?: string;
+  city?: string;
+  venue_name?: string;
+  description?: string;
+  frequency?: ExpoFrequency;
+  tags?: string[];
+}
+
+export interface UpdateExpoMasterInput {
+  event_name?: string;
+  organizer_name?: string;
+  city?: string;
+  venue_name?: string;
+  description?: string;
+  frequency?: ExpoFrequency;
+  tags?: string[];
+  is_active?: boolean;
+}
+
+export interface ExpoMasterFilters {
+  institution_id: string;
+  search?: string;
+  is_active?: boolean;
+  page?: number;
+  limit?: number;
+}
+
+// ─── Expo Event (Specific Instance) ───────────────────────────────────────
+
+export interface ExpoEvent {
+  id: string;
+  institution_id: string;
+  expo_master_id: string | null;
+  expo_master?: ExpoMaster | null;
+  event_name: string;
+  organizer_name: string | null;
+  city: string;
+  venue_name: string | null;
+  start_date: string;
+  end_date: string;
+  travel_mode: TravelMode | null;
+  accommodation_details: string | null;
+  team_leader_id: string | null;
+  team_leader?: { id: string; first_name: string; last_name: string } | null;
+  approved_by_id: string | null;
+  approved_by?: { id: string; first_name: string; last_name: string } | null;
+  event_status: ExpoEventStatus;
+  notes: string | null;
+  total_team_members: number;
+  total_expenses: number;
+  total_leads_collected: number;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+  team_members?: ExpoEventTeamMember[];
+  daily_reports?: ExpoDailyReport[];
+}
+
+export interface CreateExpoEventInput {
+  institution_id: string;
+  expo_master_id?: string;
+  event_name: string;
+  organizer_name?: string;
+  city: string;
+  venue_name?: string;
+  start_date: string;
+  end_date: string;
+  travel_mode?: TravelMode;
+  accommodation_details?: string;
+  team_leader_id?: string;
+  approved_by_id?: string;
+  event_status?: ExpoEventStatus;
+  notes?: string;
+  team_members?: CreateExpoTeamMemberInput[];
+}
+
+export interface UpdateExpoEventInput {
+  event_name?: string;
+  organizer_name?: string;
+  city?: string;
+  venue_name?: string;
+  start_date?: string;
+  end_date?: string;
+  travel_mode?: TravelMode;
+  accommodation_details?: string;
+  team_leader_id?: string;
+  approved_by_id?: string;
+  event_status?: ExpoEventStatus;
+  notes?: string;
+}
+
+export interface ExpoEventFilters {
+  institution_id: string;
+  status?: ExpoEventStatus;
+  city?: string;
+  date_from?: string;
+  date_to?: string;
+  expo_master_id?: string;
+  search?: string;
+  page?: number;
+  limit?: number;
+  sort_by?: string;
+  sort_order?: 'asc' | 'desc';
+}
+
+export interface ExpoEventListResponse {
+  data: ExpoEvent[];
+  metadata: {
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+  };
+}
+
+// ─── Team Members ─────────────────────────────────────────────────────────
+
+export interface ExpoEventTeamMember {
+  id: string;
+  expo_event_id: string;
+  member_type: ExpoTeamMemberType;
+  staff_id: string | null;
+  student_id: string | null;
+  name: string;
+  phone: string | null;
+  role: ExpoTeamMemberRole;
+  created_at: string;
+}
+
+export interface CreateExpoTeamMemberInput {
+  member_type: ExpoTeamMemberType;
+  staff_id?: string;
+  student_id?: string;
+  name: string;
+  phone?: string;
+  role: ExpoTeamMemberRole;
+}
+
+// ─── Daily Reports ────────────────────────────────────────────────────────
+
+export interface ExpoDailyReport {
+  id: string;
+  expo_event_id: string;
+  institution_id: string;
+  report_date: string;
+  stall_fee: number;
+  travel_expense: number;
+  accommodation_expense: number;
+  food_expense: number;
+  printing_materials: number;
+  miscellaneous_expense: number;
+  total_expense: number;
+  total_visitors: number;
+  counselling_done: number;
+  brochures_distributed: number;
+  interested_students: number;
+  leads_collected: number;
+  stall_photos: string[];
+  event_photos: string[];
+  visitor_photos: string[];
+  notes: string | null;
+  submitted_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateDailyReportInput {
+  expo_event_id: string;
+  institution_id: string;
+  report_date: string;
+  stall_fee?: number;
+  travel_expense?: number;
+  accommodation_expense?: number;
+  food_expense?: number;
+  printing_materials?: number;
+  miscellaneous_expense?: number;
+  total_visitors?: number;
+  counselling_done?: number;
+  brochures_distributed?: number;
+  interested_students?: number;
+  leads_collected?: number;
+  stall_photos?: string[];
+  event_photos?: string[];
+  visitor_photos?: string[];
+  notes?: string;
+}
+
+export interface UpdateDailyReportInput {
+  stall_fee?: number;
+  travel_expense?: number;
+  accommodation_expense?: number;
+  food_expense?: number;
+  printing_materials?: number;
+  miscellaneous_expense?: number;
+  total_visitors?: number;
+  counselling_done?: number;
+  brochures_distributed?: number;
+  interested_students?: number;
+  leads_collected?: number;
+  stall_photos?: string[];
+  event_photos?: string[];
+  visitor_photos?: string[];
+  notes?: string;
+}
+
+// ─── Analytics ────────────────────────────────────────────────────────────
+
+export interface ExpoSummaryStats {
+  total_expos: number;
+  active_expos: number;
+  total_leads: number;
+  total_expenses: number;
+  avg_cost_per_lead: number;
+  total_visitors: number;
+  conversion_rate: number;
+}
+
+export interface ExpoExpenseBreakdown {
+  category: string;
+  amount: number;
+  percentage: number;
+}
+
+export interface ExpoLeadFunnel {
+  total_visitors: number;
+  counselling_done: number;
+  interested_students: number;
+  leads_collected: number;
+}
+
+export interface ExpoComparisonItem {
+  id: string;
+  event_name: string;
+  city: string;
+  total_leads: number;
+  total_expenses: number;
+  total_visitors: number;
+  cost_per_lead: number;
+  conversion_rate: number;
+}
+
+export interface ExpoTeamPerformanceItem {
+  member_name: string;
+  role: string;
+  leads_attributed: number;
+  days_present: number;
+}
+
+export interface ExpoDailyTrend {
+  date: string;
+  visitors: number;
+  leads: number;
+  expense: number;
+  counselling: number;
+}

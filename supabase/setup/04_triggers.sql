@@ -582,7 +582,74 @@ CREATE TRIGGER update_track_declarations_updated_at
   BEFORE UPDATE ON track_declarations
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+-- ═══════════════════════════════════════════════════════════════════════════
+-- EXPO MODULE TRIGGERS
+-- Updated: 2026-03-13 - Initial creation
+-- ═══════════════════════════════════════════════════════════════════════════
+
+CREATE OR REPLACE FUNCTION update_expo_team_count()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    UPDATE expo_events SET total_team_members = (
+      SELECT COUNT(*) FROM expo_event_team_members WHERE expo_event_id = OLD.expo_event_id
+    ), updated_at = now() WHERE id = OLD.expo_event_id;
+    RETURN OLD;
+  ELSE
+    UPDATE expo_events SET total_team_members = (
+      SELECT COUNT(*) FROM expo_event_team_members WHERE expo_event_id = NEW.expo_event_id
+    ), updated_at = now() WHERE id = NEW.expo_event_id;
+    RETURN NEW;
+  END IF;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_expo_team_count
+  AFTER INSERT OR DELETE ON expo_event_team_members
+  FOR EACH ROW EXECUTE FUNCTION update_expo_team_count();
+
+CREATE OR REPLACE FUNCTION update_expo_report_totals()
+RETURNS TRIGGER AS $$
+DECLARE
+  v_event_id UUID;
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    v_event_id := OLD.expo_event_id;
+  ELSE
+    v_event_id := NEW.expo_event_id;
+  END IF;
+
+  UPDATE expo_events SET
+    total_expenses = COALESCE((
+      SELECT SUM(total_expense) FROM expo_daily_reports WHERE expo_event_id = v_event_id
+    ), 0),
+    total_leads_collected = COALESCE((
+      SELECT SUM(leads_collected) FROM expo_daily_reports WHERE expo_event_id = v_event_id
+    ), 0),
+    updated_at = now()
+  WHERE id = v_event_id;
+
+  IF TG_OP = 'DELETE' THEN RETURN OLD; ELSE RETURN NEW; END IF;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_expo_report_totals
+  AFTER INSERT OR UPDATE OR DELETE ON expo_daily_reports
+  FOR EACH ROW EXECUTE FUNCTION update_expo_report_totals();
+
+CREATE TRIGGER set_expo_masters_updated_at
+  BEFORE UPDATE ON expo_masters
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER set_expo_events_updated_at
+  BEFORE UPDATE ON expo_events
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER set_expo_daily_reports_updated_at
+  BEFORE UPDATE ON expo_daily_reports
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
 -- ================================================================================
 -- End of Triggers File
--- Total Triggers: 81 (Updated: 2026-03-09)
+-- Total Triggers: 87 (Updated: 2026-03-13)
 -- ================================================================================

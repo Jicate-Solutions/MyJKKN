@@ -1250,4 +1250,15 @@ npx tsx scripts/repair-learner-profile-sync.ts
 
 ---
 
+### 2026-03-13: Expo Module (Education Fairs & Exhibitions)
+
+### Expo Module (Education Fairs)
+- **Tables** (01_tables.sql): `expo_masters`, `expo_events`, `expo_event_team_members`, `expo_daily_reports`
+- **Policies** (03_policies.sql): Institution-scoped RLS for all 4 tables
+- **Triggers** (04_triggers.sql): `update_expo_team_count`, `update_expo_report_totals`, `updated_at` triggers
+- **FK Addition**: `admission_leads.expo_event_id` → `expo_events(id)`
+- Added: 2026-03-13
+
+---
+
 **Remember: ONE file per object type, NO duplicates, ALWAYS update existing files!**

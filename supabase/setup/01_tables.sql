@@ -2313,6 +2313,123 @@ CREATE INDEX IF NOT EXISTS idx_case_studies_team ON case_studies(team_id);
 CREATE INDEX IF NOT EXISTS idx_case_studies_track ON case_studies(track);
 CREATE INDEX IF NOT EXISTS idx_case_studies_featured ON case_studies(featured);
 
+-- ═══════════════════════════════════════════════════════════════════════════
+-- EXPO MODULE (Education Fairs & Exhibitions)
+-- Updated: 2026-03-13 - Initial creation
+-- ═══════════════════════════════════════════════════════════════════════════
+
+-- Expo Masters (Reusable Event Catalog)
+CREATE TABLE IF NOT EXISTS expo_masters (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  institution_id UUID NOT NULL REFERENCES institutions(id) ON DELETE CASCADE,
+  event_name TEXT NOT NULL,
+  organizer_name TEXT,
+  city TEXT,
+  venue_name TEXT,
+  description TEXT,
+  frequency TEXT CHECK (frequency IN ('annual', 'biannual', 'quarterly', 'one_time')),
+  tags TEXT[],
+  is_active BOOLEAN DEFAULT true,
+  created_by UUID REFERENCES profiles(id),
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX idx_expo_masters_institution ON expo_masters(institution_id);
+CREATE INDEX idx_expo_masters_active ON expo_masters(institution_id, is_active);
+
+-- Expo Events (Specific Instances)
+CREATE TABLE IF NOT EXISTS expo_events (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  institution_id UUID NOT NULL REFERENCES institutions(id) ON DELETE CASCADE,
+  expo_master_id UUID REFERENCES expo_masters(id) ON DELETE SET NULL,
+  event_name TEXT NOT NULL,
+  organizer_name TEXT,
+  city TEXT NOT NULL,
+  venue_name TEXT,
+  start_date DATE NOT NULL,
+  end_date DATE NOT NULL,
+  travel_mode TEXT CHECK (travel_mode IN ('bus', 'train', 'flight', 'own_vehicle', 'other')),
+  accommodation_details TEXT,
+  team_leader_id UUID REFERENCES staff(id) ON DELETE SET NULL,
+  approved_by_id UUID REFERENCES staff(id) ON DELETE SET NULL,
+  event_status TEXT NOT NULL DEFAULT 'planned' CHECK (event_status IN ('planned', 'confirmed', 'in_progress', 'completed', 'cancelled')),
+  notes TEXT,
+  total_team_members INT DEFAULT 0,
+  total_expenses NUMERIC(12,2) DEFAULT 0,
+  total_leads_collected INT DEFAULT 0,
+  created_by UUID REFERENCES profiles(id),
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now(),
+  CONSTRAINT expo_events_date_check CHECK (end_date >= start_date)
+);
+
+CREATE INDEX idx_expo_events_institution ON expo_events(institution_id);
+CREATE INDEX idx_expo_events_status ON expo_events(institution_id, event_status);
+CREATE INDEX idx_expo_events_dates ON expo_events(start_date, end_date);
+CREATE INDEX idx_expo_events_master ON expo_events(expo_master_id);
+
+-- Expo Event Team Members (Staff + Student Volunteers)
+CREATE TABLE IF NOT EXISTS expo_event_team_members (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  expo_event_id UUID NOT NULL REFERENCES expo_events(id) ON DELETE CASCADE,
+  member_type TEXT NOT NULL CHECK (member_type IN ('staff', 'student', 'external')),
+  staff_id UUID REFERENCES staff(id) ON DELETE SET NULL,
+  student_id UUID REFERENCES learners_profiles(id) ON DELETE SET NULL,
+  name TEXT NOT NULL,
+  phone TEXT,
+  role TEXT NOT NULL DEFAULT 'volunteer' CHECK (role IN ('team_leader', 'counselor', 'volunteer', 'support')),
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX idx_expo_team_event ON expo_event_team_members(expo_event_id);
+CREATE INDEX idx_expo_team_staff ON expo_event_team_members(staff_id) WHERE staff_id IS NOT NULL;
+
+-- Expo Daily Reports (Daily Data Collection)
+CREATE TABLE IF NOT EXISTS expo_daily_reports (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  expo_event_id UUID NOT NULL REFERENCES expo_events(id) ON DELETE CASCADE,
+  institution_id UUID NOT NULL REFERENCES institutions(id) ON DELETE CASCADE,
+  report_date DATE NOT NULL,
+  stall_fee NUMERIC(10,2) DEFAULT 0,
+  travel_expense NUMERIC(10,2) DEFAULT 0,
+  accommodation_expense NUMERIC(10,2) DEFAULT 0,
+  food_expense NUMERIC(10,2) DEFAULT 0,
+  printing_materials NUMERIC(10,2) DEFAULT 0,
+  miscellaneous_expense NUMERIC(10,2) DEFAULT 0,
+  total_expense NUMERIC(12,2) GENERATED ALWAYS AS (
+    COALESCE(stall_fee, 0) + COALESCE(travel_expense, 0) + COALESCE(accommodation_expense, 0) +
+    COALESCE(food_expense, 0) + COALESCE(printing_materials, 0) + COALESCE(miscellaneous_expense, 0)
+  ) STORED,
+  total_visitors INT DEFAULT 0,
+  counselling_done INT DEFAULT 0,
+  brochures_distributed INT DEFAULT 0,
+  interested_students INT DEFAULT 0,
+  leads_collected INT DEFAULT 0,
+  stall_photos TEXT[] DEFAULT '{}',
+  event_photos TEXT[] DEFAULT '{}',
+  visitor_photos TEXT[] DEFAULT '{}',
+  notes TEXT,
+  submitted_by UUID REFERENCES profiles(id),
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now(),
+  UNIQUE(expo_event_id, report_date)
+);
+
+CREATE INDEX idx_expo_reports_event ON expo_daily_reports(expo_event_id);
+CREATE INDEX idx_expo_reports_date ON expo_daily_reports(report_date);
+CREATE INDEX idx_expo_reports_institution ON expo_daily_reports(institution_id);
+
+-- Add expo_event_id to admission_leads for lead-to-expo tracking
+ALTER TABLE admission_leads ADD COLUMN IF NOT EXISTS expo_event_id UUID REFERENCES expo_events(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS idx_admission_leads_expo ON admission_leads(expo_event_id) WHERE expo_event_id IS NOT NULL;
+
+-- Enable RLS on all expo tables
+ALTER TABLE expo_masters ENABLE ROW LEVEL SECURITY;
+ALTER TABLE expo_events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE expo_event_team_members ENABLE ROW LEVEL SECURITY;
+ALTER TABLE expo_daily_reports ENABLE ROW LEVEL SECURITY;
+
 -- =====================================================
 -- END OF TABLE DEFINITIONS
 -- =====================================================

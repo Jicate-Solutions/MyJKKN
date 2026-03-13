@@ -381,6 +381,10 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/admission/marketing/remarketing': 'admission.marketing.view',
   '/admission/marketing/voice-agents': 'admission.marketing.voice.view',
   '/admission/marketing/voice-broadcast': 'admission.marketing.voice.view',
+  '/admission/marketing/expos': 'admission.marketing.expos.view',
+  '/admission/marketing/expos/masters': 'admission.marketing.expos.view',
+  '/admission/marketing/expos/new': 'admission.marketing.expos.create',
+  '/admission/marketing/expos/analytics': 'admission.marketing.expos.view',
 
   // Admission Data Quality
   '/admission/data-quality/data-profiling': 'admission.data_quality.view',
@@ -931,7 +935,22 @@ export function GetPages(pathname: string): MenuGroup[] {
               href: '/admission/marketing/publishers',
               label: 'Publishers',
               active: pathname === '/admission/marketing/publishers'
-            }
+            },
+            {
+              href: '/admission/marketing/expos',
+              label: 'Expos',
+              active: pathname.startsWith('/admission/marketing/expos')
+            },
+            {
+              href: '/admission/marketing/expos/masters',
+              label: 'Expo Masters',
+              active: pathname === '/admission/marketing/expos/masters'
+            },
+            {
+              href: '/admission/marketing/expos/analytics',
+              label: 'Expo Analytics',
+              active: pathname === '/admission/marketing/expos/analytics'
+            },
           ]
         },
         {

@@ -7,7 +7,8 @@ const BUCKETS = {
   LOGOS: 'institution-logos',
   STUDENT_PHOTOS: 'student-photos',
   STAFF_PHOTOS: 'staff-images', // Corrected to use the existing bucket
-  RESOURCES: 'resource-management' // New bucket for resource management assets
+  RESOURCES: 'resource-management', // New bucket for resource management assets
+  EXPO_PHOTOS: 'expo-photos'
 } as const;
 
 const ALLOWED_FILE_TYPES = [
@@ -1145,6 +1146,58 @@ export class StorageService {
       return {
         error: error instanceof Error ? error : new Error('Delete failed')
       };
+    }
+  }
+
+  // =============================================
+  // EXPO PHOTO METHODS
+  // =============================================
+
+  static async uploadExpoPhoto(
+    file: File,
+    institutionId: string,
+    eventId: string,
+    reportDate: string,
+    photoType: 'stall' | 'event' | 'visitor'
+  ): Promise<{ publicUrl: string | null; error: Error | null }> {
+    try {
+      await this.validateFile(file);
+
+      const { data: { user }, error: userError } = await this.supabase.auth.getUser();
+      if (userError || !user) throw new Error('Authentication required');
+
+      const fileExt = file.name.split('.').pop()?.toLowerCase();
+      const fileName = `${photoType}_${Date.now()}.${fileExt}`;
+      const filePath = `${institutionId}/${eventId}/${reportDate}/${fileName}`;
+
+      const { error: uploadError } = await this.supabase.storage
+        .from(BUCKETS.EXPO_PHOTOS)
+        .upload(filePath, file, {
+          cacheControl: '3600',
+          upsert: false,
+        });
+
+      if (uploadError) throw uploadError;
+
+      const { data: urlData } = this.supabase.storage
+        .from(BUCKETS.EXPO_PHOTOS)
+        .getPublicUrl(filePath);
+
+      return { publicUrl: urlData.publicUrl, error: null };
+    } catch (error) {
+      console.error('[admission/expos] Error uploading photo:', error);
+      return { publicUrl: null, error: error instanceof Error ? error : new Error('Upload failed') };
+    }
+  }
+
+  static async deleteExpoPhoto(url: string): Promise<void> {
+    try {
+      const bucketPath = url.split(`${BUCKETS.EXPO_PHOTOS}/`)[1];
+      if (bucketPath) {
+        await this.supabase.storage.from(BUCKETS.EXPO_PHOTOS).remove([bucketPath]);
+      }
+    } catch (error) {
+      console.error('[admission/expos] Error deleting photo:', error);
     }
   }
 }
