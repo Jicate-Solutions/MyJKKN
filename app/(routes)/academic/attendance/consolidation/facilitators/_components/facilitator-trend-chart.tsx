@@ -61,10 +61,10 @@ export function FacilitatorTrendChart({ facilitators }: Props) {
   if (chartData.length === 0) {
     return (
       <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Weekly Marking Trend</CardTitle>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm sm:text-base">Weekly Marking Trend</CardTitle>
         </CardHeader>
-        <CardContent className="flex items-center justify-center h-48 text-muted-foreground text-sm">
+        <CardContent className="flex items-center justify-center h-40 sm:h-48 text-muted-foreground text-xs sm:text-sm">
           No trend data for selected filters
         </CardContent>
       </Card>
@@ -73,18 +73,18 @@ export function FacilitatorTrendChart({ facilitators }: Props) {
 
   return (
     <Card>
-      <CardHeader>
-        <CardTitle className="text-base">Weekly Marking Trend</CardTitle>
-        <p className="text-xs text-muted-foreground">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm sm:text-base">Weekly Marking Trend</CardTitle>
+        <p className="text-[10px] sm:text-xs text-muted-foreground">
           Top {topFacilitators.length} facilitators by period count
         </p>
       </CardHeader>
-      <CardContent>
-        <ChartContainer config={chartConfig} className="h-[280px] w-full">
-          <LineChart data={chartData}>
+      <CardContent className="px-2 sm:px-6">
+        <ChartContainer config={chartConfig} className="h-[220px] sm:h-[280px] w-full">
+          <LineChart data={chartData} margin={{ left: 0, right: 8, top: 4, bottom: 4 }}>
             <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-            <XAxis dataKey="week" tick={{ fontSize: 11 }} />
-            <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
+            <XAxis dataKey="week" tick={{ fontSize: 10 }} />
+            <YAxis tick={{ fontSize: 10 }} allowDecimals={false} width={30} />
             <ChartTooltip content={<ChartTooltipContent />} />
             <ChartLegend content={<ChartLegendContent />} />
             {topFacilitators.map((f, i) => (

@@ -74,16 +74,18 @@ export function FacilitatorSummaryCards({ summary, departmentCount }: Props) {
   ];
 
   return (
-    <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
+    <div className="grid grid-cols-3 sm:grid-cols-3 md:grid-cols-6 gap-2 sm:gap-3">
       {cards.map((card) => (
-        <Card key={card.label}>
-          <CardContent className="flex items-center gap-3 p-4">
-            <div className={`rounded-full p-2 shrink-0 ${card.bg}`}>
-              <card.icon className={`h-4 w-4 ${card.iconColor}`} />
+        <Card key={card.label} className="overflow-hidden">
+          <CardContent className="flex flex-col items-center gap-1.5 p-2.5 sm:flex-row sm:items-center sm:gap-3 sm:p-4">
+            <div className={`rounded-full p-1.5 sm:p-2 shrink-0 ${card.bg}`}>
+              <card.icon className={`h-3.5 w-3.5 sm:h-4 sm:w-4 ${card.iconColor}`} />
             </div>
-            <div className="min-w-0">
-              <p className="text-xs text-muted-foreground truncate">{card.label}</p>
-              <p className={`text-xl font-bold leading-tight ${card.valueClass}`}>
+            <div className="min-w-0 text-center sm:text-left">
+              <p className="text-[10px] sm:text-xs text-muted-foreground truncate leading-tight">
+                {card.label}
+              </p>
+              <p className={`text-base sm:text-lg md:text-xl font-bold leading-tight ${card.valueClass}`}>
                 {card.value}
               </p>
             </div>

@@ -142,13 +142,15 @@ export default function FacilitatorAttendancePage() {
 
         {/* Main content — only when data is ready */}
         {!isLoading && !institutionsLoading && !error && (
-          <div className="mt-4 space-y-6">
+          <div className="mt-4 space-y-5">
 
             {/* Page header row */}
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-              <div>
-                <h1 className="text-xl font-bold sm:text-2xl">Facilitator Attendance Report</h1>
-                <p className="text-sm text-muted-foreground mt-1">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
+                <h1 className="text-lg font-bold sm:text-xl lg:text-2xl">
+                  Facilitator Attendance Report
+                </h1>
+                <p className="text-xs sm:text-sm text-muted-foreground mt-0.5">
                   Periods marked by each facilitator within the selected date range
                 </p>
               </div>
@@ -157,7 +159,7 @@ export default function FacilitatorAttendancePage() {
                   value={selectedInstitutionId ?? ''}
                   onValueChange={(val) => setSelectedInstitutionId(val)}
                 >
-                  <SelectTrigger className="w-full sm:w-[240px] shrink-0">
+                  <SelectTrigger className="w-full sm:w-[220px] shrink-0">
                     <Building2 className="mr-2 h-4 w-4 text-muted-foreground" />
                     <SelectValue placeholder="Select institution..." />
                   </SelectTrigger>
@@ -178,11 +180,11 @@ export default function FacilitatorAttendancePage() {
               departmentCount={departmentBreakdown.length}
             />
 
-            {/* Filters bar (horizontal on md+, stacked on mobile) */}
-            <div className="rounded-lg border bg-card p-4">
-              <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between md:flex-wrap">
-                <div className="shrink-0">
-                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">
+            {/* Filters bar */}
+            <div className="rounded-lg border bg-card p-3 sm:p-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between sm:flex-wrap">
+                <div className="flex-1 min-w-0">
+                  <p className="text-[10px] sm:text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">
                     Filters
                   </p>
                   <FacilitatorFilters
@@ -193,46 +195,40 @@ export default function FacilitatorAttendancePage() {
                     facilitatorSearchQuery={facilitatorSearch}
                   />
                 </div>
-                <FacilitatorExportActions
-                  facilitators={facilitators}
-                  summary={summary}
-                  departmentBreakdown={departmentBreakdown}
-                  filters={filters}
-                  facilitatorSearch={facilitatorSearch}
-                />
+                <div className="flex justify-end sm:justify-start shrink-0">
+                  <FacilitatorExportActions
+                    facilitators={facilitators}
+                    summary={summary}
+                    departmentBreakdown={departmentBreakdown}
+                    filters={filters}
+                    facilitatorSearch={facilitatorSearch}
+                  />
+                </div>
               </div>
             </div>
 
-            {/* Charts + Department Breakdown side-by-side on lg */}
-            <div className="flex flex-col xl:flex-row gap-6">
-              {/* Charts column */}
-              <div className="flex-1 min-w-0 space-y-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <FacilitatorBarChart facilitators={facilitators} />
-                  <FacilitatorPieChart departmentBreakdown={departmentBreakdown} />
-                </div>
+            {/* Department Breakdown — collapsible horizontal grid */}
+            <DepartmentBreakdown breakdown={departmentBreakdown} />
 
-                <FacilitatorTrendChart facilitators={facilitators} />
-
-                <FacilitatorHeatmap
-                  facilitators={facilitators}
-                  dateFrom={filters.dateFrom}
-                  dateTo={filters.dateTo}
-                />
-
-                <FacilitatorDataTable
-                  facilitators={facilitators}
-                  globalFilter={facilitatorSearch}
-                />
-              </div>
-
-              {/* Department Breakdown sidebar — sticks to right on xl */}
-              <aside className="xl:w-72 shrink-0">
-                <div className="xl:sticky xl:top-6">
-                  <DepartmentBreakdown breakdown={departmentBreakdown} />
-                </div>
-              </aside>
+            {/* Charts — full width, 2-column grid */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+              <FacilitatorBarChart facilitators={facilitators} />
+              <FacilitatorPieChart departmentBreakdown={departmentBreakdown} />
             </div>
+
+            <FacilitatorTrendChart facilitators={facilitators} />
+
+            <FacilitatorHeatmap
+              facilitators={facilitators}
+              dateFrom={filters.dateFrom}
+              dateTo={filters.dateTo}
+            />
+
+            {/* Facilitator cards with expandable details */}
+            <FacilitatorDataTable
+              facilitators={facilitators}
+              globalFilter={facilitatorSearch}
+            />
           </div>
         )}
       </ContentLayout>

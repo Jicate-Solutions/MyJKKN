@@ -40,10 +40,10 @@ export function FacilitatorPieChart({ departmentBreakdown }: Props) {
   if (data.length === 0) {
     return (
       <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Periods by Department</CardTitle>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm sm:text-base">Periods by Department</CardTitle>
         </CardHeader>
-        <CardContent className="flex items-center justify-center h-48 text-muted-foreground text-sm">
+        <CardContent className="flex items-center justify-center h-40 sm:h-48 text-muted-foreground text-xs sm:text-sm">
           No data for selected filters
         </CardContent>
       </Card>
@@ -52,20 +52,20 @@ export function FacilitatorPieChart({ departmentBreakdown }: Props) {
 
   return (
     <Card>
-      <CardHeader>
-        <CardTitle className="text-base">Periods by Department</CardTitle>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm sm:text-base">Periods by Department</CardTitle>
       </CardHeader>
-      <CardContent>
-        <ChartContainer config={chartConfig} className="h-[260px] w-full">
+      <CardContent className="px-2 sm:px-6">
+        <ChartContainer config={chartConfig} className="h-[250px] sm:h-[300px] w-full">
           <PieChart>
             <Pie
               data={data}
               dataKey="value"
               nameKey="name"
               cx="50%"
-              cy="50%"
-              innerRadius={60}
-              outerRadius={90}
+              cy="45%"
+              innerRadius="40%"
+              outerRadius="65%"
               paddingAngle={2}
             >
               {data.map((_, i) => (

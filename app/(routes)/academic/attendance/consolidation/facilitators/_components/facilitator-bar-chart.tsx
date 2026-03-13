@@ -12,6 +12,7 @@ import {
   XAxis,
   YAxis,
   Cell,
+  CartesianGrid,
 } from 'recharts';
 import type { FacilitatorAttendanceStat } from '@/types/attendance';
 
@@ -24,16 +25,20 @@ const chartConfig = {
 };
 
 export function FacilitatorBarChart({ facilitators }: Props) {
-  const data = facilitators.slice(0, 20).map((f) => ({
+  // Show top 10 for readability — fewer bars = more space per label
+  const data = facilitators.slice(0, 10).map((f) => ({
     name: `${f.firstName} ${f.lastName}`,
+    shortName: f.lastName
+      ? `${f.firstName} ${f.lastName.charAt(0)}.`
+      : f.firstName,
     periodsMarked: f.periodsMarked,
   }));
 
   if (data.length === 0) {
     return (
       <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Periods Marked per Facilitator</CardTitle>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm sm:text-base">Periods Marked per Facilitator</CardTitle>
         </CardHeader>
         <CardContent className="flex items-center justify-center h-48 text-muted-foreground text-sm">
           No data for selected filters
@@ -42,29 +47,41 @@ export function FacilitatorBarChart({ facilitators }: Props) {
     );
   }
 
+  // Dynamic height: 36px per bar ensures labels don't overlap
+  const chartHeight = Math.max(200, data.length * 36);
+
   return (
     <Card>
-      <CardHeader>
-        <CardTitle className="text-base">Periods Marked per Facilitator</CardTitle>
-        <p className="text-xs text-muted-foreground">Top {data.length} facilitators</p>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm sm:text-base">Periods Marked per Facilitator</CardTitle>
+        <p className="text-[10px] sm:text-xs text-muted-foreground">Top {data.length} by periods marked</p>
       </CardHeader>
-      <CardContent>
-        <ChartContainer config={chartConfig} className="h-[300px] w-full">
-          <BarChart data={data} layout="vertical" margin={{ left: 8, right: 16, top: 4, bottom: 4 }}>
-            <XAxis type="number" tick={{ fontSize: 12 }} />
+      <CardContent className="px-1 sm:px-4">
+        <ChartContainer config={chartConfig} className="w-full" style={{ height: chartHeight }}>
+          <BarChart
+            data={data}
+            layout="vertical"
+            margin={{ left: 8, right: 16, top: 4, bottom: 4 }}
+          >
+            <CartesianGrid horizontal={false} strokeDasharray="3 3" className="stroke-muted/50" />
+            <XAxis type="number" tick={{ fontSize: 10 }} axisLine={false} />
             <YAxis
-              dataKey="name"
+              dataKey="shortName"
               type="category"
-              width={120}
+              width={100}
               tick={{ fontSize: 11 }}
               tickLine={false}
+              axisLine={false}
             />
-            <ChartTooltip content={<ChartTooltipContent />} />
-            <Bar dataKey="periodsMarked" radius={[0, 4, 4, 0]}>
+            <ChartTooltip
+              content={<ChartTooltipContent />}
+              cursor={{ fill: 'hsl(var(--muted)/0.3)' }}
+            />
+            <Bar dataKey="periodsMarked" radius={[0, 6, 6, 0]} maxBarSize={24} barSize={20}>
               {data.map((_, i) => (
                 <Cell
                   key={i}
-                  fill={`hsl(${142 + i * 3}, 60%, ${45 + (i % 3) * 5}%)`}
+                  fill={`hsl(${142 + i * 8}, 60%, ${45 + (i % 3) * 5}%)`}
                 />
               ))}
             </Bar>

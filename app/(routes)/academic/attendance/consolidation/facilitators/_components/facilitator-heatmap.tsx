@@ -46,10 +46,10 @@ export function FacilitatorHeatmap({ facilitators, dateFrom, dateTo }: Props) {
   if (topFacilitators.length === 0 || dates.length === 0) {
     return (
       <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Period Marking Heatmap</CardTitle>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm sm:text-base">Period Marking Heatmap</CardTitle>
         </CardHeader>
-        <CardContent className="flex items-center justify-center h-48 text-muted-foreground text-sm">
+        <CardContent className="flex items-center justify-center h-40 sm:h-48 text-muted-foreground text-xs sm:text-sm">
           No data for selected filters
         </CardContent>
       </Card>
@@ -58,24 +58,24 @@ export function FacilitatorHeatmap({ facilitators, dateFrom, dateTo }: Props) {
 
   return (
     <Card>
-      <CardHeader>
-        <CardTitle className="text-base">Period Marking Heatmap</CardTitle>
-        <p className="text-xs text-muted-foreground">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm sm:text-base">Period Marking Heatmap</CardTitle>
+        <p className="text-[10px] sm:text-xs text-muted-foreground">
           Periods marked per day — top {topFacilitators.length} facilitators
         </p>
       </CardHeader>
-      <CardContent>
-        <div className="overflow-x-auto">
-          <div className="min-w-max">
+      <CardContent className="px-2 sm:px-6">
+        <div className="overflow-x-auto -mx-1">
+          <div className="min-w-max px-1">
             {/* Date header row */}
-            <div className="flex gap-0.5 mb-1 ml-32">
+            <div className="flex gap-px sm:gap-0.5 mb-1 ml-20 sm:ml-28 md:ml-32">
               {dates.map((date) => (
                 <div
                   key={date.toISOString()}
-                  className="w-4 text-center"
-                  style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)', height: 40 }}
+                  className="w-3 sm:w-4 text-center"
+                  style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)', height: 32 }}
                 >
-                  <span className="text-[9px] text-muted-foreground">
+                  <span className="text-[8px] sm:text-[9px] text-muted-foreground">
                     {format(date, 'd')}
                   </span>
                 </div>
@@ -84,8 +84,8 @@ export function FacilitatorHeatmap({ facilitators, dateFrom, dateTo }: Props) {
 
             {/* Facilitator rows */}
             {topFacilitators.map((f) => (
-              <div key={f.staffId} className="flex items-center gap-0.5 mb-0.5">
-                <div className="w-32 text-xs text-right pr-2 text-muted-foreground truncate">
+              <div key={f.staffId} className="flex items-center gap-px sm:gap-0.5 mb-px sm:mb-0.5">
+                <div className="w-20 sm:w-28 md:w-32 text-[10px] sm:text-xs text-right pr-1.5 sm:pr-2 text-muted-foreground truncate shrink-0">
                   {f.firstName} {f.lastName}
                 </div>
                 {dates.map((date) => {
@@ -94,7 +94,7 @@ export function FacilitatorHeatmap({ facilitators, dateFrom, dateTo }: Props) {
                   return (
                     <div
                       key={dateStr}
-                      className={`w-4 h-4 rounded-sm cursor-default ${getHeatColor(count)}`}
+                      className={`w-3 h-3 sm:w-4 sm:h-4 rounded-sm cursor-default ${getHeatColor(count)}`}
                       title={`${f.firstName} ${f.lastName} — ${format(date, 'MMM d, yyyy')}: ${count} period${count !== 1 ? 's' : ''}`}
                     />
                   );
@@ -103,12 +103,12 @@ export function FacilitatorHeatmap({ facilitators, dateFrom, dateTo }: Props) {
             ))}
 
             {/* Legend */}
-            <div className="flex items-center gap-1 mt-3 ml-32">
-              <span className="text-xs text-muted-foreground">Less</span>
+            <div className="flex items-center gap-1 mt-2.5 ml-20 sm:ml-28 md:ml-32">
+              <span className="text-[10px] sm:text-xs text-muted-foreground">Less</span>
               {[0, 1, 2, 3].map((v) => (
-                <div key={v} className={`w-4 h-4 rounded-sm ${getHeatColor(v)}`} />
+                <div key={v} className={`w-3 h-3 sm:w-4 sm:h-4 rounded-sm ${getHeatColor(v)}`} />
               ))}
-              <span className="text-xs text-muted-foreground">More</span>
+              <span className="text-[10px] sm:text-xs text-muted-foreground">More</span>
             </div>
           </div>
         </div>

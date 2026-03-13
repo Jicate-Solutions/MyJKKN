@@ -44,11 +44,11 @@ export function FacilitatorFilters({
   ) => onFiltersChange({ ...filters, [key]: value });
 
   return (
-    <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 items-end">
 
       {/* Date range — two date pickers side by side */}
-      <div className="space-y-1 min-w-0 sm:min-w-[220px]">
-        <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+      <div className="space-y-1 sm:col-span-2 lg:col-span-1">
+        <Label className="text-[10px] sm:text-xs font-medium text-muted-foreground uppercase tracking-wide">
           Date Range
         </Label>
         <div className="flex gap-2">
@@ -57,7 +57,10 @@ export function FacilitatorFilters({
               <Button
                 variant="outline"
                 size="sm"
-                className={cn('flex-1 justify-start text-left font-normal', !filters.dateFrom && 'text-muted-foreground')}
+                className={cn(
+                  'flex-1 justify-start text-left font-normal h-9 text-xs sm:text-sm',
+                  !filters.dateFrom && 'text-muted-foreground'
+                )}
               >
                 <CalendarIcon className="mr-1.5 h-3.5 w-3.5 shrink-0" />
                 <span className="truncate">
@@ -81,7 +84,10 @@ export function FacilitatorFilters({
               <Button
                 variant="outline"
                 size="sm"
-                className={cn('flex-1 justify-start text-left font-normal', !filters.dateTo && 'text-muted-foreground')}
+                className={cn(
+                  'flex-1 justify-start text-left font-normal h-9 text-xs sm:text-sm',
+                  !filters.dateTo && 'text-muted-foreground'
+                )}
               >
                 <CalendarIcon className="mr-1.5 h-3.5 w-3.5 shrink-0" />
                 <span className="truncate">
@@ -103,15 +109,15 @@ export function FacilitatorFilters({
       </div>
 
       {/* Department */}
-      <div className="space-y-1 min-w-0 sm:min-w-[180px] sm:max-w-[240px] flex-1">
-        <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+      <div className="space-y-1">
+        <Label className="text-[10px] sm:text-xs font-medium text-muted-foreground uppercase tracking-wide">
           Department
         </Label>
         <Select
           value={filters.departmentId ?? 'all'}
           onValueChange={(v) => setFilter('departmentId', v === 'all' ? undefined : v)}
         >
-          <SelectTrigger className="w-full h-9">
+          <SelectTrigger className="w-full h-9 text-xs sm:text-sm">
             <SelectValue placeholder="All Departments" />
           </SelectTrigger>
           <SelectContent>
@@ -124,17 +130,17 @@ export function FacilitatorFilters({
       </div>
 
       {/* Search */}
-      <div className="space-y-1 min-w-0 sm:min-w-[180px] flex-1">
-        <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+      <div className="space-y-1">
+        <Label className="text-[10px] sm:text-xs font-medium text-muted-foreground uppercase tracking-wide">
           Search Facilitator
         </Label>
         <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
           <Input
             placeholder="Name or designation..."
             value={facilitatorSearchQuery}
             onChange={(e) => onFacilitatorSearch(e.target.value)}
-            className="pl-9 h-9"
+            className="pl-8 h-9 text-xs sm:text-sm"
           />
         </div>
       </div>
