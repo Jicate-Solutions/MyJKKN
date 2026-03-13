@@ -652,7 +652,12 @@ export default function AttendanceMarkPage() {
         }
 
         const dayData = actualTimetableData[dayKey];
-        if (!dayData) return;
+        if (!dayData) {
+          logger.warn('academic/attendance/mark', 'No day data found in timetable', {
+            dayKey, availableKeys: Object.keys(actualTimetableData || {}),
+          });
+          return;
+        }
 
         let searchSlotId = periodId;
         if (periodId && periodId.includes('_group_')) {
@@ -670,7 +675,12 @@ export default function AttendanceMarkPage() {
             }
           }
         }
-        if (!periodSlot) return;
+        if (!periodSlot) {
+          logger.warn('academic/attendance/mark', 'Period slot not found in day data', {
+            periodId, searchSlotId, availableSlots: Object.keys(dayData || {}),
+          });
+          return;
+        }
 
         const staffIds: string[] = [];
         let primaryStaffId: string | null = null;
@@ -683,14 +693,26 @@ export default function AttendanceMarkPage() {
             primaryStaffId = periodSlot.primary_staff_id;
             staffIds.push(periodSlot.primary_staff_id);
           }
-          if (Array.isArray(periodSlot.staff_ids) && periodSlot.staff_ids.length > 0) {
-            periodSlot.staff_ids.forEach((id: string) => {
-              if (id && !staffIds.includes(id)) staffIds.push(id);
-            });
+          // Handle both array and object formats for staff_ids
+          if (periodSlot.staff_ids) {
+            if (Array.isArray(periodSlot.staff_ids)) {
+              periodSlot.staff_ids.forEach((id: string) => {
+                if (id && !staffIds.includes(id)) staffIds.push(id);
+              });
+            } else if (typeof periodSlot.staff_ids === 'object') {
+              // Object format: {uuid: true} or {uuid: {...data}}
+              Object.keys(periodSlot.staff_ids).forEach((id: string) => {
+                if (id && !staffIds.includes(id)) staffIds.push(id);
+              });
+            }
           }
         }
 
         if (staffIds.length === 0) {
+          logger.warn('academic/attendance/mark', 'No staff IDs found in period slot', {
+            periodId, primary_staff_id: periodSlot.primary_staff_id,
+            staff_ids: periodSlot.staff_ids, staff_ids_type: typeof periodSlot.staff_ids,
+          });
           setAssignedStaff([]);
           return;
         }
