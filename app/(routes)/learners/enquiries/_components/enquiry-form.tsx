@@ -38,6 +38,7 @@ import { CourseSelectionSection } from './form-sections/course-selection';
 import { ContactDetailsSection } from './form-sections/contact-details';
 import { AccommodationPreferencesSection } from './form-sections/accommodation-preferences';
 import { FinanceDetailsSection } from './form-sections/finance-details';
+import { FEE_STRUCTURE_CONFIG, type FeeStructureType } from '@/lib/constants/fee-structure';
 import { uploadProfileImage } from './profile-image-upload';
 import { usePermissions } from '@/hooks/use-permissions';
 
@@ -155,13 +156,20 @@ export const enquiryFormSchema = z.object({
   // Finance Details
   application_fee: z.coerce.number().min(0, 'Must be non-negative').nullable().optional(),
   university_reg_fee: z.coerce.number().min(0, 'Must be non-negative').nullable().optional(),
-  fee_structure_type: z.enum(['tuition_hostel', 'dayscholar']).nullable().optional(),
+  fee_structure_type: z.enum([
+    'tuition_hostel',
+    'tuition_uniform_hospital',
+    'tuition_instruments_hospital',
+    'tuition_instruments',
+    'tuition_only',
+  ]).nullable().optional(),
   tuition_fee: z.coerce.number().min(0, 'Must be non-negative').nullable().optional(),
   hostel_fee: z.coerce.number().min(0, 'Must be non-negative').nullable().optional(),
   dayscholar_fee: z.coerce.number().min(0, 'Must be non-negative').nullable().optional(),
   uniform_fee: z.coerce.number().min(0, 'Must be non-negative').nullable().optional(),
   hospital_training_fee: z.coerce.number().min(0, 'Must be non-negative').nullable().optional(),
   placement_fee: z.coerce.number().min(0, 'Must be non-negative').nullable().optional(),
+  transport_fee: z.coerce.number().min(0, 'Must be non-negative').nullable().optional(),
 });
 
 // Required fields schema for final submission
@@ -899,16 +907,34 @@ export function EnquiryForm({
       reference_name: toUpperCaseField(values.reference_name),
       reference_contact: values.reference_contact || undefined,
 
-      // Finance Details
+      // Finance Details - only include fields active for the selected fee structure
       application_fee: values.application_fee ?? null,
       university_reg_fee: values.university_reg_fee ?? null,
       fee_structure_type: values.fee_structure_type ?? null,
-      tuition_fee: values.fee_structure_type === 'tuition_hostel' ? (values.tuition_fee ?? null) : null,
-      hostel_fee: values.fee_structure_type === 'tuition_hostel' ? (values.hostel_fee ?? null) : null,
-      dayscholar_fee: values.fee_structure_type === 'dayscholar' ? (values.dayscholar_fee ?? null) : null,
-      uniform_fee: values.uniform_fee ?? null,
-      hospital_training_fee: values.hospital_training_fee ?? null,
-      placement_fee: values.placement_fee ?? null,
+      ...(() => {
+        const feeType = values.fee_structure_type as FeeStructureType | null;
+        if (!feeType || !FEE_STRUCTURE_CONFIG[feeType]) {
+          return {
+            tuition_fee: null, hostel_fee: null, dayscholar_fee: null,
+            uniform_fee: null, hospital_training_fee: null, placement_fee: null,
+            transport_fee: null,
+          };
+        }
+        const config = FEE_STRUCTURE_CONFIG[feeType];
+        const activeFields = new Set([
+          ...config.primaryFields.map((f) => f.name),
+          ...config.optionalFees,
+        ]);
+        return {
+          tuition_fee: activeFields.has('tuition_fee') ? (values.tuition_fee ?? null) : null,
+          hostel_fee: activeFields.has('hostel_fee') ? (values.hostel_fee ?? null) : null,
+          dayscholar_fee: null, // DEPRECATED
+          uniform_fee: activeFields.has('uniform_fee') ? (values.uniform_fee ?? null) : null,
+          hospital_training_fee: activeFields.has('hospital_training_fee') ? (values.hospital_training_fee ?? null) : null,
+          placement_fee: activeFields.has('placement_fee') ? (values.placement_fee ?? null) : null,
+          transport_fee: activeFields.has('transport_fee') ? (values.transport_fee ?? null) : null,
+        };
+      })(),
 
       // System fields - Preserve existing values when editing, default to 'enquiry' when creating
       lifecycle_status: learner?.lifecycle_status || ('enquiry' as const),

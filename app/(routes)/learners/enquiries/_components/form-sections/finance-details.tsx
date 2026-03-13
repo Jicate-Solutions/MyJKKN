@@ -2,8 +2,8 @@
 // FINANCE DETAILS FORM SECTION
 // ============================================
 // Created: 2026-03-04
-// Purpose: Fee structure fields with conditional rendering
-// based on fee_structure_type dropdown selection
+// Updated: 2026-03-13 - Restructured to 5 fee structure types
+//          with config-driven conditional optional fees
 // ============================================
 
 'use client';
@@ -27,6 +27,12 @@ import {
 } from '@/components/ui/select';
 import { useEffect } from 'react';
 import { IndianRupee } from 'lucide-react';
+import {
+  FEE_STRUCTURE_CONFIG,
+  OPTIONAL_FEE_LABELS,
+  ALL_CONDITIONAL_FEE_FIELDS,
+  type FeeStructureType
+} from '@/lib/constants/fee-structure';
 
 interface FinanceDetailsProps {
   form: UseFormReturn<any>;
@@ -41,17 +47,27 @@ export function FinanceDetailsSection({
   const feeStructureType = useWatch({
     control: form.control,
     name: 'fee_structure_type'
-  });
+  }) as FeeStructureType | null;
 
-  // Reset dependent fields when fee structure type changes
+  const config = feeStructureType
+    ? FEE_STRUCTURE_CONFIG[feeStructureType]
+    : null;
+
+  // Reset non-active fields when fee structure type changes
   useEffect(() => {
-    if (feeStructureType === 'tuition_hostel') {
-      form.setValue('dayscholar_fee', null);
-    } else if (feeStructureType === 'dayscholar') {
-      form.setValue('tuition_fee', null);
-      form.setValue('hostel_fee', null);
-    }
-  }, [feeStructureType, form]);
+    if (!feeStructureType || !config) return;
+
+    const activeFields = new Set([
+      ...config.primaryFields.map((f) => f.name),
+      ...config.optionalFees,
+    ]);
+
+    ALL_CONDITIONAL_FEE_FIELDS.forEach((field) => {
+      if (!activeFields.has(field)) {
+        form.setValue(field, null);
+      }
+    });
+  }, [feeStructureType, config, form]);
 
   return (
     <div className='space-y-8'>
@@ -140,176 +156,89 @@ export function FinanceDetailsSection({
                   </SelectTrigger>
                 </FormControl>
                 <SelectContent>
-                  <SelectItem value='tuition_hostel'>Tuition + Hostel Fee</SelectItem>
-                  <SelectItem value='dayscholar'>Day Scholar Fee</SelectItem>
+                  {Object.entries(FEE_STRUCTURE_CONFIG).map(([value, cfg]) => (
+                    <SelectItem key={value} value={value}>
+                      {cfg.label}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
               <FormDescription>
-                Choose between separate tuition + hostel fees or a combined day scholar fee.
+                Select the applicable fee structure for this learner.
               </FormDescription>
               <FormMessage />
             </FormItem>
           )}
         />
 
-        {/* Tuition + Hostel (conditional) */}
-        {feeStructureType === 'tuition_hostel' && (
+        {/* Primary Fee Fields (dynamic based on selected type) */}
+        {config && (
           <div className='grid grid-cols-1 md:grid-cols-2 gap-6'>
-            <FormField
-              control={form.control}
-              name='tuition_fee'
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Tuition Fee</FormLabel>
-                  <FormControl>
-                    <Input
-                      {...field}
-                      type='number'
-                      step='0.01'
-                      min='0'
-                      placeholder='Enter tuition fee'
-                      value={field.value ?? ''}
-                      onChange={(e) => field.onChange(e.target.value === '' ? null : Number(e.target.value))}
-                      disabled={readOnly}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name='hostel_fee'
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Hostel Fee</FormLabel>
-                  <FormControl>
-                    <Input
-                      {...field}
-                      type='number'
-                      step='0.01'
-                      min='0'
-                      placeholder='Enter hostel fee'
-                      value={field.value ?? ''}
-                      onChange={(e) => field.onChange(e.target.value === '' ? null : Number(e.target.value))}
-                      disabled={readOnly}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+            {config.primaryFields.map((primaryField) => (
+              <FormField
+                key={primaryField.name}
+                control={form.control}
+                name={primaryField.name}
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{primaryField.label}</FormLabel>
+                    <FormControl>
+                      <Input
+                        {...field}
+                        type='number'
+                        step='0.01'
+                        min='0'
+                        placeholder={`Enter ${primaryField.label.toLowerCase()}`}
+                        value={field.value ?? ''}
+                        onChange={(e) => field.onChange(e.target.value === '' ? null : Number(e.target.value))}
+                        disabled={readOnly}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            ))}
           </div>
         )}
-
-        {/* Day Scholar Fee (conditional) */}
-        {feeStructureType === 'dayscholar' && (
-          <FormField
-            control={form.control}
-            name='dayscholar_fee'
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Day Scholar Fee</FormLabel>
-                <FormControl>
-                  <Input
-                    {...field}
-                    type='number'
-                    step='0.01'
-                    min='0'
-                    placeholder='Enter combined day scholar fee'
-                    value={field.value ?? ''}
-                    onChange={(e) => field.onChange(e.target.value === '' ? null : Number(e.target.value))}
-                    disabled={readOnly}
-                  />
-                </FormControl>
-                <FormDescription>
-                  Combined tuition and hostel fee for day scholars.
-                </FormDescription>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-        )}
       </div>
 
-      {/* Optional Fees */}
-      <div className='space-y-4 pt-4 border-t border-border'>
-        <h3 className='text-sm font-semibold flex items-center gap-2'>
-          <IndianRupee className='h-4 w-4' />
-          Optional Fees
-        </h3>
-        <div className='grid grid-cols-1 md:grid-cols-2 gap-6'>
-          <FormField
-            control={form.control}
-            name='uniform_fee'
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Uniform Fee (Optional)</FormLabel>
-                <FormControl>
-                  <Input
-                    {...field}
-                    type='number'
-                    step='0.01'
-                    min='0'
-                    placeholder='Enter uniform fee'
-                    value={field.value ?? ''}
-                    onChange={(e) => field.onChange(e.target.value === '' ? null : Number(e.target.value))}
-                    disabled={readOnly}
-                  />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-
-          <FormField
-            control={form.control}
-            name='hospital_training_fee'
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Hospital Training Fee (Optional)</FormLabel>
-                <FormControl>
-                  <Input
-                    {...field}
-                    type='number'
-                    step='0.01'
-                    min='0'
-                    placeholder='Enter hospital training fee'
-                    value={field.value ?? ''}
-                    onChange={(e) => field.onChange(e.target.value === '' ? null : Number(e.target.value))}
-                    disabled={readOnly}
-                  />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
+      {/* Optional Fees (dynamic based on selected type) */}
+      {config && config.optionalFees.length > 0 && (
+        <div className='space-y-4 pt-4 border-t border-border'>
+          <h3 className='text-sm font-semibold flex items-center gap-2'>
+            <IndianRupee className='h-4 w-4' />
+            Optional Fees
+          </h3>
+          <div className='grid grid-cols-1 md:grid-cols-2 gap-6'>
+            {config.optionalFees.map((feeName) => (
+              <FormField
+                key={feeName}
+                control={form.control}
+                name={feeName}
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{OPTIONAL_FEE_LABELS[feeName]} (Optional)</FormLabel>
+                    <FormControl>
+                      <Input
+                        {...field}
+                        type='number'
+                        step='0.01'
+                        min='0'
+                        placeholder={`Enter ${OPTIONAL_FEE_LABELS[feeName]?.toLowerCase()}`}
+                        value={field.value ?? ''}
+                        onChange={(e) => field.onChange(e.target.value === '' ? null : Number(e.target.value))}
+                        disabled={readOnly}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            ))}
+          </div>
         </div>
-
-        <FormField
-          control={form.control}
-          name='placement_fee'
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Placement Fee (Optional)</FormLabel>
-              <FormControl>
-                <Input
-                  {...field}
-                  type='number'
-                  step='0.01'
-                  min='0'
-                  placeholder='Enter placement fee'
-                  value={field.value ?? ''}
-                  onChange={(e) => field.onChange(e.target.value === '' ? null : Number(e.target.value))}
-                  disabled={readOnly}
-                />
-              </FormControl>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-      </div>
+      )}
     </div>
   );
 }

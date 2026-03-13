@@ -27,6 +27,11 @@ import { cn } from '@/lib/utils';
 import { LifecycleStatusBadge } from '@/components/learners/lifecycle-status-badge';
 import { UserIcon } from 'lucide-react';
 import { usePermissions } from '@/hooks/use-permissions';
+import {
+  FEE_STRUCTURE_CONFIG,
+  OPTIONAL_FEE_LABELS,
+  type FeeStructureType
+} from '@/lib/constants/fee-structure';
 
 interface EnquiryDetailProps {
   enquiry: LearnerProfile;
@@ -796,85 +801,63 @@ export function EnquiryDetail({ enquiry }: EnquiryDetailProps) {
 
                 <Separator />
 
-                <div className='space-y-4'>
-                  <h3 className='text-sm font-semibold'>Fee Structure</h3>
-                  <div className='grid grid-cols-2 gap-4'>
-                    <div className='space-y-1'>
-                      <h4 className='text-sm font-medium text-muted-foreground'>
-                        Fee Structure Type
-                      </h4>
-                      <p className='text-sm'>
-                        {enquiry.fee_structure_type === 'tuition_hostel'
-                          ? 'Tuition + Hostel Fee'
-                          : enquiry.fee_structure_type === 'dayscholar'
-                            ? 'Day Scholar Fee'
-                            : 'Not specified'}
-                      </p>
-                    </div>
-                    {enquiry.fee_structure_type === 'tuition_hostel' && (
-                      <>
-                        <div className='space-y-1'>
-                          <h4 className='text-sm font-medium text-muted-foreground'>
-                            Tuition Fee
-                          </h4>
-                          <p className='text-sm'>
-                            {enquiry.tuition_fee != null ? `₹${Number(enquiry.tuition_fee).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : 'Not specified'}
-                          </p>
+                {(() => {
+                  const feeConfig = enquiry.fee_structure_type
+                    ? FEE_STRUCTURE_CONFIG[enquiry.fee_structure_type as FeeStructureType]
+                    : null;
+                  return (
+                    <>
+                      <div className='space-y-4'>
+                        <h3 className='text-sm font-semibold'>Fee Structure</h3>
+                        <div className='grid grid-cols-2 gap-4'>
+                          <div className='space-y-1'>
+                            <h4 className='text-sm font-medium text-muted-foreground'>
+                              Fee Structure Type
+                            </h4>
+                            <p className='text-sm'>
+                              {feeConfig?.label ?? 'Not specified'}
+                            </p>
+                          </div>
+                          {feeConfig?.primaryFields.map((field) => (
+                            <div key={field.name} className='space-y-1'>
+                              <h4 className='text-sm font-medium text-muted-foreground'>
+                                {field.label}
+                              </h4>
+                              <p className='text-sm'>
+                                {(enquiry as any)[field.name] != null
+                                  ? `₹${Number((enquiry as any)[field.name]).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`
+                                  : 'Not specified'}
+                              </p>
+                            </div>
+                          ))}
                         </div>
-                        <div className='space-y-1'>
-                          <h4 className='text-sm font-medium text-muted-foreground'>
-                            Hostel Fee
-                          </h4>
-                          <p className='text-sm'>
-                            {enquiry.hostel_fee != null ? `₹${Number(enquiry.hostel_fee).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : 'Not specified'}
-                          </p>
-                        </div>
-                      </>
-                    )}
-                    {enquiry.fee_structure_type === 'dayscholar' && (
-                      <div className='space-y-1'>
-                        <h4 className='text-sm font-medium text-muted-foreground'>
-                          Day Scholar Fee
-                        </h4>
-                        <p className='text-sm'>
-                          {enquiry.dayscholar_fee != null ? `₹${Number(enquiry.dayscholar_fee).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : 'Not specified'}
-                        </p>
                       </div>
-                    )}
-                  </div>
-                </div>
 
-                <Separator />
-
-                <div className='space-y-4'>
-                  <h3 className='text-sm font-semibold'>Optional Fees</h3>
-                  <div className='grid grid-cols-2 gap-4'>
-                    <div className='space-y-1'>
-                      <h4 className='text-sm font-medium text-muted-foreground'>
-                        Uniform Fee
-                      </h4>
-                      <p className='text-sm'>
-                        {enquiry.uniform_fee != null ? `₹${Number(enquiry.uniform_fee).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : 'Not applicable'}
-                      </p>
-                    </div>
-                    <div className='space-y-1'>
-                      <h4 className='text-sm font-medium text-muted-foreground'>
-                        Hospital Training Fee
-                      </h4>
-                      <p className='text-sm'>
-                        {enquiry.hospital_training_fee != null ? `₹${Number(enquiry.hospital_training_fee).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : 'Not applicable'}
-                      </p>
-                    </div>
-                    <div className='space-y-1'>
-                      <h4 className='text-sm font-medium text-muted-foreground'>
-                        Placement Fee
-                      </h4>
-                      <p className='text-sm'>
-                        {enquiry.placement_fee != null ? `₹${Number(enquiry.placement_fee).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : 'Not applicable'}
-                      </p>
-                    </div>
-                  </div>
-                </div>
+                      {feeConfig && feeConfig.optionalFees.length > 0 && (
+                        <>
+                          <Separator />
+                          <div className='space-y-4'>
+                            <h3 className='text-sm font-semibold'>Optional Fees</h3>
+                            <div className='grid grid-cols-2 gap-4'>
+                              {feeConfig.optionalFees.map((feeName) => (
+                                <div key={feeName} className='space-y-1'>
+                                  <h4 className='text-sm font-medium text-muted-foreground'>
+                                    {OPTIONAL_FEE_LABELS[feeName]}
+                                  </h4>
+                                  <p className='text-sm'>
+                                    {(enquiry as any)[feeName] != null
+                                      ? `₹${Number((enquiry as any)[feeName]).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`
+                                      : 'Not applicable'}
+                                  </p>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        </>
+                      )}
+                    </>
+                  );
+                })()}
               </CardContent>
             </>
           )}

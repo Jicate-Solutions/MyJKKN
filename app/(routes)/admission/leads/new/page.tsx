@@ -45,6 +45,8 @@ import { usePermissions } from '@/hooks/use-permissions';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { useLeadMutations, useCounselorProfiles } from '@/hooks/admission';
 import { useConsultantsForDropdown } from '@/hooks/admission/use-consultants';
+import { useStudentsForDropdown, useFacultyForDropdown } from '@/hooks/admission/use-referral-dropdowns';
+import type { ReferralType } from '@/types/admission';
 import { CounselorDailyViewService } from '@/lib/services/admission/counselor-daily-view-service';
 import { LeadService } from '@/lib/services/admission/lead-service';
 import { ConsultantService } from '@/lib/services/admission/consultant-service';
@@ -67,6 +69,12 @@ const LEAD_SOURCES = [
   { value: 'google_ads', label: 'Google Ads' },
   { value: 'facebook_ads', label: 'Facebook Ads' },
   { value: 'other', label: 'Other' }
+];
+
+const REFERRAL_TYPES = [
+  { value: 'consultant', label: 'Consultant' },
+  { value: 'student', label: 'Student' },
+  { value: 'faculty', label: 'Faculty' },
 ];
 
 const GENDERS = [
@@ -123,6 +131,10 @@ function NewLeadPageContent() {
   // Consultant attribution (optional at creation time)
   const [selectedConsultantId, setSelectedConsultantId] = useState<string>('');
 
+  // Referral type sub-selection
+  const [referralType, setReferralType] = useState<ReferralType | ''>('');
+  const [selectedReferrerId, setSelectedReferrerId] = useState<string>('');
+
   // Auto-set institution if user has only one
   useEffect(() => {
     if (!isSuperAdmin && !isAdmissionGlobalUser && profile?.institution_id) {
@@ -145,6 +157,8 @@ function NewLeadPageContent() {
   // full list regardless of which institution is selected or which role the user has.
   const { data: counselorProfiles } = useCounselorProfiles(null);
   const { data: consultants = [] } = useConsultantsForDropdown();
+  const { data: studentsDropdown = [] } = useStudentsForDropdown(effectiveInstitutionId);
+  const { data: facultyDropdown = [] } = useFacultyForDropdown(effectiveInstitutionId);
 
   // Programs loaded based on selected institution
   const [programs, setPrograms] = useState<ProgramOption[]>([]);
@@ -298,6 +312,8 @@ function NewLeadPageContent() {
         setSelectedCounselorProfileId('');
       } else {
         setSelectedConsultantId('');
+        setReferralType('');
+        setSelectedReferrerId('');
       }
     }
   };
@@ -420,6 +436,31 @@ function NewLeadPageContent() {
       student_interest_level: formData.student_interest_level || null,
       parent_decision_status: formData.parent_decision_status || null,
       academic_year: formData.academic_year?.trim() || null,
+      // Referral fields
+      referral_type: formData.first_touch_source === 'referral' && referralType ? referralType : null,
+      referred_by_id: (() => {
+        if (formData.first_touch_source !== 'referral' || !referralType) return null;
+        if (referralType === 'consultant') {
+          return selectedConsultantId && selectedConsultantId !== '_none' ? selectedConsultantId : null;
+        }
+        return selectedReferrerId && selectedReferrerId !== '_none' ? selectedReferrerId : null;
+      })(),
+      referred_by_name: (() => {
+        if (formData.first_touch_source !== 'referral' || !referralType) return null;
+        if (referralType === 'consultant') {
+          const c = consultants.find((x) => x.id === selectedConsultantId);
+          return c?.name || null;
+        }
+        if (referralType === 'student') {
+          const s = studentsDropdown.find((x) => x.id === selectedReferrerId);
+          return s?.name || null;
+        }
+        if (referralType === 'faculty') {
+          const f = facultyDropdown.find((x) => x.id === selectedReferrerId);
+          return f?.name || null;
+        }
+        return null;
+      })(),
     };
 
     try {
@@ -438,8 +479,8 @@ function NewLeadPageContent() {
         }
       }
 
-      // Best-effort consultant attribution
-      if (selectedConsultantId && selectedConsultantId !== '_none' && institutionId) {
+      // Best-effort consultant attribution (only for consultant referral type)
+      if (referralType === 'consultant' && selectedConsultantId && selectedConsultantId !== '_none' && institutionId) {
         try {
           await ConsultantService.createLeadAttribution({
             institution_id: institutionId,
@@ -995,30 +1036,106 @@ function NewLeadPageContent() {
                   </CardContent>
                 </Card>
 
-                {/* Show Consultant section for referral source, Counselor for all others */}
+                {/* Show Referral Type section for referral source, Counselor for all others */}
                 {formData.first_touch_source === 'referral' ? (
                   <Card>
                     <CardHeader>
-                      <CardTitle>Referred by Consultant</CardTitle>
-                      <CardDescription>Optional — attribute this lead to a consultant</CardDescription>
+                      <CardTitle>Referral Details</CardTitle>
+                      <CardDescription>Select the type of referral and the referrer</CardDescription>
                     </CardHeader>
-                    <CardContent>
-                      <Select
-                        value={selectedConsultantId}
-                        onValueChange={setSelectedConsultantId}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select consultant" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="_none">No consultant</SelectItem>
-                          {consultants.map((c) => (
-                            <SelectItem key={c.id} value={c.id}>
-                              {c.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                    <CardContent className="space-y-4">
+                      {/* Referral Type Selection */}
+                      <div className="space-y-2">
+                        <Label>Referral Type</Label>
+                        <Select
+                          value={referralType}
+                          onValueChange={(value) => {
+                            setReferralType(value as ReferralType);
+                            setSelectedConsultantId('');
+                            setSelectedReferrerId('');
+                          }}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select referral type" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {REFERRAL_TYPES.map((rt) => (
+                              <SelectItem key={rt.value} value={rt.value}>
+                                {rt.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      {/* Consultant Dropdown */}
+                      {referralType === 'consultant' && (
+                        <div className="space-y-2">
+                          <Label>Select Consultant</Label>
+                          <Select
+                            value={selectedConsultantId}
+                            onValueChange={setSelectedConsultantId}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select consultant" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="_none">No consultant</SelectItem>
+                              {consultants.map((c) => (
+                                <SelectItem key={c.id} value={c.id}>
+                                  {c.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
+
+                      {/* Student Dropdown */}
+                      {referralType === 'student' && (
+                        <div className="space-y-2">
+                          <Label>Select Student</Label>
+                          <Select
+                            value={selectedReferrerId}
+                            onValueChange={setSelectedReferrerId}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select student" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="_none">No student</SelectItem>
+                              {studentsDropdown.map((s) => (
+                                <SelectItem key={s.id} value={s.id}>
+                                  {s.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
+
+                      {/* Faculty Dropdown */}
+                      {referralType === 'faculty' && (
+                        <div className="space-y-2">
+                          <Label>Select Faculty</Label>
+                          <Select
+                            value={selectedReferrerId}
+                            onValueChange={setSelectedReferrerId}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select faculty" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="_none">No faculty</SelectItem>
+                              {facultyDropdown.map((f) => (
+                                <SelectItem key={f.id} value={f.id}>
+                                  {f.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
                     </CardContent>
                   </Card>
                 ) : (

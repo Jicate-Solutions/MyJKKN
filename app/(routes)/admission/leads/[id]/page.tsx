@@ -43,7 +43,9 @@ import { useDepartments } from '@/hooks/organization/use-departments';
 import { usePrograms } from '@/hooks/organization/use-programs';
 import { ConsultantAttributionCard } from './_components/consultant-attribution-card';
 import { useConsultantsForDropdown, useLeadAttributions } from '@/hooks/admission/use-consultants';
+import { useStudentsForDropdown, useFacultyForDropdown } from '@/hooks/admission/use-referral-dropdowns';
 import { ConsultantService } from '@/lib/services/admission/consultant-service';
+import type { ReferralType } from '@/types/admission';
 import { CounselorDailyViewService } from '@/lib/services/admission/counselor-daily-view-service';
 import type { TimelineEntry } from '@/lib/services/admission/activity-service';
 import {
@@ -711,6 +713,8 @@ function LeadDetailPageContent() {
 
   // Consultants for dropdown (referral leads) — global across all institutions
   const { data: consultantsDropdown = [] } = useConsultantsForDropdown();
+  const { data: studentsDropdown = [] } = useStudentsForDropdown(lead?.institution_id || undefined);
+  const { data: facultyDropdown = [] } = useFacultyForDropdown(lead?.institution_id || undefined);
 
   // Consultant attributions for this lead (used in Details tab assignment section)
   const { attributions: leadAttributions } = useLeadAttributions(leadId);
@@ -718,6 +722,8 @@ function LeadDetailPageContent() {
   // Edit form: selected counselor / consultant (separate from editForm text fields)
   const [editCounselorProfileId, setEditCounselorProfileId] = useState('');
   const [editConsultantId, setEditConsultantId] = useState('');
+  const [editReferralType, setEditReferralType] = useState<ReferralType | ''>('');
+  const [editReferrerId, setEditReferrerId] = useState('');
 
   // Map interested program IDs to names
   const interestedProgramNames = useMemo(() => {
@@ -761,9 +767,12 @@ function LeadDetailPageContent() {
     });
     // Pre-populate counselor (from assigned_counselor_id which references profiles.id)
     setEditCounselorProfileId(l.assigned_counselor_id || '');
+    // Pre-populate referral type and referrer
+    setEditReferralType((l.referral_type as ReferralType) || '');
+    setEditReferrerId(l.referred_by_id || '');
     // Pre-populate consultant from primary lead attribution (stored in consultant_lead_attributions, not on the lead row)
     const primaryAttribution = leadAttributions.find((a) => a.attribution_type === 'primary');
-    setEditConsultantId(primaryAttribution?.consultant_id || '');
+    setEditConsultantId(primaryAttribution?.consultant_id || l.referred_by_id || '');
     setShowEditDialog(true);
   };
 
@@ -776,6 +785,8 @@ function LeadDetailPageContent() {
           setEditCounselorProfileId('');
         } else {
           setEditConsultantId('');
+          setEditReferralType('');
+          setEditReferrerId('');
         }
       }
       return { ...prev, [field]: value };
@@ -809,6 +820,27 @@ function LeadDetailPageContent() {
           parent_phone: editForm.parent_phone?.trim() || null,
           parent_email: editForm.parent_email?.trim() || null,
           source: editForm.source as any,
+          referral_type: editForm.source === 'referral' && editReferralType ? editReferralType : null,
+          referred_by_id: (() => {
+            if (editForm.source !== 'referral' || !editReferralType) return null;
+            if (editReferralType === 'consultant') {
+              return editConsultantId && editConsultantId !== '_none' ? editConsultantId : null;
+            }
+            return editReferrerId && editReferrerId !== '_none' ? editReferrerId : null;
+          })(),
+          referred_by_name: (() => {
+            if (editForm.source !== 'referral' || !editReferralType) return null;
+            if (editReferralType === 'consultant') {
+              return consultantsDropdown.find((c) => c.id === editConsultantId)?.name || null;
+            }
+            if (editReferralType === 'student') {
+              return studentsDropdown.find((s) => s.id === editReferrerId)?.name || null;
+            }
+            if (editReferralType === 'faculty') {
+              return facultyDropdown.find((f) => f.id === editReferrerId)?.name || null;
+            }
+            return null;
+          })(),
         },
       },
       {
@@ -830,7 +862,7 @@ function LeadDetailPageContent() {
               console.warn('[admission/leads] Could not assign counselor during edit:', e);
             }
           }
-          if (editForm.source === 'referral' && editConsultantId && editConsultantId !== '_none' && lead.institution_id) {
+          if (editForm.source === 'referral' && editReferralType === 'consultant' && editConsultantId && editConsultantId !== '_none' && lead.institution_id) {
             try {
               const existingAttribution = leadAttributions.find((a) => a.attribution_type === 'primary');
               if (existingAttribution) {
@@ -1703,6 +1735,20 @@ function LeadDetailPageContent() {
                           <dt className="text-sm text-muted-foreground">Lead Source</dt>
                           <dd className="font-medium capitalize">{(lead.source || '-').replace(/_/g, ' ')}</dd>
                         </div>
+                        {lead.source === 'referral' && lead.referral_type && (
+                          <>
+                            <div>
+                              <dt className="text-sm text-muted-foreground">Referral Type</dt>
+                              <dd className="font-medium capitalize">{lead.referral_type}</dd>
+                            </div>
+                            {lead.referred_by_name && (
+                              <div>
+                                <dt className="text-sm text-muted-foreground">Referred By</dt>
+                                <dd className="font-medium">{lead.referred_by_name}</dd>
+                              </div>
+                            )}
+                          </>
+                        )}
                         <div>
                           <dt className="text-sm text-muted-foreground">Preferred Channel</dt>
                           <dd className="font-medium capitalize">{(lead.preferred_channel || '-').replace(/_/g, ' ')}</dd>
@@ -2567,23 +2613,71 @@ function LeadDetailPageContent() {
                   </div>
                 </div>
 
-                {/* Counselor / Consultant assignment based on source */}
+                {/* Counselor / Referral assignment based on source */}
                 {editForm.source && (
                   <div className="space-y-3">
                     {editForm.source === 'referral' ? (
                       <>
-                        <h4 className="text-sm font-semibold text-muted-foreground">Referred by Consultant</h4>
-                        <Select value={editConsultantId} onValueChange={setEditConsultantId}>
+                        <h4 className="text-sm font-semibold text-muted-foreground">Referral Details</h4>
+                        <Select
+                          value={editReferralType}
+                          onValueChange={(value) => {
+                            setEditReferralType(value as ReferralType);
+                            setEditConsultantId('');
+                            setEditReferrerId('');
+                          }}
+                        >
                           <SelectTrigger>
-                            <SelectValue placeholder="Select consultant" />
+                            <SelectValue placeholder="Select referral type" />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="_none">No consultant</SelectItem>
-                            {consultantsDropdown.map((c) => (
-                              <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-                            ))}
+                            <SelectItem value="consultant">Consultant</SelectItem>
+                            <SelectItem value="student">Student</SelectItem>
+                            <SelectItem value="faculty">Faculty</SelectItem>
                           </SelectContent>
                         </Select>
+
+                        {editReferralType === 'consultant' && (
+                          <Select value={editConsultantId} onValueChange={setEditConsultantId}>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select consultant" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="_none">No consultant</SelectItem>
+                              {consultantsDropdown.map((c) => (
+                                <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        )}
+
+                        {editReferralType === 'student' && (
+                          <Select value={editReferrerId} onValueChange={setEditReferrerId}>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select student" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="_none">No student</SelectItem>
+                              {studentsDropdown.map((s) => (
+                                <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        )}
+
+                        {editReferralType === 'faculty' && (
+                          <Select value={editReferrerId} onValueChange={setEditReferrerId}>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select faculty" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="_none">No faculty</SelectItem>
+                              {facultyDropdown.map((f) => (
+                                <SelectItem key={f.id} value={f.id}>{f.name}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        )}
                       </>
                     ) : (
                       <>

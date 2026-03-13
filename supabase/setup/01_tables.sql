@@ -396,16 +396,17 @@ CREATE TABLE IF NOT EXISTS public.learners_profiles (
     reference_name TEXT,
     reference_contact TEXT,
 
-    -- Finance/Fee Details (Added: 2026-03-04)
+    -- Finance/Fee Details (Added: 2026-03-04, Updated: 2026-03-13 - 5 fee structure types)
     application_fee NUMERIC(15,2) DEFAULT NULL,
     university_reg_fee NUMERIC(15,2) DEFAULT NULL,
-    fee_structure_type TEXT DEFAULT NULL CHECK (fee_structure_type IN ('tuition_hostel', 'dayscholar')),
+    fee_structure_type TEXT DEFAULT NULL CHECK (fee_structure_type IN ('tuition_hostel', 'tuition_uniform_hospital', 'tuition_instruments_hospital', 'tuition_instruments', 'tuition_only')),
     tuition_fee NUMERIC(15,2) DEFAULT NULL,
     hostel_fee NUMERIC(15,2) DEFAULT NULL,
-    dayscholar_fee NUMERIC(15,2) DEFAULT NULL,
+    dayscholar_fee NUMERIC(15,2) DEFAULT NULL, -- DEPRECATED: retained for backward compatibility
     uniform_fee NUMERIC(15,2) DEFAULT NULL,
     hospital_training_fee NUMERIC(15,2) DEFAULT NULL,
     placement_fee NUMERIC(15,2) DEFAULT NULL,
+    transport_fee NUMERIC(15,2) DEFAULT NULL,
 
     -- Academic Assignment (unlocked after approval/enrollment)
     institution_id UUID,

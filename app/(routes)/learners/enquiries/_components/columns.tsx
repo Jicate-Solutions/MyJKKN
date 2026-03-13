@@ -141,6 +141,22 @@ export const enquiryColumns: ColumnDef<LearnerProfile>[] = [
     },
   },
   {
+    accessorKey: 'transport_fee',
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Transport Fee" />
+    ),
+    cell: ({ row }) => {
+      const fee = row.original.transport_fee;
+      return (
+        <div className="text-sm">
+          {fee != null ? `₹${Number(fee).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : '-'}
+        </div>
+      );
+    },
+    size: 130,
+    enableHiding: true,
+  },
+  {
     accessorKey: 'created_at',
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Created" />

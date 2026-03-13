@@ -127,13 +127,14 @@ export interface LearnerProfile {
   // Finance/Fee Details (Added: 2026-03-04)
   application_fee?: number | null;
   university_reg_fee?: number | null;
-  fee_structure_type?: 'tuition_hostel' | 'dayscholar' | null;
+  fee_structure_type?: 'tuition_hostel' | 'tuition_uniform_hospital' | 'tuition_instruments_hospital' | 'tuition_instruments' | 'tuition_only' | null;
   tuition_fee?: number | null;
   hostel_fee?: number | null;
-  dayscholar_fee?: number | null;
+  dayscholar_fee?: number | null; // DEPRECATED: retained for backward compatibility
   uniform_fee?: number | null;
   hospital_training_fee?: number | null;
   placement_fee?: number | null;
+  transport_fee?: number | null;
 
   // Academic Assignment (unlocked after approval/enrollment)
   institution_id?: string;
@@ -414,13 +415,14 @@ export interface UpdateLearnerProfileDto {
   // Finance/Fee Details
   application_fee?: number | null;
   university_reg_fee?: number | null;
-  fee_structure_type?: 'tuition_hostel' | 'dayscholar' | null;
+  fee_structure_type?: 'tuition_hostel' | 'tuition_uniform_hospital' | 'tuition_instruments_hospital' | 'tuition_instruments' | 'tuition_only' | null;
   tuition_fee?: number | null;
   hostel_fee?: number | null;
-  dayscholar_fee?: number | null;
+  dayscholar_fee?: number | null; // DEPRECATED: retained for backward compatibility
   uniform_fee?: number | null;
   hospital_training_fee?: number | null;
   placement_fee?: number | null;
+  transport_fee?: number | null;
 
   // Academic Assignment
   institution_id?: string | null;

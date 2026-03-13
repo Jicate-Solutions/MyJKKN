@@ -47,6 +47,8 @@ export type FunnelStage =
   | 'lost'
   | 'dormant';
 
+export type ReferralType = 'consultant' | 'student' | 'faculty';
+
 export type LeadPriority = 'hot' | 'warm' | 'cold';
 
 export type Gender = 'male' | 'female' | 'other';
@@ -120,6 +122,9 @@ export interface AdmissionLead {
 
   // Source & Attribution
   source: LeadSource;
+  referral_type: ReferralType | null;
+  referred_by_id: string | null;
+  referred_by_name: string | null;
 
   // Status & Scoring
   funnel_stage: FunnelStage;
@@ -203,6 +208,9 @@ export interface CreateLeadInput {
   preferred_campus?: string | null;
   academic_year?: string | null;
   source: LeadSource;
+  referral_type?: ReferralType | null;
+  referred_by_id?: string | null;
+  referred_by_name?: string | null;
   tags?: string[];
   counselor_id?: string | null;
   preferred_channel?: string | null;

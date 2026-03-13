@@ -34,6 +34,11 @@ import { usePermissions } from '@/hooks/use-permissions';
 import { cn } from '@/lib/utils';
 import type { LearnerProfile } from '@/types/learner-profile';
 import { LifecycleStatusBadge } from '@/components/learners/lifecycle-status-badge';
+import {
+  FEE_STRUCTURE_CONFIG,
+  OPTIONAL_FEE_LABELS,
+  type FeeStructureType
+} from '@/lib/constants/fee-structure';
 
 interface LearnerDetailProps {
   learner: LearnerProfile;
@@ -763,85 +768,63 @@ export function LearnerDetail({ learner }: LearnerDetailProps) {
 
                 <Separator />
 
-                <div className='space-y-4'>
-                  <h3 className='text-sm font-semibold'>Fee Structure</h3>
-                  <div className='grid grid-cols-2 gap-4'>
-                    <div className='space-y-1'>
-                      <h4 className='text-sm font-medium text-muted-foreground'>
-                        Fee Structure Type
-                      </h4>
-                      <p className='text-sm'>
-                        {learner.fee_structure_type === 'tuition_hostel'
-                          ? 'Tuition + Hostel Fee'
-                          : learner.fee_structure_type === 'dayscholar'
-                            ? 'Day Scholar Fee'
-                            : 'Not specified'}
-                      </p>
-                    </div>
-                    {learner.fee_structure_type === 'tuition_hostel' && (
-                      <>
-                        <div className='space-y-1'>
-                          <h4 className='text-sm font-medium text-muted-foreground'>
-                            Tuition Fee
-                          </h4>
-                          <p className='text-sm'>
-                            {learner.tuition_fee != null ? `₹${Number(learner.tuition_fee).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : 'Not specified'}
-                          </p>
+                {(() => {
+                  const feeConfig = learner.fee_structure_type
+                    ? FEE_STRUCTURE_CONFIG[learner.fee_structure_type as FeeStructureType]
+                    : null;
+                  return (
+                    <>
+                      <div className='space-y-4'>
+                        <h3 className='text-sm font-semibold'>Fee Structure</h3>
+                        <div className='grid grid-cols-2 gap-4'>
+                          <div className='space-y-1'>
+                            <h4 className='text-sm font-medium text-muted-foreground'>
+                              Fee Structure Type
+                            </h4>
+                            <p className='text-sm'>
+                              {feeConfig?.label ?? 'Not specified'}
+                            </p>
+                          </div>
+                          {feeConfig?.primaryFields.map((field) => (
+                            <div key={field.name} className='space-y-1'>
+                              <h4 className='text-sm font-medium text-muted-foreground'>
+                                {field.label}
+                              </h4>
+                              <p className='text-sm'>
+                                {(learner as any)[field.name] != null
+                                  ? `₹${Number((learner as any)[field.name]).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`
+                                  : 'Not specified'}
+                              </p>
+                            </div>
+                          ))}
                         </div>
-                        <div className='space-y-1'>
-                          <h4 className='text-sm font-medium text-muted-foreground'>
-                            Hostel Fee
-                          </h4>
-                          <p className='text-sm'>
-                            {learner.hostel_fee != null ? `₹${Number(learner.hostel_fee).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : 'Not specified'}
-                          </p>
-                        </div>
-                      </>
-                    )}
-                    {learner.fee_structure_type === 'dayscholar' && (
-                      <div className='space-y-1'>
-                        <h4 className='text-sm font-medium text-muted-foreground'>
-                          Day Scholar Fee
-                        </h4>
-                        <p className='text-sm'>
-                          {learner.dayscholar_fee != null ? `₹${Number(learner.dayscholar_fee).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : 'Not specified'}
-                        </p>
                       </div>
-                    )}
-                  </div>
-                </div>
 
-                <Separator />
-
-                <div className='space-y-4'>
-                  <h3 className='text-sm font-semibold'>Optional Fees</h3>
-                  <div className='grid grid-cols-2 gap-4'>
-                    <div className='space-y-1'>
-                      <h4 className='text-sm font-medium text-muted-foreground'>
-                        Uniform Fee
-                      </h4>
-                      <p className='text-sm'>
-                        {learner.uniform_fee != null ? `₹${Number(learner.uniform_fee).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : 'Not applicable'}
-                      </p>
-                    </div>
-                    <div className='space-y-1'>
-                      <h4 className='text-sm font-medium text-muted-foreground'>
-                        Hospital Training Fee
-                      </h4>
-                      <p className='text-sm'>
-                        {learner.hospital_training_fee != null ? `₹${Number(learner.hospital_training_fee).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : 'Not applicable'}
-                      </p>
-                    </div>
-                    <div className='space-y-1'>
-                      <h4 className='text-sm font-medium text-muted-foreground'>
-                        Placement Fee
-                      </h4>
-                      <p className='text-sm'>
-                        {learner.placement_fee != null ? `₹${Number(learner.placement_fee).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : 'Not applicable'}
-                      </p>
-                    </div>
-                  </div>
-                </div>
+                      {feeConfig && feeConfig.optionalFees.length > 0 && (
+                        <>
+                          <Separator />
+                          <div className='space-y-4'>
+                            <h3 className='text-sm font-semibold'>Optional Fees</h3>
+                            <div className='grid grid-cols-2 gap-4'>
+                              {feeConfig.optionalFees.map((feeName) => (
+                                <div key={feeName} className='space-y-1'>
+                                  <h4 className='text-sm font-medium text-muted-foreground'>
+                                    {OPTIONAL_FEE_LABELS[feeName]}
+                                  </h4>
+                                  <p className='text-sm'>
+                                    {(learner as any)[feeName] != null
+                                      ? `₹${Number((learner as any)[feeName]).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`
+                                      : 'Not applicable'}
+                                  </p>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        </>
+                      )}
+                    </>
+                  );
+                })()}
               </CardContent>
             </>
           )}
