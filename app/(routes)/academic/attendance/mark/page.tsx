@@ -143,6 +143,20 @@ export default function AttendanceMarkPage() {
     );
   }, [students, searchTerm]);
 
+  // Updated: 2026-03-13 - Filter subdivision groups to only show the faculty's assigned group
+  // When navigating for a specific group (e.g., _group_1), only show that group
+  // Admins/HODs viewing all groups will not have subdivisionGroupOrder set
+  const activeSubdivisionGroups = useMemo(() => {
+    if (!isSubdividedFromUrl || !subdivisionGroupOrder) {
+      return subdivisionGroups;
+    }
+    const targetOrder = parseInt(subdivisionGroupOrder, 10);
+    const filtered = subdivisionGroups.filter(
+      (g) => g.group_order === targetOrder
+    );
+    return filtered.length > 0 ? filtered : subdivisionGroups;
+  }, [subdivisionGroups, isSubdividedFromUrl, subdivisionGroupOrder]);
+
   // Calculate stats
   const presentCount = Object.values(attendanceData).filter(
     (status) => status === 'Present'
@@ -377,10 +391,12 @@ export default function AttendanceMarkPage() {
                 // Match by slot_id - try both original and grouped periodId
                 if (slot && (slot.slot_id === periodId || slot.slot_id === searchPeriodId)) {
                   // NEW: Check if this is a subdivided slot (Updated: 2025-10-11)
+                  // Updated: 2026-03-13 - Also detect combined slots (is_combined=true) with sub_slots
+                  // even when is_subdivided is false, since the real data lives in sub_slots
+                  const hasSubSlots = slot.sub_slots && Array.isArray(slot.sub_slots) && slot.sub_slots.length > 0;
                   if (
-                    slot.is_subdivided &&
-                    slot.sub_slots &&
-                    slot.sub_slots.length > 0
+                    hasSubSlots &&
+                    (slot.is_subdivided || slot.is_combined || isSubdividedFromUrl)
                   ) {
                     // Extract subdivision groups from sub_slots
                     const groups: SubdivisionGroup[] = slot.sub_slots.map(
@@ -453,12 +469,26 @@ export default function AttendanceMarkPage() {
                     setPracticalConfig(null);
                   }
 
-                  if (
-                    slot.section_ids &&
-                    Array.isArray(slot.section_ids) &&
-                    slot.section_ids.length > 0
-                  ) {
-                    slotSectionIds = slot.section_ids;
+                  // Updated: 2026-03-13 - Extract section_ids from parent slot OR from sub_slots
+                  // Combined/subdivided slots often have empty parent section_ids but populated sub_slot section_ids
+                  let foundSectionIds: string[] = [];
+
+                  if (slot.section_ids && Array.isArray(slot.section_ids) && slot.section_ids.length > 0) {
+                    foundSectionIds = slot.section_ids;
+                  } else if (hasSubSlots) {
+                    // Fallback: get section_ids from the matching sub_slot (by group order) or first sub_slot
+                    const targetGroupOrder = subdivisionGroupOrder ? parseInt(subdivisionGroupOrder, 10) : 1;
+                    const matchedSubSlot = slot.sub_slots.find(
+                      (ss: any) => ss.sub_slot_order === targetGroupOrder
+                    ) || slot.sub_slots[0];
+
+                    if (matchedSubSlot?.section_ids && Array.isArray(matchedSubSlot.section_ids) && matchedSubSlot.section_ids.length > 0) {
+                      foundSectionIds = matchedSubSlot.section_ids;
+                    }
+                  }
+
+                  if (foundSectionIds.length > 0) {
+                    slotSectionIds = foundSectionIds;
 
                     // Fetch all section details for display
                     const { data: sectionsData, error: sectionsError } =
@@ -475,7 +505,7 @@ export default function AttendanceMarkPage() {
                     }
                     break;
                   } else {
-                    logger.warn('academic/attendance/mark', 'Slot has no section_ids or empty array', { slotId: slot.slot_id });
+                    logger.warn('academic/attendance/mark', 'Slot has no section_ids in parent or sub_slots', { slotId: slot.slot_id });
                   }
                 }
               }
@@ -706,12 +736,40 @@ export default function AttendanceMarkPage() {
               });
             }
           }
+
+          // Updated: 2026-03-13 - Fallback: extract staff_ids from sub_slots for combined/subdivided periods
+          // Parent slot often has empty staff_ids; real data lives in sub_slots
+          if (staffIds.length === 0 && periodSlot.sub_slots && Array.isArray(periodSlot.sub_slots) && periodSlot.sub_slots.length > 0) {
+            const targetGroupOrder = subdivisionGroupOrder ? parseInt(subdivisionGroupOrder, 10) : 1;
+            const matchedSubSlot = periodSlot.sub_slots.find(
+              (ss: any) => ss.sub_slot_order === targetGroupOrder
+            ) || periodSlot.sub_slots[0];
+
+            if (matchedSubSlot) {
+              if (matchedSubSlot.primary_staff_id && typeof matchedSubSlot.primary_staff_id === 'string') {
+                primaryStaffId = matchedSubSlot.primary_staff_id;
+                staffIds.push(matchedSubSlot.primary_staff_id);
+              }
+              if (matchedSubSlot.staff_ids) {
+                if (Array.isArray(matchedSubSlot.staff_ids)) {
+                  matchedSubSlot.staff_ids.forEach((id: string) => {
+                    if (id && !staffIds.includes(id)) staffIds.push(id);
+                  });
+                } else if (typeof matchedSubSlot.staff_ids === 'object') {
+                  Object.keys(matchedSubSlot.staff_ids).forEach((id: string) => {
+                    if (id && !staffIds.includes(id)) staffIds.push(id);
+                  });
+                }
+              }
+            }
+          }
         }
 
         if (staffIds.length === 0) {
-          logger.warn('academic/attendance/mark', 'No staff IDs found in period slot', {
+          logger.warn('academic/attendance/mark', 'No staff IDs found in period slot or sub_slots', {
             periodId, primary_staff_id: periodSlot.primary_staff_id,
             staff_ids: periodSlot.staff_ids, staff_ids_type: typeof periodSlot.staff_ids,
+            has_sub_slots: !!(periodSlot.sub_slots?.length),
           });
           setAssignedStaff([]);
           return;
@@ -756,7 +814,7 @@ export default function AttendanceMarkPage() {
 
     // Run all three in parallel — they're independent of each other
     Promise.allSettled([checkLeaveBlock(), checkExisting(), loadStaff()]);
-  }, [contextData, date, timetableId, periodId, isSuperAdmin, isSubdividedFromUrl, subdivisionStaffIds]);
+  }, [contextData, date, timetableId, periodId, isSuperAdmin, isSubdividedFromUrl, subdivisionStaffIds, subdivisionGroupOrder]);
 
   // Load students using the resolved context
   useEffect(() => {
@@ -1253,14 +1311,19 @@ export default function AttendanceMarkPage() {
           ...(isSubdividedSlot && {
             is_subdivided: true,
             subdivision_type: subdivisionType,
-            groups: subdivisionGroups.map((group) => ({
+            groups: activeSubdivisionGroups.map((group) => ({
               group_order: group.group_order,
               group_name: group.group_name,
               lab_room: group.lab_room,
               max_capacity: group.max_capacity,
               staff_ids: group.staff_ids,
+              // Updated: 2026-03-13 - Combined periods have empty student_ids; use all students
               students: students
-                .filter((student) => group.student_ids.includes(student.id))
+                .filter((student) =>
+                  group.student_ids.length > 0
+                    ? group.student_ids.includes(student.id)
+                    : true
+                )
                 .map((student) => ({
                   student_id: student.id,
                   section_id:
@@ -1983,8 +2046,8 @@ export default function AttendanceMarkPage() {
             <Users className='h-4 w-4 text-purple-600 dark:text-purple-500' />
             <AlertDescription className='text-purple-800 dark:text-purple-200'>
               ℹ️ This is a subdivided {subdivisionType} session with{' '}
-              {subdivisionGroups.length} groups. Students are organized by their
-              assigned groups below.
+              {activeSubdivisionGroups.length} group{activeSubdivisionGroups.length !== 1 ? 's' : ''}. Students are organized by their
+              assigned group{activeSubdivisionGroups.length !== 1 ? 's' : ''} below.
             </AlertDescription>
           </Alert>
         )}
@@ -2140,7 +2203,7 @@ export default function AttendanceMarkPage() {
                     variant='secondary'
                     className='ml-2 bg-purple-100 text-purple-800'
                   >
-                    {subdivisionGroups.length} Groups
+                    {activeSubdivisionGroups.length} Group{activeSubdivisionGroups.length !== 1 ? 's' : ''}
                   </Badge>
                 </>
               ) : (
@@ -2175,10 +2238,11 @@ export default function AttendanceMarkPage() {
                 </div>
               </CardContent>
             </Card>
-          ) : isSubdividedSlot && subdivisionGroups.length > 0 ? (
+          ) : isSubdividedSlot && activeSubdivisionGroups.length > 0 ? (
             // NEW: Subdivided Attendance Grid (Updated: 2025-10-11)
+            // Updated: 2026-03-13 - Use activeSubdivisionGroups (filtered to faculty's assigned group)
             <SubdividedAttendanceGrid
-              groups={subdivisionGroups}
+              groups={activeSubdivisionGroups}
               allStudents={students}
               availableStaff={assignedStaff}
               attendanceData={attendanceData}
@@ -2189,24 +2253,32 @@ export default function AttendanceMarkPage() {
                 }));
               }}
               onMarkAllGroupPresent={(groupOrder) => {
-                const group = subdivisionGroups.find(
+                const group = activeSubdivisionGroups.find(
                   (g) => g.group_order === groupOrder
                 );
                 if (group) {
                   const newData = { ...attendanceData };
-                  group.student_ids.forEach((studentId) => {
+                  // Updated: 2026-03-13 - Combined periods have empty student_ids; use all students
+                  const targetIds = group.student_ids.length > 0
+                    ? group.student_ids
+                    : students.map((s) => s.id);
+                  targetIds.forEach((studentId) => {
                     newData[studentId] = 'Present';
                   });
                   setAttendanceData(newData);
                 }
               }}
               onMarkAllGroupAbsent={(groupOrder) => {
-                const group = subdivisionGroups.find(
+                const group = activeSubdivisionGroups.find(
                   (g) => g.group_order === groupOrder
                 );
                 if (group) {
                   const newData = { ...attendanceData };
-                  group.student_ids.forEach((studentId) => {
+                  // Updated: 2026-03-13 - Combined periods have empty student_ids; use all students
+                  const targetIds = group.student_ids.length > 0
+                    ? group.student_ids
+                    : students.map((s) => s.id);
+                  targetIds.forEach((studentId) => {
                     newData[studentId] = 'Absent';
                   });
                   setAttendanceData(newData);

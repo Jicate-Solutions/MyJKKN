@@ -356,6 +356,16 @@ export class FacultyAttendanceService {
 
               const timetableSlotId = `${slot.slot_id || `${timetable.id}_${dayOfWeek}_${periodId}`}_group_${groupOrder}`;
 
+              // Updated: 2026-03-13 - Use sub_slot section_ids, then slot-level, then timetable-level
+              // Combined slots have empty parent section_ids; real data is in sub_slots
+              const effectiveSectionIds =
+                (subSlot.section_ids && Array.isArray(subSlot.section_ids) && subSlot.section_ids.length > 0)
+                  ? subSlot.section_ids
+                  : (slot.section_ids && Array.isArray(slot.section_ids) && slot.section_ids.length > 0)
+                    ? slot.section_ids
+                    : [];
+              const resolvedSectionId = timetable.section_id || effectiveSectionIds[0] || slot.section_id || null;
+
               facultyPeriods.push({
                 id: timetableSlotId,
                 timetable_slot_id: timetableSlotId,
@@ -365,7 +375,10 @@ export class FacultyAttendanceService {
                 end_time: this.formatTo12Hour(periodDef.end_time || ''),
                 period_type: 'regular',
                 course: subSlot.course_id ? { id: subSlot.course_id } : slot.course_id ? { id: slot.course_id } : undefined,
-                sections: [{ id: timetable.section_id, name: (timetable.sections as any)?.section_name || '' }],
+                sections: effectiveSectionIds.length > 0
+                  ? effectiveSectionIds.map((sid: string) => ({ id: sid, name: '' }))
+                  : [{ id: resolvedSectionId, name: (timetable.sections as any)?.section_name || '' }],
+                section_ids: effectiveSectionIds.length > 0 ? effectiveSectionIds : (resolvedSectionId ? [resolvedSectionId] : []),
                 degree_name: (timetable.degrees as any)?.degree_name,
                 program_name: (timetable.programs as any)?.program_name,
                 department_name: (timetable.departments as any)?.department_name,
@@ -384,6 +397,9 @@ export class FacultyAttendanceService {
             // Regular slot (not subdivided or staff assigned to main slot)
             const timetableSlotId = slot.slot_id || `${timetable.id}_${dayOfWeek}_${periodId}`;
 
+            // Updated: 2026-03-13 - Use slot-level section_id/section_ids as fallback
+            const resolvedSectionId = timetable.section_id || slot.section_id || slot.section_ids?.[0] || null;
+
             facultyPeriods.push({
               id: timetableSlotId,
               timetable_slot_id: timetableSlotId,
@@ -393,7 +409,8 @@ export class FacultyAttendanceService {
               end_time: this.formatTo12Hour(periodDef.end_time || ''),
               period_type: 'regular',
               course: slot.course_id ? { id: slot.course_id } : undefined,
-              sections: [{ id: timetable.section_id, name: (timetable.sections as any)?.section_name || '' }],
+              sections: [{ id: resolvedSectionId, name: (timetable.sections as any)?.section_name || '' }],
+              section_ids: slot.section_ids || (resolvedSectionId ? [resolvedSectionId] : []),
               degree_name: (timetable.degrees as any)?.degree_name,
               program_name: (timetable.programs as any)?.program_name,
               department_name: (timetable.departments as any)?.department_name,

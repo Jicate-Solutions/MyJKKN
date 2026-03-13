@@ -155,11 +155,24 @@ export default function AttendancePage() {
   // For semester-level timetables: mark all sections together (no modal)
   // For section-level timetables: proceed directly to mark page
   // Updated: 2026-02-06 - Added practical period support (navigate without requiring sectionId)
+  // Updated: 2026-03-13 - Added subdivided period support (navigate with optional sectionId)
   const handlePeriodSelection = async (period: AttendancePeriodOption) => {
     // Updated: 2026-02-06 - Practical periods use batches, not sections
     // Navigate directly to mark page where batch/course selection happens at runtime
     if (period.period_mode === 'practical') {
       // For practical periods, try to get section_id from batch config or search context
+      const sectionId = searchContext.section_id ||
+        period.sections?.[0]?.id ||
+        period.section_ids?.[0] ||
+        undefined;
+      navigateToMarkAttendance(period, sectionId);
+      return;
+    }
+
+    // Updated: 2026-03-13 - Subdivided periods (e.g., practical groups) may not have
+    // section_id on semester-level timetables. Navigate with optional sectionId and let
+    // the mark page resolve sections from the timetable slot data.
+    if ((period as any).is_subdivided) {
       const sectionId = searchContext.section_id ||
         period.sections?.[0]?.id ||
         period.section_ids?.[0] ||
@@ -195,11 +208,12 @@ export default function AttendancePage() {
     period: AttendancePeriodOption
   ): string | undefined => {
     // Try multiple sources in priority order
+    // Updated: 2026-03-13 - Removed section_name fallback (it's a display string, not an ID)
     return (
       searchContext.section_id ||
       period.sections?.[0]?.id ||
       period.section_ids?.[0] ||
-      period.section_name
+      undefined
     );
   };
 

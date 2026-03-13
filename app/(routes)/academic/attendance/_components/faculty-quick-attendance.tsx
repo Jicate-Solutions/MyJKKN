@@ -138,18 +138,40 @@ export function FacultyQuickAttendance({
       return;
     } else {
       // Navigate to separate attendance marking page
-      const params = new URLSearchParams({
+      const navParams: Record<string, string> = {
         periodId: period.timetable_slot_id,
         timetableId: period.timetable_id,
-        sectionId: period.sections?.[0]?.id || searchContext.section_id || '',
         date: targetDate,
         periodName: period.period_name,
         courseName: period.course?.course_name || 'Unknown Course',
         startTime: period.start_time,
         endTime: period.end_time
-      });
+      };
 
-      // Navigate to attendance marking page
+      // Only include sectionId if it's a valid value (not empty/null)
+      const sectionId = period.sections?.[0]?.id || searchContext.section_id;
+      if (sectionId) {
+        navParams.sectionId = sectionId;
+      }
+
+      // Updated: 2026-03-13 - Pass subdivision group data for combined/subdivided periods
+      if ((period as any).is_subdivided && (period as any).subdivision_group) {
+        const group = (period as any).subdivision_group;
+        navParams.isSubdivided = 'true';
+        navParams.subdivisionGroupOrder = String(group.group_order);
+        navParams.subdivisionGroupName = group.group_name;
+        if (group.student_ids && group.student_ids.length > 0) {
+          navParams.subdivisionStudentIds = group.student_ids.join(',');
+        }
+        if (group.staff_ids && group.staff_ids.length > 0) {
+          navParams.subdivisionStaffIds = group.staff_ids.join(',');
+        }
+        if (group.lab_room) {
+          navParams.subdivisionLabRoom = group.lab_room;
+        }
+      }
+
+      const params = new URLSearchParams(navParams);
       router.push(`/academic/attendance/mark?${params.toString()}`);
     }
   };

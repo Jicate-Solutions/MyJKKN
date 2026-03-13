@@ -77,7 +77,12 @@ export function SubdividedAttendanceGrid({
   subdivisionType = 'practical'
 }: SubdividedAttendanceGridProps) {
   // Helper function to get students for a specific group
+  // Updated: 2026-03-13 - For combined periods (is_combined=true), sub_slots share ALL students
+  // and have no student_ids. When student_ids is empty, all students belong to the group.
   const getGroupStudents = (group: SubdivisionGroupData) => {
+    if (!group.student_ids || group.student_ids.length === 0) {
+      return allStudents;
+    }
     return allStudents.filter((student) => group.student_ids.includes(student.id));
   };
 
