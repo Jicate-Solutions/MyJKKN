@@ -62,14 +62,31 @@ export default async function StudentAttendancePage({ searchParams }: PageProps)
   const currentSemesterId = learner?.semester_id || '';
   const selectedSemester = params.semester || currentSemesterId;
 
-  // Get all semesters for dropdown (from same program - shows historical semesters)
-  const { data: semesters } = await supabase
+  // Get all semesters for dropdown (from same program)
+  // Fetch semester_code to filter out future semesters
+  const { data: allSemesters } = await supabase
     .from('semesters')
-    .select('id, semester_name')
+    .select('id, semester_name, semester_code')
     .eq('program_id', learner?.program_id)
     .eq('institution_id', learner?.institution_id)
     .eq('is_active', true)
     .order('semester_name');
+
+  // Extract semester number from semester_code (e.g., "BPHARM-SEM-5" → 5)
+  const extractSemesterNumber = (code: string | null): number => {
+    if (!code) return 0;
+    const match = code.match(/(\d+)$/);
+    return match ? parseInt(match[1], 10) : 0;
+  };
+
+  // Find current semester's number to filter out future semesters
+  const currentSem = (allSemesters || []).find(s => s.id === currentSemesterId);
+  const currentSemNumber = extractSemesterNumber(currentSem?.semester_code || null);
+
+  // Only show current and past semesters (not future ones)
+  const semesters = (allSemesters || [])
+    .filter(s => extractSemesterNumber(s.semester_code) <= currentSemNumber)
+    .map(({ id, semester_name }) => ({ id, semester_name }));
 
   // Fetch attendance data in parallel
   const [statistics, courseWise, trendData, attendanceRecords] = await Promise.all([

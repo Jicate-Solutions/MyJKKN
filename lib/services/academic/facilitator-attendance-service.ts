@@ -53,6 +53,13 @@ export class FacilitatorAttendanceService {
         periodsPending:  f.periods_pending,
         markingRate:     f.marking_rate,
         lastMarkedAt:    f.last_marked_at,
+        timetableAssignments: (f.timetable_assignments ?? []).map((ta) => ({
+          timetableId:   ta.timetable_id,
+          timetableName: ta.timetable_name,
+          assignedCount: ta.assigned_count,
+          markedCount:   ta.marked_count,
+          pendingCount:  ta.pending_count,
+        })),
         trendData:       (f.trend_data ?? []).map((t) => ({ week: t.week, count: t.count })),
         dailyData:       (f.daily_data ?? []).map((d) => ({ date: d.date, count: d.count })),
       })),

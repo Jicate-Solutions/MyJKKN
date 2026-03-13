@@ -18,30 +18,38 @@ interface TimetableHeaderProps {
   currentDayIndex: number;
   onDayChange: (dayIndex: number) => void;
   timetableData: StudentTimetableData;
+  availableDays: DayOfWeek[];
 }
 
-const DAYS: { label: string; value: DayOfWeek }[] = [
-  { label: 'Mon', value: 'MONDAY' },
-  { label: 'Tue', value: 'TUESDAY' },
-  { label: 'Wed', value: 'WEDNESDAY' },
-  { label: 'Thu', value: 'THURSDAY' },
-  { label: 'Fri', value: 'FRIDAY' },
-  { label: 'Sat', value: 'SATURDAY' }
-];
+const DAY_LABELS: Record<DayOfWeek, string> = {
+  MONDAY: 'Mon',
+  TUESDAY: 'Tue',
+  WEDNESDAY: 'Wed',
+  THURSDAY: 'Thu',
+  FRIDAY: 'Fri',
+  SATURDAY: 'Sat',
+  SUNDAY: 'Sun'
+};
 
 export function TimetableHeader({
   currentDay,
   currentDayIndex,
   onDayChange,
-  timetableData
+  timetableData,
+  availableDays
 }: TimetableHeaderProps) {
   return (
     <Card className="p-4 space-y-4">
       {/* Day Selector */}
-      <div className="grid grid-cols-6 gap-2">
-        {DAYS.map((day, index) => (
+      <div className={cn(
+        'grid gap-2',
+        availableDays.length <= 3 ? 'grid-cols-3' :
+        availableDays.length <= 4 ? 'grid-cols-4' :
+        availableDays.length <= 5 ? 'grid-cols-5' : 'grid-cols-6'
+      )}>
+        {availableDays.map((day, index) => (
           <Button
-            key={day.value}
+            key={day}
             variant={currentDayIndex === index ? 'default' : 'outline'}
             size="sm"
             onClick={() => onDayChange(index)}
@@ -50,7 +58,7 @@ export function TimetableHeader({
               currentDayIndex === index && 'shadow-md'
             )}
           >
-            <span className="text-xs font-medium">{day.label}</span>
+            <span className="text-xs font-medium">{DAY_LABELS[day]}</span>
           </Button>
         ))}
       </div>

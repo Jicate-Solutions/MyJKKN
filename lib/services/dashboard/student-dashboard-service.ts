@@ -1,6 +1,99 @@
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { logger } from '@/lib/utils/enhanced-logger';
 
+/**
+ * Check if timetable_data JSONB contains a specific section_id in any slot's section_ids array.
+ */
+function timetableDataContainsSection(timetableData: any, sectionId: string): boolean {
+  if (!timetableData || typeof timetableData !== 'object') return false;
+
+  if (Array.isArray(timetableData)) {
+    return timetableData.some(
+      (slot: any) => Array.isArray(slot?.section_ids) && slot.section_ids.includes(sectionId)
+    );
+  }
+  if (timetableData.slots && Array.isArray(timetableData.slots)) {
+    return timetableData.slots.some(
+      (slot: any) => Array.isArray(slot?.section_ids) && slot.section_ids.includes(sectionId)
+    );
+  }
+  for (const dayData of Object.values(timetableData)) {
+    if (typeof dayData === 'object' && dayData !== null) {
+      for (const slotData of Object.values(dayData as Record<string, any>)) {
+        if (
+          slotData &&
+          typeof slotData === 'object' &&
+          Array.isArray((slotData as any).section_ids) &&
+          (slotData as any).section_ids.includes(sectionId)
+        ) {
+          return true;
+        }
+      }
+    }
+  }
+  return false;
+}
+
+/**
+ * Select the best timetable from candidates based on date range.
+ * Priority: 1) Date range covers today, 2) Closest future start, 3) Most recently created
+ */
+function selectBestTimetable(candidates: any[], today: string): any {
+  if (candidates.length === 1) return candidates[0];
+
+  const coveringToday = candidates.filter(t => {
+    if (!t.start_date && !t.end_date) return false;
+    const startOk = !t.start_date || t.start_date <= today;
+    const endOk = !t.end_date || t.end_date >= today;
+    return startOk && endOk;
+  });
+
+  if (coveringToday.length > 0) {
+    return coveringToday.sort((a: any, b: any) =>
+      new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
+    )[0];
+  }
+
+  const futureTimetables = candidates
+    .filter(t => t.start_date && t.start_date > today)
+    .sort((a: any, b: any) => a.start_date.localeCompare(b.start_date));
+
+  if (futureTimetables.length > 0) return futureTimetables[0];
+
+  return candidates.sort((a: any, b: any) =>
+    new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
+  )[0];
+}
+
+/**
+ * Resolve the DayOfWeek key to look up in timetable_data.
+ * Handles both day-name keys (MONDAY) and date-string keys (2026-03-13).
+ */
+function findDayDataInTimetable(timetableData: any, currentDay: string, todayDate: string): any {
+  if (!timetableData || typeof timetableData !== 'object') return null;
+
+  // Try direct day-name key first (e.g., "MONDAY")
+  if (timetableData[currentDay]) return timetableData[currentDay];
+
+  // Try today's date key (e.g., "2026-03-13")
+  if (timetableData[todayDate]) return timetableData[todayDate];
+
+  // Search all date keys that map to the same day of week
+  const DAYS_OF_WEEK = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'];
+  const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
+
+  for (const [key, data] of Object.entries(timetableData)) {
+    if (DATE_REGEX.test(key)) {
+      const date = new Date(key + 'T00:00:00');
+      if (DAYS_OF_WEEK[date.getDay()] === currentDay) {
+        return data;
+      }
+    }
+  }
+
+  return null;
+}
+
 export interface StudentAttendanceSummary {
   percentage: number;
   present: number;
@@ -60,17 +153,35 @@ export class StudentDashboardService {
       return { percentage: 0, present: 0, absent: 0, late: 0, total: 0 };
     }
 
-    // FIX: 2026-02-03 - Get attendance for current semester only
     // Query active timetables for student's section and current semester
-    // The timetables table already links section_id to semester_id and academic_year_id
-    const { data: timetables } = await supabase
+    // Step 1: Direct section_id match
+    const { data: directTimetables } = await supabase
       .from('timetables')
-      .select('id')
+      .select('id, timetable_data')
       .eq('section_id', student.section_id)
       .eq('semester_id', section.semester_id)
       .eq('is_active', true);
 
-    if (!timetables || timetables.length === 0) {
+    // Step 2: Fallback — section_id is NULL but stored inside timetable_data JSONB
+    const { data: nullSectionCandidates } = await supabase
+      .from('timetables')
+      .select('id, timetable_data')
+      .is('section_id', null)
+      .eq('semester_id', section.semester_id)
+      .eq('is_active', true);
+
+    const fallbackMatches = (nullSectionCandidates || []).filter((t: any) =>
+      timetableDataContainsSection(t.timetable_data, student.section_id)
+    );
+
+    // Merge and deduplicate
+    const timetableMap = new Map<string, any>();
+    for (const t of (directTimetables || [])) timetableMap.set(t.id, t);
+    for (const t of fallbackMatches) if (!timetableMap.has(t.id)) timetableMap.set(t.id, t);
+
+    const timetableIds = Array.from(timetableMap.keys());
+
+    if (timetableIds.length === 0) {
       logger.warn('dashboard/student', 'No active timetable found for current semester', {
         studentId,
         sectionId: student.section_id,
@@ -78,8 +189,6 @@ export class StudentDashboardService {
       });
       return { percentage: 0, present: 0, absent: 0, late: 0, total: 0 };
     }
-
-    const timetableIds = timetables.map(t => t.id);
 
     // Get attendance records for current semester's timetables only
     const { data: attendanceRecords, error } = await supabase
@@ -146,23 +255,50 @@ export class StudentDashboardService {
     const dayIndex = new Date().getDay();
     const currentDay = dayIndex === 0 ? 'MONDAY' : days[dayIndex]; // Default Sunday to Monday
 
-    // Fetch active timetable for section
-    const { data: timetable, error: timetableError } = await supabase
+    const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+
+    // Step 1: Direct section_id match
+    const { data: directMatches, error: directError } = await supabase
       .from('timetables')
-      .select('id, timetable_data, periods, institution_id')
+      .select('id, timetable_data, periods, institution_id, start_date, end_date, created_at')
       .eq('section_id', sectionId)
       .eq('is_active', true)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
+      .order('created_at', { ascending: false });
 
-    if (timetableError) {
-      logger.error('dashboard/student', 'Failed to fetch timetable', timetableError);
+    if (directError) {
+      logger.error('dashboard/student', 'Failed to fetch timetable', directError);
       return [];
     }
 
-    if (!timetable || !timetable.timetable_data) {
+    // Step 2: Fallback — section_id is NULL but stored inside timetable_data JSONB
+    const { data: nullSectionCandidates } = await supabase
+      .from('timetables')
+      .select('id, timetable_data, periods, institution_id, start_date, end_date, created_at')
+      .is('section_id', null)
+      .eq('is_active', true)
+      .order('created_at', { ascending: false });
+
+    const fallbackMatches = (nullSectionCandidates || []).filter((t: any) =>
+      timetableDataContainsSection(t.timetable_data, sectionId)
+    );
+
+    // Merge and deduplicate
+    const allTimetables = new Map<string, any>();
+    for (const t of (directMatches || [])) allTimetables.set(t.id, t);
+    for (const t of fallbackMatches) if (!allTimetables.has(t.id)) allTimetables.set(t.id, t);
+
+    const candidates = Array.from(allTimetables.values());
+
+    if (candidates.length === 0) {
       logger.warn('dashboard/student', 'No active timetable found', { sectionId });
+      return [];
+    }
+
+    // Pick the best timetable by date range
+    const timetable = selectBestTimetable(candidates, today);
+
+    if (!timetable?.timetable_data) {
+      logger.warn('dashboard/student', 'Selected timetable has no data', { sectionId });
       return [];
     }
 
@@ -175,9 +311,9 @@ export class StudentDashboardService {
 
     const periodMap = new Map((periods || []).map(p => [p.id, p]));
 
-    // Parse timetable_data JSONB
+    // Parse timetable_data JSONB — handle both day-name and date-string keys
     const timetableData = timetable.timetable_data as any;
-    const dayData = timetableData?.[currentDay];
+    const dayData = findDayDataInTimetable(timetableData, currentDay, today);
 
     if (!dayData || typeof dayData !== 'object') {
       return [];

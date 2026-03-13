@@ -21,14 +21,75 @@ import {
 } from '@/components/ui/table';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { ChevronDown, ChevronRight } from 'lucide-react';
+import { ChevronDown, ChevronRight, CalendarClock } from 'lucide-react';
 import { getFacilitatorColumns } from './facilitator-columns';
 import { FacilitatorTrendChart } from './facilitator-trend-chart';
-import type { FacilitatorAttendanceStat } from '@/types/attendance';
+import type { FacilitatorAttendanceStat, FacilitatorTimetableAssignment } from '@/types/attendance';
 
 interface Props {
   facilitators: FacilitatorAttendanceStat[];
   globalFilter: string;
+}
+
+function TimetableBreakdown({ assignments }: { assignments: FacilitatorTimetableAssignment[] }) {
+  if (assignments.length === 0) {
+    return (
+      <p className="text-sm text-muted-foreground italic">No timetable assignments found.</p>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      <h4 className="text-sm font-semibold flex items-center gap-1.5">
+        <CalendarClock className="h-3.5 w-3.5" />
+        Timetable Breakdown
+      </h4>
+      <div className="rounded-md border overflow-hidden">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="bg-muted/50 text-xs">
+              <th className="text-left py-1.5 px-3 font-medium">Timetable</th>
+              <th className="text-center py-1.5 px-3 font-medium">Assigned</th>
+              <th className="text-center py-1.5 px-3 font-medium">Marked</th>
+              <th className="text-center py-1.5 px-3 font-medium">Pending</th>
+              <th className="text-center py-1.5 px-3 font-medium">Rate</th>
+            </tr>
+          </thead>
+          <tbody>
+            {assignments.map((ta) => {
+              const rate = ta.assignedCount > 0
+                ? Math.round((ta.markedCount / ta.assignedCount) * 100)
+                : 0;
+              const rateColor =
+                rate >= 80 ? 'text-green-700 dark:text-green-400' :
+                rate >= 60 ? 'text-blue-700 dark:text-blue-400' :
+                rate >= 40 ? 'text-yellow-700 dark:text-yellow-400' :
+                'text-red-600 dark:text-red-400';
+              return (
+                <tr key={ta.timetableId} className="border-t">
+                  <td className="py-1.5 px-3 font-medium">{ta.timetableName}</td>
+                  <td className="py-1.5 px-3 text-center text-indigo-700 dark:text-indigo-400 font-semibold">
+                    {ta.assignedCount}
+                  </td>
+                  <td className="py-1.5 px-3 text-center text-green-700 dark:text-green-400 font-semibold">
+                    {ta.markedCount}
+                  </td>
+                  <td className="py-1.5 px-3 text-center">
+                    <span className={`font-semibold ${ta.pendingCount > 0 ? 'text-red-600 dark:text-red-400' : 'text-muted-foreground'}`}>
+                      {ta.pendingCount}
+                    </span>
+                  </td>
+                  <td className="py-1.5 px-3 text-center">
+                    <span className={`font-semibold ${rateColor}`}>{rate}%</span>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
 }
 
 export function FacilitatorDataTable({ facilitators, globalFilter }: Props) {
@@ -112,8 +173,11 @@ export function FacilitatorDataTable({ facilitators, globalFilter }: Props) {
                         colSpan={columns.length + 1}
                         className="bg-muted/30 p-4"
                       >
-                        <div className="max-w-2xl">
-                          <FacilitatorTrendChart facilitators={[row.original]} />
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                          <TimetableBreakdown assignments={row.original.timetableAssignments ?? []} />
+                          <div className="min-w-0">
+                            <FacilitatorTrendChart facilitators={[row.original]} />
+                          </div>
                         </div>
                       </TableCell>
                     </TableRow>

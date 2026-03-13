@@ -4657,6 +4657,11 @@ END;
 -- Updated: 2026-03-06 - Add assigned_periods CTE; periods_assigned, periods_pending, marking_rate
 -- Purpose: Aggregates periods marked/assigned per facilitator for live dashboard
 -- ============================================================
+-- Updated: 2026-03-13
+-- Fixed: INNER JOIN → LEFT JOIN so facilitators with 0 marked periods appear
+-- Fixed: generate_series now respects timetable start_date/end_date and selected_days
+-- Fixed: Handles both staff_ids formats (array and object) in timetable_data
+-- Added: Per-timetable breakdown (timetable_assignments) per facilitator
 CREATE OR REPLACE FUNCTION get_facilitator_attendance_stats(
   p_institution_id  UUID,
   p_date_from       DATE,
@@ -4673,9 +4678,11 @@ DECLARE
   v_result JSONB;
 BEGIN
   WITH attendance_counts AS (
-    -- marked_by = staff.profile_id (auth user UUID stored in marked_by_details.marker_id)
+    -- Count periods MARKED per staff per timetable.
+    -- marked_by_details.marker_id = staff.profile_id (auth user UUID).
     SELECT
       (pe.val -> 'marked_by_details' ->> 'marker_id')::UUID AS marked_by,
+      sa.timetable_id,
       COUNT(*)                                               AS periods_marked,
       MAX(sa.attendance_date)                                AS last_marked_at
     FROM student_attendance sa,
@@ -4683,27 +4690,78 @@ BEGIN
     WHERE sa.institution_id = p_institution_id
       AND sa.attendance_date BETWEEN p_date_from AND p_date_to
       AND (pe.val -> 'marked_by_details' ->> 'marker_id') IS NOT NULL
-    GROUP BY (pe.val -> 'marked_by_details' ->> 'marker_id')::UUID
+    GROUP BY (pe.val -> 'marked_by_details' ->> 'marker_id')::UUID, sa.timetable_id
+  ),
+  attendance_totals AS (
+    -- Aggregate marked totals per staff (across all timetables)
+    SELECT
+      marked_by,
+      SUM(periods_marked)::INT AS periods_marked,
+      MAX(last_marked_at)      AS last_marked_at
+    FROM attendance_counts
+    GROUP BY marked_by
   ),
   assigned_periods AS (
-    -- Count periods each staff member is scheduled to teach in the date range.
-    -- timetable_data keys are uppercase day names ("MONDAY", "TUESDAY", ...).
-    -- staff_ids contains staff.id values (UUID).
+    -- Count periods each staff member is scheduled to teach per timetable.
+    -- Respects timetable start_date/end_date and selected_days (DayOfWeek[]).
+    -- Handles both staff_ids formats: array ["uuid"] and object {"uuid": {...}}.
     -- Skips break slots (is_break_slot = true).
     SELECT
-      (sid.value #>> '{}')::UUID AS staff_id,
-      COUNT(*)::INT               AS assigned_count
+      sid.staff_uuid::UUID AS staff_id,
+      t.id                 AS timetable_id,
+      t.timetable_name,
+      COUNT(*)::INT        AS assigned_count
     FROM timetables t,
-         generate_series(p_date_from::TIMESTAMP, p_date_to::TIMESTAMP, '1 day'::INTERVAL) gs(d),
-         jsonb_each(t.timetable_data -> UPPER(to_char(gs.d, 'fmDay'))) day_slot(period_key, slot_val),
-         jsonb_array_elements(slot_val -> 'staff_ids') sid
+         generate_series(
+           GREATEST(p_date_from, COALESCE(t.start_date, p_date_from))::TIMESTAMP,
+           LEAST(p_date_to, COALESCE(t.end_date, p_date_to))::TIMESTAMP,
+           '1 day'::INTERVAL
+         ) gs(d),
+         LATERAL (SELECT UPPER(to_char(gs.d, 'fmDay')) AS day_name) dn,
+         jsonb_each(t.timetable_data -> dn.day_name) day_slot(period_key, slot_val),
+         LATERAL (
+           -- Array format: ["uuid1", "uuid2"]
+           SELECT e AS staff_uuid
+           FROM jsonb_array_elements_text(
+             CASE WHEN jsonb_typeof(slot_val -> 'staff_ids') = 'array'
+                  THEN slot_val -> 'staff_ids'
+                  ELSE '[]'::jsonb END
+           ) AS e
+           UNION ALL
+           -- Object format: {"uuid1": {...}, "uuid2": {...}}
+           SELECT k AS staff_uuid
+           FROM jsonb_object_keys(
+             CASE WHEN jsonb_typeof(slot_val -> 'staff_ids') = 'object'
+                  THEN slot_val -> 'staff_ids'
+                  ELSE '{}'::jsonb END
+           ) AS k
+         ) sid
     WHERE t.institution_id = p_institution_id
       AND t.is_active = true
       AND COALESCE((slot_val ->> 'is_break_slot')::BOOLEAN, false) = false
-    GROUP BY (sid.value #>> '{}')::UUID
+      -- Respect selected_days: array of day names like ["MONDAY","TUESDAY",...]
+      AND (
+        t.selected_days IS NULL
+        OR jsonb_typeof(t.selected_days) != 'array'
+        OR jsonb_array_length(t.selected_days) = 0
+        OR EXISTS (
+          SELECT 1 FROM jsonb_array_elements_text(t.selected_days) sd
+          WHERE UPPER(sd) = dn.day_name
+        )
+      )
+    GROUP BY sid.staff_uuid::UUID, t.id, t.timetable_name
+  ),
+  assigned_totals AS (
+    -- Aggregate assigned totals per staff (across all timetables)
+    SELECT
+      staff_id,
+      SUM(assigned_count)::INT AS assigned_count
+    FROM assigned_periods
+    GROUP BY staff_id
   ),
   staff_stats AS (
-    -- Join via profile_id (not id) since marker_id = staff.profile_id
+    -- LEFT JOIN both: shows ALL staff who have either assignments or markings.
+    -- Joins via profile_id for marked periods, staff.id for assigned periods.
     SELECT
       s.id                                    AS staff_id,
       s.profile_id,
@@ -4712,22 +4770,24 @@ BEGIN
       COALESCE(s.designation, '')             AS designation,
       COALESCE(d.department_name, 'Unknown')  AS department_name,
       s.department_id,
-      COALESCE(ac.periods_marked, 0)                                    AS periods_marked,
-      COALESCE(ap.assigned_count, 0)                                    AS periods_assigned,
-      GREATEST(COALESCE(ap.assigned_count, 0) - COALESCE(ac.periods_marked, 0), 0) AS periods_pending,
+      COALESCE(atm.periods_marked, 0)                                    AS periods_marked,
+      COALESCE(ata.assigned_count, 0)                                    AS periods_assigned,
+      GREATEST(COALESCE(ata.assigned_count, 0) - COALESCE(atm.periods_marked, 0), 0) AS periods_pending,
       CASE
-        WHEN COALESCE(ap.assigned_count, 0) = 0 THEN 0.0
-        ELSE ROUND((COALESCE(ac.periods_marked, 0)::NUMERIC / ap.assigned_count) * 100, 1)
+        WHEN COALESCE(ata.assigned_count, 0) = 0 THEN 0.0
+        ELSE ROUND((COALESCE(atm.periods_marked, 0)::NUMERIC / ata.assigned_count) * 100, 1)
       END                                                               AS marking_rate,
-      ac.last_marked_at
+      atm.last_marked_at
     FROM staff s
     LEFT JOIN departments d ON s.department_id = d.id
-    INNER JOIN attendance_counts ac ON s.profile_id = ac.marked_by
-    LEFT JOIN assigned_periods ap ON s.id = ap.staff_id
+    LEFT JOIN attendance_totals atm ON s.profile_id = atm.marked_by
+    LEFT JOIN assigned_totals ata ON s.id = ata.staff_id
     WHERE s.institution_id = p_institution_id
       AND s.is_active = true
       AND (p_department_id IS NULL OR s.department_id = p_department_id)
       AND (p_facilitator_id IS NULL OR s.id = p_facilitator_id)
+      -- Only include staff who have either assignments or markings
+      AND (atm.periods_marked IS NOT NULL OR ata.assigned_count IS NOT NULL)
   ),
   weekly_counts AS (
     -- Weekly aggregates per staff (for line trend chart)
@@ -4784,6 +4844,27 @@ BEGIN
             'periods_pending',  ss.periods_pending,
             'marking_rate',     ss.marking_rate,
             'last_marked_at',   ss.last_marked_at,
+            'timetable_assignments', COALESCE((
+              -- Per-timetable breakdown: assigned vs marked per timetable
+              SELECT jsonb_agg(
+                jsonb_build_object(
+                  'timetable_id',   ref.timetable_id,
+                  'timetable_name', COALESCE(ap.timetable_name, t.timetable_name, 'Unknown'),
+                  'assigned_count', COALESCE(ap.assigned_count, 0),
+                  'marked_count',   COALESCE(ac.periods_marked, 0)::INT,
+                  'pending_count',  GREATEST(COALESCE(ap.assigned_count, 0) - COALESCE(ac.periods_marked, 0)::INT, 0)
+                )
+                ORDER BY COALESCE(ap.assigned_count, 0) DESC
+              )
+              FROM (
+                SELECT timetable_id FROM assigned_periods WHERE staff_id = ss.staff_id
+                UNION
+                SELECT timetable_id FROM attendance_counts WHERE marked_by = ss.profile_id
+              ) ref
+              LEFT JOIN assigned_periods ap ON ap.staff_id = ss.staff_id AND ap.timetable_id = ref.timetable_id
+              LEFT JOIN attendance_counts ac ON ac.marked_by = ss.profile_id AND ac.timetable_id = ref.timetable_id
+              LEFT JOIN timetables t ON t.id = ref.timetable_id
+            ), '[]'::JSONB),
             'trend_data', COALESCE((
               SELECT jsonb_agg(
                 jsonb_build_object('week', wc.week_start, 'count', wc.week_count)

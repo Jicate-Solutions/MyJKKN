@@ -15,35 +15,46 @@ import { TimelineCard } from './timeline-card';
 import { CurrentClassIndicator } from './current-class-indicator';
 import { EmptyState } from './empty-state';
 import { CourseDetailSheet } from './course-detail-sheet';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface DaySwiperProps {
   timetableData: StudentTimetableData;
 }
 
-const DAYS: DayOfWeek[] = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'];
+const ALL_DAYS: DayOfWeek[] = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'];
 
 export function DaySwiper({ timetableData }: DaySwiperProps) {
   const [currentDayIndex, setCurrentDayIndex] = useState(0);
   const [selectedSlot, setSelectedSlot] = useState<any>(null);
   const [isSheetOpen, setIsSheetOpen] = useState(false);
 
+  // Determine which days to show based on selected_days or actual slot data
+  const availableDays = useMemo(() => {
+    if (timetableData.selected_days && timetableData.selected_days.length > 0) {
+      // Use selected_days from timetable config, preserving weekday order
+      return ALL_DAYS.filter(d => timetableData.selected_days!.includes(d));
+    }
+    // Fallback: derive from actual slot data
+    const daysWithSlots = new Set(timetableData.slots.map(s => s.day));
+    const derived = ALL_DAYS.filter(d => daysWithSlots.has(d));
+    return derived.length > 0 ? derived : ALL_DAYS;
+  }, [timetableData.selected_days, timetableData.slots]);
+
   // Get current day index on mount
   useEffect(() => {
-    const today = new Date().getDay(); // 0 = Sunday, 1 = Monday, etc.
-    if (today === 0) {
-      // Sunday - default to Monday
-      setCurrentDayIndex(0);
-    } else {
-      // Map day index (Monday = 1, Saturday = 6)
-      setCurrentDayIndex(today - 1);
-    }
-  }, []);
+    const dayMap: Record<number, DayOfWeek> = {
+      0: 'MONDAY', 1: 'MONDAY', 2: 'TUESDAY', 3: 'WEDNESDAY',
+      4: 'THURSDAY', 5: 'FRIDAY', 6: 'SATURDAY'
+    };
+    const todayDay = dayMap[new Date().getDay()];
+    const todayIdx = availableDays.indexOf(todayDay);
+    // If today is in available days, select it; otherwise select first available day
+    setCurrentDayIndex(todayIdx >= 0 ? todayIdx : 0);
+  }, [availableDays]);
 
   // Filter slots for current day
   const todaySlots = useMemo(() => {
-    const currentDay = DAYS[currentDayIndex];
+    const currentDay = availableDays[currentDayIndex];
     return timetableData.slots
       .filter(slot => slot.day === currentDay)
       .sort((a, b) => {
@@ -61,7 +72,7 @@ export function DaySwiper({ timetableData }: DaySwiperProps) {
     if (info.offset.x > threshold && currentDayIndex > 0) {
       // Swipe right - previous day
       setCurrentDayIndex(prev => prev - 1);
-    } else if (info.offset.x < -threshold && currentDayIndex < DAYS.length - 1) {
+    } else if (info.offset.x < -threshold && currentDayIndex < availableDays.length - 1) {
       // Swipe left - next day
       setCurrentDayIndex(prev => prev + 1);
     }
@@ -86,30 +97,15 @@ export function DaySwiper({ timetableData }: DaySwiperProps) {
     <div className="space-y-4">
       {/* Header with day selector and export */}
       <TimetableHeader
-        currentDay={DAYS[currentDayIndex]}
+        currentDay={availableDays[currentDayIndex]}
         currentDayIndex={currentDayIndex}
         onDayChange={goToDay}
         timetableData={timetableData}
+        availableDays={availableDays}
       />
 
       {/* Swipe Container */}
       <div className="relative">
-        {/* Swipe indicators */}
-        {currentDayIndex > 0 && (
-          <div className="absolute left-0 top-1/2 -translate-y-1/2 z-10 pointer-events-none">
-            <div className="bg-background/80 backdrop-blur-sm rounded-full p-2 shadow-lg">
-              <ChevronLeft className="w-6 h-6 text-muted-foreground" />
-            </div>
-          </div>
-        )}
-        {currentDayIndex < DAYS.length - 1 && (
-          <div className="absolute right-0 top-1/2 -translate-y-1/2 z-10 pointer-events-none">
-            <div className="bg-background/80 backdrop-blur-sm rounded-full p-2 shadow-lg">
-              <ChevronRight className="w-6 h-6 text-muted-foreground" />
-            </div>
-          </div>
-        )}
-
         {/* Swipeable content */}
         <motion.div
           drag="x"

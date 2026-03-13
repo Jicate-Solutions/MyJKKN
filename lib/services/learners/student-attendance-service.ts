@@ -13,6 +13,26 @@ import type {
   ExportData
 } from '@/types/student-attendance';
 
+/**
+ * Check if timetable_data JSONB contains a specific section_id in any slot's section_ids array.
+ * Handles both day-based (MONDAY, TUESDAY...) and date-based (2026-03-13) top-level keys.
+ */
+function timetableContainsSection(timetableData: any, sectionId: string): boolean {
+  if (!timetableData || typeof timetableData !== 'object') return false;
+
+  // Check each top-level entry (day or date)
+  for (const dayData of Object.values(timetableData)) {
+    if (typeof dayData !== 'object' || dayData === null) continue;
+    // Check each period slot
+    for (const slotData of Object.values(dayData as Record<string, any>)) {
+      if (slotData?.section_ids && Array.isArray(slotData.section_ids)) {
+        if (slotData.section_ids.includes(sectionId)) return true;
+      }
+    }
+  }
+  return false;
+}
+
 export class StudentAttendanceService {
   /**
    * Get attendance records for a student in a specific semester
@@ -37,14 +57,49 @@ export class StudentAttendanceService {
     }
 
     // 2. Get timetables for the semester
-    const { data: timetables, error: timetablesError } = await supabase
+    // Step A: Try exact section_id match on the timetable table
+    const { data: directTimetables, error: directError } = await supabase
       .from('timetables')
       .select('id, periods, timetable_data')
       .eq('semester_id', semesterId)
       .eq('section_id', learner.section_id)
       .eq('is_active', true);
 
-    if (timetablesError || !timetables?.length) {
+    if (directError) {
+      console.error('[learners/attendance] Failed to fetch timetables (direct):', directError);
+    }
+
+    // Step B: Fallback — fetch timetables where section_id is NULL and check timetable_data JSONB
+    let fallbackTimetables: typeof directTimetables = [];
+    const { data: nullSectionTimetables, error: fallbackError } = await supabase
+      .from('timetables')
+      .select('id, periods, timetable_data')
+      .eq('semester_id', semesterId)
+      .is('section_id', null)
+      .eq('is_active', true);
+
+    if (fallbackError) {
+      console.error('[learners/attendance] Failed to fetch timetables (fallback):', fallbackError);
+    } else if (nullSectionTimetables?.length) {
+      // Filter in code: only keep timetables whose timetable_data references the student's section
+      fallbackTimetables = nullSectionTimetables.filter(
+        t => timetableContainsSection(t.timetable_data, learner.section_id)
+      );
+    }
+
+    // Merge and deduplicate by timetable ID
+    const timetableMap = new Map<string, (typeof directTimetables)[number]>();
+    for (const t of (directTimetables || [])) {
+      timetableMap.set(t.id, t);
+    }
+    for (const t of (fallbackTimetables || [])) {
+      if (!timetableMap.has(t.id)) {
+        timetableMap.set(t.id, t);
+      }
+    }
+    const timetables = Array.from(timetableMap.values());
+
+    if (!timetables.length) {
       console.warn('[learners/attendance] No timetables found:', { semesterId, sectionId: learner.section_id });
       return [];
     }

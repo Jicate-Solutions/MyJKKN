@@ -42,6 +42,33 @@ export const getFacilitatorColumns = (): ColumnDef<FacilitatorAttendanceStat>[] 
     ),
   },
   {
+    id: 'timetables',
+    header: 'Timetable(s)',
+    cell: ({ row }) => {
+      const assignments = row.original.timetableAssignments ?? [];
+      if (assignments.length === 0) {
+        return <span className="text-muted-foreground text-sm">—</span>;
+      }
+      if (assignments.length === 1) {
+        return (
+          <span className="text-sm font-medium truncate max-w-[180px] block" title={assignments[0].timetableName}>
+            {assignments[0].timetableName}
+          </span>
+        );
+      }
+      return (
+        <div className="flex items-center gap-1.5">
+          <span className="text-sm font-medium truncate max-w-[140px]" title={assignments[0].timetableName}>
+            {assignments[0].timetableName}
+          </span>
+          <Badge variant="secondary" className="text-[10px] px-1.5 py-0 shrink-0">
+            +{assignments.length - 1}
+          </Badge>
+        </div>
+      );
+    },
+  },
+  {
     accessorKey: 'periodsAssigned',
     header: ({ column }) => (
       <Button

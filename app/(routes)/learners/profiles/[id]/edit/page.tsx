@@ -8,8 +8,9 @@
 
 'use client';
 
+import { use } from 'react';
 import Link from 'next/link';
-import { useRouter, useParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { useLearnerProfile } from '@/hooks/use-learner-profiles';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
@@ -17,6 +18,10 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { EnquiryForm } from '../../../enquiries/_components/enquiry-form';
 import { Loader2 } from 'lucide-react';
+
+interface LearnerEditPageProps {
+  params: Promise<{ id: string }>;
+}
 
 /**
  * LearnerEditPage Component
@@ -30,25 +35,15 @@ import { Loader2 } from 'lucide-react';
  * - Updates learner on save
  * - Redirects to detail page on success
  * - All 5 tabs: Basic Details, Academic Info, Course Selection, Contact, Accommodation
- *
- * Fixed: 2026-03-07 - Switched from use(params) to useParams() to guard against
- * Next.js DRP placeholders (%%drp:id:...%%) during client-side navigation with PPR.
  */
-export default function LearnerEditPage() {
-  // useParams() reads from router state (actual URL), not the PPR pipeline.
-  // use(params) can temporarily resolve to %%drp:id:...%% placeholders during
-  // client-side navigation, causing Supabase UUID parse errors.
-  const routerParams = useParams();
-  const id = (routerParams?.id as string) || '';
-  const isDrp = !id || id.includes('%%drp:');
+export default function LearnerEditPage({ params }: LearnerEditPageProps) {
+  const { id } = use(params);
   const router = useRouter();
 
-  const { data: learner, isLoading, error } = useLearnerProfile(id, {
-    enabled: !isDrp && !!id,
-  });
+  const { data: learner, isLoading, error } = useLearnerProfile(id);
 
-  // Loading state — also covers transient DRP placeholder phase
-  if (isLoading || isDrp) {
+  // Loading state
+  if (isLoading) {
     return (
       <ContentLayout title="Edit Learner Profile">
         <div className="flex items-center justify-center min-h-[400px]">

@@ -549,6 +549,14 @@ export interface FacilitatorDailyPoint {
   count: number;
 }
 
+export interface FacilitatorTimetableAssignment {
+  timetableId: string;
+  timetableName: string;
+  assignedCount: number;
+  markedCount: number;
+  pendingCount: number;
+}
+
 export interface FacilitatorAttendanceStat {
   staffId: string;
   firstName: string;
@@ -561,6 +569,7 @@ export interface FacilitatorAttendanceStat {
   periodsPending: number;
   markingRate: number;
   lastMarkedAt: string | null;
+  timetableAssignments: FacilitatorTimetableAssignment[];
   trendData: FacilitatorTrendPoint[];
   dailyData: FacilitatorDailyPoint[];
 }
@@ -619,6 +628,13 @@ export interface FacilitatorReportRaw {
     periods_pending: number;
     marking_rate: number;
     last_marked_at: string | null;
+    timetable_assignments: Array<{
+      timetable_id: string;
+      timetable_name: string;
+      assigned_count: number;
+      marked_count: number;
+      pending_count: number;
+    }>;
     trend_data: Array<{ week: string; count: number }>;
     daily_data: Array<{ date: string; count: number }>;
   }>;
