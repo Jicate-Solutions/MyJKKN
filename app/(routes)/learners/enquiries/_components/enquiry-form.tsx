@@ -461,9 +461,9 @@ export function EnquiryForm({
     : ALL_TABS;
 
   // Finance tab permission check
-  const { canAccess, isSuperAdmin: isSuperAdminUser } = usePermissions();
-  const canViewFinance = isSuperAdminUser || canAccess('learners', 'finance.view');
-  const canEditFinance = isSuperAdminUser || canAccess('learners', 'finance.edit');
+  const { canAccess, isSuperAdmin: isSuperAdminUser, isAdmissionGlobalUser } = usePermissions();
+  const canViewFinance = isSuperAdminUser || isAdmissionGlobalUser || canAccess('learners', 'finance.view');
+  const canEditFinance = isSuperAdminUser || isAdmissionGlobalUser || canAccess('learners', 'finance.edit');
 
   // Filter out finance tab if user lacks permission
   const filteredFormTabs = canViewFinance

@@ -23,8 +23,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Plus, Trash2, Users } from 'lucide-react';
 import {
-  useFacultyForDropdown,
-  useStudentsForDropdown,
+  useUsersByRolesForDropdown,
 } from '@/hooks/admission/use-referral-dropdowns';
 import type {
   CreateExpoTeamMemberInput,
@@ -33,7 +32,6 @@ import type {
 } from '@/types/admission';
 
 interface TeamMemberPickerProps {
-  institutionId: string;
   members: CreateExpoTeamMemberInput[];
   onChange: (members: CreateExpoTeamMemberInput[]) => void;
 }
@@ -65,7 +63,6 @@ const TYPE_BADGE_VARIANT: Record<ExpoTeamMemberType, 'default' | 'secondary' | '
 };
 
 export function TeamMemberPicker({
-  institutionId,
   members,
   onChange,
 }: TeamMemberPickerProps) {
@@ -77,9 +74,9 @@ export function TeamMemberPicker({
   const [role, setRole] = useState<ExpoTeamMemberRole>('volunteer');
 
   const { data: staffList = [], isLoading: staffLoading } =
-    useFacultyForDropdown(institutionId);
+    useUsersByRolesForDropdown(['faculty', 'staff', 'hod', 'principal']);
   const { data: studentList = [], isLoading: studentLoading } =
-    useStudentsForDropdown(institutionId);
+    useUsersByRolesForDropdown(['student']);
 
   function handleMemberTypeChange(type: ExpoTeamMemberType) {
     setMemberType(type);
@@ -188,7 +185,7 @@ export function TeamMemberPicker({
                   <SelectContent>
                     {staffList.map((s) => (
                       <SelectItem key={s.id} value={s.id}>
-                        {s.name}
+                        {s.name} ({s.role})
                       </SelectItem>
                     ))}
                   </SelectContent>

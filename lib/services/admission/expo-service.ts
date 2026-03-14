@@ -67,7 +67,6 @@ export class ExpoService {
   }> {
     const supabase = createClientSupabaseClient();
     const {
-      institution_id,
       search,
       is_active,
       page = 1,
@@ -78,8 +77,7 @@ export class ExpoService {
 
     let query = (supabase as any)
       .from('expo_masters')
-      .select('*', { count: 'exact' })
-      .eq('institution_id', institution_id);
+      .select('*', { count: 'exact' });
 
     if (search) {
       const safe = sanitizeSearch(search);
@@ -206,7 +204,6 @@ export class ExpoService {
   static async getExpoEvents(filters: ExpoEventFilters): Promise<ExpoEventListResponse> {
     const supabase = createClientSupabaseClient();
     const {
-      institution_id,
       status,
       city,
       date_from,
@@ -230,8 +227,7 @@ export class ExpoService {
         team_leader:staff!expo_events_team_leader_id_fkey(id, first_name, last_name),
         approved_by:staff!expo_events_approved_by_id_fkey(id, first_name, last_name)`,
         { count: 'exact' }
-      )
-      .eq('institution_id', institution_id);
+      );
 
     if (search) {
       const safe = sanitizeSearch(search);
@@ -617,20 +613,19 @@ export class ExpoService {
   // ─────────────────────────────────────────────────────────────────────────
 
   /**
-   * Aggregate high-level summary stats for all expos belonging to an institution.
+   * Aggregate high-level summary stats for all expos (global, not institution-scoped).
    *
    * Queries expo_events for status/count data, then expo_daily_reports for
    * expense and visitor/lead totals. Computes avg_cost_per_lead and
    * conversion_rate (leads / visitors) in-memory.
    */
-  static async getSummaryStats(institutionId: string): Promise<ExpoSummaryStats> {
+  static async getSummaryStats(): Promise<ExpoSummaryStats> {
     const supabase = createClientSupabaseClient();
 
-    // Fetch all events for the institution
+    // Fetch all events (global)
     const { data: events, error: eventsError } = await (supabase as any)
       .from('expo_events')
-      .select('id, event_status, total_expenses, total_leads_collected')
-      .eq('institution_id', institutionId);
+      .select('id, event_status, total_expenses, total_leads_collected');
 
     if (eventsError) {
       console.error('[admission/expos] Failed to fetch events for summary stats:', eventsError);
@@ -697,15 +692,14 @@ export class ExpoService {
    *
    * Sums each expense column and returns a breakdown with percentages.
    */
-  static async getExpenseBreakdown(institutionId: string): Promise<ExpoExpenseBreakdown[]> {
+  static async getExpenseBreakdown(): Promise<ExpoExpenseBreakdown[]> {
     const supabase = createClientSupabaseClient();
 
     const { data: reports, error } = await (supabase as any)
       .from('expo_daily_reports')
       .select(
         'stall_fee, travel_expense, accommodation_expense, food_expense, printing_materials, miscellaneous_expense'
-      )
-      .eq('institution_id', institutionId);
+      );
 
     if (error) {
       console.error('[admission/expos] Failed to fetch expense breakdown:', error);
@@ -745,15 +739,14 @@ export class ExpoService {
   }
 
   /**
-   * Aggregate the visitor-to-lead funnel across all daily reports for an institution.
+   * Aggregate the visitor-to-lead funnel across all daily reports (global).
    */
-  static async getLeadFunnel(institutionId: string): Promise<ExpoLeadFunnel> {
+  static async getLeadFunnel(): Promise<ExpoLeadFunnel> {
     const supabase = createClientSupabaseClient();
 
     const { data: reports, error } = await (supabase as any)
       .from('expo_daily_reports')
-      .select('total_visitors, counselling_done, interested_students, leads_collected')
-      .eq('institution_id', institutionId);
+      .select('total_visitors, counselling_done, interested_students, leads_collected');
 
     if (error) {
       console.error('[admission/expos] Failed to fetch lead funnel data:', error);
@@ -780,7 +773,7 @@ export class ExpoService {
    *
    * Returns one item per event with computed cost_per_lead and conversion_rate.
    */
-  static async getExpoComparison(institutionId: string): Promise<ExpoComparisonItem[]> {
+  static async getExpoComparison(): Promise<ExpoComparisonItem[]> {
     const supabase = createClientSupabaseClient();
 
     const { data: events, error: eventsError } = await (supabase as any)
@@ -789,7 +782,6 @@ export class ExpoService {
         `id, event_name, city, total_leads_collected, total_expenses,
         daily_reports:expo_daily_reports(total_visitors)`
       )
-      .eq('institution_id', institutionId)
       .in('event_status', ['completed', 'in_progress'])
       .order('start_date', { ascending: false });
 

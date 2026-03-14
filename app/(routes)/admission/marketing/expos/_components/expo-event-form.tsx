@@ -24,13 +24,12 @@ import {
 import { ArrowLeft, Save, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import { useAuth } from '@/hooks/use-auth';
-import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import {
   useExpoMasters,
   useCreateExpoEvent,
   useUpdateExpoEvent,
 } from '@/hooks/admission/use-expos';
-import { useFacultyForDropdown } from '@/hooks/admission/use-referral-dropdowns';
+import { useUsersByRolesForDropdown } from '@/hooks/admission/use-referral-dropdowns';
 import { TeamMemberPicker } from './team-member-picker';
 import type {
   ExpoEvent,
@@ -62,14 +61,9 @@ const STATUS_OPTIONS: { value: ExpoEventStatus; label: string }[] = [
 export function ExpoEventForm({ mode, initialData }: ExpoEventFormProps) {
   const router = useRouter();
   const { profile } = useAuth();
-  const { institutions } = useInstitutionsWithAccess();
 
-  // Resolve institution id: prefer initialData, then profile, then first available
-  const institutionId =
-    initialData?.institution_id ??
-    profile?.institution_id ??
-    institutions[0]?.id ??
-    '';
+  // institution_id is optional — auto-set from profile for tracking, null for super_admin
+  const institutionId = initialData?.institution_id ?? profile?.institution_id ?? null;
 
   // ── Expo Master selection ─────────────────────────────────────────────────
   const [selectedMasterId, setSelectedMasterId] = useState(
@@ -77,7 +71,6 @@ export function ExpoEventForm({ mode, initialData }: ExpoEventFormProps) {
   );
 
   const { data: masters, isLoading: mastersLoading } = useExpoMasters({
-    institution_id: institutionId,
     is_active: true,
   });
 
@@ -116,9 +109,11 @@ export function ExpoEventForm({ mode, initialData }: ExpoEventFormProps) {
   );
   const [notes, setNotes] = useState(initialData?.notes ?? '');
 
-  // ── Staff dropdown ────────────────────────────────────────────────────────
-  const { data: staffList = [], isLoading: staffLoading } =
-    useFacultyForDropdown(institutionId);
+  // ── Role-based user dropdowns (faculty + student for team, all staff roles for approver)
+  const { data: teamLeaderList = [], isLoading: teamLeaderLoading } =
+    useUsersByRolesForDropdown(['faculty', 'student']);
+  const { data: approverList = [], isLoading: approverLoading } =
+    useUsersByRolesForDropdown(['faculty', 'hod', 'principal', 'administrator', 'super_admin']);
 
   // ── Mutations ─────────────────────────────────────────────────────────────
   const createMutation = useCreateExpoEvent();
@@ -159,7 +154,7 @@ export function ExpoEventForm({ mode, initialData }: ExpoEventFormProps) {
 
     if (mode === 'create') {
       const input: CreateExpoEventInput = {
-        institution_id: institutionId,
+        institution_id: institutionId ?? undefined,
         event_name: eventName.trim(),
         city: city.trim(),
         start_date: startDate,
@@ -245,7 +240,7 @@ export function ExpoEventForm({ mode, initialData }: ExpoEventFormProps) {
               onValueChange={(v) =>
                 setSelectedMasterId(v === '__none__' ? '' : v)
               }
-              disabled={mastersLoading || !institutionId}
+              disabled={mastersLoading}
             >
               <SelectTrigger id="expo-master">
                 <SelectValue
@@ -405,18 +400,18 @@ export function ExpoEventForm({ mode, initialData }: ExpoEventFormProps) {
               onValueChange={(v) =>
                 setTeamLeaderId(v === '__none__' ? '' : v)
               }
-              disabled={staffLoading || !institutionId}
+              disabled={teamLeaderLoading}
             >
               <SelectTrigger id="team-leader">
                 <SelectValue
-                  placeholder={staffLoading ? 'Loading…' : 'Select team leader'}
+                  placeholder={teamLeaderLoading ? 'Loading…' : 'Select team leader'}
                 />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="__none__">— None —</SelectItem>
-                {staffList.map((s) => (
-                  <SelectItem key={s.id} value={s.id}>
-                    {s.name}
+                {teamLeaderList.map((u) => (
+                  <SelectItem key={u.id} value={u.id}>
+                    {u.name} ({u.role})
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -425,7 +420,6 @@ export function ExpoEventForm({ mode, initialData }: ExpoEventFormProps) {
 
           {mode === 'create' && (
             <TeamMemberPicker
-              institutionId={institutionId}
               members={teamMembers}
               onChange={setTeamMembers}
             />
@@ -446,18 +440,18 @@ export function ExpoEventForm({ mode, initialData }: ExpoEventFormProps) {
               onValueChange={(v) =>
                 setApprovedById(v === '__none__' ? '' : v)
               }
-              disabled={staffLoading || !institutionId}
+              disabled={approverLoading}
             >
               <SelectTrigger id="approved-by">
                 <SelectValue
-                  placeholder={staffLoading ? 'Loading…' : 'Select approver'}
+                  placeholder={approverLoading ? 'Loading…' : 'Select approver'}
                 />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="__none__">— None —</SelectItem>
-                {staffList.map((s) => (
-                  <SelectItem key={s.id} value={s.id}>
-                    {s.name}
+                {approverList.map((u) => (
+                  <SelectItem key={u.id} value={u.id}>
+                    {u.name} ({u.role})
                   </SelectItem>
                 ))}
               </SelectContent>

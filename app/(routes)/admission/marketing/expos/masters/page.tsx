@@ -54,7 +54,8 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Plus, Edit, Trash2, Loader2, Search, BookOpen } from 'lucide-react';
-import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
+import { toast } from 'sonner';
+import { useAuth } from '@/hooks/use-auth';
 import {
   useExpoMasters,
   useCreateExpoMaster,
@@ -118,7 +119,7 @@ interface MasterDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   editingMaster: ExpoMaster | null;
-  institutionId: string;
+  institutionId: string | null;
 }
 
 function MasterDialog({ open, onOpenChange, editingMaster, institutionId }: MasterDialogProps) {
@@ -132,9 +133,10 @@ function MasterDialog({ open, onOpenChange, editingMaster, institutionId }: Mast
   const isPending = createMaster.isPending || updateMaster.isPending;
 
   // Sync form when dialog opens with a different master
-  const [lastMasterId, setLastMasterId] = useState<string | null>(editingMaster?.id ?? null);
-  if (editingMaster?.id !== lastMasterId) {
-    setLastMasterId(editingMaster?.id ?? null);
+  const currentMasterId = editingMaster?.id ?? null;
+  const [lastMasterId, setLastMasterId] = useState<string | null>(currentMasterId);
+  if (currentMasterId !== lastMasterId) {
+    setLastMasterId(currentMasterId);
     setForm(editingMaster ? masterToForm(editingMaster) : EMPTY_FORM);
     setNameError('');
   }
@@ -181,7 +183,7 @@ function MasterDialog({ open, onOpenChange, editingMaster, institutionId }: Mast
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-lg max-h-[90vh] flex flex-col">
         <DialogHeader>
           <DialogTitle>{editingMaster ? 'Edit Expo Master' : 'Add Expo Master'}</DialogTitle>
           <DialogDescription>
@@ -191,7 +193,7 @@ function MasterDialog({ open, onOpenChange, editingMaster, institutionId }: Mast
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 py-2">
+        <div className="space-y-4 py-2 overflow-y-auto flex-1 pr-1">
           {/* Event Name */}
           <div className="space-y-1.5">
             <Label htmlFor="em-event-name">
@@ -327,21 +329,20 @@ function TableSkeletonRows() {
 // =============================================================================
 
 function ExpoMastersPageContent() {
-  const { selectedInstitutionId, loading: accessLoading } = useUserInstitutionAccess();
+  const { profile } = useAuth();
+  const institutionId = profile?.institution_id ?? null;
 
   const [search, setSearch] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingMaster, setEditingMaster] = useState<ExpoMaster | null>(null);
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
 
-  const { data: masters, isLoading: mastersLoading } = useExpoMasters({
-    institution_id: selectedInstitutionId ?? '',
-  });
+  const { data: masters, isLoading: mastersLoading } = useExpoMasters();
 
   const updateMaster = useUpdateExpoMaster();
   const deleteMaster = useDeleteExpoMaster();
 
-  const isLoading = accessLoading || mastersLoading;
+  const isLoading = mastersLoading;
 
   const filteredMasters = useMemo(() => {
     if (!search.trim()) return masters;
@@ -427,7 +428,7 @@ function ExpoMastersPageContent() {
             Reusable expo event catalog. Create master entries to quickly spin up event instances.
           </p>
         </div>
-        <Button onClick={handleAddNew} disabled={!selectedInstitutionId}>
+        <Button onClick={handleAddNew}>
           <Plus className="h-4 w-4 mr-2" />
           Add Expo Master
         </Button>
@@ -583,14 +584,12 @@ function ExpoMastersPageContent() {
       </Card>
 
       {/* Create / Edit Dialog */}
-      {selectedInstitutionId && (
-        <MasterDialog
-          open={dialogOpen}
-          onOpenChange={handleDialogClose}
-          editingMaster={editingMaster}
-          institutionId={selectedInstitutionId}
-        />
-      )}
+      <MasterDialog
+        open={dialogOpen}
+        onOpenChange={handleDialogClose}
+        editingMaster={editingMaster}
+        institutionId={institutionId}
+      />
 
       {/* Delete Confirmation */}
       <AlertDialog open={!!deleteTargetId} onOpenChange={() => setDeleteTargetId(null)}>

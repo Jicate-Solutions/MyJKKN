@@ -51,6 +51,46 @@ export function useStudentsForDropdown(institutionId?: string) {
 }
 
 /**
+ * Fetch users by role(s) from the profiles table for role-based dropdowns.
+ * Supports multiple roles (e.g., ['faculty', 'student']).
+ * Returns users with their role for badge display.
+ */
+export interface RoleDropdownOption {
+  id: string;
+  name: string;
+  role: string;
+}
+
+export function useUsersByRolesForDropdown(roles: string[]) {
+  return useQuery<RoleDropdownOption[]>({
+    queryKey: ['users-by-roles-dropdown', ...roles],
+    queryFn: async () => {
+      if (roles.length === 0) return [];
+
+      const supabase = createClientSupabaseClient();
+      const { data, error } = await (supabase as any)
+        .from('profiles')
+        .select('id, full_name, role')
+        .in('role', roles)
+        .order('full_name', { ascending: true })
+        .limit(1000);
+
+      if (error) {
+        console.error('[referral-dropdowns] Failed to fetch users by role:', error.message);
+        return [];
+      }
+
+      return (data || []).map((u: any) => ({
+        id: u.id,
+        name: u.full_name || 'Unknown',
+        role: u.role || '',
+      }));
+    },
+    enabled: roles.length > 0,
+  });
+}
+
+/**
  * Fetch active faculty/staff for the referral faculty dropdown.
  * Filtered by institution_id when provided.
  */

@@ -84,7 +84,7 @@ export function ProfilesTableServer({
   const searchParams = useSearchParams();
 
   // Permission check - Super admin has full access, others need 'learners.delete' permission
-  const { isSuperAdmin, canAccess } = usePermissions();
+  const { isSuperAdmin, isAdmissionGlobalUser, canAccess } = usePermissions();
 
   // Derive current sort selection from URL params (server-side sort keys)
   const currentSortBy = searchParams.get('sort_by') || 'first_name';
@@ -103,7 +103,7 @@ export function ProfilesTableServer({
     params.set('page', '1'); // reset to first page on sort change
     router.push(`?${params.toString()}`);
   };
-  const canDeleteLearners = isSuperAdmin || canAccess('learners', 'delete');
+  const canDeleteLearners = isSuperAdmin || isAdmissionGlobalUser || canAccess('learners', 'delete');
 
   // Update local data when props change
   useEffect(() => {

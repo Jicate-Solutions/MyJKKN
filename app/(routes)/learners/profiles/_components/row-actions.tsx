@@ -72,13 +72,13 @@ export function DataTableRowActions<TData>({
 }: DataTableRowActionsProps<TData>) {
   const router = useRouter();
   const learner = row.original as LearnerProfile;
-  const { canAccess, isSuperAdmin } = usePermissions();
+  const { canAccess, isSuperAdmin, isAdmissionGlobalUser } = usePermissions();
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showStatusDialog, setShowStatusDialog] = useState(false);
   const [selectedStatus, setSelectedStatus] = useState('');
 
-  const canEdit = isSuperAdmin || canAccess('learners', 'edit');
-  const canDelete = isSuperAdmin || canAccess('learners', 'delete');
+  const canEdit = isSuperAdmin || isAdmissionGlobalUser || canAccess('learners', 'edit');
+  const canDelete = isSuperAdmin || isAdmissionGlobalUser || canAccess('learners', 'delete');
 
   // Use React Query mutation hooks with automatic cache invalidation
   const deleteMutation = useDeleteLearnerProfile();

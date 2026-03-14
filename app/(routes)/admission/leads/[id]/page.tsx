@@ -898,7 +898,7 @@ function LeadDetailPageContent() {
 
   if (isLoading) {
     return (
-      <PermissionGuard module="admission" action="view">
+      <PermissionGuard module="admission" action="leads.view">
         <ContentLayout title="Lead Details">
           <LeadDetailSkeleton />
         </ContentLayout>
@@ -908,7 +908,7 @@ function LeadDetailPageContent() {
 
   if (!lead) {
     return (
-      <PermissionGuard module="admission" action="view">
+      <PermissionGuard module="admission" action="leads.view">
         <ContentLayout title="Lead Not Found">
           <Card>
             <CardContent className="py-16 text-center">
@@ -1044,7 +1044,7 @@ function LeadDetailPageContent() {
   };
 
   return (
-    <PermissionGuard module="admission" action="view">
+    <PermissionGuard module="admission" action="leads.view">
       <ContentLayout title="Lead Details">
         <div className="space-y-6">
           {/* Breadcrumb */}

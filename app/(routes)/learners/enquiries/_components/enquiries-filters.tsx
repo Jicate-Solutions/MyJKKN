@@ -38,7 +38,7 @@ export function EnquiriesFilters({
 }: EnquiriesFiltersProps) {
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
-  const { isSuperAdmin } = usePermissions();
+  const { isSuperAdmin, isAdmissionGlobalUser } = usePermissions();
   const { profile } = useAuth();
   const router = useRouter();
   const currentSearchParams = useSearchParams();
@@ -356,9 +356,9 @@ export function EnquiriesFilters({
     fetchAcademicYears();
   }, [localFilters.institution_id]);
 
-  // Auto-select institution for HOD/Faculty users
+  // Auto-select institution for HOD/Faculty users (not for super admins or admission global users)
   useEffect(() => {
-    if (profile?.institution_id && !isSuperAdmin) {
+    if (profile?.institution_id && !isSuperAdmin && !isAdmissionGlobalUser) {
       if (!localFilters.institution_id) {
         setLocalFilters((prev) => ({
           ...prev,
@@ -366,7 +366,7 @@ export function EnquiriesFilters({
         }));
       }
     }
-  }, [profile?.institution_id, localFilters.institution_id, isSuperAdmin]);
+  }, [profile?.institution_id, localFilters.institution_id, isSuperAdmin, isAdmissionGlobalUser]);
 
   // Auto-select department for HOD users
   useEffect(() => {
@@ -482,12 +482,12 @@ export function EnquiriesFilters({
               <Select
                 value={localFilters.institution_id || ''}
                 onValueChange={handleInstitutionChange}
-                disabled={!isSuperAdmin}
+                disabled={!isSuperAdmin && !isAdmissionGlobalUser}
               >
                 <SelectTrigger>
                   <SelectValue
                     placeholder={
-                      !isSuperAdmin && profile?.institution_id
+                      !isSuperAdmin && !isAdmissionGlobalUser && profile?.institution_id
                         ? 'Your institution is auto-selected'
                         : 'Select Institution'
                     }

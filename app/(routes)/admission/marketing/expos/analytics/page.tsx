@@ -37,7 +37,7 @@ import {
   Target,
   BarChart3,
 } from 'lucide-react';
-import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
+
 import {
   useExpoSummaryStats,
   useExpoExpenseBreakdown,
@@ -201,17 +201,13 @@ function renderCustomPieLabel({
 // ─────────────────────────────────────────────────────────────────────────────
 
 function ExpoAnalyticsContent() {
-  const { selectedInstitutionId, loading: accessLoading } = useUserInstitutionAccess();
-
-  const institutionId = selectedInstitutionId ?? '';
-
-  const { stats, isLoading: statsLoading } = useExpoSummaryStats(institutionId);
-  const { breakdown, isLoading: breakdownLoading } = useExpoExpenseBreakdown(institutionId);
-  const { funnel, isLoading: funnelLoading } = useExpoLeadFunnel(institutionId);
-  const { comparison, isLoading: comparisonLoading } = useExpoComparison(institutionId);
+  const { stats, isLoading: statsLoading } = useExpoSummaryStats();
+  const { breakdown, isLoading: breakdownLoading } = useExpoExpenseBreakdown();
+  const { funnel, isLoading: funnelLoading } = useExpoLeadFunnel();
+  const { comparison, isLoading: comparisonLoading } = useExpoComparison();
 
   const isLoading =
-    accessLoading || statsLoading || breakdownLoading || funnelLoading || comparisonLoading;
+    statsLoading || breakdownLoading || funnelLoading || comparisonLoading;
 
   // ── Breadcrumb ──────────────────────────────────────────────────────────────
   const breadcrumb = (

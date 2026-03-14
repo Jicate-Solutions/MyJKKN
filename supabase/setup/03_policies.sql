@@ -705,6 +705,11 @@ CREATE POLICY "learners_profiles_select_policy" ON learners_profiles
         OR user_has_institution_access(auth.uid(), institution_id)
     );
 
+-- Admission role users are cross-institution and need to read all learner profiles
+-- Added: 2026-03-14 - Admission role users have NULL institution_id so existing policies excluded them
+CREATE POLICY "learners_profiles_select_admission_role" ON learners_profiles
+    FOR SELECT USING (get_current_user_role() = 'admission');
+
 -- INSERT: Super admins or administrator/admission/faculty/hod with institution access
 CREATE POLICY "learners_profiles_insert_policy" ON learners_profiles
     FOR INSERT WITH CHECK (
@@ -3568,41 +3573,41 @@ CREATE POLICY "case_studies_delete_admin"
 
 -- ═══════════════════════════════════════════════════════════════════════════
 -- EXPO MODULE RLS POLICIES
--- Updated: 2026-03-13 - Initial creation
+-- Updated: 2026-03-14 - Expos are global (not institution-scoped), all authenticated users have full access
 -- ═══════════════════════════════════════════════════════════════════════════
 
 CREATE POLICY "expo_masters_select" ON expo_masters FOR SELECT
-  USING (institution_id IN (SELECT institution_id FROM user_institution_access WHERE user_id = auth.uid()));
+  USING (auth.uid() IS NOT NULL);
 CREATE POLICY "expo_masters_insert" ON expo_masters FOR INSERT
-  WITH CHECK (institution_id IN (SELECT institution_id FROM user_institution_access WHERE user_id = auth.uid()));
+  WITH CHECK (auth.uid() IS NOT NULL);
 CREATE POLICY "expo_masters_update" ON expo_masters FOR UPDATE
-  USING (institution_id IN (SELECT institution_id FROM user_institution_access WHERE user_id = auth.uid()));
+  USING (auth.uid() IS NOT NULL);
 CREATE POLICY "expo_masters_delete" ON expo_masters FOR DELETE
-  USING (institution_id IN (SELECT institution_id FROM user_institution_access WHERE user_id = auth.uid()));
+  USING (auth.uid() IS NOT NULL);
 
 CREATE POLICY "expo_events_select" ON expo_events FOR SELECT
-  USING (institution_id IN (SELECT institution_id FROM user_institution_access WHERE user_id = auth.uid()));
+  USING (auth.uid() IS NOT NULL);
 CREATE POLICY "expo_events_insert" ON expo_events FOR INSERT
-  WITH CHECK (institution_id IN (SELECT institution_id FROM user_institution_access WHERE user_id = auth.uid()));
+  WITH CHECK (auth.uid() IS NOT NULL);
 CREATE POLICY "expo_events_update" ON expo_events FOR UPDATE
-  USING (institution_id IN (SELECT institution_id FROM user_institution_access WHERE user_id = auth.uid()));
+  USING (auth.uid() IS NOT NULL);
 CREATE POLICY "expo_events_delete" ON expo_events FOR DELETE
-  USING (institution_id IN (SELECT institution_id FROM user_institution_access WHERE user_id = auth.uid()));
+  USING (auth.uid() IS NOT NULL);
 
 CREATE POLICY "expo_team_select" ON expo_event_team_members FOR SELECT
-  USING (expo_event_id IN (SELECT id FROM expo_events WHERE institution_id IN (SELECT institution_id FROM user_institution_access WHERE user_id = auth.uid())));
+  USING (auth.uid() IS NOT NULL);
 CREATE POLICY "expo_team_insert" ON expo_event_team_members FOR INSERT
-  WITH CHECK (expo_event_id IN (SELECT id FROM expo_events WHERE institution_id IN (SELECT institution_id FROM user_institution_access WHERE user_id = auth.uid())));
+  WITH CHECK (auth.uid() IS NOT NULL);
 CREATE POLICY "expo_team_update" ON expo_event_team_members FOR UPDATE
-  USING (expo_event_id IN (SELECT id FROM expo_events WHERE institution_id IN (SELECT institution_id FROM user_institution_access WHERE user_id = auth.uid())));
+  USING (auth.uid() IS NOT NULL);
 CREATE POLICY "expo_team_delete" ON expo_event_team_members FOR DELETE
-  USING (expo_event_id IN (SELECT id FROM expo_events WHERE institution_id IN (SELECT institution_id FROM user_institution_access WHERE user_id = auth.uid())));
+  USING (auth.uid() IS NOT NULL);
 
 CREATE POLICY "expo_reports_select" ON expo_daily_reports FOR SELECT
-  USING (institution_id IN (SELECT institution_id FROM user_institution_access WHERE user_id = auth.uid()));
+  USING (auth.uid() IS NOT NULL);
 CREATE POLICY "expo_reports_insert" ON expo_daily_reports FOR INSERT
-  WITH CHECK (institution_id IN (SELECT institution_id FROM user_institution_access WHERE user_id = auth.uid()));
+  WITH CHECK (auth.uid() IS NOT NULL);
 CREATE POLICY "expo_reports_update" ON expo_daily_reports FOR UPDATE
-  USING (institution_id IN (SELECT institution_id FROM user_institution_access WHERE user_id = auth.uid()));
+  USING (auth.uid() IS NOT NULL);
 CREATE POLICY "expo_reports_delete" ON expo_daily_reports FOR DELETE
-  USING (institution_id IN (SELECT institution_id FROM user_institution_access WHERE user_id = auth.uid()));
+  USING (auth.uid() IS NOT NULL);

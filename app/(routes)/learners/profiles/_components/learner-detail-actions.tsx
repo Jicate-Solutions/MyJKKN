@@ -26,11 +26,11 @@ interface LearnerDetailActionsProps {
  * - Edit: Requires 'learners' edit permission or super admin
  */
 export function LearnerDetailActions({ learner }: LearnerDetailActionsProps) {
-  const { canAccess, isSuperAdmin, isLoading: permissionsLoading } = usePermissions();
+  const { canAccess, isSuperAdmin, isAdmissionGlobalUser, isLoading: permissionsLoading } = usePermissions();
 
   // Only access permissions after they've loaded
   const hasEditPermission =
-    !permissionsLoading && (isSuperAdmin || canAccess('learners', 'edit'));
+    !permissionsLoading && (isSuperAdmin || isAdmissionGlobalUser || canAccess('learners', 'edit'));
 
   return (
     <div className="flex items-center gap-2">

@@ -14,7 +14,6 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { columns } from './columns';
-import { useAuth } from '@/hooks/use-auth';
 import { ExpoService } from '@/lib/services/admission/expo-service';
 import type { ExpoEventStatus } from '@/types/admission';
 
@@ -28,9 +27,7 @@ const STATUS_OPTIONS = [
 ];
 
 export function ExposDataTable() {
-  const { profile } = useAuth();
   const router = useRouter();
-  const institutionId = profile?.institution_id || '';
   const [refreshKey, setRefreshKey] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [statusFilter, setStatusFilter] = useState<string>('all');
@@ -45,16 +42,7 @@ export function ExposDataTable() {
   };
 
   const fetchData = async (params: DataFetchParams) => {
-    if (!institutionId) {
-      return {
-        success: true,
-        data: [],
-        pagination: { page: 1, limit: params.limit, total_pages: 1, total_items: 0 },
-      };
-    }
-
     const result = await ExpoService.getExpoEvents({
-      institution_id: institutionId,
       search: params.search || undefined,
       status: statusFilter !== 'all' ? (statusFilter as ExpoEventStatus) : undefined,
       page: params.page,
@@ -102,7 +90,7 @@ export function ExposDataTable() {
         </div>
       </div>
       <DataTable
-        key={`${institutionId}-${refreshKey}`}
+        key={refreshKey}
         fetchDataFn={fetchData as any}
         getColumns={() => columns as any}
         exportConfig={{ entityName: 'expos', columnMapping: {}, columnWidths: [], headers: [] }}

@@ -37,12 +37,12 @@ export function DataTableRowActions<TData>({
 }: DataTableRowActionsProps<TData>) {
   const router = useRouter();
   const app = row.original as ApplicationStatusRow;
-  const { canAccess, isSuperAdmin } = usePermissions();
+  const { canAccess, isSuperAdmin, isAdmissionGlobalUser } = usePermissions();
   const { updateApplicationStatus } = useApplicationMutations();
   const [showRejectDialog, setShowRejectDialog] = useState(false);
 
-  const canView = isSuperAdmin || canAccess('admission', 'view');
-  const canEdit = isSuperAdmin || canAccess('admission', 'edit');
+  const canView = isSuperAdmin || isAdmissionGlobalUser || canAccess('admission', 'leads.view');
+  const canEdit = isSuperAdmin || isAdmissionGlobalUser || canAccess('admission', 'leads.edit');
 
   const handleApprove = () => {
     updateApplicationStatus.mutate({ id: app.id, status: 'offer_sent' });

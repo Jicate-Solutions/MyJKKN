@@ -49,6 +49,7 @@ export function LearnerDetail({ learner }: LearnerDetailProps) {
   const {
     canAccess,
     isSuperAdmin,
+    isAdmissionGlobalUser,
     isLoading: permissionsLoading,
   } = usePermissions();
 
@@ -59,8 +60,8 @@ export function LearnerDetail({ learner }: LearnerDetailProps) {
 
   // Only access permissions after they've loaded
   const hasEditPermission =
-    !permissionsLoading && (isSuperAdmin || canAccess('learners', 'edit'));
-  const canViewFinance = isSuperAdmin || canAccess('learners', 'finance.view');
+    !permissionsLoading && (isSuperAdmin || isAdmissionGlobalUser || canAccess('learners', 'edit'));
+  const canViewFinance = isSuperAdmin || isAdmissionGlobalUser || canAccess('learners', 'finance.view');
 
   const sections = [
     {

@@ -509,7 +509,7 @@ function NewLeadPageContent() {
   const selectedInstitutionName = institutions.find((i) => i.id === institutionId)?.name;
 
   return (
-    <PermissionGuard module="admission" action="create">
+    <PermissionGuard module="admission" action="leads.create">
       <ContentLayout title="Add New Lead">
         <div className="space-y-6">
           {/* Breadcrumb */}

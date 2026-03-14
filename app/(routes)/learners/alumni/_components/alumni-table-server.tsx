@@ -60,8 +60,8 @@ export function AlumniTableServer({
   const router = useRouter();
 
   // Permission check - Super admin has full access, others need 'learners.delete' permission
-  const { isSuperAdmin, canAccess } = usePermissions();
-  const canDeleteLearners = isSuperAdmin || canAccess('learners', 'delete');
+  const { isSuperAdmin, isAdmissionGlobalUser, canAccess } = usePermissions();
+  const canDeleteLearners = isSuperAdmin || isAdmissionGlobalUser || canAccess('learners', 'delete');
 
   // Update local data when props change
   useEffect(() => {

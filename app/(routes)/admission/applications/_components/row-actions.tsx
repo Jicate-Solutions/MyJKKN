@@ -48,13 +48,13 @@ export function DataTableRowActions<TData>({
 }: DataTableRowActionsProps<TData>) {
   const router = useRouter();
   const lead = row.original as AdmissionLead;
-  const { canAccess, isSuperAdmin } = usePermissions();
+  const { canAccess, isSuperAdmin, isAdmissionGlobalUser } = usePermissions();
   const { updateApplicationStatus, deleteApplication } = useApplicationMutations();
   const [showWithdrawDialog, setShowWithdrawDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
 
-  const canView = isSuperAdmin || canAccess('admission', 'view');
-  const canEdit = isSuperAdmin || canAccess('admission', 'edit');
+  const canView = isSuperAdmin || isAdmissionGlobalUser || canAccess('admission', 'applications.view');
+  const canEdit = isSuperAdmin || isAdmissionGlobalUser || canAccess('admission', 'applications.edit');
 
   const stage = lead.funnel_stage;
 

@@ -2315,13 +2315,13 @@ CREATE INDEX IF NOT EXISTS idx_case_studies_featured ON case_studies(featured);
 
 -- ═══════════════════════════════════════════════════════════════════════════
 -- EXPO MODULE (Education Fairs & Exhibitions)
--- Updated: 2026-03-13 - Initial creation
+-- Updated: 2026-03-14 - Made institution_id nullable (expos are global, not institution-scoped)
 -- ═══════════════════════════════════════════════════════════════════════════
 
--- Expo Masters (Reusable Event Catalog)
+-- Expo Masters (Reusable Event Catalog — shared across all institutions)
 CREATE TABLE IF NOT EXISTS expo_masters (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  institution_id UUID NOT NULL REFERENCES institutions(id) ON DELETE CASCADE,
+  institution_id UUID REFERENCES institutions(id) ON DELETE SET NULL,
   event_name TEXT NOT NULL,
   organizer_name TEXT,
   city TEXT,
@@ -2335,13 +2335,13 @@ CREATE TABLE IF NOT EXISTS expo_masters (
   updated_at TIMESTAMPTZ DEFAULT now()
 );
 
-CREATE INDEX idx_expo_masters_institution ON expo_masters(institution_id);
-CREATE INDEX idx_expo_masters_active ON expo_masters(institution_id, is_active);
+CREATE INDEX idx_expo_masters_institution ON expo_masters(institution_id) WHERE institution_id IS NOT NULL;
+CREATE INDEX idx_expo_masters_active ON expo_masters(is_active);
 
--- Expo Events (Specific Instances)
+-- Expo Events (Specific Instances — shared across all institutions)
 CREATE TABLE IF NOT EXISTS expo_events (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  institution_id UUID NOT NULL REFERENCES institutions(id) ON DELETE CASCADE,
+  institution_id UUID REFERENCES institutions(id) ON DELETE SET NULL,
   expo_master_id UUID REFERENCES expo_masters(id) ON DELETE SET NULL,
   event_name TEXT NOT NULL,
   organizer_name TEXT,
@@ -2364,8 +2364,8 @@ CREATE TABLE IF NOT EXISTS expo_events (
   CONSTRAINT expo_events_date_check CHECK (end_date >= start_date)
 );
 
-CREATE INDEX idx_expo_events_institution ON expo_events(institution_id);
-CREATE INDEX idx_expo_events_status ON expo_events(institution_id, event_status);
+CREATE INDEX idx_expo_events_institution ON expo_events(institution_id) WHERE institution_id IS NOT NULL;
+CREATE INDEX idx_expo_events_status ON expo_events(event_status);
 CREATE INDEX idx_expo_events_dates ON expo_events(start_date, end_date);
 CREATE INDEX idx_expo_events_master ON expo_events(expo_master_id);
 
@@ -2389,7 +2389,7 @@ CREATE INDEX idx_expo_team_staff ON expo_event_team_members(staff_id) WHERE staf
 CREATE TABLE IF NOT EXISTS expo_daily_reports (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   expo_event_id UUID NOT NULL REFERENCES expo_events(id) ON DELETE CASCADE,
-  institution_id UUID NOT NULL REFERENCES institutions(id) ON DELETE CASCADE,
+  institution_id UUID REFERENCES institutions(id) ON DELETE SET NULL,
   report_date DATE NOT NULL,
   stall_fee NUMERIC(10,2) DEFAULT 0,
   travel_expense NUMERIC(10,2) DEFAULT 0,
@@ -2418,7 +2418,7 @@ CREATE TABLE IF NOT EXISTS expo_daily_reports (
 
 CREATE INDEX idx_expo_reports_event ON expo_daily_reports(expo_event_id);
 CREATE INDEX idx_expo_reports_date ON expo_daily_reports(report_date);
-CREATE INDEX idx_expo_reports_institution ON expo_daily_reports(institution_id);
+CREATE INDEX idx_expo_reports_institution ON expo_daily_reports(institution_id) WHERE institution_id IS NOT NULL;
 
 -- Add expo_event_id to admission_leads for lead-to-expo tracking
 ALTER TABLE admission_leads ADD COLUMN IF NOT EXISTS expo_event_id UUID REFERENCES expo_events(id) ON DELETE SET NULL;

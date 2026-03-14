@@ -70,7 +70,7 @@ function TimetableBreakdown({ assignments }: { assignments: FacilitatorTimetable
           <tbody>
             {assignments.map((ta) => {
               const rate = ta.assignedCount > 0
-                ? Math.round((ta.markedCount / ta.assignedCount) * 100)
+                ? Math.min(Math.round((ta.markedCount / ta.assignedCount) * 100), 100)
                 : 0;
               return (
                 <tr key={ta.timetableId} className="border-t hover:bg-muted/30 transition-colors">

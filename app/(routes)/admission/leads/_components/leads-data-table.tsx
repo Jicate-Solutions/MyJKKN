@@ -57,7 +57,7 @@ export function LeadsDataTable() {
     searchParams.get('priority') || '_all'
   );
 
-  const canCreate = isSuperAdmin || canAccess('admission', 'create');
+  const canCreate = isSuperAdmin || isAdmissionGlobalUser || canAccess('admission', 'leads.create');
 
   // Super admins and admission global users can see leads across all institutions.
   // Regular users are scoped to their own institution_id.

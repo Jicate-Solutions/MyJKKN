@@ -43,11 +43,10 @@ export const expoKeys = {
 /**
  * Fetch paginated list of expo master records.
  */
-export function useExpoMasters(filters: ExpoMasterFilters) {
+export function useExpoMasters(filters: ExpoMasterFilters = {}) {
   const query = useQuery({
     queryKey: expoKeys.masters(filters),
     queryFn: () => ExpoService.getExpoMasters(filters),
-    enabled: !!filters.institution_id,
   });
 
   return {
@@ -86,11 +85,10 @@ export function useExpoMaster(id: string) {
 /**
  * Fetch paginated list of expo events.
  */
-export function useExpoEvents(filters: ExpoEventFilters) {
+export function useExpoEvents(filters: ExpoEventFilters = {}) {
   const query = useQuery({
     queryKey: expoKeys.events(filters),
     queryFn: () => ExpoService.getExpoEvents(filters),
-    enabled: !!filters.institution_id,
   });
 
   return {
@@ -194,11 +192,10 @@ export function useExpoDailyReport(id: string) {
 /**
  * Fetch high-level summary stats for all expos of an institution.
  */
-export function useExpoSummaryStats(institutionId: string) {
+export function useExpoSummaryStats() {
   const query = useQuery({
-    queryKey: expoKeys.summaryStats(institutionId),
-    queryFn: () => ExpoService.getSummaryStats(institutionId),
-    enabled: !!institutionId,
+    queryKey: expoKeys.summaryStats('global'),
+    queryFn: () => ExpoService.getSummaryStats(),
   });
 
   return {
@@ -213,11 +210,10 @@ export function useExpoSummaryStats(institutionId: string) {
 /**
  * Fetch expense breakdown by category for an institution.
  */
-export function useExpoExpenseBreakdown(institutionId: string) {
+export function useExpoExpenseBreakdown() {
   const query = useQuery({
-    queryKey: expoKeys.expenseBreakdown(institutionId),
-    queryFn: () => ExpoService.getExpenseBreakdown(institutionId),
-    enabled: !!institutionId,
+    queryKey: expoKeys.expenseBreakdown('global'),
+    queryFn: () => ExpoService.getExpenseBreakdown(),
   });
 
   return {
@@ -232,11 +228,10 @@ export function useExpoExpenseBreakdown(institutionId: string) {
 /**
  * Fetch visitor-to-lead funnel data for an institution.
  */
-export function useExpoLeadFunnel(institutionId: string) {
+export function useExpoLeadFunnel() {
   const query = useQuery({
-    queryKey: expoKeys.leadFunnel(institutionId),
-    queryFn: () => ExpoService.getLeadFunnel(institutionId),
-    enabled: !!institutionId,
+    queryKey: expoKeys.leadFunnel('global'),
+    queryFn: () => ExpoService.getLeadFunnel(),
   });
 
   return {
@@ -251,11 +246,10 @@ export function useExpoLeadFunnel(institutionId: string) {
 /**
  * Fetch comparative expo performance data for an institution.
  */
-export function useExpoComparison(institutionId: string) {
+export function useExpoComparison() {
   const query = useQuery({
-    queryKey: expoKeys.comparison(institutionId),
-    queryFn: () => ExpoService.getExpoComparison(institutionId),
-    enabled: !!institutionId,
+    queryKey: expoKeys.comparison('global'),
+    queryFn: () => ExpoService.getExpoComparison(),
   });
 
   return {
@@ -358,10 +352,10 @@ export function useCreateExpoEvent() {
 
   return useMutation({
     mutationFn: (input: CreateExpoEventInput) => ExpoService.createExpoEvent(input),
-    onSuccess: (data) => {
+    onSuccess: () => {
       toast.success('Expo event created');
       queryClient.invalidateQueries({ queryKey: ['expo-events'] });
-      queryClient.invalidateQueries({ queryKey: expoKeys.summaryStats(data.institution_id) });
+      queryClient.invalidateQueries({ queryKey: ['expo-stats'] });
     },
     onError: (err: Error) => {
       toast.error(err.message);
@@ -402,7 +396,7 @@ export function useUpdateExpoEventStatus() {
       toast.success('Event status updated');
       queryClient.invalidateQueries({ queryKey: ['expo-events'] });
       queryClient.invalidateQueries({ queryKey: expoKeys.event(data.id) });
-      queryClient.invalidateQueries({ queryKey: expoKeys.summaryStats(data.institution_id) });
+      queryClient.invalidateQueries({ queryKey: ['expo-stats'] });
     },
     onError: (err: Error) => {
       toast.error(err.message);
@@ -470,7 +464,7 @@ export function useCreateDailyReport() {
       toast.success('Daily report created');
       queryClient.invalidateQueries({ queryKey: expoKeys.dailyReports(data.expo_event_id) });
       queryClient.invalidateQueries({ queryKey: expoKeys.event(data.expo_event_id) });
-      queryClient.invalidateQueries({ queryKey: expoKeys.summaryStats(data.institution_id) });
+      queryClient.invalidateQueries({ queryKey: ['expo-stats'] });
     },
     onError: (err: Error) => {
       toast.error(err.message);

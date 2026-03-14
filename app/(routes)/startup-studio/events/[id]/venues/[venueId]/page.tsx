@@ -35,6 +35,7 @@ import {
 } from '@/components/ui/table';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { Input } from '@/components/ui/input';
 import {
   AlertTriangle,
   ArrowLeft,
@@ -45,6 +46,7 @@ import {
   MapPin,
   MinusCircle,
   Plus,
+  Search,
   Users,
   UserPlus,
   X,
@@ -780,111 +782,113 @@ function AddStaffDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
+      <DialogContent className="sm:max-w-md max-h-[85vh] flex flex-col p-0">
+        <DialogHeader className="px-6 pt-6 pb-0 shrink-0">
           <DialogTitle>Assign In-Charge Orchestrator</DialogTitle>
           <DialogDescription>
             Filter by institution and department, then select an orchestrator and role.
           </DialogDescription>
         </DialogHeader>
-        <div className="space-y-4 pt-2">
+        <div className="flex-1 overflow-y-auto px-6 pb-6">
+          <div className="space-y-4 pt-4">
 
-          {/* Institution filter */}
-          <div className="space-y-1.5">
-            <Label className="text-xs font-medium text-muted-foreground">Institution</Label>
-            <Select value={instFilter || 'all'} onValueChange={handleInstChange}>
-              <SelectTrigger className="h-9 text-sm">
-                <SelectValue placeholder="All Institutions" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Institutions</SelectItem>
-                {institutions.map((i) => (
-                  <SelectItem key={i.id} value={i.id}>{i.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+            {/* Institution filter */}
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium text-muted-foreground">Institution</Label>
+              <Select value={instFilter || 'all'} onValueChange={handleInstChange}>
+                <SelectTrigger className="h-9 text-sm">
+                  <SelectValue placeholder="All Institutions" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Institutions</SelectItem>
+                  {institutions.map((i) => (
+                    <SelectItem key={i.id} value={i.id}>{i.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
 
-          {/* Department filter */}
-          <div className="space-y-1.5">
-            <Label className="text-xs font-medium text-muted-foreground">Department</Label>
-            <Select
-              value={deptFilter || 'all'}
-              disabled={!instFilter}
-              onValueChange={handleDeptChange}
-            >
-              <SelectTrigger className="h-9 text-sm">
-                <SelectValue placeholder={instFilter ? 'All Departments' : 'Select institution first'} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Departments</SelectItem>
-                {departments.map((d) => (
-                  <SelectItem key={d.id} value={d.id}>{d.department_name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+            {/* Department filter */}
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium text-muted-foreground">Department</Label>
+              <Select
+                value={deptFilter || 'all'}
+                disabled={!instFilter}
+                onValueChange={handleDeptChange}
+              >
+                <SelectTrigger className="h-9 text-sm">
+                  <SelectValue placeholder={instFilter ? 'All Departments' : 'Select institution first'} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Departments</SelectItem>
+                  {departments.map((d) => (
+                    <SelectItem key={d.id} value={d.id}>{d.department_name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
 
-          <Separator />
+            <Separator />
 
-          {/* Staff member */}
-          <div className="space-y-1.5">
-            <Label htmlFor="staff-member" className="text-sm font-medium">
-              Orchestrator <span className="text-red-500">*</span>
-            </Label>
-            <Select value={selectedStaff} onValueChange={setSelectedStaff}>
-              <SelectTrigger id="staff-member">
-                <SelectValue placeholder="Select orchestrator..." />
-              </SelectTrigger>
-              <SelectContent>
-                {staffList.length === 0 ? (
-                  <SelectItem value="_none" disabled>
-                    No active orchestrators found
-                  </SelectItem>
-                ) : (
-                  staffList.map((s) => (
-                    <SelectItem key={s.id} value={s.id}>
-                      {s.first_name} {s.last_name}
-                      <span className="text-muted-foreground ml-1 text-xs">({s.email})</span>
+            {/* Staff member */}
+            <div className="space-y-1.5">
+              <Label htmlFor="staff-member" className="text-sm font-medium">
+                Orchestrator <span className="text-red-500">*</span>
+              </Label>
+              <Select value={selectedStaff} onValueChange={setSelectedStaff}>
+                <SelectTrigger id="staff-member">
+                  <SelectValue placeholder="Select orchestrator..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {staffList.length === 0 ? (
+                    <SelectItem value="_none" disabled>
+                      No active orchestrators found
                     </SelectItem>
-                  ))
-                )}
-              </SelectContent>
-            </Select>
-            {staffList.length > 0 && (
-              <p className="text-xs text-muted-foreground">{staffList.length} orchestrator{staffList.length !== 1 ? 's' : ''} found</p>
-            )}
-          </div>
+                  ) : (
+                    staffList.map((s) => (
+                      <SelectItem key={s.id} value={s.id}>
+                        {s.first_name} {s.last_name}
+                        <span className="text-muted-foreground ml-1 text-xs">({s.email})</span>
+                      </SelectItem>
+                    ))
+                  )}
+                </SelectContent>
+              </Select>
+              {staffList.length > 0 && (
+                <p className="text-xs text-muted-foreground">{staffList.length} orchestrator{staffList.length !== 1 ? 's' : ''} found</p>
+              )}
+            </div>
 
-          {/* Role */}
-          <div className="space-y-1.5">
-            <Label htmlFor="staff-role" className="text-sm font-medium">
-              Role <span className="text-red-500">*</span>
-            </Label>
-            <Select value={selectedRole} onValueChange={(v) => setSelectedRole(v as StaffRole)}>
-              <SelectTrigger id="staff-role">
-                <SelectValue placeholder="Select role..." />
-              </SelectTrigger>
-              <SelectContent>
-                {STAFF_ROLES.map((r) => (
-                  <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+            {/* Role */}
+            <div className="space-y-1.5">
+              <Label htmlFor="staff-role" className="text-sm font-medium">
+                Role <span className="text-red-500">*</span>
+              </Label>
+              <Select value={selectedRole} onValueChange={(v) => setSelectedRole(v as StaffRole)}>
+                <SelectTrigger id="staff-role">
+                  <SelectValue placeholder="Select role..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {STAFF_ROLES.map((r) => (
+                    <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
 
-          <Button
-            onClick={handleAssign}
-            disabled={!selectedStaff || assignStaff.isPending}
-            className="w-full gap-1.5"
-          >
-            {assignStaff.isPending ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <UserPlus className="h-4 w-4" />
-            )}
-            {assignStaff.isPending ? 'Assigning...' : 'Assign Orchestrator'}
-          </Button>
+            <Button
+              onClick={handleAssign}
+              disabled={!selectedStaff || assignStaff.isPending}
+              className="w-full gap-1.5"
+            >
+              {assignStaff.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <UserPlus className="h-4 w-4" />
+              )}
+              {assignStaff.isPending ? 'Assigning...' : 'Assign Orchestrator'}
+            </Button>
+          </div>
         </div>
       </DialogContent>
     </Dialog>
@@ -909,6 +913,7 @@ function AssignTeamDialog({
   const { data: allAllocations = [] } = useAllEventAllocations(eventId, dayType);
   const manualAllocate = useManualAllocate();
   const [selectedTeam, setSelectedTeam] = useState('');
+  const [teamSearch, setTeamSearch] = useState('');
 
   // Map: registrationId → venue name (across ALL venues for this event + day)
   const globalAllocationMap = new Map(
@@ -927,10 +932,22 @@ function AssignTeamDialog({
   );
 
   // Split: truly unallocated vs. assigned to a different venue
-  const freeTeams = registrations.filter((r) => !globalAllocationMap.has(r.id));
+  const searchLower = teamSearch.toLowerCase().trim();
+  const matchesSearch = (r: any) =>
+    !searchLower || r.team_name?.toLowerCase().includes(searchLower);
+
+  const freeTeams = registrations.filter((r) => !globalAllocationMap.has(r.id) && matchesSearch(r));
   const elsewhereTeams = registrations.filter(
-    (r) => globalAllocationMap.has(r.id) && !inThisVenueIds.has(r.id)
+    (r) => globalAllocationMap.has(r.id) && !inThisVenueIds.has(r.id) && matchesSearch(r)
   );
+
+  // Total counts (before search filter) for summary
+  const totalFree = registrations.filter((r) => !globalAllocationMap.has(r.id)).length;
+  const totalElsewhere = registrations.filter(
+    (r) => globalAllocationMap.has(r.id) && !inThisVenueIds.has(r.id)
+  ).length;
+
+  const selectedTeamName = registrations.find((r) => r.id === selectedTeam)?.team_name;
 
   const handleAssign = () => {
     if (!selectedTeam) return;
@@ -940,99 +957,183 @@ function AssignTeamDialog({
         onSuccess: () => {
           onOpenChange(false);
           setSelectedTeam('');
+          setTeamSearch('');
         },
       }
     );
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
+    <Dialog open={open} onOpenChange={(o) => { if (!o) { setTeamSearch(''); } onOpenChange(o); }}>
+      <DialogContent className="sm:max-w-md max-h-[85vh] flex flex-col p-0">
+        <DialogHeader className="px-6 pt-6 pb-0 shrink-0">
           <DialogTitle>Assign Team to Venue</DialogTitle>
           <DialogDescription>
             Select a team for {dayType === 'build_day' ? 'Build Day' : 'Demo Day'}.
             Unallocated teams are listed first.
           </DialogDescription>
         </DialogHeader>
-        <div className="space-y-4 pt-2">
-          <div className="space-y-2">
-            <Label htmlFor="team-select" className="text-sm font-medium">
-              Team <span className="text-red-500">*</span>
-            </Label>
-            <Select value={selectedTeam} onValueChange={setSelectedTeam}>
-              <SelectTrigger id="team-select">
-                <SelectValue placeholder="Select a team..." />
-              </SelectTrigger>
-              <SelectContent>
-                {freeTeams.length === 0 && elsewhereTeams.length === 0 ? (
-                  <SelectItem value="_none" disabled>
-                    All teams are already allocated
-                  </SelectItem>
-                ) : (
-                  <>
-                    {/* Unallocated group — primary assignment targets */}
+
+        <div className="flex-1 overflow-y-auto px-6 pb-6">
+          <div className="space-y-4 pt-4">
+            {/* Search input */}
+            <div className="space-y-1.5">
+              <Label className="text-sm font-medium">
+                Search Teams
+              </Label>
+              <div className="relative">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+                <Input
+                  placeholder="Type team name to filter..."
+                  value={teamSearch}
+                  onChange={(e) => setTeamSearch(e.target.value)}
+                  className="h-9 pl-8 text-sm"
+                />
+                {teamSearch && (
+                  <button
+                    type="button"
+                    onClick={() => setTeamSearch('')}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
+              {/* Count summary */}
+              <div className="flex gap-3 text-xs">
+                <span className="text-green-600 dark:text-green-400 font-medium">
+                  {freeTeams.length}{searchLower ? `/${totalFree}` : ''} unallocated
+                </span>
+                {totalElsewhere > 0 && (
+                  <span className="text-muted-foreground">
+                    {elsewhereTeams.length}{searchLower ? `/${totalElsewhere}` : ''} assigned elsewhere
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* Team list — scrollable */}
+            <div className="space-y-1.5">
+              <Label className="text-sm font-medium">
+                Team <span className="text-red-500">*</span>
+              </Label>
+
+              {freeTeams.length === 0 && elsewhereTeams.length === 0 ? (
+                <div className="text-center py-6 border rounded-md bg-muted/20">
+                  <Users className="h-6 w-6 mx-auto text-muted-foreground/40 mb-1.5" />
+                  <p className="text-xs text-muted-foreground">
+                    {searchLower ? 'No teams match your search.' : 'All teams are already allocated.'}
+                  </p>
+                </div>
+              ) : (
+                <div className="max-h-[35vh] overflow-y-auto border rounded-md">
+                  <div className="p-1">
+                    {/* Unallocated group */}
                     {freeTeams.length > 0 && (
-                      <SelectGroup>
-                        <SelectLabel className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1">
+                      <div>
+                        <p className="text-[10px] font-semibold text-green-600 dark:text-green-400 uppercase tracking-wide px-2.5 py-1.5">
                           Unallocated ({freeTeams.length})
-                        </SelectLabel>
+                        </p>
                         {freeTeams.map((r) => (
-                          <SelectItem key={r.id} value={r.id}>
-                            {r.team_name}
-                          </SelectItem>
+                          <button
+                            key={r.id}
+                            type="button"
+                            onClick={() => setSelectedTeam(r.id)}
+                            className={cn(
+                              'w-full flex items-center gap-2 text-left text-sm rounded-md px-2.5 py-2 transition-colors',
+                              selectedTeam === r.id
+                                ? 'bg-primary text-primary-foreground'
+                                : 'hover:bg-muted/60'
+                            )}
+                          >
+                            <div className={cn(
+                              'h-4 w-4 rounded-full border-2 shrink-0 flex items-center justify-center',
+                              selectedTeam === r.id
+                                ? 'border-primary-foreground'
+                                : 'border-muted-foreground/40'
+                            )}>
+                              {selectedTeam === r.id && (
+                                <div className="h-2 w-2 rounded-full bg-primary-foreground" />
+                              )}
+                            </div>
+                            <span className="truncate font-medium">{r.team_name}</span>
+                          </button>
                         ))}
-                      </SelectGroup>
+                      </div>
                     )}
 
-                    {/* Already assigned to another venue — still selectable but clearly marked */}
+                    {/* Elsewhere group */}
                     {elsewhereTeams.length > 0 && (
-                      <SelectGroup>
-                        <SelectLabel className="text-xs text-muted-foreground flex items-center gap-1">
+                      <div className={freeTeams.length > 0 ? 'mt-2 pt-2 border-t' : ''}>
+                        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide px-2.5 py-1.5">
                           Assigned Elsewhere ({elsewhereTeams.length})
-                        </SelectLabel>
+                        </p>
                         {elsewhereTeams.map((r) => (
-                          <SelectItem key={r.id} value={r.id}>
-                            <span>{r.team_name}</span>
-                            <span className="text-muted-foreground text-xs ml-1.5">
+                          <button
+                            key={r.id}
+                            type="button"
+                            onClick={() => setSelectedTeam(r.id)}
+                            className={cn(
+                              'w-full flex items-center gap-2 text-left text-sm rounded-md px-2.5 py-2 transition-colors',
+                              selectedTeam === r.id
+                                ? 'bg-primary text-primary-foreground'
+                                : 'hover:bg-muted/60'
+                            )}
+                          >
+                            <div className={cn(
+                              'h-4 w-4 rounded-full border-2 shrink-0 flex items-center justify-center',
+                              selectedTeam === r.id
+                                ? 'border-primary-foreground'
+                                : 'border-muted-foreground/40'
+                            )}>
+                              {selectedTeam === r.id && (
+                                <div className="h-2 w-2 rounded-full bg-primary-foreground" />
+                              )}
+                            </div>
+                            <span className="truncate font-medium">{r.team_name}</span>
+                            <span className={cn(
+                              'text-xs ml-auto shrink-0',
+                              selectedTeam === r.id ? 'text-primary-foreground/70' : 'text-muted-foreground'
+                            )}>
                               → {globalAllocationMap.get(r.id)}
                             </span>
-                          </SelectItem>
+                          </button>
                         ))}
-                      </SelectGroup>
+                      </div>
                     )}
-                  </>
-                )}
-              </SelectContent>
-            </Select>
-
-            {/* Count summary below the select */}
-            <div className="flex gap-3 text-xs">
-              {freeTeams.length > 0 && (
-                <span className="text-green-600 dark:text-green-400 font-medium">
-                  {freeTeams.length} unallocated
-                </span>
+                  </div>
+                </div>
               )}
-              {elsewhereTeams.length > 0 && (
-                <span className="text-muted-foreground">
-                  {elsewhereTeams.length} assigned elsewhere
-                </span>
+
+              {/* Selected team indicator */}
+              {selectedTeamName && (
+                <div className="flex items-center gap-2 text-xs bg-primary/5 border border-primary/20 rounded-md px-3 py-2">
+                  <CheckCircle2 className="h-3.5 w-3.5 text-primary shrink-0" />
+                  <span>Selected: <span className="font-semibold">{selectedTeamName}</span></span>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedTeam('')}
+                    className="ml-auto text-muted-foreground hover:text-foreground"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
               )}
             </div>
-          </div>
 
-          <Button
-            onClick={handleAssign}
-            disabled={!selectedTeam || manualAllocate.isPending}
-            className="w-full gap-1.5"
-          >
-            {manualAllocate.isPending ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Plus className="h-4 w-4" />
-            )}
-            {manualAllocate.isPending ? 'Assigning...' : 'Assign Team'}
-          </Button>
+            <Button
+              onClick={handleAssign}
+              disabled={!selectedTeam || manualAllocate.isPending}
+              className="w-full gap-1.5"
+            >
+              {manualAllocate.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Plus className="h-4 w-4" />
+              )}
+              {manualAllocate.isPending ? 'Assigning...' : 'Assign Team'}
+            </Button>
+          </div>
         </div>
       </DialogContent>
     </Dialog>

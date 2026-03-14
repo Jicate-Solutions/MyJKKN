@@ -20,11 +20,11 @@ interface DataTableRowActionsProps {
 
 export function DataTableRowActions({ row }: DataTableRowActionsProps) {
   const router = useRouter();
-  const { canAccess, isSuperAdmin } = usePermissions();
+  const { canAccess, isSuperAdmin, isAdmissionGlobalUser } = usePermissions();
   const learner = row.original;
 
-  const canView = isSuperAdmin || canAccess('learners', 'view');
-  const canEdit = isSuperAdmin || canAccess('learners', 'edit');
+  const canView = isSuperAdmin || isAdmissionGlobalUser || canAccess('learners', 'view');
+  const canEdit = isSuperAdmin || isAdmissionGlobalUser || canAccess('learners', 'edit');
 
   return (
     <DropdownMenu>

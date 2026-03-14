@@ -15,7 +15,7 @@ import { LeadsDataTable } from './_components/leads-data-table';
 
 function AdmissionLeadsPageContent() {
   return (
-    <PermissionGuard module="admission" action="view">
+    <PermissionGuard module="admission" action="leads.view">
       <ContentLayout title="Leads">
         <div className="space-y-6">
           <Breadcrumb>

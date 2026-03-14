@@ -4772,10 +4772,34 @@ BEGIN
       s.department_id,
       COALESCE(atm.periods_marked, 0)                                    AS periods_marked,
       COALESCE(ata.assigned_count, 0)                                    AS periods_assigned,
-      GREATEST(COALESCE(ata.assigned_count, 0) - COALESCE(atm.periods_marked, 0), 0) AS periods_pending,
+      -- Fix: compute pending as SUM of per-timetable GREATEST(assigned-marked, 0).
+      -- This prevents excess markings in one timetable (substitutions) from
+      -- offsetting pending periods in other timetables.
+      COALESCE((
+        SELECT SUM(GREATEST(COALESCE(ap.assigned_count, 0) - COALESCE(ac.periods_marked, 0)::INT, 0))::INT
+        FROM (
+          SELECT timetable_id FROM assigned_periods WHERE staff_id = s.id
+          UNION
+          SELECT timetable_id FROM attendance_counts WHERE marked_by = s.profile_id
+        ) ref
+        LEFT JOIN assigned_periods ap ON ap.staff_id = s.id AND ap.timetable_id = ref.timetable_id
+        LEFT JOIN attendance_counts ac ON ac.marked_by = s.profile_id AND ac.timetable_id = ref.timetable_id
+      ), 0)                                                              AS periods_pending,
       CASE
         WHEN COALESCE(ata.assigned_count, 0) = 0 THEN 0.0
-        ELSE ROUND((COALESCE(atm.periods_marked, 0)::NUMERIC / ata.assigned_count) * 100, 1)
+        ELSE ROUND(
+          (COALESCE(ata.assigned_count, 0)
+           - COALESCE((
+               SELECT SUM(GREATEST(COALESCE(ap2.assigned_count, 0) - COALESCE(ac2.periods_marked, 0)::INT, 0))::INT
+               FROM (
+                 SELECT timetable_id FROM assigned_periods WHERE staff_id = s.id
+                 UNION
+                 SELECT timetable_id FROM attendance_counts WHERE marked_by = s.profile_id
+               ) ref2
+               LEFT JOIN assigned_periods ap2 ON ap2.staff_id = s.id AND ap2.timetable_id = ref2.timetable_id
+               LEFT JOIN attendance_counts ac2 ON ac2.marked_by = s.profile_id AND ac2.timetable_id = ref2.timetable_id
+             ), 0)
+          )::NUMERIC / ata.assigned_count * 100, 1)
       END                                                               AS marking_rate,
       atm.last_marked_at
     FROM staff s
@@ -4828,7 +4852,7 @@ BEGIN
           'avg_periods_per_facilitator', ROUND(AVG(ss.periods_marked), 1),
           'overall_marking_rate',        CASE
             WHEN SUM(ss.periods_assigned) = 0 THEN 0.0
-            ELSE ROUND((SUM(ss.periods_marked)::NUMERIC / SUM(ss.periods_assigned)) * 100, 1)
+            ELSE ROUND(((SUM(ss.periods_assigned) - SUM(ss.periods_pending))::NUMERIC / SUM(ss.periods_assigned)) * 100, 1)
           END
         ),
         'facilitators', jsonb_agg(

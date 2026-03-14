@@ -39,8 +39,8 @@ interface EnquiryDetailProps {
 
 export function EnquiryDetail({ enquiry }: EnquiryDetailProps) {
   const [activeSection, setActiveSection] = useState('personal');
-  const { canAccess, isSuperAdmin } = usePermissions();
-  const canViewFinance = isSuperAdmin || canAccess('learners', 'finance.view');
+  const { canAccess, isSuperAdmin, isAdmissionGlobalUser } = usePermissions();
+  const canViewFinance = isSuperAdmin || isAdmissionGlobalUser || canAccess('learners', 'finance.view');
 
   const sections = [
     {

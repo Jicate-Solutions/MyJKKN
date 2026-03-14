@@ -37,13 +37,13 @@ export function DataTableRowActions<TData>({
 }: DataTableRowActionsProps<TData>) {
   const router = useRouter();
   const lead = row.original as AdmissionLead;
-  const { canAccess, isSuperAdmin } = usePermissions();
+  const { canAccess, isSuperAdmin, isAdmissionGlobalUser } = usePermissions();
   const { toggleHotLead, togglePriority, deleteLead } = useLeadMutations();
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
 
-  const canView = isSuperAdmin || canAccess('admission', 'view');
-  const canEdit = isSuperAdmin || canAccess('admission', 'edit');
-  const canDelete = isSuperAdmin || canAccess('admission', 'delete');
+  const canView = isSuperAdmin || isAdmissionGlobalUser || canAccess('admission', 'leads.view');
+  const canEdit = isSuperAdmin || isAdmissionGlobalUser || canAccess('admission', 'leads.edit');
+  const canDelete = isSuperAdmin || isAdmissionGlobalUser || canAccess('admission', 'leads.delete');
 
   const handleDelete = () => {
     if (canDelete) {

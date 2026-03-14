@@ -539,7 +539,7 @@ export type TravelMode = 'bus' | 'train' | 'flight' | 'own_vehicle' | 'other';
 
 export interface ExpoMaster {
   id: string;
-  institution_id: string;
+  institution_id: string | null;
   event_name: string;
   organizer_name: string | null;
   city: string | null;
@@ -554,7 +554,7 @@ export interface ExpoMaster {
 }
 
 export interface CreateExpoMasterInput {
-  institution_id: string;
+  institution_id?: string | null;
   event_name: string;
   organizer_name?: string;
   city?: string;
@@ -576,7 +576,7 @@ export interface UpdateExpoMasterInput {
 }
 
 export interface ExpoMasterFilters {
-  institution_id: string;
+  institution_id?: string;
   search?: string;
   is_active?: boolean;
   page?: number;
@@ -587,7 +587,7 @@ export interface ExpoMasterFilters {
 
 export interface ExpoEvent {
   id: string;
-  institution_id: string;
+  institution_id: string | null;
   expo_master_id: string | null;
   expo_master?: ExpoMaster | null;
   event_name: string;
@@ -615,7 +615,7 @@ export interface ExpoEvent {
 }
 
 export interface CreateExpoEventInput {
-  institution_id: string;
+  institution_id?: string | null;
   expo_master_id?: string;
   event_name: string;
   organizer_name?: string;
@@ -648,7 +648,7 @@ export interface UpdateExpoEventInput {
 }
 
 export interface ExpoEventFilters {
-  institution_id: string;
+  institution_id?: string;
   status?: ExpoEventStatus;
   city?: string;
   date_from?: string;
@@ -699,7 +699,7 @@ export interface CreateExpoTeamMemberInput {
 export interface ExpoDailyReport {
   id: string;
   expo_event_id: string;
-  institution_id: string;
+  institution_id: string | null;
   report_date: string;
   stall_fee: number;
   travel_expense: number;
@@ -724,7 +724,7 @@ export interface ExpoDailyReport {
 
 export interface CreateDailyReportInput {
   expo_event_id: string;
-  institution_id: string;
+  institution_id?: string | null;
   report_date: string;
   stall_fee?: number;
   travel_expense?: number;
