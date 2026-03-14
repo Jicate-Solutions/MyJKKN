@@ -20,7 +20,8 @@ export const PROTECTED_ROUTES: Record<string, RouteConfig> = {
       SYSTEM_ROLES.SUPER_ADMIN,
       SYSTEM_ROLES.HOD,
       SYSTEM_ROLES.PRINCIPAL,
-      SYSTEM_ROLES.PARENT
+      SYSTEM_ROLES.PARENT,
+      'admission'
     ]
   },
   SUPER_ADMIN_ONLY: {

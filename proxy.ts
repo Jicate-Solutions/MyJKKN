@@ -322,14 +322,16 @@ export async function proxy(request: NextRequest) {
         'student',
         'guest',
         'driver',
-        'hod'
+        'hod',
+        'admission',
+        'principal'
       ].includes(profile.role)
     ) {
       // This is a custom role - fetch permissions from custom_roles table
       const { data: customRole } = await supabase
         .from('custom_roles')
         .select('permissions')
-        .eq('name', profile.role)
+        .eq('role_key', profile.role)
         .eq('is_active', true)
         .single();
 

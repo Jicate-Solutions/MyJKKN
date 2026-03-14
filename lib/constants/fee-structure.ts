@@ -9,7 +9,7 @@
 
 export const FEE_STRUCTURE_TYPES = [
   'tuition_uniform_hospital',
-  'tuition_instruments_hospital',
+  'tuition_instruments_hostel',
   'tuition_instruments',
   'tuition_hostel',
   'tuition_only',
@@ -38,11 +38,11 @@ export const FEE_STRUCTURE_CONFIG: Record<FeeStructureType, FeeStructureConfig> 
     ],
     optionalFees: ['transport_fee', 'hostel_fee'],
   },
-  tuition_instruments_hospital: {
-    label: 'Tuition + Instruments + Hospital',
-    description: 'Combined fee covering tuition, instruments, and hospital training',
+  tuition_instruments_hostel: {
+    label: 'Tuition + Instruments + Hostel',
+    description: 'Combined fee covering tuition, instruments, and hostel',
     primaryFields: [
-      { name: 'tuition_fee', label: 'Combined Fee (Tuition + Instruments + Hospital)' },
+      { name: 'tuition_fee', label: 'Combined Fee (Tuition + Instruments + Hostel)' },
     ],
     optionalFees: [],
   },

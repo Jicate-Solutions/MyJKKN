@@ -38,7 +38,7 @@ export function InstitutionAccessGuard({
     loading: institutionLoading,
     hasAccessToInstitution
   } = useUserInstitutionAccess();
-  const { isSuperAdmin } = usePermissions();
+  const { isSuperAdmin, isAdmissionGlobalUser } = usePermissions();
   const [hasCheckedAccess, setHasCheckedAccess] = useState(false);
 
   useEffect(() => {
@@ -54,6 +54,12 @@ export function InstitutionAccessGuard({
 
     // Super admin bypass
     if (bypassForSuperAdmin && isSuperAdmin) {
+      setHasCheckedAccess(true);
+      return;
+    }
+
+    // Admission global users have cross-institution access
+    if (isAdmissionGlobalUser) {
       setHasCheckedAccess(true);
       return;
     }
@@ -116,6 +122,11 @@ export function InstitutionAccessGuard({
 
   // Super admin bypass
   if (bypassForSuperAdmin && isSuperAdmin) {
+    return <>{children}</>;
+  }
+
+  // Admission global users have cross-institution access
+  if (isAdmissionGlobalUser) {
     return <>{children}</>;
   }
 
@@ -205,7 +216,7 @@ export function useInstitutionAccessCheck(options?: {
 }) {
   const { profile } = useAuth();
   const { institutions, hasAccessToInstitution } = useUserInstitutionAccess();
-  const { isSuperAdmin } = usePermissions();
+  const { isSuperAdmin, isAdmissionGlobalUser } = usePermissions();
 
   const {
     requiredInstitutionId,
@@ -218,6 +229,14 @@ export function useInstitutionAccessCheck(options?: {
     return {
       hasAccess: true,
       reason: 'super_admin_bypass'
+    };
+  }
+
+  // Admission global users have cross-institution access
+  if (isAdmissionGlobalUser) {
+    return {
+      hasAccess: true,
+      reason: 'admission_global_bypass'
     };
   }
 

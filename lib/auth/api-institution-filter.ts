@@ -86,6 +86,7 @@ export async function createApiInstitutionFilter(
     }
 
     const isSuperAdmin = profile.role === 'super_admin';
+    const isAdmissionRole = profile.role === 'admission';
 
     // Super admin bypass
     if (bypassForSuperAdmin && isSuperAdmin) {
@@ -95,6 +96,17 @@ export async function createApiInstitutionFilter(
         reason: 'Super admin bypass',
         userRole: profile.role,
         isSuperAdmin: true
+      };
+    }
+
+    // Admission global users have cross-institution access
+    if (isAdmissionRole) {
+      return {
+        isAllowed: true,
+        institutionIds: [], // Empty means access to all
+        reason: 'Admission global user bypass',
+        userRole: profile.role,
+        isSuperAdmin: false
       };
     }
 
