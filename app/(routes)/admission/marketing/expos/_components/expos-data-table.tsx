@@ -45,6 +45,14 @@ export function ExposDataTable() {
   };
 
   const fetchData = async (params: DataFetchParams) => {
+    if (!institutionId) {
+      return {
+        success: true,
+        data: [],
+        pagination: { page: 1, limit: params.limit, total_pages: 1, total_items: 0 },
+      };
+    }
+
     const result = await ExpoService.getExpoEvents({
       institution_id: institutionId,
       search: params.search || undefined,
@@ -94,7 +102,7 @@ export function ExposDataTable() {
         </div>
       </div>
       <DataTable
-        key={refreshKey}
+        key={`${institutionId}-${refreshKey}`}
         fetchDataFn={fetchData as any}
         getColumns={() => columns as any}
         exportConfig={{ entityName: 'expos', columnMapping: {}, columnWidths: [], headers: [] }}
