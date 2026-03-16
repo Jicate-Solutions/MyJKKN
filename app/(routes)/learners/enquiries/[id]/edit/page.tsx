@@ -2,14 +2,14 @@
 // EDIT ENQUIRY PAGE
 // ============================================
 // Created: 2025-01-18
+// Updated: 2026-03-16 - Fixed DRP placeholder causing "Failed to load enquiry"
 // Purpose: Edit learner enquiry details
 // ============================================
 
 'use client';
 
-import { use } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import { useLearnerProfile } from '@/hooks/use-learner-profiles';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
@@ -17,10 +17,6 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { EnquiryForm } from '../../_components/enquiry-form';
 import { Loader2 } from 'lucide-react';
-
-interface EditEnquiryPageProps {
-  params: Promise<{ id: string }>;
-}
 
 /**
  * EditEnquiryPage Component
@@ -32,15 +28,19 @@ interface EditEnquiryPageProps {
  * - Pre-populates form with current values
  * - Updates enquiry on save
  * - Redirects to detail page on success
+ *
+ * Uses useParams() instead of use(params) to avoid Next.js DRP placeholders
+ * that appear during client-side navigation with cacheComponents enabled.
  */
-export default function EditEnquiryPage({ params }: EditEnquiryPageProps) {
-  const { id } = use(params);
+export default function EditEnquiryPage() {
+  const { id } = useParams<{ id: string }>();
   const router = useRouter();
 
-  const { data: learner, isLoading, error } = useLearnerProfile(id);
+  const { data: learner, isPending, error } = useLearnerProfile(id);
 
-  // Loading state
-  if (isLoading) {
+  // Loading state — isPending covers both active fetching AND disabled query
+  // (e.g., when id is a DRP placeholder like %%drp:id:xxx%%)
+  if (isPending) {
     return (
       <ContentLayout title="Edit Enquiry">
         <div className="flex items-center justify-center min-h-[400px]">
