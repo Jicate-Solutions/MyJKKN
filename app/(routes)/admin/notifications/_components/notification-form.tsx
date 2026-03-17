@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
 import * as z from 'zod';
@@ -35,6 +35,10 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Bell, Send, Users } from 'lucide-react';
+import {
+  RichTextEditor,
+  RichTextDisplay
+} from '@/components/ui/rich-text-editor';
 import toast from 'react-hot-toast';
 import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { useDepartments } from '@/hooks/organization/use-departments';
@@ -62,8 +66,7 @@ const notificationSchema = z.object({
     .max(100, 'Title must be less than 100 characters'),
   body: z
     .string()
-    .min(1, 'Body is required')
-    .max(500, 'Body must be less than 500 characters'),
+    .min(1, 'Message is required'),
   url: z.string().url('Must be a valid URL').optional().or(z.literal('')),
   icon: z.string().url('Must be a valid URL').optional().or(z.literal('')),
   priority: z.enum(['low', 'normal', 'high', 'urgent']),
@@ -82,8 +85,12 @@ type NotificationFormData = z.infer<typeof notificationSchema>;
 
 export function NotificationForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [previewMode, setPreviewMode] = useState(false);
+
+  // Check if this is a reuse (pre-fill from query params)
+  const isReuse = searchParams.get('reuse') === 'true';
 
   // Check permissions
   const { permissions, isSuperAdmin } = usePermissions();
@@ -99,12 +106,12 @@ export function NotificationForm() {
   const form = useForm<NotificationFormData>({
     resolver: zodResolver(notificationSchema),
     defaultValues: {
-      title: '',
-      body: '',
+      title: searchParams.get('title') || '',
+      body: searchParams.get('body') || '',
       url: '',
       icon: '',
-      priority: 'normal',
-      category: undefined,
+      priority: (searchParams.get('priority') as any) || 'normal',
+      category: searchParams.get('category') || undefined,
       expires_at: '',
       institution_id: undefined,
       department_id: undefined,
@@ -436,15 +443,16 @@ export function NotificationForm() {
                 <FormItem>
                   <FormLabel>Message *</FormLabel>
                   <FormControl>
-                    <Textarea
-                      placeholder='Enter notification message'
-                      {...field}
-                      rows={4}
-                      maxLength={500}
+                    <RichTextEditor
+                      value={field.value}
+                      onChange={field.onChange}
+                      placeholder='Enter notification message...'
+                      maxLength={2000}
                     />
                   </FormControl>
                   <FormDescription>
-                    The main content of the notification message
+                    Use the toolbar to format your message with bold, lists, and
+                    links
                   </FormDescription>
                   <FormMessage />
                 </FormItem>
@@ -920,9 +928,13 @@ export function NotificationForm() {
                       <h4 className='font-medium'>
                         {watchedValues.title || 'Notification Title'}
                       </h4>
-                      <p className='text-sm text-muted-foreground mt-1'>
-                        {watchedValues.body || 'Notification message body...'}
-                      </p>
+                      <div className='text-sm text-muted-foreground mt-1'>
+                        {watchedValues.body ? (
+                          <RichTextDisplay content={watchedValues.body} />
+                        ) : (
+                          <p>Notification message body...</p>
+                        )}
+                      </div>
                       <div className='flex items-center gap-2 mt-2'>
                         <Badge variant='outline' className='text-xs'>
                           {watchedValues.priority}

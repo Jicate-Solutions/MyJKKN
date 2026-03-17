@@ -25,7 +25,7 @@ export default function NewNotificationPage() {
             </div>
           </div>
 
-          <Card className='max-w-4xl border-0 sm:border shadow-none sm:shadow-sm'>
+          <Card className='border-0 sm:border shadow-none sm:shadow-sm'>
             <CardHeader>
               <CardTitle>Notification Details</CardTitle>
               <CardDescription>

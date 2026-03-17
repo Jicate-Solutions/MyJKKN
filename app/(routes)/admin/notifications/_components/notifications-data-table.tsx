@@ -1,12 +1,13 @@
 'use client';
 
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import { DataTable, PermissionColumnDef } from '@/components/ui/data-table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Eye, Users, Trash2, MoreHorizontal } from 'lucide-react';
+import { Eye, Users, Trash2, MoreHorizontal, Pencil, Copy } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { Notification } from '@/types/notifications';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useRoles } from '@/hooks/organization/use-roles';
@@ -14,9 +15,13 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu';
 import toast from 'react-hot-toast';
+import { EditNotificationDialog } from '@/app/(routes)/notifications/_components/edit-notification-dialog';
+import type { NotificationWithStats } from '@/types/notification';
+import { stripHtml } from '@/components/ui/rich-text-editor';
 
 interface NotificationsDataTableProps {
   notifications: Notification[];
@@ -31,10 +36,50 @@ export function NotificationsDataTable({
   error,
   onRefresh
 }: NotificationsDataTableProps) {
+  const router = useRouter();
   const { canAccess } = usePermissions();
   const { data: rolesData } = useRoles({ includeSystemRoles: true });
 
   const canDeleteNotifications = canAccess('notifications', 'delete');
+
+  // Edit dialog state
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [editingNotification, setEditingNotification] =
+    useState<NotificationWithStats | null>(null);
+
+  const handleEditMessage = useCallback((notification: Notification) => {
+    // Map Notification to NotificationWithStats shape for the dialog
+    setEditingNotification({
+      id: notification.id,
+      title: notification.title,
+      body: notification.body,
+      priority: notification.priority,
+      category: notification.category,
+      created_at: notification.created_at,
+      updated_at: notification.updated_at,
+      sent_to_count: 0,
+      read_by_count: 0
+    });
+    setEditDialogOpen(true);
+  }, []);
+
+  const handleReuseMessage = useCallback(
+    (notification: Notification) => {
+      const params = new URLSearchParams({
+        reuse: 'true',
+        title: notification.title,
+        body: notification.body,
+        priority: notification.priority,
+        category: notification.category
+      });
+      router.push(`/admin/notifications/new?${params.toString()}`);
+    },
+    [router]
+  );
+
+  const handleEditSuccess = useCallback(() => {
+    onRefresh();
+  }, [onRefresh]);
 
   const getPriorityColor = (priority: string) => {
     switch (priority) {
@@ -95,7 +140,7 @@ export function NotificationsDataTable({
             >
               <div className='font-medium text-sm line-clamp-1'>{notification.title}</div>
               <div className='text-xs text-muted-foreground line-clamp-1 sm:line-clamp-2'>
-                {notification.body}
+                {stripHtml(notification.body)}
               </div>
               {/* Show priority + time inline on mobile */}
               <div className='flex items-center gap-2 mt-1 sm:hidden'>
@@ -174,7 +219,7 @@ export function NotificationsDataTable({
                 <MoreHorizontal className='h-4 w-4' />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align='end'>
+            <DropdownMenuContent align='end' className='w-[160px]'>
               <DropdownMenuItem asChild>
                 <Link
                   href={`/admin/notifications/${notification.id}`}
@@ -184,14 +229,30 @@ export function NotificationsDataTable({
                   View Details
                 </Link>
               </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onSelect={() => handleEditMessage(notification)}
+              >
+                <Pencil className='mr-2 h-4 w-4' />
+                Edit Message
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onSelect={() => handleReuseMessage(notification)}
+              >
+                <Copy className='mr-2 h-4 w-4' />
+                Reuse Message
+              </DropdownMenuItem>
               {canDeleteNotifications && (
-                <DropdownMenuItem
-                  onClick={() => handleDeleteNotification(notification.id)}
-                  className='text-red-600 focus:text-red-600 focus:bg-red-50'
-                >
-                  <Trash2 className='mr-2 h-4 w-4' />
-                  Delete
-                </DropdownMenuItem>
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onClick={() => handleDeleteNotification(notification.id)}
+                    className='text-red-600 focus:text-red-600 focus:bg-red-50'
+                  >
+                    <Trash2 className='mr-2 h-4 w-4' />
+                    Delete
+                  </DropdownMenuItem>
+                </>
               )}
             </DropdownMenuContent>
           </DropdownMenu>
@@ -281,32 +342,42 @@ export function NotificationsDataTable({
   }
 
   return (
-    <DataTable
-      columns={columns}
-      data={notifications}
-      searchPlaceholder='Search notifications...' // This will be handled by the parent component now
-      permissions={{
-        module: 'notifications',
-        actions: {
-          view: true,
-          delete: canDeleteNotifications
-        },
-        showPermissionError: true
-      }}
-      onRefresh={onRefresh}
-      onBulkAction={canDeleteNotifications ? handleBulkDelete : undefined}
-      bulkActionConfig={{
-        label: 'Delete Selected',
-        icon: Trash2,
-        variant: 'destructive',
-        confirmTitle: 'Delete Notifications',
-        confirmDescription:
-          'Are you sure you want to delete {count} notification{plural}? This action cannot be undone.',
-        successMessage: 'Successfully deleted {count} notification{plural}',
-        errorMessage: 'Failed to delete selected notifications',
-        loadingText: 'Deleting notifications...'
-      }}
-      getRowId={(row) => row.id}
-    />
+    <>
+      <DataTable
+        columns={columns}
+        data={notifications}
+        searchPlaceholder='Search notifications...'
+        permissions={{
+          module: 'notifications',
+          actions: {
+            view: true,
+            delete: canDeleteNotifications
+          },
+          showPermissionError: true
+        }}
+        onRefresh={onRefresh}
+        onBulkAction={canDeleteNotifications ? handleBulkDelete : undefined}
+        bulkActionConfig={{
+          label: 'Delete Selected',
+          icon: Trash2,
+          variant: 'destructive',
+          confirmTitle: 'Delete Notifications',
+          confirmDescription:
+            'Are you sure you want to delete {count} notification{plural}? This action cannot be undone.',
+          successMessage: 'Successfully deleted {count} notification{plural}',
+          errorMessage: 'Failed to delete selected notifications',
+          loadingText: 'Deleting notifications...'
+        }}
+        getRowId={(row) => row.id}
+      />
+
+      {/* Edit Notification Dialog */}
+      <EditNotificationDialog
+        notification={editingNotification}
+        open={editDialogOpen}
+        onOpenChange={setEditDialogOpen}
+        onSuccess={handleEditSuccess}
+      />
+    </>
   );
 }

@@ -30,6 +30,7 @@ import { BeatLoader } from 'react-spinners';
 import { useRoles } from '@/hooks/organization/use-roles';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useAuth } from '@/hooks/use-auth';
+import { RichTextDisplay } from '@/components/ui/rich-text-editor';
 
 interface NotificationDetails {
   id: string;
@@ -213,9 +214,9 @@ export function NotificationView({ notificationId }: NotificationViewProps) {
                   <Badge variant='outline' className='text-xs'>{notification.category}</Badge>
                 </div>
               </div>
-              <p className='text-sm sm:text-base text-slate-600 mt-2 sm:mt-3 leading-relaxed'>
-                {notification.body}
-              </p>
+              <div className='text-sm sm:text-base text-slate-600 mt-2 sm:mt-3 leading-relaxed'>
+                <RichTextDisplay content={notification.body} />
+              </div>
 
               {notification.url && (
                 <div className='mt-3 sm:mt-5'>

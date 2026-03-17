@@ -162,6 +162,22 @@ export interface SendNotificationDto {
   variables?: Record<string, string>;
 }
 
+// ==================== ADMIN/MANAGEMENT VIEW ====================
+
+export interface NotificationWithStats {
+  id: string;
+  title: string;
+  body: string;
+  priority: string;
+  category: string;
+  created_at: string;
+  updated_at: string;
+  created_by?: string;
+  created_by_name?: string;
+  sent_to_count: number;
+  read_by_count: number;
+}
+
 // ==================== FILTERS ====================
 
 export interface NotificationFilters {

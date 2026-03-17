@@ -367,9 +367,24 @@ async function sendWebPushNotifications(
       return emptyResult;
     }
 
+    // Strip HTML from body for push notifications (plain text only)
+    const plainBody = (notification.body || '')
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<\/p>/gi, '\n')
+      .replace(/<\/li>/gi, '\n')
+      .replace(/<li>/gi, '• ')
+      .replace(/<[^>]+>/g, '')
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#039;/g, "'")
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+
     const pushPayload = JSON.stringify({
       title: notification.title,
-      body: notification.body,
+      body: plainBody,
       icon: notification.icon || '/icons/icon-192x192.png',
       url: notification.url || '/notifications',
       data: {

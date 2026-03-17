@@ -526,6 +526,44 @@ async function renderTemplate(
   return { title, message };
 }
 
+// ==================== ADMIN/MANAGE NOTIFICATIONS ====================
+
+export async function getNotificationsManage(params: {
+  page: number;
+  limit: number;
+  search: string;
+  sort_by: string;
+  sort_order: string;
+}): Promise<{
+  success: boolean;
+  data: import('@/types/notification').NotificationWithStats[];
+  pagination: {
+    page: number;
+    limit: number;
+    total_pages: number;
+    total_items: number;
+  };
+}> {
+  const searchParams = new URLSearchParams({
+    page: String(params.page),
+    limit: String(params.limit),
+    search: params.search || '',
+    sort_by: params.sort_by || 'created_at',
+    sort_order: params.sort_order || 'desc'
+  });
+
+  const response = await fetch(
+    `/api/notifications/manage?${searchParams.toString()}`
+  );
+
+  if (!response.ok) {
+    const errorData = await response.json();
+    throw new Error(errorData.error || 'Failed to fetch notifications');
+  }
+
+  return response.json();
+}
+
 // ==================== PRE-BUILT NOTIFICATION CREATORS ====================
 
 export async function notifyReservationApproved(

@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import type { Notification, NotificationType } from '@/types/notification';
 import { formatDistanceToNow } from 'date-fns';
+import { RichTextDisplay, stripHtml } from '@/components/ui/rich-text-editor';
 
 interface NotificationItemProps {
   notification: Notification;
@@ -86,14 +87,16 @@ export function NotificationItem({
             {getPriorityBadge()}
           </div>
 
-          <p
-            className={cn(
-              'text-sm text-muted-foreground',
-              !showFullMessage && 'line-clamp-2'
-            )}
-          >
-            {notification.message}
-          </p>
+          {showFullMessage ? (
+            <RichTextDisplay
+              content={notification.message}
+              className='text-sm text-muted-foreground'
+            />
+          ) : (
+            <p className='text-sm text-muted-foreground line-clamp-2'>
+              {stripHtml(notification.message)}
+            </p>
+          )}
 
           <div className='flex items-center gap-3 text-xs text-muted-foreground'>
             <span>
