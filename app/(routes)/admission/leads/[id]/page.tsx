@@ -525,36 +525,63 @@ function LeadDetailPageContent() {
       try {
         const digits = lead.phone.replace(/\D/g, '');
         const intlPhone = digits.startsWith('91') && digits.length === 12 ? digits : `91${digits}`;
-        const res = await fetch('/api/admission/whatsapp-personal/send', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            institution_id: personalWaInstitutionId || userInstitutionId,
-            to: intlPhone,
-            message: sendMessage.trim(),
-            lead_id: lead.id,
-            recipient_name: lead.full_name,
-          }),
-        });
-        const result = await res.json();
-        if (result.success) {
-          toast.success('Message sent via Personal WhatsApp');
-          // Log as activity for the timeline
-          await createActivity.mutateAsync({
-            lead_id: lead.id,
-            activity_type: 'whatsapp',
-            title: 'Personal WhatsApp message',
-            description: sendMessage.trim(),
+        const instId = personalWaInstitutionId || userInstitutionId;
+
+        // Send media attachment first (if template has one)
+        if (templateAttachment?.url) {
+          const mediaRes = await fetch('/api/admission/whatsapp-personal/send-media', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              institution_id: instId,
+              to: intlPhone,
+              media_url: templateAttachment.url,
+              caption: sendMessage.trim(),
+              media_type: templateAttachment.type || 'image',
+              lead_id: lead.id,
+              recipient_name: lead.full_name,
+            }),
           });
-          queryClient.invalidateQueries({ queryKey: ['lead-communication-history', leadId] });
+          const mediaResult = await mediaRes.json();
+          if (!mediaResult.success) {
+            toast.error(mediaResult.error || 'Failed to send media');
+            return;
+          }
         } else {
-          toast.error(result.error || 'Failed to send message');
+          // Text only
+          const res = await fetch('/api/admission/whatsapp-personal/send', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              institution_id: instId,
+              to: intlPhone,
+              message: sendMessage.trim(),
+              lead_id: lead.id,
+              recipient_name: lead.full_name,
+            }),
+          });
+          const result = await res.json();
+          if (!result.success) {
+            toast.error(result.error || 'Failed to send message');
+            return;
+          }
         }
+
+        toast.success('Message sent via Personal WhatsApp');
+        await createActivity.mutateAsync({
+          lead_id: lead.id,
+          activity_type: 'whatsapp',
+          title: 'Personal WhatsApp message',
+          description: sendMessage.trim(),
+        });
+        queryClient.invalidateQueries({ queryKey: ['lead-communication-history', leadId] });
       } catch (err) {
         toast.error('Failed to send personal WhatsApp message');
       } finally {
         setIsSending(false);
         setSendMessage('');
+        setSelectedTemplateId('');
+        setTemplateAttachment(null);
         setShowSendMsg(false);
       }
       return;
