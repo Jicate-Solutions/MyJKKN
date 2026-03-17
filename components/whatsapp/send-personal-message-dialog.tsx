@@ -15,7 +15,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Send, Loader2, MessageCircle } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
-import { toast } from 'sonner';
+import toast from 'react-hot-toast';
 import { useQueryClient } from '@tanstack/react-query';
 
 interface SendPersonalMessageDialogProps {
@@ -77,13 +77,18 @@ export function SendPersonalMessageDialog({
       const data = await res.json();
 
       if (res.ok && data.success) {
-        toast.success('Message sent via Personal WhatsApp!');
         setMessage('');
         // Refresh communication history on the lead detail page
         if (leadId) {
           queryClient.invalidateQueries({ queryKey: ['lead-communication-history', leadId] });
         }
+        // Close dialog first, then show toast after a tick (prevents unmount race)
         onOpenChange(false);
+        setSending(false);
+        setTimeout(() => {
+          toast.success('Message sent via Personal WhatsApp!');
+        }, 100);
+        return;
       } else {
         toast.error(data.error || 'Failed to send message');
       }

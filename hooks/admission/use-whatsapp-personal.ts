@@ -2,7 +2,7 @@
 // React Query hooks for BYOW WhatsApp personal connections
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { toast } from 'sonner';
+import toast from 'react-hot-toast';
 
 // ---------------------------------------------------------------------------
 // Query keys
