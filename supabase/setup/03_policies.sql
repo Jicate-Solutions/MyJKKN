@@ -3693,3 +3693,52 @@ CREATE POLICY "wa_personal_msg_update" ON wa_personal_message_logs FOR UPDATE US
     AND cr.role_key = 'admission'
   )
 );
+
+-- =============================================================================
+-- Marketing Leads Database Policies
+-- Added: 2026-03-17
+-- =============================================================================
+
+CREATE POLICY "marketing_leads_db_select" ON marketing_leads_database FOR SELECT USING (
+  institution_id = auth_institution_id()
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+  OR EXISTS (
+    SELECT 1 FROM user_roles ur
+    JOIN custom_roles cr ON ur.role_id = cr.id
+    WHERE ur.user_id = auth.uid()
+    AND cr.role_key = 'admission'
+  )
+);
+
+CREATE POLICY "marketing_leads_db_insert" ON marketing_leads_database FOR INSERT WITH CHECK (
+  institution_id = auth_institution_id()
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+  OR EXISTS (
+    SELECT 1 FROM user_roles ur
+    JOIN custom_roles cr ON ur.role_id = cr.id
+    WHERE ur.user_id = auth.uid()
+    AND cr.role_key = 'admission'
+  )
+);
+
+CREATE POLICY "marketing_leads_db_update" ON marketing_leads_database FOR UPDATE USING (
+  institution_id = auth_institution_id()
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+  OR EXISTS (
+    SELECT 1 FROM user_roles ur
+    JOIN custom_roles cr ON ur.role_id = cr.id
+    WHERE ur.user_id = auth.uid()
+    AND cr.role_key = 'admission'
+  )
+);
+
+CREATE POLICY "marketing_leads_db_delete" ON marketing_leads_database FOR DELETE USING (
+  institution_id = auth_institution_id()
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+  OR EXISTS (
+    SELECT 1 FROM user_roles ur
+    JOIN custom_roles cr ON ur.role_id = cr.id
+    WHERE ur.user_id = auth.uid()
+    AND cr.role_key = 'admission'
+  )
+);

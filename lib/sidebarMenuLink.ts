@@ -932,6 +932,11 @@ export function GetPages(pathname: string): MenuGroup[] {
               active: pathname === '/admission/marketing/voice-broadcast'
             },
             {
+              href: '/admission/marketing/database',
+              label: 'Database',
+              active: pathname === '/admission/marketing/database'
+            },
+            {
               href: '/admission/marketing/publishers',
               label: 'Publishers',
               active: pathname === '/admission/marketing/publishers'

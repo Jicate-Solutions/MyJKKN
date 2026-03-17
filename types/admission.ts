@@ -811,3 +811,72 @@ export interface ExpoDailyTrend {
   expense: number;
   counselling: number;
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// MARKETING LEADS DATABASE
+// ═══════════════════════════════════════════════════════════════════════════
+
+export interface MarketingLeadDatabase {
+  id: string;
+  institution_id: string;
+  district: string | null;
+  sub_district: string | null;
+  student_name: string;
+  father_name: string | null;
+  gender: string | null;
+  community: string | null;
+  mobile_number: string | null;
+  group_detail: string | null;
+  address: string | null;
+  pincode: string | null;
+  school_name: string | null;
+  upload_batch_id: string;
+  uploaded_by: string | null;
+  upload_file_name: string | null;
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+  updated_by: string | null;
+}
+
+export interface MarketingLeadDatabaseFilters {
+  search?: string;
+  institution_id?: string;
+  district?: string;
+  gender?: string;
+  school_name?: string;
+  upload_batch_id?: string;
+  page?: number;
+  limit?: number;
+  sort_by?: string;
+  sort_order?: 'asc' | 'desc';
+}
+
+export interface MarketingLeadDatabaseListResponse {
+  data: MarketingLeadDatabase[];
+  metadata: {
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+  };
+}
+
+export interface BulkLeadUploadResult {
+  success: boolean;
+  total_rows: number;
+  valid_rows: number;
+  invalid_rows: number;
+  inserted: number;
+  failed: number;
+  errors: Array<{ row: number; field?: string; message: string }>;
+  upload_batch_id: string;
+}
+
+export interface UploadBatch {
+  upload_batch_id: string;
+  upload_file_name: string | null;
+  uploaded_by: string | null;
+  created_at: string;
+  total_records: number;
+}

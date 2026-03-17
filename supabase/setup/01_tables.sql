@@ -2494,6 +2494,54 @@ CREATE INDEX IF NOT EXISTS idx_wa_personal_msg_logs_sent_at
 CREATE INDEX IF NOT EXISTS idx_wa_personal_msg_logs_status
     ON wa_personal_message_logs(status);
 
+-- =============================================================================
+-- Marketing Leads Database
+-- Bulk-uploaded lead data for admission marketing campaigns
+-- Added: 2026-03-17
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS public.marketing_leads_database (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    institution_id UUID NOT NULL REFERENCES institutions(id) ON DELETE CASCADE,
+
+    -- Lead data fields
+    district TEXT,
+    sub_district TEXT,
+    student_name TEXT NOT NULL,
+    father_name TEXT,
+    gender TEXT CHECK (gender IN ('Male', 'Female', 'Other')),
+    community TEXT,
+    mobile_number TEXT,
+    group_detail TEXT,
+    address TEXT,
+    pincode TEXT,
+    school_name TEXT,
+
+    -- Upload tracking
+    upload_batch_id UUID NOT NULL,
+    uploaded_by UUID REFERENCES auth.users(id),
+    upload_file_name TEXT,
+
+    -- Standard audit fields
+    created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now()),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now()),
+    created_by UUID,
+    updated_by UUID
+);
+
+CREATE INDEX IF NOT EXISTS idx_marketing_leads_db_institution
+    ON marketing_leads_database(institution_id);
+CREATE INDEX IF NOT EXISTS idx_marketing_leads_db_batch
+    ON marketing_leads_database(upload_batch_id);
+CREATE INDEX IF NOT EXISTS idx_marketing_leads_db_district
+    ON marketing_leads_database(district);
+CREATE INDEX IF NOT EXISTS idx_marketing_leads_db_mobile
+    ON marketing_leads_database(mobile_number);
+CREATE INDEX IF NOT EXISTS idx_marketing_leads_db_created
+    ON marketing_leads_database(created_at DESC);
+
+ALTER TABLE marketing_leads_database ENABLE ROW LEVEL SECURITY;
+
 -- =====================================================
 -- END OF TABLE DEFINITIONS
 -- =====================================================

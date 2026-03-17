@@ -77,6 +77,7 @@ When updating any SQL file:
 | **Service Requests** | **service_types, service_type_fields, service_request_approval_steps, service_requests, service_request_approvals, service_request_timeline, service_request_attachments** | **7** | **✅ NEW - Dynamic configurable service request system** |
 | **Startup Studio** | **startup_events, event_registrations, event_team_members, event_venue_assignments, event_team_venue_allocations, event_staff_assignments, event_demo_slots, event_submissions, event_checklists, event_checklist_items, event_checklist_completions, event_team_attendance, appathon_role_cards, appathon_peer_tags, appathon_verifications** | **15** | **NEW - Generic event platform for hackathons/competitions** |
 | **Post-Demo Day Pipeline** | **track_declarations, progression_levels, case_studies** | **3** | **NEW 2026-03-09 — Post-demo-day team path declaration, learner identity progression (5 levels), and case study narratives** |
+| **Marketing**   | **marketing_leads_database** | **1** | **✅ NEW 2026-03-17 — Bulk-uploaded lead data for admission marketing campaigns** |
 | Other           | applications (with parent auth + LTI), categories, subcategories, employment_categories, user_activity_logs, activity_stats, institution_departments, migration_log                                                           | 8     | ✅ Updated with auth + LTI  |
 
 ### Functions (244 total - Updated 2026-02-09)
@@ -1269,6 +1270,17 @@ npx tsx scripts/repair-learner-profile-sync.ts
 - **Indexes**: 2 on connections (institution, status), 5 on message_logs (institution, connection, lead, sent_at DESC, status)
 - **Purpose**: BYOW (Bring Your Own WhatsApp) personal messaging for admission module — tracks QR-based WhatsApp connections per institution and logs all messages sent
 - Added: 2026-03-16
+
+---
+
+### 2026-03-17: Marketing Leads Database
+
+- **Tables** (01_tables.sql): `marketing_leads_database`
+- **Policies** (03_policies.sql): Institution-scoped RLS with super_admin bypass and admission role access (4 policies: select, insert, update, delete)
+- **Indexes**: 5 (institution, batch, district, mobile_number, created_at DESC)
+- **Purpose**: Bulk-uploaded lead data for admission marketing campaigns — stores student contact info from CSV/Excel uploads with batch tracking
+
+| 2026-03-17 | Added `marketing_leads_database` table for bulk lead uploads in marketing module |
 
 ---
 
