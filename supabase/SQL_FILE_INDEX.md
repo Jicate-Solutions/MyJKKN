@@ -1261,4 +1261,15 @@ npx tsx scripts/repair-learner-profile-sync.ts
 
 ---
 
+### 2026-03-16: BYOW WhatsApp Personal Messaging
+
+- **Tables** (01_tables.sql): `wa_personal_connections`, `wa_personal_message_logs`
+- **Policies** (03_policies.sql): Institution-scoped RLS with super_admin bypass and admission role access for both tables (7 policies total)
+- **Triggers** (04_triggers.sql): `wa_personal_connections_updated_at`, `wa_personal_message_logs_updated_at`
+- **Indexes**: 2 on connections (institution, status), 5 on message_logs (institution, connection, lead, sent_at DESC, status)
+- **Purpose**: BYOW (Bring Your Own WhatsApp) personal messaging for admission module — tracks QR-based WhatsApp connections per institution and logs all messages sent
+- Added: 2026-03-16
+
+---
+
 **Remember: ONE file per object type, NO duplicates, ALWAYS update existing files!**

@@ -75,7 +75,8 @@ import {
   Film,
   FileText as FileTextIcon,
   Paperclip,
-  X
+  X,
+  MessageCircle
 } from 'lucide-react';
 import Link from 'next/link';
 import {
@@ -111,6 +112,8 @@ import { WhatsAppCampaignService } from '@/lib/services/admission/whatsapp-campa
 import { useQueryClient } from '@tanstack/react-query';
 import type { FunnelStage } from '@/types/admission';
 import { ALLOWED_STAGE_TRANSITIONS } from '@/lib/services/admission/lead-service';
+import { SendPersonalMessageDialog } from '@/components/whatsapp/send-personal-message-dialog';
+import { usePersonalWhatsAppStatus } from '@/hooks/admission/use-whatsapp-personal';
 
 const FUNNEL_STAGES = [
   { value: 'new', label: 'New' },
@@ -358,6 +361,9 @@ function LeadDetailPageContent() {
   const [showAssignCounselorDialog, setShowAssignCounselorDialog] = useState(false);
   const [selectedCounselorId, setSelectedCounselorId] = useState('');
 
+  // Personal WhatsApp state
+  const [personalMsgOpen, setPersonalMsgOpen] = useState(false);
+
   // Create application form state
   const [selectedInstitutionId, setSelectedInstitutionId] = useState('');
   const [selectedDegreeId, setSelectedDegreeId] = useState('');
@@ -372,6 +378,10 @@ function LeadDetailPageContent() {
   const { history: communicationHistory, isLoading: commLoading } = useLeadCommunicationHistory(leadId);
   const queryClient = useQueryClient();
   const { selectedInstitutionId: userInstitutionId } = useUserInstitutionAccess();
+
+  // Personal WhatsApp status
+  const personalWaInstitutionId = lead?.institution_id || userInstitutionId || undefined;
+  const { data: waStatus } = usePersonalWhatsAppStatus(personalWaInstitutionId, { pollWhileConnecting: false });
 
   // Compute lead scores on-the-fly from available data
   const computedScores = useMemo(() => {
@@ -2121,6 +2131,19 @@ function LeadDetailPageContent() {
                     </DialogContent>
                   </Dialog>
 
+                  {/* Personal WhatsApp Button */}
+                  {waStatus?.connected && (
+                    <Button
+                      variant="outline"
+                      className="w-full justify-start text-green-600 border-green-300 hover:bg-green-50"
+                      size="sm"
+                      onClick={() => setPersonalMsgOpen(true)}
+                    >
+                      <MessageCircle className="h-4 w-4 mr-2" />
+                      Personal WhatsApp
+                    </Button>
+                  )}
+
                   {/* Assign Counselor Dialog — only for non-referral leads (referral leads use consultant attribution) */}
                   {lead.source !== 'referral' && (
                     <Dialog open={showAssignCounselorDialog} onOpenChange={(open) => { setShowAssignCounselorDialog(open); if (!open) setSelectedCounselorId(''); }}>
@@ -2710,6 +2733,18 @@ function LeadDetailPageContent() {
             </DialogContent>
           </Dialog>
         </div>
+
+        {/* Personal WhatsApp Dialog */}
+        {personalWaInstitutionId && (
+          <SendPersonalMessageDialog
+            institutionId={personalWaInstitutionId}
+            open={personalMsgOpen}
+            onOpenChange={setPersonalMsgOpen}
+            defaultPhone={lead?.phone || ''}
+            leadId={lead?.id}
+            recipientName={lead?.full_name || ''}
+          />
+        )}
       </ContentLayout>
     </PermissionGuard>
   );

@@ -649,7 +649,18 @@ CREATE TRIGGER set_expo_daily_reports_updated_at
   BEFORE UPDATE ON expo_daily_reports
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+-- BYOW WhatsApp Personal Connections updated_at trigger (Added: 2026-03-16)
+CREATE TRIGGER wa_personal_connections_updated_at
+    BEFORE UPDATE ON wa_personal_connections
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER wa_personal_message_logs_updated_at
+    BEFORE UPDATE ON wa_personal_message_logs
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
 -- ================================================================================
 -- End of Triggers File
--- Total Triggers: 87 (Updated: 2026-03-13)
+-- Total Triggers: 89 (Updated: 2026-03-16)
 -- ================================================================================

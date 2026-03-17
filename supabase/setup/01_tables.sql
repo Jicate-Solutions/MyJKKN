@@ -2430,6 +2430,70 @@ ALTER TABLE expo_events ENABLE ROW LEVEL SECURITY;
 ALTER TABLE expo_event_team_members ENABLE ROW LEVEL SECURITY;
 ALTER TABLE expo_daily_reports ENABLE ROW LEVEL SECURITY;
 
+-- =============================================================================
+-- BYOW WhatsApp Personal Connections
+-- Tracks institution-level personal WhatsApp connections (via QR scan)
+-- Added: 2026-03-16
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS wa_personal_connections (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    institution_id UUID NOT NULL REFERENCES institutions(id) ON DELETE CASCADE,
+    status TEXT NOT NULL DEFAULT 'disconnected'
+        CHECK (status IN ('disconnected', 'connecting', 'qr_ready', 'authenticated', 'ready')),
+    phone_number TEXT,
+    push_name TEXT,
+    connected_by UUID REFERENCES auth.users(id),
+    connected_at TIMESTAMPTZ,
+    disconnected_at TIMESTAMPTZ,
+    service_url TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(institution_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_wa_personal_connections_institution
+    ON wa_personal_connections(institution_id);
+CREATE INDEX IF NOT EXISTS idx_wa_personal_connections_status
+    ON wa_personal_connections(status);
+
+-- =============================================================================
+-- BYOW WhatsApp Personal Message Logs
+-- Audit trail for messages sent via personal WhatsApp
+-- Added: 2026-03-16
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS wa_personal_message_logs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    institution_id UUID NOT NULL REFERENCES institutions(id) ON DELETE CASCADE,
+    connection_id UUID NOT NULL REFERENCES wa_personal_connections(id) ON DELETE CASCADE,
+    recipient_type TEXT NOT NULL CHECK (recipient_type IN ('individual', 'group', 'bulk')),
+    recipient_phone TEXT NOT NULL,
+    recipient_name TEXT,
+    message_content TEXT NOT NULL,
+    message_preview TEXT,
+    status TEXT NOT NULL DEFAULT 'pending'
+        CHECK (status IN ('pending', 'sent', 'delivered', 'read', 'failed')),
+    whatsapp_message_id TEXT,
+    error_message TEXT,
+    lead_id UUID,
+    sent_by UUID NOT NULL REFERENCES auth.users(id),
+    sent_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_wa_personal_msg_logs_institution
+    ON wa_personal_message_logs(institution_id);
+CREATE INDEX IF NOT EXISTS idx_wa_personal_msg_logs_connection
+    ON wa_personal_message_logs(connection_id);
+CREATE INDEX IF NOT EXISTS idx_wa_personal_msg_logs_lead
+    ON wa_personal_message_logs(lead_id);
+CREATE INDEX IF NOT EXISTS idx_wa_personal_msg_logs_sent_at
+    ON wa_personal_message_logs(sent_at DESC);
+CREATE INDEX IF NOT EXISTS idx_wa_personal_msg_logs_status
+    ON wa_personal_message_logs(status);
+
 -- =====================================================
 -- END OF TABLE DEFINITIONS
 -- =====================================================

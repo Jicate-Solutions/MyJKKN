@@ -25,6 +25,8 @@ interface FollowupListProps {
    * so only the card being actioned is disabled — not all cards.
    */
   actioningLeadId?: string;
+  /** Institution ID for WhatsApp personal messaging. */
+  institutionId?: string;
 }
 
 export function FollowupList({
@@ -34,6 +36,7 @@ export function FollowupList({
   onReschedule,
   onAddNote,
   actioningLeadId,
+  institutionId,
 }: FollowupListProps) {
   const [sortMode, setSortMode] = useState<SortMode>('urgency');
 
@@ -80,6 +83,7 @@ export function FollowupList({
             onReschedule={onReschedule}
             onAddNote={onAddNote}
             isActioning={lead.id === actioningLeadId}
+            institutionId={institutionId}
           />
         ))}
       </div>

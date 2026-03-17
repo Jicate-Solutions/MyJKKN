@@ -414,6 +414,7 @@ function CounselorViewPageContent() {
                       actions.addQuickNote.mutate({ leadId, note })
                     }
                     actioningLeadId={actioningLeadId}
+                    institutionId={institutionId}
                   />
                 </div>
               )}
@@ -437,6 +438,7 @@ function CounselorViewPageContent() {
                       actions.addQuickNote.mutate({ leadId, note })
                     }
                     actioningLeadId={actioningLeadId}
+                    institutionId={institutionId}
                   />
                 </div>
               )}

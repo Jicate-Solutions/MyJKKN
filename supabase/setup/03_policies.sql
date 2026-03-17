@@ -3611,3 +3611,85 @@ CREATE POLICY "expo_reports_update" ON expo_daily_reports FOR UPDATE
   USING (auth.uid() IS NOT NULL);
 CREATE POLICY "expo_reports_delete" ON expo_daily_reports FOR DELETE
   USING (auth.uid() IS NOT NULL);
+
+-- =============================================================================
+-- BYOW WhatsApp Personal Connections — RLS
+-- Added: 2026-03-16
+-- Pattern: auth_institution_id() + super_admin bypass + admission custom role
+-- =============================================================================
+
+ALTER TABLE wa_personal_connections ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "wa_personal_conn_select" ON wa_personal_connections FOR SELECT USING (
+  institution_id = auth_institution_id()
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+  OR EXISTS (
+    SELECT 1 FROM user_roles ur
+    JOIN custom_roles cr ON ur.role_id = cr.id
+    WHERE ur.user_id = auth.uid()
+    AND cr.role_key = 'admission'
+  )
+);
+CREATE POLICY "wa_personal_conn_insert" ON wa_personal_connections FOR INSERT WITH CHECK (
+  institution_id = auth_institution_id()
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+  OR EXISTS (
+    SELECT 1 FROM user_roles ur
+    JOIN custom_roles cr ON ur.role_id = cr.id
+    WHERE ur.user_id = auth.uid()
+    AND cr.role_key = 'admission'
+  )
+);
+CREATE POLICY "wa_personal_conn_update" ON wa_personal_connections FOR UPDATE USING (
+  institution_id = auth_institution_id()
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+  OR EXISTS (
+    SELECT 1 FROM user_roles ur
+    JOIN custom_roles cr ON ur.role_id = cr.id
+    WHERE ur.user_id = auth.uid()
+    AND cr.role_key = 'admission'
+  )
+);
+CREATE POLICY "wa_personal_conn_delete" ON wa_personal_connections FOR DELETE USING (
+  institution_id = auth_institution_id()
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+  OR EXISTS (
+    SELECT 1 FROM user_roles ur
+    JOIN custom_roles cr ON ur.role_id = cr.id
+    WHERE ur.user_id = auth.uid()
+    AND cr.role_key = 'admission'
+  )
+);
+
+ALTER TABLE wa_personal_message_logs ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "wa_personal_msg_select" ON wa_personal_message_logs FOR SELECT USING (
+  institution_id = auth_institution_id()
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+  OR EXISTS (
+    SELECT 1 FROM user_roles ur
+    JOIN custom_roles cr ON ur.role_id = cr.id
+    WHERE ur.user_id = auth.uid()
+    AND cr.role_key = 'admission'
+  )
+);
+CREATE POLICY "wa_personal_msg_insert" ON wa_personal_message_logs FOR INSERT WITH CHECK (
+  institution_id = auth_institution_id()
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+  OR EXISTS (
+    SELECT 1 FROM user_roles ur
+    JOIN custom_roles cr ON ur.role_id = cr.id
+    WHERE ur.user_id = auth.uid()
+    AND cr.role_key = 'admission'
+  )
+);
+CREATE POLICY "wa_personal_msg_update" ON wa_personal_message_logs FOR UPDATE USING (
+  institution_id = auth_institution_id()
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+  OR EXISTS (
+    SELECT 1 FROM user_roles ur
+    JOIN custom_roles cr ON ur.role_id = cr.id
+    WHERE ur.user_id = auth.uid()
+    AND cr.role_key = 'admission'
+  )
+);

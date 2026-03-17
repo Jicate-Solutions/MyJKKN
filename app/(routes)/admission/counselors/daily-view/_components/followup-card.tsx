@@ -42,6 +42,8 @@ import {
   Loader2,
 } from 'lucide-react';
 import type { FollowupLead } from '@/lib/services/admission/counselor-daily-view-service';
+import { SendPersonalMessageDialog } from '@/components/whatsapp/send-personal-message-dialog';
+import { usePersonalWhatsAppStatus } from '@/hooks/admission/use-whatsapp-personal';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -135,6 +137,8 @@ interface FollowupCardProps {
   onAddNote: (leadId: string, note: string) => void;
   /** True only for THIS card's in-flight mutation — not a global flag. */
   isActioning?: boolean;
+  /** Institution ID for WhatsApp personal messaging. */
+  institutionId?: string;
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -146,10 +150,14 @@ export function FollowupCard({
   onReschedule,
   onAddNote,
   isActioning,
+  institutionId,
 }: FollowupCardProps) {
   const [noteText, setNoteText] = useState('');
   const [showNote, setShowNote] = useState(false);
   const [rescheduleDate, setRescheduleDate] = useState('');
+  const [personalMsgOpen, setPersonalMsgOpen] = useState(false);
+
+  const { data: waStatus } = usePersonalWhatsAppStatus(institutionId, { pollWhileConnecting: false });
 
   // ── Derived values ──────────────────────────────────────────────────────────
 
@@ -362,6 +370,19 @@ export function FollowupCard({
               WhatsApp
             </Button>
 
+            {/* Personal WhatsApp */}
+            {waStatus?.connected && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 text-green-600 hover:text-green-700 hover:bg-green-50"
+                onClick={() => setPersonalMsgOpen(true)}
+                title="Send via Personal WhatsApp"
+              >
+                <MessageCircle className="h-4 w-4" />
+              </Button>
+            )}
+
             {/* Move Stage */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -460,6 +481,17 @@ export function FollowupCard({
           )}
         </div>
       </CardContent>
+
+      {institutionId && (
+        <SendPersonalMessageDialog
+          institutionId={institutionId}
+          open={personalMsgOpen}
+          onOpenChange={setPersonalMsgOpen}
+          defaultPhone={lead.phone || ''}
+          leadId={lead.id}
+          recipientName={lead.full_name || ''}
+        />
+      )}
     </Card>
   );
 }

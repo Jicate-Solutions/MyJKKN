@@ -59,7 +59,9 @@ import {
   Loader2,
   RefreshCw,
 } from 'lucide-react';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { cn } from '@/lib/utils';
+import { PersonalConnectionTab } from './_components/personal-connection-tab';
 
 // =============================================================================
 // Types
@@ -354,15 +356,22 @@ function WhatsAppNumbersContent() {
             </div>
           </div>
 
-          <div>
-            <h1 className="text-2xl font-bold flex items-center gap-2">
-              <Phone className="h-6 w-6 text-green-600" />
-              WhatsApp Business Numbers
-            </h1>
-            <p className="text-muted-foreground mt-1">
-              Manage WABA phone numbers for your institution. Each institution can have multiple numbers.
-            </p>
-          </div>
+          <Tabs defaultValue="business" className="w-full">
+            <TabsList>
+              <TabsTrigger value="business">Business Numbers</TabsTrigger>
+              <TabsTrigger value="personal">Personal WhatsApp</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="business" className="space-y-6">
+              <div>
+                <h1 className="text-2xl font-bold flex items-center gap-2">
+                  <Phone className="h-6 w-6 text-green-600" />
+                  WhatsApp Business Numbers
+                </h1>
+                <p className="text-muted-foreground mt-1">
+                  Manage WABA phone numbers for your institution. Each institution can have multiple numbers.
+                </p>
+              </div>
 
           <Card>
             <CardHeader>
@@ -455,6 +464,12 @@ function WhatsAppNumbersContent() {
               )}
             </CardContent>
           </Card>
+            </TabsContent>
+
+            <TabsContent value="personal">
+              <PersonalConnectionTab institutionId={institutionId} />
+            </TabsContent>
+          </Tabs>
         </div>
       </ContentLayout>
 
