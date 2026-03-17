@@ -103,7 +103,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { toast } from 'sonner';
+import toast from 'react-hot-toast';
 import { AdmissionErrorBoundary } from '@/components/admission';
 import { createClientSupabaseClient } from '@/lib/supabase/client';
 import { indianStates, getDistrictsByState } from '@/lib/data/locations';
@@ -1595,10 +1595,12 @@ function LeadDetailPageContent() {
                                 onClick={handleSendMessage}
                                 disabled={isSending || !sendMessage.trim()}
                               >
-                                {sendChannel === 'whatsapp' ? (
-                                  <><ExternalLink className="h-4 w-4 mr-2" />Open WhatsApp</>
-                                ) : isSending ? (
+                                {isSending ? (
                                   <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Sending...</>
+                                ) : sendChannel === 'whatsapp' ? (
+                                  <><ExternalLink className="h-4 w-4 mr-2" />Open WhatsApp</>
+                                ) : sendChannel === 'personal_whatsapp' ? (
+                                  <><MessageCircle className="h-4 w-4 mr-2" />Send Personal WA</>
                                 ) : (
                                   <><Send className="h-4 w-4 mr-2" />Send SMS</>
                                 )}
