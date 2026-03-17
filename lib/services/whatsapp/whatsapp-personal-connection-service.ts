@@ -93,6 +93,23 @@ export class WhatsAppPersonalConnectionService {
     }
   }
 
+  /** Find any connection with status 'ready' (for multi-institution users) */
+  static async getAnyReadyConnection(): Promise<PersonalWhatsAppConnection | null> {
+    const supabase = getServiceClient();
+    const { data, error } = await supabase
+      .from('wa_personal_connections')
+      .select('*')
+      .eq('status', 'ready')
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      console.error('[whatsapp-personal] getAnyReadyConnection error:', error.message);
+      return null;
+    }
+    return data as PersonalWhatsAppConnection | null;
+  }
+
   static async deleteConnection(institutionId: string): Promise<boolean> {
     const supabase = getServiceClient();
     const { error } = await supabase

@@ -47,6 +47,7 @@ import {
 } from '@/components/ui/table';
 import { PermissionGuard } from '@/components/auth/permission-guard';
 import { useAuth } from '@/hooks/use-auth';
+import { useUserInstitutionAccess } from '@/hooks/use-user-institution-access';
 import {
   Phone,
   Plus,
@@ -295,7 +296,8 @@ function AddNumberDialog({
 
 function WhatsAppNumbersContent() {
   const { profile } = useAuth();
-  const institutionId = profile?.institution_id || '';
+  const { selectedInstitutionId } = useUserInstitutionAccess();
+  const institutionId = selectedInstitutionId || profile?.institution_id || '';
   const queryClient = useQueryClient();
   const [deleteTarget, setDeleteTarget] = useState<WAPhoneNumber | null>(null);
 
@@ -467,7 +469,13 @@ function WhatsAppNumbersContent() {
             </TabsContent>
 
             <TabsContent value="personal">
-              <PersonalConnectionTab institutionId={institutionId} />
+              {institutionId ? (
+                <PersonalConnectionTab institutionId={institutionId} />
+              ) : (
+                <p className="text-sm text-muted-foreground py-8 text-center">
+                  Select an institution to manage personal WhatsApp connection.
+                </p>
+              )}
             </TabsContent>
           </Tabs>
         </div>

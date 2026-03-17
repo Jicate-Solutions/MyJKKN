@@ -292,10 +292,12 @@ function CommunicationItem({
   };
 }) {
   const channelLabel = typeof message.channel === 'string'
-    ? (message.channel === 'whatsapp' ? 'WhatsApp' : message.channel.toUpperCase())
+    ? (message.channel === 'personal_whatsapp' ? 'Personal WhatsApp'
+      : message.channel === 'whatsapp' ? 'WhatsApp'
+      : message.channel.toUpperCase())
     : message.channel?.channel_name || 'Message';
   const isWhatsApp = typeof message.channel === 'string'
-    ? message.channel === 'whatsapp'
+    ? (message.channel === 'whatsapp' || message.channel === 'personal_whatsapp')
     : false;
 
   const statusColor: Record<string, string> = {
@@ -499,7 +501,7 @@ function LeadDetailPageContent() {
 
   // Send message dialog state
   const [showSendMsg, setShowSendMsg] = useState(false);
-  const [sendChannel, setSendChannel] = useState<'sms' | 'whatsapp'>('sms');
+  const [sendChannel, setSendChannel] = useState<'sms' | 'whatsapp' | 'personal_whatsapp'>('sms');
   const [sendMessage, setSendMessage] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
@@ -510,11 +512,53 @@ function LeadDetailPageContent() {
 
   // Fetch active templates filtered by the currently selected channel.
   // Use the logged-in user's institution (not the lead's) since templates belong to the counselor's institution.
-  const { templates: channelTemplates } = useActiveTemplates(userInstitutionId, sendChannel as 'sms' | 'email' | 'whatsapp');
+  const templateChannel = sendChannel === 'personal_whatsapp' ? 'whatsapp' : sendChannel;
+  const { templates: channelTemplates } = useActiveTemplates(userInstitutionId, templateChannel as 'sms' | 'email' | 'whatsapp');
   const { replaceVariables } = useTemplateVariables();
 
   const handleSendMessage = async () => {
     if (!lead || !sendMessage.trim()) return;
+
+    // Personal WhatsApp — send via BYOW Railway service
+    if (sendChannel === 'personal_whatsapp') {
+      setIsSending(true);
+      try {
+        const digits = lead.phone.replace(/\D/g, '');
+        const intlPhone = digits.startsWith('91') && digits.length === 12 ? digits : `91${digits}`;
+        const res = await fetch('/api/admission/whatsapp-personal/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            institution_id: personalWaInstitutionId || userInstitutionId,
+            to: intlPhone,
+            message: sendMessage.trim(),
+            lead_id: lead.id,
+            recipient_name: lead.full_name,
+          }),
+        });
+        const result = await res.json();
+        if (result.success) {
+          toast.success('Message sent via Personal WhatsApp');
+          // Log as activity for the timeline
+          await createActivity.mutateAsync({
+            lead_id: lead.id,
+            activity_type: 'whatsapp',
+            title: 'Personal WhatsApp message',
+            description: sendMessage.trim(),
+          });
+          queryClient.invalidateQueries({ queryKey: ['lead-communication-history', leadId] });
+        } else {
+          toast.error(result.error || 'Failed to send message');
+        }
+      } catch (err) {
+        toast.error('Failed to send personal WhatsApp message');
+      } finally {
+        setIsSending(false);
+        setSendMessage('');
+        setShowSendMsg(false);
+      }
+      return;
+    }
 
     if (sendChannel === 'whatsapp') {
       // Open WhatsApp Web with the lead's phone and pre-filled message.
@@ -1420,7 +1464,9 @@ function LeadDetailPageContent() {
                             <DialogHeader className="shrink-0">
                               <DialogTitle>Send Message</DialogTitle>
                               <DialogDescription>
-                                {sendChannel === 'whatsapp'
+                                {sendChannel === 'personal_whatsapp'
+                                  ? `Send directly via your connected Personal WhatsApp to ${lead?.full_name}.`
+                                  : sendChannel === 'whatsapp'
                                   ? `Opens WhatsApp Web with a pre-filled message to ${lead?.full_name}. You send it from your own WhatsApp account.`
                                   : `Send a direct SMS to ${lead?.full_name}`}
                               </DialogDescription>
@@ -1442,7 +1488,13 @@ function LeadDetailPageContent() {
                                   </SelectTrigger>
                                   <SelectContent>
                                     <SelectItem value="sms">SMS</SelectItem>
-                                    <SelectItem value="whatsapp">WhatsApp</SelectItem>
+                                    <SelectItem value="whatsapp">WhatsApp Web</SelectItem>
+                                    <SelectItem value="personal_whatsapp">
+                                      <span className="flex items-center gap-1.5">
+                                        Personal WhatsApp
+                                        {waStatus?.connected && <span className="h-1.5 w-1.5 rounded-full bg-green-500 inline-block" />}
+                                      </span>
+                                    </SelectItem>
                                   </SelectContent>
                                 </Select>
                               </div>
@@ -2131,18 +2183,16 @@ function LeadDetailPageContent() {
                     </DialogContent>
                   </Dialog>
 
-                  {/* Personal WhatsApp Button */}
-                  {waStatus?.connected && (
-                    <Button
-                      variant="outline"
-                      className="w-full justify-start text-green-600 border-green-300 hover:bg-green-50"
-                      size="sm"
-                      onClick={() => setPersonalMsgOpen(true)}
-                    >
-                      <MessageCircle className="h-4 w-4 mr-2" />
-                      Personal WhatsApp
-                    </Button>
-                  )}
+                  {/* Personal WhatsApp Button — always shown, dialog handles not-connected state */}
+                  <Button
+                    variant="outline"
+                    className="w-full justify-start text-green-600 border-green-300 hover:bg-green-50"
+                    size="sm"
+                    onClick={() => setPersonalMsgOpen(true)}
+                  >
+                    <MessageCircle className="h-4 w-4 mr-2" />
+                    Personal WhatsApp
+                  </Button>
 
                   {/* Assign Counselor Dialog — only for non-referral leads (referral leads use consultant attribution) */}
                   {lead.source !== 'referral' && (
@@ -2735,16 +2785,14 @@ function LeadDetailPageContent() {
         </div>
 
         {/* Personal WhatsApp Dialog */}
-        {personalWaInstitutionId && (
-          <SendPersonalMessageDialog
-            institutionId={personalWaInstitutionId}
-            open={personalMsgOpen}
-            onOpenChange={setPersonalMsgOpen}
-            defaultPhone={lead?.phone || ''}
-            leadId={lead?.id}
-            recipientName={lead?.full_name || ''}
-          />
-        )}
+        <SendPersonalMessageDialog
+          institutionId={personalWaInstitutionId || userInstitutionId || ''}
+          open={personalMsgOpen}
+          onOpenChange={setPersonalMsgOpen}
+          defaultPhone={lead?.phone || ''}
+          leadId={lead?.id}
+          recipientName={lead?.full_name || ''}
+        />
       </ContentLayout>
     </PermissionGuard>
   );

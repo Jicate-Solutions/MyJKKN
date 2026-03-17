@@ -16,7 +16,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'institution_id, to, and message required' }, { status: 400 });
   }
 
-  const connection = await WhatsAppPersonalConnectionService.getConnection(institution_id);
+  // Try to find connection for the given institution, or fall back to any ready connection
+  let connection = await WhatsAppPersonalConnectionService.getConnection(institution_id);
+  if (!connection || connection.status !== 'ready') {
+    // User may have access to multiple institutions — find any ready connection
+    connection = await WhatsAppPersonalConnectionService.getAnyReadyConnection();
+  }
   if (!connection || connection.status !== 'ready') {
     return NextResponse.json({ error: 'Personal WhatsApp not connected' }, { status: 503 });
   }

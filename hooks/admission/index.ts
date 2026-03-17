@@ -1194,6 +1194,13 @@ export function useLeadCommunicationHistory(leadId: string) {
         .eq('lead_id', leadId)
         .order('created_at', { ascending: false })
         .limit(50);
+      // Fetch Personal WhatsApp logs (BYOW)
+      const { data: personalWaLogs } = await (supabase as any)
+        .from('wa_personal_message_logs')
+        .select('id, recipient_phone, recipient_name, message_content, message_preview, status, sent_at, created_at')
+        .eq('lead_id', leadId)
+        .order('created_at', { ascending: false })
+        .limit(50);
       // Merge and sort by created_at
       const combined = [
         ...(smsLogs || []).map((s: any) => ({
@@ -1203,6 +1210,10 @@ export function useLeadCommunicationHistory(leadId: string) {
         ...(waLogs || []).map((w: any) => ({
           id: w.id, channel: 'whatsapp' as const, phone: w.recipient_phone, content: w.message_content,
           status: w.delivery_status, sentAt: w.sent_at, deliveredAt: w.delivered_at, readAt: w.read_at, createdAt: w.created_at,
+        })),
+        ...(personalWaLogs || []).map((p: any) => ({
+          id: p.id, channel: 'personal_whatsapp' as const, phone: p.recipient_phone, content: p.message_content,
+          status: p.status, sentAt: p.sent_at, createdAt: p.created_at,
         })),
       ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
       return combined;

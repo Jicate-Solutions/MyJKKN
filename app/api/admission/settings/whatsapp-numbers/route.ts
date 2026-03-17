@@ -30,15 +30,28 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'institution_id is required' }, { status: 400 });
     }
 
-    // Verify institution access
+    // Verify institution access — check profile OR user_institution_access table
     const { data: profile } = await supabase
       .from('profiles')
-      .select('institution_id')
+      .select('institution_id, role')
       .eq('id', user.id)
       .single();
 
-    if (profile?.institution_id !== institutionId) {
-      return NextResponse.json({ error: 'Access denied' }, { status: 403 });
+    // Allow if: profile matches, or user is super_admin, or has institution access
+    const isProfileMatch = profile?.institution_id === institutionId;
+    const isSuperAdmin = profile?.role === 'super_admin';
+
+    if (!isProfileMatch && !isSuperAdmin) {
+      const { data: access } = await supabase
+        .from('user_institution_access')
+        .select('id')
+        .eq('user_id', user.id)
+        .eq('institution_id', institutionId)
+        .maybeSingle();
+
+      if (!access) {
+        return NextResponse.json({ error: 'Access denied' }, { status: 403 });
+      }
     }
 
     const serviceClient = getServiceClient();

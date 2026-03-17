@@ -95,15 +95,17 @@ export function usePersonalWhatsAppStatus(
     queryKey: personalWhatsAppKeys.connection(institutionId || ''),
     queryFn: () => fetchPersonalStatus(institutionId!),
     enabled: !!institutionId,
-    staleTime: 5_000,
+    staleTime: 10_000,
     refetchInterval: (query) => {
       if (!pollWhileConnecting) return false;
       const status = query.state.data?.status;
+      // Poll every 3s while connecting/QR/authenticating — stop once ready or disconnected
       if (status === 'connecting' || status === 'qr_ready' || status === 'authenticated') {
-        return 2_000;
+        return 3_000;
       }
       return false;
     },
+    refetchOnWindowFocus: false,
   });
 }
 
