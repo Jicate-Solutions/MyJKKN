@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useForm, useFieldArray } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -36,6 +36,14 @@ import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { DateInput } from '@/components/ui/date-input';
 import { Card, CardContent } from '@/components/ui/card';
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Plus, Trash2 } from 'lucide-react';
 import { AcademicYearService } from '@/lib/services/academic/academic-year-service';
 import { BeatLoader } from 'react-spinners';
@@ -86,6 +94,17 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
   const [loading, setLoading] = useState(isEditing);
   const [staffPlan, setStaffPlan] = useState<StaffPlan | null>(null);
   const { userProfile } = usePermissions();
+
+  // Track if initial data load has completed to prevent re-initialization
+  // when userProfile reference changes (e.g., tab switch triggers re-fetch)
+  const hasInitializedRef = useRef(false);
+
+  // Dialog state for duplicate plan confirmation (replaces window.confirm)
+  const [duplicateDialog, setDuplicateDialog] = useState<{
+    open: boolean;
+    existingPlan: any;
+    pendingValues: FormValues | null;
+  }>({ open: false, existingPlan: null, pendingValues: null });
 
   const [institutions, setInstitutions] = useState<
     Array<{ id: string; name: string }>
@@ -281,6 +300,8 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
         }
       } else {
         // Load only institutions for new form
+        // Skip if already initialized to prevent clearing form when userProfile re-fetches
+        if (hasInitializedRef.current) return;
         const loadInitialData = async () => {
           try {
             const institutionsData =
@@ -310,7 +331,9 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
             toast.error('Failed to load form data');
           }
         };
-        loadInitialData();
+        loadInitialData().then(() => {
+          hasInitializedRef.current = true;
+        });
       }
     }
 
@@ -339,19 +362,35 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
     }
   }, [watchedInstitutionId, isEditing]);
 
-  // Cascading dropdowns
+  // Track previous values to only clear children on actual user-initiated changes,
+  // not on initial mount or re-renders caused by profile re-fetches
+  const prevValuesRef = useRef({
+    institutionId: '',
+    degreeId: '',
+    departmentId: '',
+    programId: ''
+  });
+
+  // Cascading dropdowns — only load options here, clearing is done in onValueChange
   useEffect(() => {
     if (watchedInstitutionId && !isEditing) {
+      const isChange = prevValuesRef.current.institutionId !== '' &&
+        prevValuesRef.current.institutionId !== watchedInstitutionId;
+      prevValuesRef.current.institutionId = watchedInstitutionId;
+
       const loadDegrees = async () => {
         try {
           const data = await DegreeService.getDegreesByInstitution(
             watchedInstitutionId
           );
           setDegrees(data);
-          form.setValue('degree_id', '');
-          form.setValue('department_id', '');
-          form.setValue('program_id', '');
-          form.setValue('semester_id', '');
+          // Only clear children if user actually changed the value (not initial load)
+          if (isChange) {
+            form.setValue('degree_id', '');
+            form.setValue('department_id', '');
+            form.setValue('program_id', '');
+            form.setValue('semester_id', '');
+          }
         } catch (error) {
           logger.error('academic/staff-planning', 'Error loading degrees', error);
         }
@@ -362,15 +401,21 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
 
   useEffect(() => {
     if (watchedDegreeId && !isEditing) {
+      const isChange = prevValuesRef.current.degreeId !== '' &&
+        prevValuesRef.current.degreeId !== watchedDegreeId;
+      prevValuesRef.current.degreeId = watchedDegreeId;
+
       const loadDepartments = async () => {
         try {
           const data = await DepartmentService.getDepartmentsByDegree(
             watchedDegreeId
           );
           setDepartments(data);
-          form.setValue('department_id', '');
-          form.setValue('program_id', '');
-          form.setValue('semester_id', '');
+          if (isChange) {
+            form.setValue('department_id', '');
+            form.setValue('program_id', '');
+            form.setValue('semester_id', '');
+          }
         } catch (error) {
           logger.error('academic/staff-planning', 'Error loading departments', error);
         }
@@ -381,14 +426,20 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
 
   useEffect(() => {
     if (watchedDepartmentId && !isEditing) {
+      const isChange = prevValuesRef.current.departmentId !== '' &&
+        prevValuesRef.current.departmentId !== watchedDepartmentId;
+      prevValuesRef.current.departmentId = watchedDepartmentId;
+
       const loadPrograms = async () => {
         try {
           const data = await ProgramService.getProgramsByDepartment(
             watchedDepartmentId
           );
           setPrograms(data);
-          form.setValue('program_id', '');
-          form.setValue('semester_id', '');
+          if (isChange) {
+            form.setValue('program_id', '');
+            form.setValue('semester_id', '');
+          }
         } catch (error) {
           logger.error('academic/staff-planning', 'Error loading programs', error);
         }
@@ -399,6 +450,10 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
 
   useEffect(() => {
     if (watchedProgramId && !isEditing) {
+      const isChange = prevValuesRef.current.programId !== '' &&
+        prevValuesRef.current.programId !== watchedProgramId;
+      prevValuesRef.current.programId = watchedProgramId;
+
       const loadProgramData = async () => {
         try {
           // Load semesters and mapped courses in parallel
@@ -423,7 +478,9 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
             }))
           );
 
-          form.setValue('semester_id', '');
+          if (isChange) {
+            form.setValue('semester_id', '');
+          }
         } catch (error) {
           logger.error('academic/staff-planning', 'Error loading program data', error);
           toast.error('Failed to load courses. Please check your selections.');
@@ -432,6 +489,69 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
       loadProgramData();
     }
   }, [watchedProgramId, isEditing, form]);
+
+  // Shared submission logic (used by onSubmit and dialog confirm)
+  const executeSubmit = async (values: FormValues) => {
+    const flattenedCourses = values.courses.flatMap((course) =>
+      course.staff_assignments.map((assignment) => ({
+        course_id: course.course_id,
+        staff_id: assignment.staff_id,
+        staff_type: assignment.staff_type
+      }))
+    );
+
+    const apiPayload = {
+      institution_id: values.institution_id,
+      degree_id: values.degree_id,
+      program_id: values.program_id,
+      department_id: values.department_id,
+      semester_id: values.semester_id,
+      academic_year_id: values.academic_year_id,
+      start_date: values.start_date.toISOString(),
+      end_date: values.end_date.toISOString(),
+      courses: flattenedCourses,
+      is_active: values.is_active
+    };
+
+    if (isEditing && staffPlan) {
+      await StaffPlanService.updateStaffPlan(staffPlan.id, apiPayload);
+      toast.success('Staff plan updated successfully');
+    } else {
+      await StaffPlanService.createStaffPlan(apiPayload);
+      toast.success('Staff plan created/updated successfully');
+    }
+
+    router.push('/academic/staff-planning');
+    router.refresh();
+  };
+
+  // Handle duplicate dialog: user chose to add courses to existing plan
+  const handleDuplicateAddCourses = async () => {
+    if (!duplicateDialog.pendingValues) return;
+    try {
+      setIsSubmitting(true);
+      setDuplicateDialog({ open: false, existingPlan: null, pendingValues: null });
+      toast('Adding courses to existing staff plan...', { icon: 'ℹ️' });
+      await executeSubmit(duplicateDialog.pendingValues);
+    } catch (error) {
+      logger.error('academic/staff-planning', 'Form submission error', error);
+      toast.error(
+        error instanceof Error ? error.message : 'Failed to save staff plan'
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Handle duplicate dialog: user chose to edit existing plan
+  const handleDuplicateEditExisting = () => {
+    const existingId = duplicateDialog.existingPlan?.id;
+    setDuplicateDialog({ open: false, existingPlan: null, pendingValues: null });
+    if (existingId) {
+      toast('Redirecting to existing staff plan...', { icon: 'ℹ️' });
+      router.push(`/academic/staff-planning/${existingId}/edit`);
+    }
+  };
 
   const onSubmit = async (values: FormValues) => {
     try {
@@ -442,6 +562,7 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
         try {
           const existingPlans = await StaffPlanService.getStaffPlans({
             institution_id: values.institution_id,
+            department_id: values.department_id,
             program_id: values.program_id,
             semester_id: values.semester_id,
             academic_year_id: values.academic_year_id,
@@ -450,20 +571,14 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
 
           if (existingPlans.data && existingPlans.data.length > 0) {
             const existing = existingPlans.data[0];
-            const confirmed = window.confirm(
-              `A staff plan already exists for this semester (${existing.institution?.name} - ${existing.program?.program_name} - ${existing.semester?.semester_name} - ${existing.academic_year?.academic_year_name}).\n\nWould you like to:\n- OK: Add courses to existing plan\n- Cancel: Go back and edit existing plan`
-            );
-
-            if (!confirmed) {
-              toast(
-                'Please edit the existing staff plan instead of creating a new one.',
-                { icon: 'ℹ️' }
-              );
-              router.push(`/academic/staff-planning/${existing.id}/edit`);
-              return;
-            } else {
-              toast('Adding courses to existing staff plan...', { icon: 'ℹ️' });
-            }
+            // Show dialog and pause submission — resumed by handleDuplicateConfirm
+            setDuplicateDialog({
+              open: true,
+              existingPlan: existing,
+              pendingValues: values
+            });
+            setIsSubmitting(false);
+            return;
           }
         } catch (checkError) {
           logger.warn('academic/staff-planning', 'Could not check for existing plans', checkError);
@@ -471,38 +586,8 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
         }
       }
 
-      // Flatten staff assignments back to the API format
-      const flattenedCourses = values.courses.flatMap((course) =>
-        course.staff_assignments.map((assignment) => ({
-          course_id: course.course_id,
-          staff_id: assignment.staff_id,
-          staff_type: assignment.staff_type
-        }))
-      );
-
-      const apiPayload = {
-        institution_id: values.institution_id,
-        degree_id: values.degree_id,
-        program_id: values.program_id,
-        department_id: values.department_id,
-        semester_id: values.semester_id,
-        academic_year_id: values.academic_year_id,
-        start_date: values.start_date.toISOString(),
-        end_date: values.end_date.toISOString(),
-        courses: flattenedCourses,
-        is_active: values.is_active
-      };
-
-      if (isEditing && staffPlan) {
-        await StaffPlanService.updateStaffPlan(staffPlan.id, apiPayload);
-        toast.success('Staff plan updated successfully');
-      } else {
-        await StaffPlanService.createStaffPlan(apiPayload);
-        toast.success('Staff plan created/updated successfully');
-      }
-
-      router.push('/academic/staff-planning');
-      router.refresh();
+      // No duplicate found — proceed with submission
+      await executeSubmit(values);
     } catch (error) {
       logger.error('academic/staff-planning', 'Form submission error', error);
       toast.error(
@@ -964,6 +1049,49 @@ export function StaffPlanForm({ id, isEditing }: StaffPlanFormProps) {
           </Button>
         </div>
       </form>
+
+      {/* Duplicate Staff Plan Dialog */}
+      <AlertDialog
+        open={duplicateDialog.open}
+        onOpenChange={(open) => {
+          if (!open) setDuplicateDialog({ open: false, existingPlan: null, pendingValues: null });
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Staff Plan Already Exists</AlertDialogTitle>
+            <AlertDialogDescription className='space-y-3'>
+              <p>
+                A staff plan already exists for this semester
+                {duplicateDialog.existingPlan && (
+                  <span className='font-medium'>
+                    {' '}({duplicateDialog.existingPlan.institution?.name} -{' '}
+                    {duplicateDialog.existingPlan.program?.program_name} -{' '}
+                    {duplicateDialog.existingPlan.semester?.semester_name} -{' '}
+                    {duplicateDialog.existingPlan.academic_year?.academic_year_name})
+                  </span>
+                )}.
+              </p>
+              <p>What would you like to do?</p>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <Button
+              variant='outline'
+              onClick={handleDuplicateEditExisting}
+              disabled={isSubmitting}
+            >
+              Edit Existing Plan
+            </Button>
+            <Button
+              onClick={handleDuplicateAddCourses}
+              disabled={isSubmitting}
+            >
+              {isSubmitting ? 'Adding...' : 'Add Courses to Existing'}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Form>
   );
 }

@@ -97,6 +97,7 @@ export class StaffPlanService {
         .from('staff_plans')
         .select('id, is_active, end_date')
         .eq('institution_id', staffPlanData.institution_id)
+        .eq('department_id', staffPlanData.department_id)
         .eq('program_id', staffPlanData.program_id)
         .eq('semester_id', staffPlanData.semester_id)
         .eq('academic_year_id', staffPlanData.academic_year_id)) as {
