@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   PushNotificationsContext,
   PushNotificationState,
@@ -10,6 +10,45 @@ import toast from 'react-hot-toast';
 
 interface PushNotificationProviderProps {
   children: React.ReactNode;
+}
+
+/**
+ * Wait for a service worker registration to reach the "activated" state.
+ * Returns the active ServiceWorker once ready, or throws after timeout.
+ */
+async function waitForActivation(
+  registration: ServiceWorkerRegistration,
+  timeoutMs = 10000
+): Promise<ServiceWorker> {
+  // Already activated
+  if (registration.active) return registration.active;
+
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      reject(new Error('Service worker activation timed out'));
+    }, timeoutMs);
+
+    const sw = registration.installing || registration.waiting;
+    if (!sw) {
+      clearTimeout(timeout);
+      reject(new Error('No service worker found to wait for'));
+      return;
+    }
+
+    const onStateChange = () => {
+      if (sw.state === 'activated') {
+        clearTimeout(timeout);
+        sw.removeEventListener('statechange', onStateChange);
+        resolve(sw);
+      } else if (sw.state === 'redundant') {
+        clearTimeout(timeout);
+        sw.removeEventListener('statechange', onStateChange);
+        reject(new Error('Service worker became redundant'));
+      }
+    };
+
+    sw.addEventListener('statechange', onStateChange);
+  });
 }
 
 export function PushNotificationProvider({
@@ -23,6 +62,10 @@ export function PushNotificationProvider({
     isLoading: true,
     error: null
   });
+
+  // Track whether the current error came from an auto-resubscribe attempt
+  // so we can suppress the toast for transient failures
+  const isAutoResubscribeRef = useRef(false);
 
   // ─── 1. Check browser support ────────────────────────────────
   useEffect(() => {
@@ -66,7 +109,11 @@ export function PushNotificationProvider({
           }
         }
 
+        // Wait for SW to be fully activated before checking push state
         await navigator.serviceWorker.ready;
+        if (!registration.active) {
+          await waitForActivation(registration);
+        }
 
         // Check for existing browser-side subscription
         const subscription =
@@ -91,7 +138,7 @@ export function PushNotificationProvider({
         setState((prev) => ({
           ...prev,
           isLoading: false,
-          error: `Init failed: ${error instanceof Error ? error.message : 'Unknown'}`
+          error: null // Don't show error toast for init failures
         }));
       }
     };
@@ -109,18 +156,21 @@ export function PushNotificationProvider({
     if (state.permission === 'granted' && !state.isSubscribed) {
       const timer = setTimeout(async () => {
         try {
+          isAutoResubscribeRef.current = true;
           await doSubscribe();
         } catch (err) {
-          console.error('Auto-resubscribe failed:', err);
+          console.warn('Auto-resubscribe failed (will retry next load):', err);
+        } finally {
+          isAutoResubscribeRef.current = false;
         }
-      }, 1500);
+      }, 2500); // Longer delay to ensure SW is fully active
       return () => clearTimeout(timer);
     }
   }, [state.isSupported, state.isLoading, state.permission, state.isSubscribed]);
 
-  // ─── 4. Show error toast ─────────────────────────────────────
+  // ─── 4. Show error toast (only for user-initiated actions) ───
   useEffect(() => {
-    if (state.error) {
+    if (state.error && !isAutoResubscribeRef.current) {
       toast.error(`Notification Error: ${state.error}`, { duration: 5000 });
     }
   }, [state.error]);
@@ -178,10 +228,26 @@ export function PushNotificationProvider({
     try {
       setState((prev) => ({ ...prev, isLoading: true }));
 
+      // Wait for service worker to be fully ready and activated
       const registration = await navigator.serviceWorker.ready;
+
+      // Ensure SW is in activated state before subscribing to push
+      if (!registration.active) {
+        await waitForActivation(registration);
+      }
 
       const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
       if (!vapidPublicKey) throw new Error('VAPID public key not found');
+
+      // Unsubscribe any existing stale subscription first to avoid conflicts
+      const existingSub = await registration.pushManager.getSubscription();
+      if (existingSub) {
+        try {
+          await existingSub.unsubscribe();
+        } catch {
+          // Ignore — stale sub cleanup is best-effort
+        }
+      }
 
       // Create new push subscription
       const subscription = await registration.pushManager.subscribe({
@@ -214,11 +280,24 @@ export function PushNotificationProvider({
       return true;
     } catch (error) {
       console.error('Subscribe error:', error);
-      setState((prev) => ({
-        ...prev,
-        isLoading: false,
-        error: error instanceof Error ? error.message : 'Failed to subscribe'
-      }));
+      const errorMessage =
+        error instanceof Error ? error.message : 'Failed to subscribe';
+
+      // For auto-resubscribe, suppress error state to avoid toast spam
+      if (isAutoResubscribeRef.current) {
+        console.warn('Auto-resubscribe failed silently:', errorMessage);
+        setState((prev) => ({
+          ...prev,
+          isLoading: false
+          // Don't set error — suppresses toast
+        }));
+      } else {
+        setState((prev) => ({
+          ...prev,
+          isLoading: false,
+          error: errorMessage
+        }));
+      }
       return false;
     }
   }, [state.isSupported, state.permission, requestPermission]);
