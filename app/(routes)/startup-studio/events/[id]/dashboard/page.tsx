@@ -15,6 +15,7 @@ import {
   useEventVerificationSummary,
   useEventVotingOverview,
   useEventEvaluatorProgress,
+  useEventEvaluationByDate,
   useEventChecklistProgress,
   useEventInstitutionBreakdown,
 } from '@/hooks/startup-studio/use-event-analytics';
@@ -58,6 +59,7 @@ function DashboardContent({ eventId }: { eventId: string }) {
   const { data: verificationSummary, isLoading: verLoading } = useEventVerificationSummary(eventId);
   const { data: votingOverview, isLoading: voteLoading } = useEventVotingOverview(eventId, event);
   const { data: evaluatorProgress, isLoading: evalLoading } = useEventEvaluatorProgress(eventId);
+  const { data: evaluationByDate } = useEventEvaluationByDate(eventId);
   const { data: checklistProgress, isLoading: clLoading } = useEventChecklistProgress(eventId);
   const { data: institutionBreakdown, isLoading: instLoading } = useEventInstitutionBreakdown(eventId);
 
@@ -157,6 +159,7 @@ function DashboardContent({ eventId }: { eventId: string }) {
                   <EvaluationTab
                     verificationSummary={verificationSummary}
                     evaluatorProgress={evaluatorProgress ?? []}
+                    evaluationByDate={evaluationByDate ?? []}
                   />
                 ) : null}
               </TabsContent>

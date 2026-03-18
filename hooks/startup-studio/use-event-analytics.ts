@@ -67,6 +67,19 @@ export function useEventVerificationSummary(eventId: string) {
   })
 }
 
+// ─── 4b. Evaluation by Date ───────────────────────────────────────────────────
+
+export function useEventEvaluationByDate(eventId: string) {
+  const { isLoading: authLoading } = useAuth()
+  return useQuery({
+    queryKey: ['event-evaluation-by-date', eventId],
+    queryFn: () => EventAnalyticsService.getEvaluationByDate(eventId),
+    staleTime: 15_000,
+    enabled: !authLoading && isValidUUID(eventId),
+    retry: 3,
+  })
+}
+
 // ─── 5. Voting Overview ───────────────────────────────────────────────────────
 // Requires the event object to resolve voting_opened_at / voting_closed_at
 // so the service can determine whether voting is currently open.

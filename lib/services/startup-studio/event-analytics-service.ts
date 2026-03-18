@@ -45,6 +45,15 @@ export interface VerificationSummary {
   total: number;
 }
 
+export interface EvaluationByDate {
+  date: string;
+  total: number;
+  verified: number;
+  flagged: number;
+  pending: number;
+  disqualified: number;
+}
+
 export interface VotingOverview {
   isOpen: boolean;
   totalVotes: number;
@@ -301,6 +310,36 @@ export class EventAnalyticsService {
       ...counts,
       total: rows.length,
     };
+  }
+
+  // ── 4b. Evaluation by Date ────────────────────────────────────────────────
+  static async getEvaluationByDate(eventId: string): Promise<EvaluationByDate[]> {
+    const { data, error } = await EventAnalyticsService.supabase
+      .from('appathon_verifications')
+      .select('verification_status, created_at, event_submissions!inner(event_id)')
+      .eq('event_submissions.event_id', eventId);
+
+    if (error) {
+      console.error('[startup/analytics] getEvaluationByDate failed:', error);
+      throw error;
+    }
+
+    const dateMap = new Map<string, { total: number; verified: number; flagged: number; pending: number; disqualified: number }>();
+
+    for (const row of data ?? []) {
+      const date = new Date(row.created_at).toISOString().slice(0, 10);
+      if (!dateMap.has(date)) {
+        dateMap.set(date, { total: 0, verified: 0, flagged: 0, pending: 0, disqualified: 0 });
+      }
+      const entry = dateMap.get(date)!;
+      entry.total++;
+      const status = row.verification_status as keyof Omit<typeof entry, 'total'>;
+      if (status in entry) entry[status]++;
+    }
+
+    return Array.from(dateMap.entries())
+      .map(([date, counts]) => ({ date, ...counts }))
+      .sort((a, b) => a.date.localeCompare(b.date));
   }
 
   // ── 5. Voting Overview ────────────────────────────────────────────────────

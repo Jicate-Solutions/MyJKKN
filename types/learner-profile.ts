@@ -59,6 +59,7 @@ export interface LearnerProfile {
   aadhar_number?: string;
   blood_group?: string;
   admission_year?: number;
+  learner_type?: 'regular' | 'irregular' | 'intern';
 
   // Parent/Guardian Information
   father_name: string;
@@ -235,6 +236,7 @@ export const learnerProfileSchema = z.object({
   caste: z.string().optional(),
   blood_group: z.string().optional(),
   admission_year: z.number().optional(),
+  learner_type: z.enum(['regular', 'irregular', 'intern']).optional(),
 
   // Parent Information (always required)
   father_name: z.string().min(2, "Father's name is required"),
@@ -354,6 +356,7 @@ export interface UpdateLearnerProfileDto {
   aadhar_number?: string | null;
   blood_group?: string | null;
   admission_year?: number | null;
+  learner_type?: 'regular' | 'irregular' | 'intern' | null;
 
   // Parent/Guardian Information
   father_name?: string;

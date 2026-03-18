@@ -1355,6 +1355,7 @@ export class LearnerProfileService {
         communityData,
         entryTypeData,
         accommodationData,
+        learnerTypeData,
         completionTiers,
         hierarchicalInstitutionsData
       ] = await Promise.all([
@@ -1385,6 +1386,7 @@ export class LearnerProfileService {
         safeQuery(this.getDistributionByCommunity(filters, supabase), [], 'getDistributionByCommunity'),
         safeQuery(this.getDistributionByEntryType(filters, supabase), [], 'getDistributionByEntryType'),
         safeQuery(this.getDistributionByAccommodationType(filters, supabase), [], 'getDistributionByAccommodationType'),
+        safeQuery(this.getDistributionByLearnerType(filters, supabase), [], 'getDistributionByLearnerType'),
 
         // 6. Profile completion tiers
         safeQuery(this.getProfileCompletionTiers(filters, supabase), { excellent: 0, good: 0, needsWork: 0, critical: 0 }, 'getProfileCompletionTiers'),
@@ -1642,6 +1644,7 @@ export class LearnerProfileService {
         byCommunity: communityData,
         byEntryType: entryTypeData,
         byAccommodationType: accommodationData,
+        byLearnerType: learnerTypeData,
 
         // Profile completion tiers
         profileCompletionTiers: completionTiers,
@@ -2496,6 +2499,32 @@ export class LearnerProfileService {
         }
         acc[accType].count++;
       }
+      return acc;
+    }, {} as Record<string, { id: string; name: string; count: number }>);
+
+    return (Object.values(groups) as Array<{ id: string; name: string; count: number }>)
+      .map((item): import('@/types/learner-dashboard').DistributionItem => ({
+        id: item.id,
+        name: item.name,
+        count: item.count,
+        percentage: total > 0 ? (item.count / total) * 100 : 0
+      }))
+      .sort((a, b) => b.count - a.count);
+  }
+
+  private static async getDistributionByLearnerType(
+    filters: import('@/types/learner-dashboard').LearnerDashboardFilters,
+    supabaseClient?: any
+  ): Promise<import('@/types/learner-dashboard').DistributionItem[]> {
+    const profiles = await this.fetchAllRecordsChunked('learners_profiles', 'learner_type', filters, supabaseClient);
+    const total = profiles.length;
+
+    const groups = profiles.reduce((acc, p) => {
+      const lt = p.learner_type || 'unset';
+      if (!acc[lt]) {
+        acc[lt] = { id: lt, name: lt.charAt(0).toUpperCase() + lt.slice(1), count: 0 };
+      }
+      acc[lt].count++;
       return acc;
     }, {} as Record<string, { id: string; name: string; count: number }>);
 

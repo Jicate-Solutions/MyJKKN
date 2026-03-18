@@ -78,6 +78,7 @@ export function DemographicsTab({ data, filters }: DemographicsTabProps) {
   const totalByReligion = data.byReligion.reduce((sum, item) => sum + item.count, 0);
   const totalByCommunity = data.byCommunity.reduce((sum, item) => sum + item.count, 0);
   const totalByAccommodation = data.byAccommodationType.reduce((sum, item) => sum + item.count, 0);
+  const totalByLearnerType = (data.byLearnerType || []).reduce((sum, item) => sum + item.count, 0);
 
   return (
     <div className="space-y-6">
@@ -460,6 +461,53 @@ export function DemographicsTab({ data, filters }: DemographicsTabProps) {
           </Card>
         )}
       </div>
+
+      {/* Learner Type Distribution */}
+      {(data.byLearnerType || []).length > 0 && (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle>Learner Type Distribution</CardTitle>
+            </div>
+            <CardDescription>
+              Learners by type ({totalByLearnerType.toLocaleString()} total)
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-3">
+              {(data.byLearnerType || []).map((item, index) => {
+                const pct = totalByLearnerType > 0 ? (item.count / totalByLearnerType) * 100 : 0;
+                return (
+                  <div key={item.id} className="flex items-center justify-between text-sm p-3 rounded-lg bg-muted/50">
+                    <div className="flex items-center gap-3">
+                      <div
+                        className="h-3 w-3 rounded-full"
+                        style={{ backgroundColor: CHART_COLORS[index % CHART_COLORS.length] }}
+                      />
+                      <span className="font-medium capitalize">{item.name}</span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <div className="w-24 bg-muted rounded-full h-2">
+                        <div
+                          className="h-2 rounded-full"
+                          style={{
+                            width: `${pct}%`,
+                            backgroundColor: CHART_COLORS[index % CHART_COLORS.length]
+                          }}
+                        />
+                      </div>
+                      <span className="font-bold tabular-nums w-16 text-right">{item.count.toLocaleString()}</span>
+                      <Badge variant="secondary" className="text-xs w-14 justify-center">
+                        {pct.toFixed(1)}%
+                      </Badge>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Accommodation Type Distribution */}
       {data.byAccommodationType.length > 0 && (

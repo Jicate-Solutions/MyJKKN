@@ -69,6 +69,7 @@ export const enquiryFormSchema = z.object({
   blood_group: z.string().nullable().optional(),
   student_photo_url: z.string().nullable().optional(),
   admission_year: z.number().nullable().optional(),
+  learner_type: z.enum(['regular', 'irregular', 'intern']).nullable().optional(),
 
   // Family Information
   father_name: z.string().min(1, "Father's name is required"),
@@ -1324,7 +1325,7 @@ export function EnquiryForm({
 
           <TabsContent value="course-selection" className="space-y-4 mt-4">
             <Card className="p-3 sm:p-4 md:p-6">
-              <CourseSelectionSection form={form} />
+              <CourseSelectionSection form={form} showLearnerType={!!learner && !isStudentView} />
             </Card>
           </TabsContent>
 

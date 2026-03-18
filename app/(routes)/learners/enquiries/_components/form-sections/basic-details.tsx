@@ -353,6 +353,7 @@ export function BasicDetailsSection({ form, onImageFileChange, isStudentView = f
               </FormItem>
             )}
           />
+
         </div>
       </div>
 

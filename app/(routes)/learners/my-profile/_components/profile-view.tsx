@@ -175,6 +175,7 @@ export function ProfileView({ learner, canEdit, onEdit }: ProfileViewProps) {
               />
               <InfoField label="Gender" value={learner.gender} icon={User} />
               <InfoField label="Blood Group" value={learner.blood_group} icon={Shield} />
+              <InfoField label="Learner Type" value={learner.learner_type ? learner.learner_type.charAt(0).toUpperCase() + learner.learner_type.slice(1) : null} icon={User} />
               <Separator />
               <InfoField label="Religion" value={learner.religion} icon={BookOpen} />
               <InfoField label="Community" value={learner.community} icon={Users} />

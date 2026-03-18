@@ -368,6 +368,9 @@ CREATE TABLE IF NOT EXISTS public.learners_profiles (
     medium_of_instruction TEXT CHECK (medium_of_instruction IN ('english', 'tamil', 'both')),
     location_type TEXT CHECK (location_type IN ('urban', 'semi_urban', 'rural')),
 
+    -- Learner Classification (Added: 2026-03-18)
+    learner_type TEXT, -- 'regular', 'irregular', 'intern'
+
     -- Admission/Counseling Information
     counseling_applied BOOLEAN DEFAULT false,
     counseling_number TEXT,

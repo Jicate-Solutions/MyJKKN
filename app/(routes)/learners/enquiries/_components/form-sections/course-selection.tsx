@@ -48,9 +48,10 @@ import { ENTRY_TYPE_OPTIONS, QUOTA_OPTIONS } from '@/lib/constants/learner-dropd
 
 interface CourseSelectionProps {
   form: UseFormReturn<any>;
+  showLearnerType?: boolean;
 }
 
-export function CourseSelectionSection({ form }: CourseSelectionProps) {
+export function CourseSelectionSection({ form, showLearnerType = false }: CourseSelectionProps) {
   // Watch selections for cascading filters
   const watchedInstitutionId = form.watch('institution_id');
   const watchedDegreeId = form.watch('degree_id');
@@ -423,6 +424,35 @@ export function CourseSelectionSection({ form }: CourseSelectionProps) {
             </FormItem>
           )}
         />
+
+        {/* Learner Type - OPTIONAL, admin edit only */}
+        {showLearnerType && (
+          <FormField
+            control={form.control}
+            name="learner_type"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Learner Type</FormLabel>
+                <Select onValueChange={field.onChange} value={field.value || ''}>
+                  <FormControl>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select learner type" />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    <SelectItem value="regular">Regular</SelectItem>
+                    <SelectItem value="irregular">Irregular</SelectItem>
+                    <SelectItem value="intern">Intern</SelectItem>
+                  </SelectContent>
+                </Select>
+                <FormDescription>
+                  Classification of the learner (optional)
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        )}
 
         {/* Program */}
         <FormField

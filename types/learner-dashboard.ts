@@ -221,6 +221,7 @@ export interface LearnerDashboardStats {
   byCommunity: DistributionItem[];
   byEntryType: DistributionItem[];
   byAccommodationType: DistributionItem[];
+  byLearnerType: DistributionItem[];
 
   // ============================================
   // PROFILE COMPLETION TIERS

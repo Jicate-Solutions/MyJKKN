@@ -238,6 +238,12 @@ export function LearnerDetail({ learner }: LearnerDetailProps) {
                       </h4>
                       <p className="text-sm">{learner.aadhar_number || 'Not provided'}</p>
                     </div>
+                    <div className="space-y-1">
+                      <h4 className="text-sm font-medium text-muted-foreground">
+                        Learner Type
+                      </h4>
+                      <p className="text-sm capitalize">{learner.learner_type || 'Not specified'}</p>
+                    </div>
                   </div>
                 </div>
 
