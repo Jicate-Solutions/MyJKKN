@@ -394,6 +394,70 @@ export class AppathonVerificationService {
     return (data ?? []) as VerifiedLeaderboardEntry[]
   }
 
+  // ─── Paginated Verified Leaderboard ──────────────────────────────────────
+  static async getVerifiedLeaderboardPaginated(
+    eventId: string,
+    params: {
+      page: number
+      pageSize: number
+      search?: string
+      sortBy?: string
+      sortOrder?: 'asc' | 'desc'
+      tierFilter?: number | null
+      institutionId?: string | null
+    }
+  ): Promise<{
+    data: VerifiedLeaderboardEntry[]
+    pagination: { page: number; pageSize: number; totalPages: number; totalItems: number }
+  }> {
+    const supabase = createClientSupabaseClient() as any
+    const { page, pageSize, search, sortBy = 'overall_rank', sortOrder = 'asc', tierFilter, institutionId } = params
+
+    let query = supabase
+      .from('appathon_leaderboard')
+      .select('*', { count: 'exact' })
+      .eq('event_id', eventId)
+
+    // Search filter
+    if (search?.trim()) {
+      query = query.or(`team_name.ilike.%${search.trim()}%,app_name.ilike.%${search.trim()}%,institution_name.ilike.%${search.trim()}%`)
+    }
+
+    // Tier filter
+    if (tierFilter != null) {
+      query = query.eq('verified_tier', tierFilter)
+    }
+
+    // Institution filter
+    if (institutionId) {
+      query = query.eq('institution_id', institutionId)
+    }
+
+    // Sorting
+    const validSortColumns = ['overall_rank', 'college_rank', 'total_score', 'verified_users', 'verified_active_users', 'verified_revenue', 'team_name', 'app_name', 'verified_tier']
+    const col = validSortColumns.includes(sortBy) ? sortBy : 'overall_rank'
+    query = query.order(col, { ascending: sortOrder === 'asc' })
+
+    // Pagination
+    const from = (page - 1) * pageSize
+    const to = from + pageSize - 1
+    query = query.range(from, to)
+
+    const { data, error, count } = await query
+    if (error) throw error
+
+    const totalItems = count ?? 0
+    return {
+      data: (data ?? []) as VerifiedLeaderboardEntry[],
+      pagination: {
+        page,
+        pageSize,
+        totalPages: Math.ceil(totalItems / pageSize),
+        totalItems,
+      },
+    }
+  }
+
   // ─── Admin: Evaluator Progress ────────────────────────────────────────────
   static async getEvaluatorProgress(eventId: string): Promise<EvaluatorProgress[]> {
     const supabase = createClientSupabaseClient() as any

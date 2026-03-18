@@ -136,6 +136,28 @@ export function useVerifiedLeaderboard(eventId: string) {
   })
 }
 
+/** Paginated verified leaderboard with search, sort, and filters */
+export function useVerifiedLeaderboardPaginated(
+  eventId: string,
+  params: {
+    page: number
+    pageSize: number
+    search?: string
+    sortBy?: string
+    sortOrder?: 'asc' | 'desc'
+    tierFilter?: number | null
+    institutionId?: string | null
+  }
+) {
+  return useQuery({
+    queryKey: [...verificationKeys.verifiedLeaderboard(eventId), 'paginated', params],
+    queryFn: () => AppathonVerificationService.getVerifiedLeaderboardPaginated(eventId, params),
+    staleTime: 15_000,
+    enabled: isValidUUID(eventId),
+    placeholderData: (prev) => prev,
+  })
+}
+
 /** Admin: freeze team metrics */
 export function useFreezeMetrics(eventId: string) {
   const qc = useQueryClient()

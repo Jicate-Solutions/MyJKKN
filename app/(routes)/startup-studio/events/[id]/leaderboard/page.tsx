@@ -17,8 +17,7 @@ import {
 import { ArrowLeft, Building2, Globe, Loader2, Trophy, Info } from 'lucide-react';
 import { useEvent } from '@/hooks/startup-studio/use-events';
 import { useAuth } from '@/hooks/use-auth';
-import { useVerifiedLeaderboard } from '@/hooks/startup-studio/use-appathon-verifications';
-import { useLeaderboard } from '@/hooks/startup-studio/use-event-leaderboard';
+import { useVerifiedLeaderboardPaginated } from '@/hooks/startup-studio/use-appathon-verifications';
 import { LeaderboardTable } from './_components/leaderboard-table';
 import { MrrVerificationQueue } from './_components/mrr-verification-queue';
 import { CelebrationConfetti } from './_components/celebration-confetti';
@@ -31,20 +30,25 @@ export default function LeaderboardPage({ params }: { params: Promise<{ id: stri
   const { data: event, isPending: eventPending } = useEvent(id);
   const { profile, isLoading: authLoading } = useAuth();
   const isAdmin = profile?.role === 'super_admin' || profile?.role === 'admin' || profile?.role === 'administrator';
+  const isStudent = profile?.role === 'student';
   const isFrozen = !!event?.metrics_frozen_at;
   const isPublished = !!event?.is_results_published;
 
-  const { data: verifiedEntries = [], isLoading: verifiedLoading } = useVerifiedLeaderboard(id);
-  const { data: prePublishedEntries = [] } = useLeaderboard(id);
+  // Fetch first page to get total count for header + confetti trigger
+  const { data: firstPage, isLoading: firstPageLoading } = useVerifiedLeaderboardPaginated(id, {
+    page: 1, pageSize: 1,
+  });
+  const totalTeams = firstPage?.pagination.totalItems ?? 0;
 
-  const isStudent = profile?.role === 'student';
   const [selectedInstitution, setSelectedInstitution] = useState<string>('all');
 
-  // Derive unique institutions from the active data source (prefer verified when available)
-  const activeEntries: any[] = verifiedEntries.length > 0 ? verifiedEntries : prePublishedEntries;
+  // Fetch institutions list (small query for dropdown)
+  const { data: allInstitutions } = useVerifiedLeaderboardPaginated(id, {
+    page: 1, pageSize: 500, // Get all for institution list
+  });
   const institutions = useMemo(() => {
     const map = new Map<string, { id: string; name: string; count: number }>();
-    activeEntries.forEach((e) => {
+    (allInstitutions?.data ?? []).forEach((e) => {
       const iid = e.institution_id;
       const iname = e.institution_name || 'Unknown';
       if (!iid) return;
@@ -56,9 +60,9 @@ export default function LeaderboardPage({ params }: { params: Promise<{ id: stri
       }
     });
     return Array.from(map.values()).sort((a, b) => b.count - a.count);
-  }, [activeEntries]);
+  }, [allInstitutions?.data]);
 
-  // Auto-select student's own institution in the "By Institution" tab
+  // Auto-select student's own institution in the "By College" tab
   useEffect(() => {
     if (isStudent && profile?.institution_id && institutions.length > 0 && selectedInstitution === 'all') {
       const match = institutions.find((inst) => inst.id === profile.institution_id);
@@ -114,7 +118,7 @@ export default function LeaderboardPage({ params }: { params: Promise<{ id: stri
       <PageBreadcrumb items={breadcrumbs} />
 
       {/* Celebration confetti on page load when results are published */}
-      <CelebrationConfetti active={isPublished && !verifiedLoading && verifiedEntries.length > 0} />
+      <CelebrationConfetti active={isPublished && !firstPageLoading && totalTeams > 0} />
 
       <div className="space-y-6 mt-4 pb-10">
         {/* Back Button */}
@@ -142,9 +146,9 @@ export default function LeaderboardPage({ params }: { params: Promise<{ id: stri
               </h1>
               <p className="text-xs sm:text-sm text-muted-foreground mt-1">{event?.name || 'Event'}</p>
             </div>
-            {isPublished && activeEntries.length > 0 && (
+            {totalTeams > 0 && (
               <p className="text-xs text-muted-foreground">
-                {activeEntries.length} teams evaluated
+                {totalTeams} teams evaluated
               </p>
             )}
           </div>
@@ -182,7 +186,7 @@ export default function LeaderboardPage({ params }: { params: Promise<{ id: stri
               By College
             </TabsTrigger>
             {isAdmin && (
-              <TabsTrigger value="mrr-queue">MRR Verification</TabsTrigger>
+              <TabsTrigger value="mrr-queue" className="text-xs sm:text-sm">MRR Verification</TabsTrigger>
             )}
           </TabsList>
 
@@ -193,8 +197,6 @@ export default function LeaderboardPage({ params }: { params: Promise<{ id: stri
               isAdmin={isAdmin}
               isPublished={isPublished}
               isFrozen={isFrozen}
-              entriesOverride={verifiedEntries.length > 0 ? verifiedEntries as any : undefined}
-              isLoadingOverride={verifiedLoading || undefined}
             />
           </TabsContent>
 
@@ -252,8 +254,6 @@ export default function LeaderboardPage({ params }: { params: Promise<{ id: stri
                   isAdmin={isAdmin}
                   isPublished={isPublished}
                   isFrozen={isFrozen}
-                  entriesOverride={verifiedEntries.length > 0 ? verifiedEntries as any : undefined}
-                  isLoadingOverride={verifiedLoading || undefined}
                   institutionView
                   institutionId={selectedInstitution}
                 />
