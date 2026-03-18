@@ -77,6 +77,7 @@ import {
   FileText as FileTextIcon,
   Paperclip,
   X,
+  XCircle,
   MessageCircle
 } from 'lucide-react';
 import Link from 'next/link';
@@ -1508,193 +1509,164 @@ function LeadDetailPageContent() {
                 </TabsContent>
 
                 <TabsContent value="communication" className="mt-4">
-                  <Card>
-                    <CardHeader>
+                  <Card className="flex flex-col" style={{ height: 'calc(100vh - 320px)', minHeight: '500px' }}>
+                    {/* Chat Header */}
+                    <CardHeader className="shrink-0 pb-3 border-b">
                       <div className="flex items-center justify-between">
-                        <div>
-                          <CardTitle className="text-base">Communication History</CardTitle>
-                          <CardDescription>SMS &amp; WhatsApp messages sent to this lead</CardDescription>
+                        <div className="flex items-center gap-3">
+                          <div className="h-9 w-9 rounded-full bg-[#25D366] flex items-center justify-center">
+                            <MessageCircle className="h-4.5 w-4.5 text-white" />
+                          </div>
+                          <div>
+                            <CardTitle className="text-base">{lead?.full_name || 'Chat'}</CardTitle>
+                            <CardDescription className="text-xs">{lead?.phone || ''}</CardDescription>
+                          </div>
                         </div>
-                        <Dialog open={showSendMsg} onOpenChange={(open) => { setShowSendMsg(open); setSelectedTemplateId(''); setSendMessage(''); setTemplateAttachment(null); }}>
-                          <DialogTrigger asChild>
-                            <Button size="sm" variant="outline">
-                              <Send className="h-3.5 w-3.5 mr-1.5" />
-                              Send Message
-                            </Button>
-                          </DialogTrigger>
-                          <DialogContent className="w-[calc(100vw-2rem)] max-w-md flex flex-col max-h-[90vh]">
-                            <DialogHeader className="shrink-0">
-                              <DialogTitle>Send Message</DialogTitle>
-                              <DialogDescription>
-                                {sendChannel === 'personal_whatsapp'
-                                  ? `Send directly via your connected Personal WhatsApp to ${lead?.full_name}.`
-                                  : sendChannel === 'whatsapp'
-                                  ? `Opens WhatsApp Web with a pre-filled message to ${lead?.full_name}. You send it from your own WhatsApp account.`
-                                  : `Send a direct SMS to ${lead?.full_name}`}
-                              </DialogDescription>
-                            </DialogHeader>
-                            <div className="flex-1 overflow-y-auto space-y-4 py-2 pr-1">
-                              <div className="space-y-2">
-                                <Label>Channel</Label>
-                                <Select
-                                  value={sendChannel}
-                                  onValueChange={(v) => {
-                                    setSendChannel(v as 'sms' | 'whatsapp');
-                                    setSelectedTemplateId('');
-                                    setSendMessage('');
-                                    setTemplateAttachment(null);
-                                  }}
-                                >
-                                  <SelectTrigger>
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="sms">SMS</SelectItem>
-                                    <SelectItem value="whatsapp">WhatsApp Web</SelectItem>
-                                    <SelectItem value="personal_whatsapp">
-                                      <span className="flex items-center gap-1.5">
-                                        Personal WhatsApp
-                                        {waStatus?.connected && <span className="h-1.5 w-1.5 rounded-full bg-green-500 inline-block" />}
-                                      </span>
-                                    </SelectItem>
-                                  </SelectContent>
-                                </Select>
-                              </div>
-                              {channelTemplates.length > 0 && (
-                                <div className="space-y-2">
-                                  <Label>
-                                    Use Template{' '}
-                                    <span className="text-xs text-muted-foreground font-normal">(optional)</span>
-                                  </Label>
-                                  <Select
-                                    value={selectedTemplateId}
-                                    onValueChange={(id) => {
-                                      setSelectedTemplateId(id);
-                                      const tmpl = channelTemplates.find((t) => t.id === id);
-                                      if (tmpl) {
-                                        setSendMessage(
-                                          replaceVariables(tmpl.content, {
-                                            first_name: lead?.full_name?.split(' ')[0] || '',
-                                            last_name: lead?.full_name?.split(' ').slice(1).join(' ') || '',
-                                            full_name: lead?.full_name || '',
-                                            phone: lead?.phone || '',
-                                            email: lead?.email || '',
-                                            program: lead?.program?.program_name || '',
-                                          })
-                                        );
-                                        setTemplateAttachment(
-                                          tmpl.attachment_type && tmpl.attachment_url
-                                            ? { type: tmpl.attachment_type, url: tmpl.attachment_url }
-                                            : null
-                                        );
-                                      }
-                                    }}
-                                  >
-                                    <SelectTrigger>
-                                      <SelectValue placeholder="Select a template…" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      {channelTemplates.map((t) => (
-                                        <SelectItem key={t.id} value={t.id}>
-                                          {t.name}
-                                        </SelectItem>
-                                      ))}
-                                    </SelectContent>
-                                  </Select>
-                                </div>
-                              )}
-                              {templateAttachment && (
-                                <div className="space-y-2">
-                                  <Label className="flex items-center gap-1.5">
-                                    <Paperclip className="h-3.5 w-3.5" />
-                                    Attachment
-                                  </Label>
-                                  <div className="rounded-md border bg-muted/40 p-3">
-                                    {templateAttachment.type === 'image' ? (
-                                      <img
-                                        src={templateAttachment.url}
-                                        alt="Template image"
-                                        className="w-full max-h-40 rounded object-contain"
-                                      />
-                                    ) : (
-                                      <div className="flex items-center gap-2">
-                                        {templateAttachment.type === 'video' && (
-                                          <Film className="h-5 w-5 text-purple-500" />
-                                        )}
-                                        {templateAttachment.type === 'document' && (
-                                          <FileTextIcon className="h-5 w-5 text-orange-500" />
-                                        )}
-                                        <span className="text-xs font-medium capitalize">{templateAttachment.type} attached</span>
-                                      </div>
-                                    )}
-                                  </div>
-                                  {sendChannel === 'whatsapp' && (
-                                    <p className="text-xs text-muted-foreground">
-                                      Send this attachment manually in WhatsApp after opening the chat.
-                                    </p>
-                                  )}
-                                </div>
-                              )}
-                              <div className="space-y-2">
-                                <Label>To</Label>
-                                <Input value={lead?.phone || ''} disabled className="bg-muted" />
-                              </div>
-                              <div className="space-y-2">
-                                <Label>Message</Label>
-                                <Textarea
-                                  value={sendMessage}
-                                  onChange={(e) => setSendMessage(e.target.value)}
-                                  placeholder="Type your message..."
-                                  rows={4}
-                                />
-                              </div>
-                            </div>
-                            <DialogFooter className="shrink-0">
-                              <Button variant="outline" onClick={() => setShowSendMsg(false)}>
-                                Cancel
-                              </Button>
-                              <Button
-                                onClick={handleSendMessage}
-                                disabled={isSending || !sendMessage.trim()}
-                              >
-                                {isSending ? (
-                                  <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Sending...</>
-                                ) : sendChannel === 'whatsapp' ? (
-                                  <><ExternalLink className="h-4 w-4 mr-2" />Open WhatsApp</>
-                                ) : sendChannel === 'personal_whatsapp' ? (
-                                  <><MessageCircle className="h-4 w-4 mr-2" />Send Personal WA</>
-                                ) : (
-                                  <><Send className="h-4 w-4 mr-2" />Send SMS</>
-                                )}
-                              </Button>
-                            </DialogFooter>
-                          </DialogContent>
-                        </Dialog>
+                        {waStatus?.connected && (
+                          <Badge className="bg-[#25D366] text-white text-xs">Connected</Badge>
+                        )}
                       </div>
                     </CardHeader>
-                    <CardContent>
+
+                    {/* Chat Messages Area */}
+                    <CardContent className="flex-1 overflow-y-auto p-4" style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg width=\'60\' height=\'60\' viewBox=\'0 0 60 60\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cg fill=\'none\' fill-rule=\'evenodd\'%3E%3Cg fill=\'%239C92AC\' fill-opacity=\'0.03\'%3E%3Cpath d=\'M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z\'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")' }}>
                       {commLoading ? (
                         <div className="space-y-4">
                           {[1, 2, 3].map((i) => (
-                            <Skeleton key={i} className="h-16 w-full" />
+                            <Skeleton key={i} className="h-12 w-3/4" />
                           ))}
                         </div>
                       ) : communicationHistory.length === 0 ? (
-                        <div className="text-center py-8 text-muted-foreground">
-                          <MessageSquare className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                          <p className="font-medium">No messages sent yet</p>
-                          <p className="text-sm mt-1">
-                            SMS and WhatsApp messages sent to this lead via campaigns or direct messaging will appear here.
-                          </p>
+                        <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
+                          <MessageSquare className="h-12 w-12 mb-3 opacity-30" />
+                          <p className="font-medium">No messages yet</p>
+                          <p className="text-sm mt-1">Start a conversation below</p>
                         </div>
                       ) : (
-                        <div className="space-y-4">
-                          {communicationHistory.map((message) => (
+                        <div className="space-y-1">
+                          {[...communicationHistory].reverse().map((message) => (
                             <CommunicationItem key={message.id} message={message as any} />
                           ))}
                         </div>
                       )}
                     </CardContent>
+
+                    {/* Attachment Preview */}
+                    {templateAttachment && (
+                      <div className="shrink-0 px-4 py-2 border-t bg-muted/30">
+                        <div className="flex items-center gap-2">
+                          {templateAttachment.type === 'image' ? (
+                            <img src={templateAttachment.url} alt="Attachment" className="h-12 w-12 rounded object-cover" />
+                          ) : (
+                            <div className="h-12 w-12 rounded bg-muted flex items-center justify-center">
+                              {templateAttachment.type === 'video' ? <Film className="h-5 w-5 text-purple-500" /> : <FileTextIcon className="h-5 w-5 text-orange-500" />}
+                            </div>
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-medium capitalize">{templateAttachment.type} attached</p>
+                            <p className="text-xs text-muted-foreground truncate">{templateAttachment.url.split('/').pop()}</p>
+                          </div>
+                          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setTemplateAttachment(null)}>
+                            <XCircle className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Chat Input Bar */}
+                    <div className="shrink-0 border-t p-3">
+                      {/* Template & Channel selector row */}
+                      <div className="flex items-center gap-2 mb-2">
+                        <Select
+                          value={sendChannel}
+                          onValueChange={(v) => {
+                            setSendChannel(v as 'sms' | 'whatsapp' | 'personal_whatsapp');
+                            setSelectedTemplateId('');
+                            setSendMessage('');
+                            setTemplateAttachment(null);
+                          }}
+                        >
+                          <SelectTrigger className="w-[160px] h-8 text-xs">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="personal_whatsapp">
+                              <span className="flex items-center gap-1.5">
+                                Personal WA
+                                {waStatus?.connected && <span className="h-1.5 w-1.5 rounded-full bg-green-500 inline-block" />}
+                              </span>
+                            </SelectItem>
+                            <SelectItem value="sms">SMS</SelectItem>
+                            <SelectItem value="whatsapp">WA Web</SelectItem>
+                          </SelectContent>
+                        </Select>
+
+                        {channelTemplates.length > 0 && (
+                          <Select
+                            value={selectedTemplateId}
+                            onValueChange={(id) => {
+                              setSelectedTemplateId(id);
+                              const tmpl = channelTemplates.find((t) => t.id === id);
+                              if (tmpl) {
+                                setSendMessage(
+                                  replaceVariables(tmpl.content, {
+                                    first_name: lead?.full_name?.split(' ')[0] || '',
+                                    last_name: lead?.full_name?.split(' ').slice(1).join(' ') || '',
+                                    full_name: lead?.full_name || '',
+                                    phone: lead?.phone || '',
+                                    email: lead?.email || '',
+                                    program: lead?.program?.program_name || '',
+                                  })
+                                );
+                                setTemplateAttachment(
+                                  tmpl.attachment_type && tmpl.attachment_url
+                                    ? { type: tmpl.attachment_type, url: tmpl.attachment_url }
+                                    : null
+                                );
+                              }
+                            }}
+                          >
+                            <SelectTrigger className="w-[140px] h-8 text-xs">
+                              <SelectValue placeholder="Template..." />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {channelTemplates.map((t) => (
+                                <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        )}
+                      </div>
+
+                      {/* Message input + send */}
+                      <div className="flex items-end gap-2">
+                        <Textarea
+                          value={sendMessage}
+                          onChange={(e) => setSendMessage(e.target.value)}
+                          placeholder="Type a message..."
+                          rows={1}
+                          className="min-h-[40px] max-h-[120px] resize-none text-sm"
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && !e.shiftKey) {
+                              e.preventDefault();
+                              if (sendMessage.trim() && !isSending) handleSendMessage();
+                            }
+                          }}
+                        />
+                        <Button
+                          size="icon"
+                          className="shrink-0 h-10 w-10 bg-[#25D366] hover:bg-[#1da851] text-white rounded-full"
+                          onClick={handleSendMessage}
+                          disabled={isSending || !sendMessage.trim()}
+                        >
+                          {isSending ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Send className="h-4 w-4" />
+                          )}
+                        </Button>
+                      </div>
+                    </div>
                   </Card>
                 </TabsContent>
 
