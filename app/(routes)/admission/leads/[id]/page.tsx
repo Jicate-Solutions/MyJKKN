@@ -558,7 +558,8 @@ function LeadDetailPageContent() {
     setIsSending(true);
     try {
       const digits = lead.phone.replace(/\D/g, '');
-      const intlPhone = digits.startsWith('91') && digits.length === 12 ? digits : `91${digits}`;
+      const intlDigits = digits.startsWith('91') && digits.length === 12 ? digits : `91${digits}`;
+      const intlPhone = `${intlDigits}@c.us`; // Always use JID format for reliability
       const deptId = personalWaDepartmentId || profile?.department_id || 'any';
 
       if (templateAttachment?.url) {
@@ -625,8 +626,9 @@ function LeadDetailPageContent() {
       setIsSending(true);
       try {
         const digits = lead.phone.replace(/\D/g, '');
-        const intlPhone = digits.startsWith('91') && digits.length === 12 ? digits : `91${digits}`;
-        const deptId = personalWaDepartmentId || profile?.department_id;
+        const intlDigits = digits.startsWith('91') && digits.length === 12 ? digits : `91${digits}`;
+        const intlPhone = `${intlDigits}@c.us`;
+        const deptId = personalWaDepartmentId || profile?.department_id || 'any';
 
         // Send media attachment first (if template has one)
         if (templateAttachment?.url) {
