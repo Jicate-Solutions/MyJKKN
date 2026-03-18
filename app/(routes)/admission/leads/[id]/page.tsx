@@ -2,6 +2,7 @@
 
 import { useParams, useRouter } from 'next/navigation';
 import { useState, useEffect, useMemo } from 'react';
+import { useAuth } from '@/hooks/use-auth';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb,
@@ -413,6 +414,7 @@ function LeadDetailPageContent() {
   const { history: communicationHistory, isLoading: commLoading } = useLeadCommunicationHistory(leadId);
   const queryClient = useQueryClient();
   const { selectedInstitutionId: userInstitutionId } = useUserInstitutionAccess();
+  const { profile } = useAuth();
 
   // Personal WhatsApp status
   const personalWaDepartmentId = profile?.department_id || undefined;
