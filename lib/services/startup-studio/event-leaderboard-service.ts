@@ -32,6 +32,7 @@ export class EventLeaderboardService {
       team_name: row.registration?.team_name ?? 'Unknown',
       app_name: row.app_name,
       category: row.category,
+      institution_id: row.registration?.institution_id ?? null,
       institution_name: row.registration?.institution?.name ?? null,
       tier_level: row.tier_level,
       tier_points: row.tier_points,

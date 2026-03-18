@@ -159,13 +159,24 @@ export class EventRegistrationService {
       throw new Error('Failed to create team registration. Please try again.');
     }
 
+    // Resolve learner_id: prefer profiles.learner_id, fall back to learners_profiles by email
+    let leaderLearnerId = profile?.learner_id || null;
+    if (!leaderLearnerId && profile?.email) {
+      const { data: lp } = await this.supabase
+        .from('learners_profiles')
+        .select('id')
+        .eq('college_email', profile.email)
+        .maybeSingle();
+      leaderLearnerId = lp?.id || null;
+    }
+
     // Auto-add team leader as accepted member with is_leader=true
     const { error: leaderError } = await this.supabase
       .from('event_team_members')
       .insert({
         registration_id: registration.id,
         profile_id: userId,
-        learner_id: profile?.learner_id || null,
+        learner_id: leaderLearnerId,
         email: profile?.email || '',
         full_name: profile?.full_name || null,
         has_laptop: false,

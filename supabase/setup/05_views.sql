@@ -375,6 +375,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_mv_lifecycle_dashboard_inst_module
 
 -- ─── View: appathon_leaderboard ───────────────────────────────────────────
 -- Added: 2026-03-08 - Unified leaderboard using verified scores when available.
+-- Updated: 2026-03-18 - Fixed duplicate rows caused by multiple evaluators per submission.
+--   Uses LEFT JOIN LATERAL to pick the single best verification (highest score, then most recent)
+--   per submission, ensuring exactly one leaderboard row per team.
 -- Verified scores are ONLY used when verification_status IN ('verified','flagged','disqualified').
 -- A 'pending' verification (score=0 default) falls back to self-reported scores to prevent
 -- rank inversions mid-evaluation.
@@ -385,6 +388,7 @@ WITH resolved AS (
         er.id                AS team_id,
         er.team_name,
         er.institution_id,
+        i.name               AS institution_name,
         er.event_id,
         es.app_name,
         es.live_app_url,
@@ -408,7 +412,17 @@ WITH resolved AS (
             THEN av.verified_revenue   ELSE es.mrr_amount           END AS verified_revenue
     FROM event_submissions es
     JOIN event_registrations er ON es.registration_id = er.id
-    LEFT JOIN appathon_verifications av ON av.submission_id = es.id
+    LEFT JOIN institutions i ON er.institution_id = i.id
+    -- Pick only the single best verification per submission:
+    -- Priority: highest total_score, then most recent created_at.
+    -- This prevents duplicate leaderboard rows when multiple evaluators verify the same team.
+    LEFT JOIN LATERAL (
+        SELECT av2.*
+        FROM appathon_verifications av2
+        WHERE av2.submission_id = es.id
+        ORDER BY av2.total_score DESC, av2.created_at DESC
+        LIMIT 1
+    ) av ON true
     LEFT JOIN event_venue_assignments eva ON av.venue_id = eva.id
     WHERE es.submitted_at IS NOT NULL
 )
@@ -417,6 +431,7 @@ SELECT
     team_id,
     team_name,
     institution_id,
+    institution_name,
     event_id,
     app_name,
     live_app_url,

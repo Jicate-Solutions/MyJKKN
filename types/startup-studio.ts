@@ -338,6 +338,7 @@ export interface LeaderboardEntry {
   team_name: string;
   app_name: string | null;
   category: string | null;
+  institution_id: string | null;
   institution_name: string | null;
   tier_level: number;
   tier_points: number;
@@ -572,6 +573,7 @@ export interface VerifiedLeaderboardEntry {
   team_id: string;
   team_name: string;
   institution_id: string;
+  institution_name: string | null;
   event_id: string;
   app_name: string | null;
   live_app_url: string | null;
