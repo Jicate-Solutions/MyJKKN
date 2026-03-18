@@ -43,7 +43,6 @@ export function getLeaderboardColumns(
       id: 'rank',
       header: institutionView ? 'College #' : 'Rank',
       accessorFn: (row) => institutionView ? row.college_rank : row.overall_rank,
-      enableSorting: false,
       enableHiding: false,
       cell: ({ row }) => {
         const rank = institutionView ? row.original.college_rank : row.original.overall_rank;
