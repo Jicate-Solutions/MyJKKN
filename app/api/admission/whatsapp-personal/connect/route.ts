@@ -9,21 +9,26 @@ export async function POST(request: NextRequest) {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const body = await request.json();
-  const institutionId = body.institution_id;
-  if (!institutionId) return NextResponse.json({ error: 'institution_id required' }, { status: 400 });
+  const departmentId = body.department_id;
+  if (!departmentId) return NextResponse.json({ error: 'department_id required' }, { status: 400 });
 
   const serviceUrl = process.env.WHATSAPP_PERSONAL_SERVICE_URL || '';
+  const clientId = `dept-${departmentId}`;
 
-  await WhatsAppPersonalConnectionService.upsertConnection(institutionId, {
+  await WhatsAppPersonalConnectionService.upsertConnection(departmentId, {
     status: 'connecting',
     service_url: serviceUrl,
+    client_id: clientId,
     connected_by: user.id,
   });
 
-  const result = await personalConnectAPI();
+  const result = await personalConnectAPI({
+    serviceUrl: `${serviceUrl}/clients/${clientId}`,
+    apiKey: process.env.WHATSAPP_PERSONAL_API_KEY || '',
+  });
 
   if (result.success) {
-    await WhatsAppPersonalConnectionService.updateStatus(institutionId, result.status, {
+    await WhatsAppPersonalConnectionService.updateStatus(departmentId, result.status, {
       connected_by: user.id,
     });
   }

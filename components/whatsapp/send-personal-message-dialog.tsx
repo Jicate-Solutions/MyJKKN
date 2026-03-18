@@ -19,7 +19,7 @@ import toast from 'react-hot-toast';
 import { useQueryClient } from '@tanstack/react-query';
 
 interface SendPersonalMessageDialogProps {
-  institutionId: string;
+  departmentId: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   defaultPhone?: string;
@@ -29,7 +29,7 @@ interface SendPersonalMessageDialogProps {
 }
 
 export function SendPersonalMessageDialog({
-  institutionId,
+  departmentId,
   open,
   onOpenChange,
   defaultPhone = '',
@@ -61,7 +61,7 @@ export function SendPersonalMessageDialog({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          institution_id: institutionId,
+          department_id: departmentId,
           to: phone,
           message,
           lead_id: leadId,

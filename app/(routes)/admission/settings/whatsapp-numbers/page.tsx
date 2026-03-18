@@ -470,7 +470,7 @@ function WhatsAppNumbersContent() {
 
             <TabsContent value="personal">
               {institutionId ? (
-                <PersonalConnectionTab institutionId={institutionId} />
+                <PersonalConnectionTab departmentId={profile?.department_id || ''} />
               ) : (
                 <p className="text-sm text-muted-foreground py-8 text-center">
                   Select an institution to manage personal WhatsApp connection.

@@ -34,8 +34,9 @@ function ChatInboxContent() {
   const institutionId = profile?.institution_id;
 
   // Personal WhatsApp connection status (only fetched when personal tab is active)
+  const departmentId = profile?.department_id;
   const { data: personalStatus } = usePersonalWhatsAppStatus(
-    channel === 'personal' ? institutionId : undefined
+    channel === 'personal' ? departmentId : undefined
   );
 
   const { stats } = useChatStats();

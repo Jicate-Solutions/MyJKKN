@@ -382,8 +382,8 @@ function LeadDetailPageContent() {
   const { selectedInstitutionId: userInstitutionId } = useUserInstitutionAccess();
 
   // Personal WhatsApp status
-  const personalWaInstitutionId = lead?.institution_id || userInstitutionId || undefined;
-  const { data: waStatus } = usePersonalWhatsAppStatus(personalWaInstitutionId, { pollWhileConnecting: false });
+  const personalWaDepartmentId = profile?.department_id || undefined;
+  const { data: waStatus } = usePersonalWhatsAppStatus(personalWaDepartmentId, { pollWhileConnecting: false });
 
   // Compute lead scores on-the-fly from available data
   const computedScores = useMemo(() => {
@@ -525,7 +525,7 @@ function LeadDetailPageContent() {
       try {
         const digits = lead.phone.replace(/\D/g, '');
         const intlPhone = digits.startsWith('91') && digits.length === 12 ? digits : `91${digits}`;
-        const instId = personalWaInstitutionId || userInstitutionId;
+        const deptId = personalWaDepartmentId || profile?.department_id;
 
         // Send media attachment first (if template has one)
         if (templateAttachment?.url) {
@@ -533,7 +533,7 @@ function LeadDetailPageContent() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              institution_id: instId,
+              department_id: deptId,
               to: intlPhone,
               media_url: templateAttachment.url,
               caption: sendMessage.trim(),
@@ -553,7 +553,7 @@ function LeadDetailPageContent() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              institution_id: instId,
+              department_id: deptId,
               to: intlPhone,
               message: sendMessage.trim(),
               lead_id: lead.id,
@@ -2815,7 +2815,7 @@ function LeadDetailPageContent() {
 
         {/* Personal WhatsApp Dialog */}
         <SendPersonalMessageDialog
-          institutionId={personalWaInstitutionId || userInstitutionId || ''}
+          departmentId={personalWaDepartmentId || profile?.department_id || ''}
           open={personalMsgOpen}
           onOpenChange={setPersonalMsgOpen}
           defaultPhone={lead?.phone || ''}

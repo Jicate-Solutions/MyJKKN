@@ -9,14 +9,13 @@ export async function POST(request: NextRequest) {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const body = await request.json();
-  const { institution_id, to, media_url, caption, media_type, lead_id, recipient_name } = body;
+  const { department_id, to, media_url, caption, media_type, lead_id, recipient_name } = body;
 
-  if (!institution_id || !to || !media_url) {
-    return NextResponse.json({ error: 'institution_id, to, and media_url required' }, { status: 400 });
+  if (!department_id || !to || !media_url) {
+    return NextResponse.json({ error: 'department_id, to, and media_url required' }, { status: 400 });
   }
 
-  // Find connection (with multi-institution fallback)
-  let connection = await WhatsAppPersonalConnectionService.getConnection(institution_id);
+  let connection = await WhatsAppPersonalConnectionService.getConnection(department_id);
   if (!connection || connection.status !== 'ready') {
     connection = await WhatsAppPersonalConnectionService.getAnyReadyConnection();
   }
@@ -24,9 +23,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Personal WhatsApp not connected' }, { status: 503 });
   }
 
-  // Log the message
   const logEntry = await WhatsAppPersonalMessageService.logMessage({
-    institution_id,
+    department_id: connection.department_id,
     connection_id: connection.id,
     recipient_type: 'individual',
     recipient_phone: to,
@@ -37,13 +35,13 @@ export async function POST(request: NextRequest) {
     status: 'pending',
   });
 
-  // Send media via Railway service
+  const clientId = connection.client_id || `dept-${connection.department_id}`;
   const serviceUrl = connection.service_url || process.env.WHATSAPP_PERSONAL_SERVICE_URL || '';
   const apiKey = process.env.WHATSAPP_PERSONAL_API_KEY || '';
 
   let result: { success: boolean; messageId?: string; error?: string };
   try {
-    const res = await fetch(`${serviceUrl}/send/media`, {
+    const res = await fetch(`${serviceUrl}/clients/${clientId}/send/media`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -62,7 +60,6 @@ export async function POST(request: NextRequest) {
     result = { success: false, error: error instanceof Error ? error.message : 'Send media failed' };
   }
 
-  // Update log
   if (logEntry) {
     await WhatsAppPersonalMessageService.updateStatus(
       logEntry.id,

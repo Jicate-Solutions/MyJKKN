@@ -8,11 +8,11 @@ export async function GET(request: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const institutionId = request.nextUrl.searchParams.get('institution_id');
-  if (!institutionId) return NextResponse.json({ error: 'institution_id required' }, { status: 400 });
+  const departmentId = request.nextUrl.searchParams.get('department_id');
+  if (!departmentId) return NextResponse.json({ error: 'department_id required' }, { status: 400 });
 
-  // Get DB connection record — try given institution first, then any ready connection
-  let connection = await WhatsAppPersonalConnectionService.getConnection(institutionId);
+  // Get DB connection record — try given department first, then any ready connection
+  let connection = await WhatsAppPersonalConnectionService.getConnection(departmentId);
   if (!connection) {
     connection = await WhatsAppPersonalConnectionService.getAnyReadyConnection();
   }
@@ -25,7 +25,6 @@ export async function GET(request: NextRequest) {
     });
   }
 
-  // If status is disconnected and no service_url, just return DB state
   if (connection.status === 'disconnected' && !connection.service_url) {
     return NextResponse.json({
       ...connection,
@@ -33,8 +32,6 @@ export async function GET(request: NextRequest) {
     });
   }
 
-  // If we have a service_url, poll Railway for live status
-  // (only when in a transitional state OR to verify ready connections)
   const shouldPollLive = connection.service_url && (
     connection.status === 'connecting' ||
     connection.status === 'qr_ready' ||
@@ -43,27 +40,28 @@ export async function GET(request: NextRequest) {
   );
 
   if (shouldPollLive) {
+    const clientId = connection.client_id || `dept-${connection.department_id}`;
+
     try {
       const liveStatus = await personalGetStatusAPI({
-        serviceUrl: connection.service_url!,
+        serviceUrl: `${connection.service_url}/clients/${clientId}`,
         apiKey: process.env.WHATSAPP_PERSONAL_API_KEY || '',
       });
 
-      // Only update DB if status actually changed
       if (liveStatus.status !== connection.status) {
-        const phoneNumber = liveStatus.clientInfo?.phoneNumber || undefined;
-        const pushName = liveStatus.clientInfo?.pushName || undefined;
-
         await WhatsAppPersonalConnectionService.updateStatus(
-          institutionId,
+          connection.department_id,
           liveStatus.status,
-          { phone_number: phoneNumber, push_name: pushName }
+          {
+            phone_number: liveStatus.clientInfo?.phoneNumber,
+            push_name: liveStatus.clientInfo?.pushName,
+          }
         );
       }
 
       return NextResponse.json({
         id: connection.id,
-        institution_id: connection.institution_id,
+        department_id: connection.department_id,
         status: liveStatus.status,
         qr_code: liveStatus.qrCode || null,
         phone_number: liveStatus.clientInfo?.phoneNumber || connection.phone_number,
@@ -73,11 +71,9 @@ export async function GET(request: NextRequest) {
       });
     } catch (err) {
       console.error('[whatsapp-personal/status] Railway poll failed:', err instanceof Error ? err.message : err);
-      // Don't mark disconnected on transient failures — return DB state as-is
-      // Only the disconnect route should set status to disconnected
       return NextResponse.json({
         id: connection.id,
-        institution_id: connection.institution_id,
+        department_id: connection.department_id,
         status: connection.status,
         phone_number: connection.phone_number,
         push_name: connection.push_name,
@@ -88,7 +84,6 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  // Fallback: return DB state
   return NextResponse.json({
     ...connection,
     connected: connection.status === 'ready',

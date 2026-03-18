@@ -68,7 +68,7 @@ export interface PersonalRecipient {
 
 export interface PersonalWhatsAppConnection {
   id: string;
-  institution_id: string;
+  department_id: string;
   status: PersonalConnectionState;
   phone_number: string | null;
   push_name: string | null;
@@ -76,6 +76,7 @@ export interface PersonalWhatsAppConnection {
   connected_at: string | null;
   disconnected_at: string | null;
   service_url: string | null;
+  client_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -86,7 +87,7 @@ export interface PersonalWhatsAppConnection {
 
 export interface PersonalMessageLog {
   id: string;
-  institution_id: string;
+  department_id: string;
   connection_id: string;
   recipient_type: 'individual' | 'group' | 'bulk';
   recipient_phone: string;
@@ -104,7 +105,7 @@ export interface PersonalMessageLog {
 }
 
 export interface PersonalMessageLogFilters {
-  institution_id: string;
+  department_id: string;
   connection_id?: string;
   recipient_type?: 'individual' | 'group' | 'bulk';
   status?: 'pending' | 'sent' | 'delivered' | 'read' | 'failed';

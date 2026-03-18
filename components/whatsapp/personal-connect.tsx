@@ -29,7 +29,7 @@ import {
 // ---------------------------------------------------------------------------
 
 interface PersonalConnectProps {
-  institutionId: string;
+  departmentId: string;
   onConnected?: (phoneNumber: string) => void;
   onDisconnected?: () => void;
 }
@@ -39,15 +39,15 @@ interface PersonalConnectProps {
 // ---------------------------------------------------------------------------
 
 export function PersonalConnect({
-  institutionId,
+  departmentId,
   onConnected,
   onDisconnected,
 }: PersonalConnectProps) {
   const { data, isLoading, isError, error } = usePersonalWhatsAppStatus(
-    institutionId,
+    departmentId,
     { pollWhileConnecting: true }
   );
-  const mutations = usePersonalWhatsAppMutations(institutionId);
+  const mutations = usePersonalWhatsAppMutations(departmentId);
 
   const status: string = data?.status ?? 'disconnected';
 

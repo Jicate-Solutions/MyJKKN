@@ -19,7 +19,7 @@ function getServiceClient() {
 
 export class WhatsAppPersonalMessageService {
   static async logMessage(params: {
-    institution_id: string;
+    department_id: string;
     connection_id: string;
     recipient_type: 'individual' | 'group' | 'bulk';
     recipient_phone: string;
@@ -35,7 +35,7 @@ export class WhatsAppPersonalMessageService {
     const { data, error } = await supabase
       .from('wa_personal_message_logs')
       .insert({
-        institution_id: params.institution_id,
+        department_id: params.department_id,
         connection_id: params.connection_id,
         recipient_type: params.recipient_type,
         recipient_phone: params.recipient_phone,
@@ -59,7 +59,7 @@ export class WhatsAppPersonalMessageService {
   }
 
   static async logMessageBatch(messages: {
-    institution_id: string;
+    department_id: string;
     connection_id: string;
     recipient_type: 'individual' | 'group' | 'bulk';
     recipient_phone: string;
@@ -75,7 +75,7 @@ export class WhatsAppPersonalMessageService {
     const supabase = getServiceClient();
 
     const rows = messages.map((m) => ({
-      institution_id: m.institution_id,
+      department_id: m.department_id,
       connection_id: m.connection_id,
       recipient_type: m.recipient_type,
       recipient_phone: m.recipient_phone,
@@ -129,7 +129,7 @@ export class WhatsAppPersonalMessageService {
     let query = supabase
       .from('wa_personal_message_logs')
       .select('*', { count: 'exact' })
-      .eq('institution_id', filters.institution_id)
+      .eq('department_id', filters.department_id)
       .order('sent_at', { ascending: false })
       .range(offset, offset + limit - 1);
 
@@ -166,14 +166,14 @@ export class WhatsAppPersonalMessageService {
   }
 
   static async getLeadMessages(
-    institutionId: string,
+    departmentId: string,
     leadId: string
   ): Promise<PersonalMessageLog[]> {
     const supabase = getServiceClient();
     const { data, error } = await supabase
       .from('wa_personal_message_logs')
       .select('*')
-      .eq('institution_id', institutionId)
+      .eq('department_id', departmentId)
       .eq('lead_id', leadId)
       .order('sent_at', { ascending: false });
 

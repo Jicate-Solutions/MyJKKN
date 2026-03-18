@@ -3,10 +3,10 @@
 import { PersonalConnect } from '@/components/whatsapp/personal-connect';
 
 interface PersonalConnectionTabProps {
-  institutionId: string;
+  departmentId: string;
 }
 
-export function PersonalConnectionTab({ institutionId }: PersonalConnectionTabProps) {
+export function PersonalConnectionTab({ departmentId }: PersonalConnectionTabProps) {
   return (
     <div className="space-y-6">
       <div>
@@ -17,7 +17,7 @@ export function PersonalConnectionTab({ institutionId }: PersonalConnectionTabPr
       </div>
 
       <PersonalConnect
-        institutionId={institutionId}
+        departmentId={departmentId}
         onConnected={(phone) => {
           console.info('[admission/settings] Personal WhatsApp connected:', phone);
         }}

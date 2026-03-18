@@ -3615,14 +3615,15 @@ CREATE POLICY "expo_reports_delete" ON expo_daily_reports FOR DELETE
 -- =============================================================================
 -- BYOW WhatsApp Personal Connections — RLS
 -- Added: 2026-03-16
--- Pattern: auth_institution_id() + super_admin bypass + admission custom role
+-- Pattern: department_id match via profiles + super_admin bypass + admission custom role
+-- Updated: 2026-03-18 - Changed from institution_id to department_id based access
 -- =============================================================================
 
 ALTER TABLE wa_personal_connections ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "wa_personal_conn_select" ON wa_personal_connections FOR SELECT USING (
-  institution_id = auth_institution_id()
-  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+  department_id = (SELECT department_id FROM profiles WHERE id = auth.uid())
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND (role = 'super_admin' OR is_super_admin = true))
   OR EXISTS (
     SELECT 1 FROM user_roles ur
     JOIN custom_roles cr ON ur.role_id = cr.id
@@ -3631,8 +3632,8 @@ CREATE POLICY "wa_personal_conn_select" ON wa_personal_connections FOR SELECT US
   )
 );
 CREATE POLICY "wa_personal_conn_insert" ON wa_personal_connections FOR INSERT WITH CHECK (
-  institution_id = auth_institution_id()
-  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+  department_id = (SELECT department_id FROM profiles WHERE id = auth.uid())
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND (role = 'super_admin' OR is_super_admin = true))
   OR EXISTS (
     SELECT 1 FROM user_roles ur
     JOIN custom_roles cr ON ur.role_id = cr.id
@@ -3641,8 +3642,8 @@ CREATE POLICY "wa_personal_conn_insert" ON wa_personal_connections FOR INSERT WI
   )
 );
 CREATE POLICY "wa_personal_conn_update" ON wa_personal_connections FOR UPDATE USING (
-  institution_id = auth_institution_id()
-  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+  department_id = (SELECT department_id FROM profiles WHERE id = auth.uid())
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND (role = 'super_admin' OR is_super_admin = true))
   OR EXISTS (
     SELECT 1 FROM user_roles ur
     JOIN custom_roles cr ON ur.role_id = cr.id
@@ -3651,8 +3652,8 @@ CREATE POLICY "wa_personal_conn_update" ON wa_personal_connections FOR UPDATE US
   )
 );
 CREATE POLICY "wa_personal_conn_delete" ON wa_personal_connections FOR DELETE USING (
-  institution_id = auth_institution_id()
-  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+  department_id = (SELECT department_id FROM profiles WHERE id = auth.uid())
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND (role = 'super_admin' OR is_super_admin = true))
   OR EXISTS (
     SELECT 1 FROM user_roles ur
     JOIN custom_roles cr ON ur.role_id = cr.id
@@ -3664,8 +3665,8 @@ CREATE POLICY "wa_personal_conn_delete" ON wa_personal_connections FOR DELETE US
 ALTER TABLE wa_personal_message_logs ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "wa_personal_msg_select" ON wa_personal_message_logs FOR SELECT USING (
-  institution_id = auth_institution_id()
-  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+  department_id = (SELECT department_id FROM profiles WHERE id = auth.uid())
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND (role = 'super_admin' OR is_super_admin = true))
   OR EXISTS (
     SELECT 1 FROM user_roles ur
     JOIN custom_roles cr ON ur.role_id = cr.id
@@ -3674,8 +3675,8 @@ CREATE POLICY "wa_personal_msg_select" ON wa_personal_message_logs FOR SELECT US
   )
 );
 CREATE POLICY "wa_personal_msg_insert" ON wa_personal_message_logs FOR INSERT WITH CHECK (
-  institution_id = auth_institution_id()
-  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+  department_id = (SELECT department_id FROM profiles WHERE id = auth.uid())
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND (role = 'super_admin' OR is_super_admin = true))
   OR EXISTS (
     SELECT 1 FROM user_roles ur
     JOIN custom_roles cr ON ur.role_id = cr.id
@@ -3684,8 +3685,8 @@ CREATE POLICY "wa_personal_msg_insert" ON wa_personal_message_logs FOR INSERT WI
   )
 );
 CREATE POLICY "wa_personal_msg_update" ON wa_personal_message_logs FOR UPDATE USING (
-  institution_id = auth_institution_id()
-  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'super_admin')
+  department_id = (SELECT department_id FROM profiles WHERE id = auth.uid())
+  OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND (role = 'super_admin' OR is_super_admin = true))
   OR EXISTS (
     SELECT 1 FROM user_roles ur
     JOIN custom_roles cr ON ur.role_id = cr.id

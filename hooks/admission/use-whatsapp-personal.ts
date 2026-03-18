@@ -1,5 +1,5 @@
 // hooks/admission/use-whatsapp-personal.ts
-// React Query hooks for BYOW WhatsApp personal connections
+// React Query hooks for BYOW WhatsApp personal connections (department-based)
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
@@ -10,48 +10,48 @@ import toast from 'react-hot-toast';
 
 export const personalWhatsAppKeys = {
   all: ['whatsapp-personal'] as const,
-  connection: (institutionId: string) =>
-    ['whatsapp-personal', 'connection', institutionId] as const,
-  messages: (institutionId: string) =>
-    ['whatsapp-personal', 'messages', institutionId] as const,
-  leadMessages: (institutionId: string, leadId: string) =>
-    ['whatsapp-personal', 'messages', institutionId, leadId] as const,
+  connection: (departmentId: string) =>
+    ['whatsapp-personal', 'connection', departmentId] as const,
+  messages: (departmentId: string) =>
+    ['whatsapp-personal', 'messages', departmentId] as const,
+  leadMessages: (departmentId: string, leadId: string) =>
+    ['whatsapp-personal', 'messages', departmentId, leadId] as const,
 };
 
 // ---------------------------------------------------------------------------
 // API helpers (client-side fetch)
 // ---------------------------------------------------------------------------
 
-async function fetchPersonalStatus(institutionId: string) {
+async function fetchPersonalStatus(departmentId: string) {
   const res = await fetch(
-    `/api/admission/whatsapp-personal/status?institution_id=${institutionId}`
+    `/api/admission/whatsapp-personal/status?department_id=${departmentId}`
   );
   if (!res.ok) throw new Error('Failed to fetch status');
   return res.json();
 }
 
-async function postPersonalConnect(institutionId: string) {
+async function postPersonalConnect(departmentId: string) {
   const res = await fetch('/api/admission/whatsapp-personal/connect', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ institution_id: institutionId }),
+    body: JSON.stringify({ department_id: departmentId }),
   });
   if (!res.ok) throw new Error('Failed to connect');
   return res.json();
 }
 
-async function postPersonalDisconnect(institutionId: string) {
+async function postPersonalDisconnect(departmentId: string) {
   const res = await fetch('/api/admission/whatsapp-personal/disconnect', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ institution_id: institutionId }),
+    body: JSON.stringify({ department_id: departmentId }),
   });
   if (!res.ok) throw new Error('Failed to disconnect');
   return res.json();
 }
 
 async function postPersonalSend(params: {
-  institution_id: string;
+  department_id: string;
   to: string;
   message: string;
   lead_id?: string;
@@ -67,7 +67,7 @@ async function postPersonalSend(params: {
 }
 
 async function postPersonalSendBulk(params: {
-  institution_id: string;
+  department_id: string;
   recipients: { phone: string; message: string }[];
   delay_ms?: number;
 }) {
@@ -86,20 +86,19 @@ async function postPersonalSendBulk(params: {
 
 /** Get personal WhatsApp connection status — auto-polls when connecting */
 export function usePersonalWhatsAppStatus(
-  institutionId: string | undefined,
+  departmentId: string | undefined,
   options?: { pollWhileConnecting?: boolean }
 ) {
   const pollWhileConnecting = options?.pollWhileConnecting ?? true;
 
   return useQuery({
-    queryKey: personalWhatsAppKeys.connection(institutionId || ''),
-    queryFn: () => fetchPersonalStatus(institutionId!),
-    enabled: !!institutionId,
+    queryKey: personalWhatsAppKeys.connection(departmentId || ''),
+    queryFn: () => fetchPersonalStatus(departmentId!),
+    enabled: !!departmentId,
     staleTime: 10_000,
     refetchInterval: (query) => {
       if (!pollWhileConnecting) return false;
       const status = query.state.data?.status;
-      // Poll every 3s while connecting/QR/authenticating — stop once ready or disconnected
       if (status === 'connecting' || status === 'qr_ready' || status === 'authenticated') {
         return 3_000;
       }
@@ -110,14 +109,14 @@ export function usePersonalWhatsAppStatus(
 }
 
 /** Mutations for personal WhatsApp operations */
-export function usePersonalWhatsAppMutations(institutionId: string) {
+export function usePersonalWhatsAppMutations(departmentId: string) {
   const queryClient = useQueryClient();
   const invalidate = () => {
-    queryClient.invalidateQueries({ queryKey: personalWhatsAppKeys.connection(institutionId) });
+    queryClient.invalidateQueries({ queryKey: personalWhatsAppKeys.connection(departmentId) });
   };
 
   const connect = useMutation({
-    mutationFn: () => postPersonalConnect(institutionId),
+    mutationFn: () => postPersonalConnect(departmentId),
     onSuccess: (data) => {
       if (data.success) {
         toast.success('WhatsApp connection initiated — scan the QR code');
@@ -130,7 +129,7 @@ export function usePersonalWhatsAppMutations(institutionId: string) {
   });
 
   const disconnect = useMutation({
-    mutationFn: () => postPersonalDisconnect(institutionId),
+    mutationFn: () => postPersonalDisconnect(departmentId),
     onSuccess: () => {
       toast.success('Personal WhatsApp disconnected');
       invalidate();
@@ -140,7 +139,7 @@ export function usePersonalWhatsAppMutations(institutionId: string) {
 
   const sendMessage = useMutation({
     mutationFn: (params: { to: string; message: string; lead_id?: string; recipient_name?: string }) =>
-      postPersonalSend({ institution_id: institutionId, ...params }),
+      postPersonalSend({ department_id: departmentId, ...params }),
     onSuccess: (data) => {
       if (data.success) {
         toast.success('Message sent via personal WhatsApp');
@@ -153,7 +152,7 @@ export function usePersonalWhatsAppMutations(institutionId: string) {
 
   const sendBulk = useMutation({
     mutationFn: (params: { recipients: { phone: string; message: string }[]; delay_ms?: number }) =>
-      postPersonalSendBulk({ institution_id: institutionId, ...params }),
+      postPersonalSendBulk({ department_id: departmentId, ...params }),
     onSuccess: (data) => {
       if (data.success) {
         toast.success(`Sent ${data.successCount}/${data.totalSent} messages`);

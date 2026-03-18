@@ -138,7 +138,7 @@ interface FollowupCardProps {
   /** True only for THIS card's in-flight mutation — not a global flag. */
   isActioning?: boolean;
   /** Institution ID for WhatsApp personal messaging. */
-  institutionId?: string;
+  departmentId?: string;
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -150,14 +150,14 @@ export function FollowupCard({
   onReschedule,
   onAddNote,
   isActioning,
-  institutionId,
+  departmentId,
 }: FollowupCardProps) {
   const [noteText, setNoteText] = useState('');
   const [showNote, setShowNote] = useState(false);
   const [rescheduleDate, setRescheduleDate] = useState('');
   const [personalMsgOpen, setPersonalMsgOpen] = useState(false);
 
-  const { data: waStatus } = usePersonalWhatsAppStatus(institutionId, { pollWhileConnecting: false });
+  const { data: waStatus } = usePersonalWhatsAppStatus(departmentId, { pollWhileConnecting: false });
 
   // ── Derived values ──────────────────────────────────────────────────────────
 
@@ -482,9 +482,9 @@ export function FollowupCard({
         </div>
       </CardContent>
 
-      {institutionId && (
+      {departmentId && (
         <SendPersonalMessageDialog
-          institutionId={institutionId}
+          departmentId={departmentId}
           open={personalMsgOpen}
           onOpenChange={setPersonalMsgOpen}
           defaultPhone={lead.phone || ''}

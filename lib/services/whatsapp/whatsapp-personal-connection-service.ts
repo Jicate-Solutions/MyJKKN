@@ -1,5 +1,5 @@
 // lib/services/whatsapp/whatsapp-personal-connection-service.ts
-// Manages wa_personal_connections table — one row per institution
+// Manages wa_personal_connections table — one row per department
 
 import { createClient } from '@supabase/supabase-js';
 import type {
@@ -18,13 +18,13 @@ function getServiceClient() {
 
 export class WhatsAppPersonalConnectionService {
   static async getConnection(
-    institutionId: string
+    departmentId: string
   ): Promise<PersonalWhatsAppConnection | null> {
     const supabase = getServiceClient();
     const { data, error } = await supabase
       .from('wa_personal_connections')
       .select('*')
-      .eq('institution_id', institutionId)
+      .eq('department_id', departmentId)
       .maybeSingle();
 
     if (error) {
@@ -35,22 +35,22 @@ export class WhatsAppPersonalConnectionService {
   }
 
   static async upsertConnection(
-    institutionId: string,
+    departmentId: string,
     updates: Partial<PersonalWhatsAppConnection>
   ): Promise<PersonalWhatsAppConnection | null> {
     const supabase = getServiceClient();
-    const { id: _id, institution_id: _inst, created_at: _ca, updated_at: _ua, ...payload } =
+    const { id: _id, department_id: _dept, created_at: _ca, updated_at: _ua, ...payload } =
       updates as any;
 
     const { data, error } = await supabase
       .from('wa_personal_connections')
       .upsert(
         {
-          institution_id: institutionId,
+          department_id: departmentId,
           ...payload,
           updated_at: new Date().toISOString(),
         },
-        { onConflict: 'institution_id' }
+        { onConflict: 'department_id' }
       )
       .select('*')
       .single();
@@ -63,7 +63,7 @@ export class WhatsAppPersonalConnectionService {
   }
 
   static async updateStatus(
-    institutionId: string,
+    departmentId: string,
     status: PersonalConnectionState,
     extra?: { phone_number?: string; push_name?: string; connected_by?: string }
   ): Promise<void> {
@@ -86,14 +86,14 @@ export class WhatsAppPersonalConnectionService {
     const { error } = await supabase
       .from('wa_personal_connections')
       .update(updateData)
-      .eq('institution_id', institutionId);
+      .eq('department_id', departmentId);
 
     if (error) {
       console.error('[whatsapp-personal] updateStatus error:', error.message);
     }
   }
 
-  /** Find any connection with status 'ready' (for multi-institution users) */
+  /** Find any connection with status 'ready' (for multi-department users) */
   static async getAnyReadyConnection(): Promise<PersonalWhatsAppConnection | null> {
     const supabase = getServiceClient();
     const { data, error } = await supabase
@@ -110,12 +110,27 @@ export class WhatsAppPersonalConnectionService {
     return data as PersonalWhatsAppConnection | null;
   }
 
-  static async deleteConnection(institutionId: string): Promise<boolean> {
+  /** Get all connections (for super_admin) */
+  static async getAllConnections(): Promise<PersonalWhatsAppConnection[]> {
+    const supabase = getServiceClient();
+    const { data, error } = await supabase
+      .from('wa_personal_connections')
+      .select('*')
+      .order('updated_at', { ascending: false });
+
+    if (error) {
+      console.error('[whatsapp-personal] getAllConnections error:', error.message);
+      return [];
+    }
+    return (data || []) as PersonalWhatsAppConnection[];
+  }
+
+  static async deleteConnection(departmentId: string): Promise<boolean> {
     const supabase = getServiceClient();
     const { error } = await supabase
       .from('wa_personal_connections')
       .delete()
-      .eq('institution_id', institutionId);
+      .eq('department_id', departmentId);
 
     if (error) {
       console.error('[whatsapp-personal] deleteConnection error:', error.message);
@@ -124,8 +139,8 @@ export class WhatsAppPersonalConnectionService {
     return true;
   }
 
-  static async isConnected(institutionId: string): Promise<boolean> {
-    const conn = await this.getConnection(institutionId);
+  static async isConnected(departmentId: string): Promise<boolean> {
+    const conn = await this.getConnection(departmentId);
     return conn?.status === 'ready';
   }
 }

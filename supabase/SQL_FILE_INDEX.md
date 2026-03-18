@@ -1265,11 +1265,13 @@ npx tsx scripts/repair-learner-profile-sync.ts
 ### 2026-03-16: BYOW WhatsApp Personal Messaging
 
 - **Tables** (01_tables.sql): `wa_personal_connections`, `wa_personal_message_logs`
-- **Policies** (03_policies.sql): Institution-scoped RLS with super_admin bypass and admission role access for both tables (7 policies total)
+- **Policies** (03_policies.sql): Department-scoped RLS (via profiles.department_id) with super_admin/is_super_admin bypass and admission custom role access for both tables (7 policies total)
 - **Triggers** (04_triggers.sql): `wa_personal_connections_updated_at`, `wa_personal_message_logs_updated_at`
-- **Indexes**: 2 on connections (institution, status), 5 on message_logs (institution, connection, lead, sent_at DESC, status)
-- **Purpose**: BYOW (Bring Your Own WhatsApp) personal messaging for admission module — tracks QR-based WhatsApp connections per institution and logs all messages sent
+- **Indexes**: 2 on connections (department, status), 5 on message_logs (department, connection, lead, sent_at DESC, status)
+- **Purpose**: BYOW (Bring Your Own WhatsApp) personal messaging for admission module — tracks QR-based WhatsApp connections per department and logs all messages sent
+- **Key columns**: `department_id` (FK to departments), `client_id` (Railway multi-client routing)
 - Added: 2026-03-16
+- Updated: 2026-03-18 — Changed from institution_id to department_id scoping, added client_id column
 
 ---
 

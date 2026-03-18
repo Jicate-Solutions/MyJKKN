@@ -26,7 +26,7 @@ interface FollowupListProps {
    */
   actioningLeadId?: string;
   /** Institution ID for WhatsApp personal messaging. */
-  institutionId?: string;
+  departmentId?: string;
 }
 
 export function FollowupList({
@@ -36,7 +36,7 @@ export function FollowupList({
   onReschedule,
   onAddNote,
   actioningLeadId,
-  institutionId,
+  departmentId,
 }: FollowupListProps) {
   const [sortMode, setSortMode] = useState<SortMode>('urgency');
 
@@ -83,7 +83,7 @@ export function FollowupList({
             onReschedule={onReschedule}
             onAddNote={onAddNote}
             isActioning={lead.id === actioningLeadId}
-            institutionId={institutionId}
+            departmentId={departmentId}
           />
         ))}
       </div>

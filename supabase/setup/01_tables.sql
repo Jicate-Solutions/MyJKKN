@@ -2432,13 +2432,14 @@ ALTER TABLE expo_daily_reports ENABLE ROW LEVEL SECURITY;
 
 -- =============================================================================
 -- BYOW WhatsApp Personal Connections
--- Tracks institution-level personal WhatsApp connections (via QR scan)
+-- Tracks department-level personal WhatsApp connections (via QR scan)
 -- Added: 2026-03-16
+-- Updated: 2026-03-18 - Changed from institution_id to department_id, added client_id
 -- =============================================================================
 
 CREATE TABLE IF NOT EXISTS wa_personal_connections (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    institution_id UUID NOT NULL REFERENCES institutions(id) ON DELETE CASCADE,
+    department_id UUID NOT NULL REFERENCES departments(id) ON DELETE CASCADE,
     status TEXT NOT NULL DEFAULT 'disconnected'
         CHECK (status IN ('disconnected', 'connecting', 'qr_ready', 'authenticated', 'ready')),
     phone_number TEXT,
@@ -2447,13 +2448,14 @@ CREATE TABLE IF NOT EXISTS wa_personal_connections (
     connected_at TIMESTAMPTZ,
     disconnected_at TIMESTAMPTZ,
     service_url TEXT,
+    client_id TEXT,  -- Railway client ID for multi-client routing (format: dept-{uuid})
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE(institution_id)
+    UNIQUE(department_id)
 );
 
-CREATE INDEX IF NOT EXISTS idx_wa_personal_connections_institution
-    ON wa_personal_connections(institution_id);
+CREATE INDEX IF NOT EXISTS idx_wa_personal_connections_department
+    ON wa_personal_connections(department_id);
 CREATE INDEX IF NOT EXISTS idx_wa_personal_connections_status
     ON wa_personal_connections(status);
 
@@ -2461,11 +2463,12 @@ CREATE INDEX IF NOT EXISTS idx_wa_personal_connections_status
 -- BYOW WhatsApp Personal Message Logs
 -- Audit trail for messages sent via personal WhatsApp
 -- Added: 2026-03-16
+-- Updated: 2026-03-18 - Changed from institution_id to department_id
 -- =============================================================================
 
 CREATE TABLE IF NOT EXISTS wa_personal_message_logs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    institution_id UUID NOT NULL REFERENCES institutions(id) ON DELETE CASCADE,
+    department_id UUID NOT NULL REFERENCES departments(id) ON DELETE CASCADE,
     connection_id UUID NOT NULL REFERENCES wa_personal_connections(id) ON DELETE CASCADE,
     recipient_type TEXT NOT NULL CHECK (recipient_type IN ('individual', 'group', 'bulk')),
     recipient_phone TEXT NOT NULL,
@@ -2483,8 +2486,8 @@ CREATE TABLE IF NOT EXISTS wa_personal_message_logs (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_wa_personal_msg_logs_institution
-    ON wa_personal_message_logs(institution_id);
+CREATE INDEX IF NOT EXISTS idx_wa_personal_msg_logs_department
+    ON wa_personal_message_logs(department_id);
 CREATE INDEX IF NOT EXISTS idx_wa_personal_msg_logs_connection
     ON wa_personal_message_logs(connection_id);
 CREATE INDEX IF NOT EXISTS idx_wa_personal_msg_logs_lead

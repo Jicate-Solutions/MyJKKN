@@ -414,7 +414,7 @@ function CounselorViewPageContent() {
                       actions.addQuickNote.mutate({ leadId, note })
                     }
                     actioningLeadId={actioningLeadId}
-                    institutionId={institutionId}
+                    departmentId={profile?.department_id || ''}
                   />
                 </div>
               )}
@@ -438,7 +438,7 @@ function CounselorViewPageContent() {
                       actions.addQuickNote.mutate({ leadId, note })
                     }
                     actioningLeadId={actioningLeadId}
-                    institutionId={institutionId}
+                    departmentId={profile?.department_id || ''}
                   />
                 </div>
               )}

@@ -10,16 +10,14 @@ export async function POST(request: NextRequest) {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const body = await request.json();
-  const { institution_id, to, message, lead_id, recipient_name } = body;
+  const { department_id, to, message, lead_id, recipient_name } = body;
 
-  if (!institution_id || !to || !message) {
-    return NextResponse.json({ error: 'institution_id, to, and message required' }, { status: 400 });
+  if (!department_id || !to || !message) {
+    return NextResponse.json({ error: 'department_id, to, and message required' }, { status: 400 });
   }
 
-  // Try to find connection for the given institution, or fall back to any ready connection
-  let connection = await WhatsAppPersonalConnectionService.getConnection(institution_id);
+  let connection = await WhatsAppPersonalConnectionService.getConnection(department_id);
   if (!connection || connection.status !== 'ready') {
-    // User may have access to multiple institutions — find any ready connection
     connection = await WhatsAppPersonalConnectionService.getAnyReadyConnection();
   }
   if (!connection || connection.status !== 'ready') {
@@ -27,7 +25,7 @@ export async function POST(request: NextRequest) {
   }
 
   const logEntry = await WhatsAppPersonalMessageService.logMessage({
-    institution_id,
+    department_id: connection.department_id,
     connection_id: connection.id,
     recipient_type: 'individual',
     recipient_phone: to,
@@ -38,9 +36,15 @@ export async function POST(request: NextRequest) {
     status: 'pending',
   });
 
+  const clientId = connection.client_id || `dept-${connection.department_id}`;
+  const serviceUrl = connection.service_url || process.env.WHATSAPP_PERSONAL_SERVICE_URL || '';
+
   let result: { success: boolean; messageId?: string; error?: string };
   try {
-    result = await personalSendMessageAPI(to, message);
+    result = await personalSendMessageAPI(to, message, {
+      serviceUrl: `${serviceUrl}/clients/${clientId}`,
+      apiKey: process.env.WHATSAPP_PERSONAL_API_KEY || '',
+    });
   } catch (error) {
     result = { success: false, error: error instanceof Error ? error.message : 'Send failed' };
   }

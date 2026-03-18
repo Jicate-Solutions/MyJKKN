@@ -10,20 +10,29 @@ export async function POST(request: NextRequest) {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const body = await request.json();
-  const { institution_id, recipients, delay_ms } = body;
+  const { department_id, recipients, delay_ms } = body;
 
-  if (!institution_id || !recipients?.length) {
-    return NextResponse.json({ error: 'institution_id and recipients required' }, { status: 400 });
+  if (!department_id || !recipients?.length) {
+    return NextResponse.json({ error: 'department_id and recipients required' }, { status: 400 });
   }
 
-  const connection = await WhatsAppPersonalConnectionService.getConnection(institution_id);
+  let connection = await WhatsAppPersonalConnectionService.getConnection(department_id);
+  if (!connection || connection.status !== 'ready') {
+    connection = await WhatsAppPersonalConnectionService.getAnyReadyConnection();
+  }
   if (!connection || connection.status !== 'ready') {
     return NextResponse.json({ error: 'Personal WhatsApp not connected' }, { status: 503 });
   }
 
+  const clientId = connection.client_id || `dept-${connection.department_id}`;
+  const serviceUrl = connection.service_url || process.env.WHATSAPP_PERSONAL_SERVICE_URL || '';
+
   let result: { success: boolean; results?: { phone: string; success: boolean; error?: string }[]; totalSent?: number; successCount?: number; failCount?: number };
   try {
-    result = await personalSendBulkAPI(recipients, delay_ms || 1500);
+    result = await personalSendBulkAPI(recipients, delay_ms || 1500, {
+      serviceUrl: `${serviceUrl}/clients/${clientId}`,
+      apiKey: process.env.WHATSAPP_PERSONAL_API_KEY || '',
+    });
   } catch (error) {
     result = { success: false, results: [] };
   }
@@ -35,8 +44,8 @@ export async function POST(request: NextRequest) {
           (rec: { phone: string; message: string }) => rec.phone === r.phone
         );
         return {
-          institution_id,
-          connection_id: connection.id,
+          department_id: connection!.department_id,
+          connection_id: connection!.id,
           recipient_type: 'bulk' as const,
           recipient_phone: r.phone,
           message_content: matchingRecipient?.message || '',
