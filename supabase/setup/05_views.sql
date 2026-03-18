@@ -384,6 +384,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_mv_lifecycle_dashboard_inst_module
 -- Updated: 2026-03-18 - Filter leaderboard to only include teams verified on demo_date.
 -- Teams verified on other dates (late/re-evaluations) are excluded from rankings.
 -- If demo_date is NULL, all verifications are included (backward compatible).
+-- Teams with 0 verified users are excluded — at least 1 user is required to rank.
 CREATE OR REPLACE VIEW appathon_leaderboard AS
 WITH resolved AS (
     SELECT
@@ -434,6 +435,12 @@ WITH resolved AS (
     WHERE es.submitted_at IS NOT NULL
       -- Only include teams that were actually verified on demo_date (when demo_date is set)
       AND (se.demo_date IS NULL OR av.id IS NOT NULL)
+      -- Exclude teams with 0 verified users — at least 1 user required to appear on leaderboard
+      AND COALESCE(
+        CASE WHEN av.verification_status IN ('verified', 'flagged', 'disqualified')
+          THEN av.verified_users ELSE es.user_count END,
+        0
+      ) >= 1
 )
 SELECT
     submission_id,
