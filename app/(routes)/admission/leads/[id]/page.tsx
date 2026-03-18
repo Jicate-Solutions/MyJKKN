@@ -552,6 +552,71 @@ function LeadDetailPageContent() {
   const { templates: channelTemplates } = useActiveTemplates(userInstitutionId, templateChannel as 'sms' | 'email' | 'whatsapp');
   const { replaceVariables } = useTemplateVariables();
 
+  // Dedicated handler for inline chat — always sends via Personal WhatsApp
+  const handleSendPersonalWA = async () => {
+    if (!lead || !sendMessage.trim()) return;
+    setIsSending(true);
+    try {
+      const digits = lead.phone.replace(/\D/g, '');
+      const intlPhone = digits.startsWith('91') && digits.length === 12 ? digits : `91${digits}`;
+      const deptId = personalWaDepartmentId || profile?.department_id || 'any';
+
+      if (templateAttachment?.url) {
+        const mediaRes = await fetch('/api/admission/whatsapp-personal/send-media', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            department_id: deptId,
+            to: intlPhone,
+            media_url: templateAttachment.url,
+            caption: sendMessage.trim(),
+            media_type: templateAttachment.type || 'image',
+            lead_id: lead.id,
+            recipient_name: lead.full_name,
+          }),
+        });
+        const mediaResult = await mediaRes.json();
+        if (!mediaResult.success) {
+          toast.error(mediaResult.error || 'Failed to send media');
+          return;
+        }
+      } else {
+        const res = await fetch('/api/admission/whatsapp-personal/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            department_id: deptId,
+            to: intlPhone,
+            message: sendMessage.trim(),
+            lead_id: lead.id,
+            recipient_name: lead.full_name,
+          }),
+        });
+        const result = await res.json();
+        if (!result.success) {
+          toast.error(result.error || 'Failed to send message');
+          return;
+        }
+      }
+
+      toast.success('Message sent!');
+      await createActivity.mutateAsync({
+        lead_id: lead.id,
+        activity_type: 'whatsapp',
+        title: 'Personal WhatsApp message',
+        description: sendMessage.trim(),
+      });
+      queryClient.invalidateQueries({ queryKey: ['lead-communication-history', leadId] });
+    } catch (err) {
+      toast.error('Failed to send message');
+    } finally {
+      setIsSending(false);
+      setSendMessage('');
+      setSelectedTemplateId('');
+      setTemplateAttachment(null);
+    }
+  };
+
   const handleSendMessage = async () => {
     if (!lead || !sendMessage.trim()) return;
 
@@ -1620,32 +1685,21 @@ function LeadDetailPageContent() {
                       <div className="flex items-end gap-2">
                         <Textarea
                           value={sendMessage}
-                          onChange={(e) => {
-                            setSendMessage(e.target.value);
-                            // Ensure channel is personal_whatsapp for inline chat
-                            if (sendChannel !== 'personal_whatsapp') setSendChannel('personal_whatsapp');
-                          }}
+                          onChange={(e) => setSendMessage(e.target.value)}
                           placeholder="Type a message..."
                           rows={1}
                           className="min-h-[40px] max-h-[120px] resize-none text-sm"
                           onKeyDown={(e) => {
                             if (e.key === 'Enter' && !e.shiftKey) {
                               e.preventDefault();
-                              if (sendMessage.trim() && !isSending) {
-                                // Force personal_whatsapp channel for inline chat
-                                if (sendChannel !== 'personal_whatsapp') setSendChannel('personal_whatsapp');
-                                handleSendMessage();
-                              }
+                              if (sendMessage.trim() && !isSending) handleSendPersonalWA();
                             }
                           }}
                         />
                         <Button
                           size="icon"
                           className="shrink-0 h-10 w-10 bg-[#25D366] hover:bg-[#1da851] text-white rounded-full"
-                          onClick={() => {
-                            if (sendChannel !== 'personal_whatsapp') setSendChannel('personal_whatsapp');
-                            handleSendMessage();
-                          }}
+                          onClick={handleSendPersonalWA}
                           disabled={isSending || !sendMessage.trim()}
                         >
                           {isSending ? (
