@@ -9,10 +9,13 @@ export async function GET(request: NextRequest) {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const departmentId = request.nextUrl.searchParams.get('department_id');
-  if (!departmentId) return NextResponse.json({ error: 'department_id required' }, { status: 400 });
 
-  // Get DB connection record — try given department first, then any ready connection
-  let connection = await WhatsAppPersonalConnectionService.getConnection(departmentId);
+  // Support "any" mode for super admins who don't have a department
+  let connection: Awaited<ReturnType<typeof WhatsAppPersonalConnectionService.getConnection>> = null;
+
+  if (departmentId && departmentId !== 'any') {
+    connection = await WhatsAppPersonalConnectionService.getConnection(departmentId);
+  }
   if (!connection) {
     connection = await WhatsAppPersonalConnectionService.getAnyReadyConnection();
   }

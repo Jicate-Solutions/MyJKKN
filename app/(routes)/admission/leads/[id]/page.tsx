@@ -416,8 +416,8 @@ function LeadDetailPageContent() {
   const { selectedInstitutionId: userInstitutionId } = useUserInstitutionAccess();
   const { profile } = useAuth();
 
-  // Personal WhatsApp status
-  const personalWaDepartmentId = profile?.department_id || undefined;
+  // Personal WhatsApp status — super admins (no department) use 'any' to find any ready connection
+  const personalWaDepartmentId = profile?.department_id || 'any';
   const { data: waStatus } = usePersonalWhatsAppStatus(personalWaDepartmentId, { pollWhileConnecting: false });
 
   // Compute lead scores on-the-fly from available data

@@ -11,11 +11,13 @@ export async function POST(request: NextRequest) {
   const body = await request.json();
   const { department_id, to, media_url, caption, media_type, lead_id, recipient_name } = body;
 
-  if (!department_id || !to || !media_url) {
-    return NextResponse.json({ error: 'department_id, to, and media_url required' }, { status: 400 });
+  if (!to || !media_url) {
+    return NextResponse.json({ error: 'to and media_url required' }, { status: 400 });
   }
 
-  let connection = await WhatsAppPersonalConnectionService.getConnection(department_id);
+  let connection = (department_id && department_id !== 'any')
+    ? await WhatsAppPersonalConnectionService.getConnection(department_id)
+    : null;
   if (!connection || connection.status !== 'ready') {
     connection = await WhatsAppPersonalConnectionService.getAnyReadyConnection();
   }

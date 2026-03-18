@@ -12,11 +12,14 @@ export async function POST(request: NextRequest) {
   const body = await request.json();
   const { department_id, to, message, lead_id, recipient_name } = body;
 
-  if (!department_id || !to || !message) {
-    return NextResponse.json({ error: 'department_id, to, and message required' }, { status: 400 });
+  if (!to || !message) {
+    return NextResponse.json({ error: 'to and message required' }, { status: 400 });
   }
 
-  let connection = await WhatsAppPersonalConnectionService.getConnection(department_id);
+  // Support 'any' for super admins or find by department
+  let connection = (department_id && department_id !== 'any')
+    ? await WhatsAppPersonalConnectionService.getConnection(department_id)
+    : null;
   if (!connection || connection.status !== 'ready') {
     connection = await WhatsAppPersonalConnectionService.getAnyReadyConnection();
   }
