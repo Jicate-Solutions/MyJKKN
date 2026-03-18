@@ -64,6 +64,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { cn } from '@/lib/utils';
 import { PersonalConnectionTab } from './_components/personal-connection-tab';
 import { useDepartments } from '@/hooks/organization/use-departments';
+import { useInstitutionsWithAccess } from '@/hooks/organization/use-institutions-with-access';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 // =============================================================================
@@ -304,18 +305,31 @@ function WhatsAppNumbersContent() {
   const queryClient = useQueryClient();
   const [deleteTarget, setDeleteTarget] = useState<WAPhoneNumber | null>(null);
 
-  // Department selector for Personal WhatsApp (super admins need to pick a department)
+  // Department selector for Personal WhatsApp
   const userDepartmentId = profile?.department_id || '';
+  const [selectedInstForDept, setSelectedInstForDept] = useState<string>(institutionId);
   const [selectedDeptId, setSelectedDeptId] = useState<string>(userDepartmentId);
   const personalWaDeptId = isSuperAdmin ? selectedDeptId : userDepartmentId;
 
-  // Fetch departments for the selector
+  // For super admins: load institutions list for cascading selector
+  const { institutions: allInstitutions } = useInstitutionsWithAccess();
+
+  // Fetch departments based on selected institution
+  const deptInstitutionId = isSuperAdmin ? selectedInstForDept : institutionId;
   const { data: deptData } = useDepartments({
-    ...(institutionId ? { institution_id: institutionId } : {}),
+    institution_id: deptInstitutionId,
     page: 1,
     limit: 100,
     isActive: true,
   });
+
+  // Reset department when institution changes
+  useEffect(() => {
+    if (isSuperAdmin) {
+      setSelectedDeptId('');
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedInstForDept]);
 
   const { data: numbers, isLoading, refetch } = useQuery({
     queryKey: ['wa-phone-numbers', institutionId],
@@ -486,24 +500,45 @@ function WhatsAppNumbersContent() {
 
             <TabsContent value="personal">
               <div className="space-y-4">
-                {/* Department selector for super admins */}
+                {/* Cascading Institution → Department selector for super admins */}
                 {isSuperAdmin && (
-                  <div className="space-y-2">
-                    <Label>Select Department</Label>
-                    <Select value={selectedDeptId} onValueChange={setSelectedDeptId}>
-                      <SelectTrigger className="w-full max-w-sm">
-                        <SelectValue placeholder="Choose a department to connect..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {(deptData?.data || []).map((dept: any) => (
-                          <SelectItem key={dept.id} value={dept.id}>
-                            {dept.department_name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                  <div className="space-y-4 rounded-lg border p-4">
+                    <div className="space-y-2">
+                      <Label>Institution</Label>
+                      <Select value={selectedInstForDept} onValueChange={setSelectedInstForDept}>
+                        <SelectTrigger className="w-full max-w-sm">
+                          <SelectValue placeholder="Select institution..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {allInstitutions.map((inst) => (
+                            <SelectItem key={inst.id} value={inst.id}>
+                              {inst.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {selectedInstForDept && (
+                      <div className="space-y-2">
+                        <Label>Department</Label>
+                        <Select value={selectedDeptId} onValueChange={setSelectedDeptId}>
+                          <SelectTrigger className="w-full max-w-sm">
+                            <SelectValue placeholder="Select department..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {(deptData?.data || []).map((dept: any) => (
+                              <SelectItem key={dept.id} value={dept.id}>
+                                {dept.department_name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
+
                     <p className="text-xs text-muted-foreground">
-                      As super admin, select which department&apos;s WhatsApp to manage.
+                      Select institution and department to manage its WhatsApp connection.
                     </p>
                   </div>
                 )}
@@ -513,7 +548,7 @@ function WhatsAppNumbersContent() {
                 ) : (
                   <p className="text-sm text-muted-foreground py-8 text-center">
                     {isSuperAdmin
-                      ? 'Select a department above to manage its WhatsApp connection.'
+                      ? 'Select an institution and department above to manage its WhatsApp connection.'
                       : 'No department assigned to your profile. Contact admin.'}
                   </p>
                 )}
