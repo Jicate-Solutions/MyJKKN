@@ -537,7 +537,7 @@ function LeadDetailPageContent() {
 
   // Send message dialog state
   const [showSendMsg, setShowSendMsg] = useState(false);
-  const [sendChannel, setSendChannel] = useState<'sms' | 'whatsapp' | 'personal_whatsapp'>('sms');
+  const [sendChannel, setSendChannel] = useState<'sms' | 'whatsapp' | 'personal_whatsapp'>('personal_whatsapp');
   const [sendMessage, setSendMessage] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
@@ -1573,39 +1573,16 @@ function LeadDetailPageContent() {
                       </div>
                     )}
 
-                    {/* Chat Input Bar */}
+                    {/* Chat Input Bar — defaults to Personal WhatsApp */}
                     <div className="shrink-0 border-t p-3">
-                      {/* Template & Channel selector row */}
-                      <div className="flex items-center gap-2 mb-2">
-                        <Select
-                          value={sendChannel}
-                          onValueChange={(v) => {
-                            setSendChannel(v as 'sms' | 'whatsapp' | 'personal_whatsapp');
-                            setSelectedTemplateId('');
-                            setSendMessage('');
-                            setTemplateAttachment(null);
-                          }}
-                        >
-                          <SelectTrigger className="w-[160px] h-8 text-xs">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="personal_whatsapp">
-                              <span className="flex items-center gap-1.5">
-                                Personal WA
-                                {waStatus?.connected && <span className="h-1.5 w-1.5 rounded-full bg-green-500 inline-block" />}
-                              </span>
-                            </SelectItem>
-                            <SelectItem value="sms">SMS</SelectItem>
-                            <SelectItem value="whatsapp">WA Web</SelectItem>
-                          </SelectContent>
-                        </Select>
-
-                        {channelTemplates.length > 0 && (
+                      {/* Template selector row (only if templates available) */}
+                      {channelTemplates.length > 0 && (
+                        <div className="flex items-center gap-2 mb-2">
                           <Select
                             value={selectedTemplateId}
                             onValueChange={(id) => {
                               setSelectedTemplateId(id);
+                              setSendChannel('personal_whatsapp');
                               const tmpl = channelTemplates.find((t) => t.id === id);
                               if (tmpl) {
                                 setSendMessage(
@@ -1626,8 +1603,9 @@ function LeadDetailPageContent() {
                               }
                             }}
                           >
-                            <SelectTrigger className="w-[140px] h-8 text-xs">
-                              <SelectValue placeholder="Template..." />
+                            <SelectTrigger className="h-8 text-xs w-auto max-w-[200px]">
+                              <Paperclip className="h-3 w-3 mr-1.5" />
+                              <SelectValue placeholder="Use template..." />
                             </SelectTrigger>
                             <SelectContent>
                               {channelTemplates.map((t) => (
@@ -1635,28 +1613,39 @@ function LeadDetailPageContent() {
                               ))}
                             </SelectContent>
                           </Select>
-                        )}
-                      </div>
+                        </div>
+                      )}
 
                       {/* Message input + send */}
                       <div className="flex items-end gap-2">
                         <Textarea
                           value={sendMessage}
-                          onChange={(e) => setSendMessage(e.target.value)}
+                          onChange={(e) => {
+                            setSendMessage(e.target.value);
+                            // Ensure channel is personal_whatsapp for inline chat
+                            if (sendChannel !== 'personal_whatsapp') setSendChannel('personal_whatsapp');
+                          }}
                           placeholder="Type a message..."
                           rows={1}
                           className="min-h-[40px] max-h-[120px] resize-none text-sm"
                           onKeyDown={(e) => {
                             if (e.key === 'Enter' && !e.shiftKey) {
                               e.preventDefault();
-                              if (sendMessage.trim() && !isSending) handleSendMessage();
+                              if (sendMessage.trim() && !isSending) {
+                                // Force personal_whatsapp channel for inline chat
+                                if (sendChannel !== 'personal_whatsapp') setSendChannel('personal_whatsapp');
+                                handleSendMessage();
+                              }
                             }
                           }}
                         />
                         <Button
                           size="icon"
                           className="shrink-0 h-10 w-10 bg-[#25D366] hover:bg-[#1da851] text-white rounded-full"
-                          onClick={handleSendMessage}
+                          onClick={() => {
+                            if (sendChannel !== 'personal_whatsapp') setSendChannel('personal_whatsapp');
+                            handleSendMessage();
+                          }}
                           disabled={isSending || !sendMessage.trim()}
                         >
                           {isSending ? (
