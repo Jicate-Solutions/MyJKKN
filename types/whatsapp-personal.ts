@@ -89,9 +89,12 @@ export interface PersonalMessageLog {
   id: string;
   department_id: string;
   connection_id: string;
+  direction: 'inbound' | 'outbound';
   recipient_type: 'individual' | 'group' | 'bulk';
   recipient_phone: string;
   recipient_name: string | null;
+  sender_phone: string | null;
+  sender_name: string | null;
   message_content: string;
   message_preview: string | null;
   status: 'pending' | 'sent' | 'delivered' | 'read' | 'failed';

@@ -2470,9 +2470,12 @@ CREATE TABLE IF NOT EXISTS wa_personal_message_logs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     department_id UUID NOT NULL REFERENCES departments(id) ON DELETE CASCADE,
     connection_id UUID NOT NULL REFERENCES wa_personal_connections(id) ON DELETE CASCADE,
+    direction TEXT NOT NULL DEFAULT 'outbound' CHECK (direction IN ('inbound', 'outbound')),
     recipient_type TEXT NOT NULL CHECK (recipient_type IN ('individual', 'group', 'bulk')),
     recipient_phone TEXT NOT NULL,
     recipient_name TEXT,
+    sender_phone TEXT,
+    sender_name TEXT,
     message_content TEXT NOT NULL,
     message_preview TEXT,
     status TEXT NOT NULL DEFAULT 'pending'

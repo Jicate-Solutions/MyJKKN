@@ -1,6 +1,7 @@
 // Admission Module Hooks
 // Connected to LeadService for actual Supabase interactions
 
+import { useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/use-auth';
@@ -1197,7 +1198,7 @@ export function useLeadCommunicationHistory(leadId: string) {
       // Fetch Personal WhatsApp logs (BYOW)
       const { data: personalWaLogs } = await (supabase as any)
         .from('wa_personal_message_logs')
-        .select('id, recipient_phone, recipient_name, message_content, message_preview, status, sent_at, created_at')
+        .select('id, direction, recipient_phone, recipient_name, sender_phone, sender_name, message_content, message_preview, status, sent_at, created_at')
         .eq('lead_id', leadId)
         .order('created_at', { ascending: false })
         .limit(50);
@@ -1212,14 +1213,43 @@ export function useLeadCommunicationHistory(leadId: string) {
           status: w.delivery_status, sentAt: w.sent_at, deliveredAt: w.delivered_at, readAt: w.read_at, createdAt: w.created_at,
         })),
         ...(personalWaLogs || []).map((p: any) => ({
-          id: p.id, channel: 'personal_whatsapp' as const, phone: p.recipient_phone, content: p.message_content,
-          status: p.status, sentAt: p.sent_at, createdAt: p.created_at,
+          id: p.id, channel: 'personal_whatsapp' as const, phone: p.recipient_phone || p.sender_phone,
+          content: p.message_content, status: p.status, sentAt: p.sent_at, createdAt: p.created_at,
+          direction: p.direction || 'outbound', senderName: p.sender_name,
         })),
       ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
       return combined;
     },
     enabled: !!leadId && UUID_REGEX.test(leadId)
   });
+
+  // Real-time subscription for incoming personal WhatsApp messages
+  useEffect(() => {
+    if (!leadId || !UUID_REGEX.test(leadId)) return;
+
+    const supabase = createClientSupabaseClient();
+    const channel = supabase
+      .channel(`personal-wa-messages:${leadId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'wa_personal_message_logs',
+          filter: `lead_id=eq.${leadId}`,
+        },
+        () => {
+          // Refetch communication history when a new message arrives
+          query.refetch();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [leadId]);
 
   return {
     history: query.data || [],

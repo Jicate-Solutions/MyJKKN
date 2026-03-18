@@ -21,13 +21,14 @@ export class WhatsAppPersonalMessageService {
   static async logMessage(params: {
     department_id: string;
     connection_id: string;
+    direction?: 'inbound' | 'outbound';
     recipient_type: 'individual' | 'group' | 'bulk';
     recipient_phone: string;
     recipient_name?: string;
     message_content: string;
     lead_id?: string;
     sent_by: string;
-    status?: 'pending' | 'sent' | 'failed';
+    status?: 'pending' | 'sent' | 'failed' | 'delivered';
     whatsapp_message_id?: string;
     error_message?: string;
   }): Promise<PersonalMessageLog | null> {
@@ -37,6 +38,7 @@ export class WhatsAppPersonalMessageService {
       .insert({
         department_id: params.department_id,
         connection_id: params.connection_id,
+        direction: params.direction || 'outbound',
         recipient_type: params.recipient_type,
         recipient_phone: params.recipient_phone,
         recipient_name: params.recipient_name || null,

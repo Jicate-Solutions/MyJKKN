@@ -289,6 +289,8 @@ function CommunicationItem({
     createdAt?: string | null;
     channel?: string | { channel_name: string; channel_type: string } | null;
     phone?: string | null;
+    direction?: 'inbound' | 'outbound';
+    senderName?: string | null;
   };
 }) {
   const channelLabel = typeof message.channel === 'string'
@@ -299,6 +301,8 @@ function CommunicationItem({
   const isWhatsApp = typeof message.channel === 'string'
     ? (message.channel === 'whatsapp' || message.channel === 'personal_whatsapp')
     : false;
+  const isPersonalWA = typeof message.channel === 'string' && message.channel === 'personal_whatsapp';
+  const isInbound = message.direction === 'inbound';
 
   const statusColor: Record<string, string> = {
     delivered: 'bg-green-50 text-green-700 border-green-200',
@@ -308,6 +312,41 @@ function CommunicationItem({
     pending: 'bg-yellow-50 text-yellow-700 border-yellow-200',
   };
 
+  const timeStr = (message.sentAt || message.sent_at)
+    ? new Date((message.sentAt || message.sent_at)!).toLocaleString()
+    : message.createdAt
+      ? new Date(message.createdAt).toLocaleString()
+      : '-';
+
+  // Chat bubble layout for Personal WhatsApp messages
+  if (isPersonalWA) {
+    return (
+      <div className={`flex ${isInbound ? 'justify-start' : 'justify-end'} mb-2`}>
+        <div className={`max-w-[75%] rounded-lg px-3 py-2 ${
+          isInbound
+            ? 'bg-muted text-foreground rounded-tl-none'
+            : 'bg-[#25D366] text-white rounded-tr-none'
+        }`}>
+          {isInbound && message.senderName && (
+            <p className={`text-xs font-medium mb-0.5 ${isInbound ? 'text-green-700' : 'text-green-100'}`}>
+              {message.senderName}
+            </p>
+          )}
+          <p className="text-sm whitespace-pre-wrap break-words">{message.content}</p>
+          <div className={`flex items-center justify-end gap-1.5 mt-1 ${isInbound ? 'text-muted-foreground' : 'text-green-100'}`}>
+            <span className="text-[10px]">{timeStr}</span>
+            {!isInbound && message.status && (
+              <span className="text-[10px]">
+                {message.status === 'read' ? '✓✓' : message.status === 'delivered' ? '✓✓' : message.status === 'sent' ? '✓' : message.status === 'failed' ? '!' : '⏳'}
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Default flat layout for SMS and Business WhatsApp
   return (
     <div className="flex gap-3 pb-4 border-b last:border-0 last:pb-0">
       <div className="flex-shrink-0">
@@ -326,13 +365,7 @@ function CommunicationItem({
           </Badge>
         </div>
         <p className="text-sm text-muted-foreground mt-1 line-clamp-2">{message.content}</p>
-        <p className="text-xs text-muted-foreground mt-1">
-          {(message.sentAt || message.sent_at)
-            ? new Date((message.sentAt || message.sent_at)!).toLocaleString()
-            : message.createdAt
-              ? new Date(message.createdAt).toLocaleString()
-              : '-'}
-        </p>
+        <p className="text-xs text-muted-foreground mt-1">{timeStr}</p>
       </div>
     </div>
   );
