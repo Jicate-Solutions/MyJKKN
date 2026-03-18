@@ -165,8 +165,8 @@ export default function LeaderboardPage({ params }: { params: Promise<{ id: stri
               isAdmin={isAdmin}
               isPublished={isPublished}
               isFrozen={isFrozen}
-              entriesOverride={isPublished ? verifiedEntries as any : undefined}
-              isLoadingOverride={isPublished ? verifiedLoading : undefined}
+              entriesOverride={verifiedEntries.length > 0 ? verifiedEntries as any : undefined}
+              isLoadingOverride={verifiedLoading || undefined}
             />
           </TabsContent>
 

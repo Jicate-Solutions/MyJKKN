@@ -35,7 +35,7 @@ import { LeaderboardStats } from './leaderboard-stats';
 
 type AnyLeaderboardEntry = LeaderboardEntry & Partial<Pick<VerifiedLeaderboardEntry,
   'college_rank' | 'verification_status' | 'verified_tier' | 'overall_rank' |
-  'institution_name' | 'institution_id' | 'tier_points' | 'revenue_bonus' | 'verified_revenue'
+  'institution_name' | 'institution_id' | 'tier_points' | 'revenue_bonus' | 'verified_revenue' | 'verified_at'
 >>;
 
 const TIER_NAMES: Record<number, string> = {
@@ -96,12 +96,24 @@ export function LeaderboardTable({
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [tierFilter, setTierFilter] = useState<string>('all');
+  const [dateFilter, setDateFilter] = useState<string>('all');
   const [page, setPage] = useState(1);
 
   // Derive categories from entries
   const categories = useMemo(() => {
     const cats = new Set(allEntries.map((e) => e.category).filter(Boolean));
     return Array.from(cats) as string[];
+  }, [allEntries]);
+
+  // Derive unique evaluation dates (YYYY-MM-DD) from entries
+  const evalDates = useMemo(() => {
+    const dates = new Set<string>();
+    allEntries.forEach((e) => {
+      if (e.verified_at) {
+        dates.add(new Date(e.verified_at).toISOString().slice(0, 10));
+      }
+    });
+    return Array.from(dates).sort().reverse();
   }, [allEntries]);
 
   // Apply institution filter first (for institution view)
@@ -132,8 +144,19 @@ export function LeaderboardTable({
       result = result.filter((e) => (e.verified_tier ?? e.tier_level) === t);
     }
 
+    if (dateFilter !== 'all') {
+      if (dateFilter === 'not_evaluated') {
+        result = result.filter((e) => !e.verified_at);
+      } else {
+        result = result.filter((e) => {
+          if (!e.verified_at) return false;
+          return new Date(e.verified_at).toISOString().slice(0, 10) === dateFilter;
+        });
+      }
+    }
+
     return result;
-  }, [institutionFiltered, search, categoryFilter, tierFilter]);
+  }, [institutionFiltered, search, categoryFilter, tierFilter, dateFilter]);
 
   // Reset page when filters change
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
@@ -217,12 +240,32 @@ export function LeaderboardTable({
                 <SelectItem value="0">Tier 0 — No App</SelectItem>
               </SelectContent>
             </Select>
-            {(search || categoryFilter !== 'all' || tierFilter !== 'all') && (
+            {evalDates.length > 0 && (
+              <Select value={dateFilter} onValueChange={(v) => handleFilterChange(setDateFilter, v)}>
+                <SelectTrigger className="w-[170px] h-9">
+                  <SelectValue placeholder="Evaluated Date" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Dates</SelectItem>
+                  <SelectItem value="not_evaluated">Not Evaluated</SelectItem>
+                  {evalDates.map((d) => (
+                    <SelectItem key={d} value={d}>
+                      {new Date(d + 'T00:00:00').toLocaleDateString('en-IN', {
+                        day: '2-digit',
+                        month: 'short',
+                        year: 'numeric',
+                      })}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+            {(search || categoryFilter !== 'all' || tierFilter !== 'all' || dateFilter !== 'all') && (
               <Button
                 variant="ghost"
                 size="sm"
                 className="h-9 text-xs text-muted-foreground"
-                onClick={() => { setSearch(''); setCategoryFilter('all'); setTierFilter('all'); setPage(1); }}
+                onClick={() => { setSearch(''); setCategoryFilter('all'); setTierFilter('all'); setDateFilter('all'); setPage(1); }}
               >
                 Clear filters
               </Button>
@@ -261,6 +304,7 @@ export function LeaderboardTable({
                         <TableHead className="text-center min-w-[120px]">Tier</TableHead>
                         <TableHead className="text-right min-w-[80px]">MRR</TableHead>
                         <TableHead className="text-right min-w-[100px]">Score</TableHead>
+                        <TableHead className="text-center min-w-[100px]">Evaluated</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -364,6 +408,26 @@ export function LeaderboardTable({
                                   </div>
                                 </TooltipContent>
                               </Tooltip>
+                            </TableCell>
+                            <TableCell className="text-center">
+                              {entry.verified_at ? (
+                                <span className="text-xs text-muted-foreground whitespace-nowrap">
+                                  {new Date(entry.verified_at).toLocaleDateString('en-IN', {
+                                    day: '2-digit',
+                                    month: 'short',
+                                    year: 'numeric',
+                                  })}
+                                  <span className="block text-[10px] text-muted-foreground/70">
+                                    {new Date(entry.verified_at).toLocaleTimeString('en-IN', {
+                                      hour: '2-digit',
+                                      minute: '2-digit',
+                                      hour12: true,
+                                    })}
+                                  </span>
+                                </span>
+                              ) : (
+                                <span className="text-xs text-muted-foreground">—</span>
+                              )}
                             </TableCell>
                           </TableRow>
                         );

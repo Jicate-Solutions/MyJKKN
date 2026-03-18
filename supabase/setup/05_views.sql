@@ -396,6 +396,7 @@ WITH resolved AS (
         av.verification_status,
         av.presented,
         av.evaluator_id,
+        av.created_at        AS verified_at,
         eva.manual_name      AS venue_name,
         -- Use verified values only when evaluation is complete (not 'pending')
         CASE WHEN av.verification_status IN ('verified', 'flagged', 'disqualified')
@@ -453,6 +454,7 @@ SELECT
     verification_status,
     presented,
     evaluator_id,
+    verified_at,
     venue_name,
     -- College rank (within same institution). RANK() returns bigint; PostgREST maps to JSON number.
     RANK() OVER (

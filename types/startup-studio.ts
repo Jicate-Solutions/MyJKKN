@@ -588,6 +588,7 @@ export interface VerifiedLeaderboardEntry {
   verification_status: VerificationStatus | null;
   presented: boolean | null;
   evaluator_id: string | null;
+  verified_at: string | null;
   venue_name: string | null;
   college_rank: number;
   overall_rank: number;
