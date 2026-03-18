@@ -37,10 +37,10 @@ export async function POST(request: NextRequest) {
 
   const supabase = getServiceClient();
 
-  // Find the connection by client_id to get department_id
+  // Find the connection by client_id to get department_id and connected_by
   const { data: connection } = await supabase
     .from('wa_personal_connections')
-    .select('id, department_id')
+    .select('id, department_id, connected_by')
     .eq('client_id', client_id)
     .maybeSingle();
 
@@ -92,7 +92,7 @@ export async function POST(request: NextRequest) {
       status: 'delivered',
       whatsapp_message_id: message_id || null,
       lead_id: leadId,
-      sent_by: connection.id, // Use connection ID as sender for inbound
+      sent_by: connection.connected_by || null, // Null for inbound — no user "sent" it
       sent_at: timestamp ? new Date(timestamp * 1000).toISOString() : new Date().toISOString(),
     })
     .select('id')
