@@ -71,6 +71,7 @@
     "@types/web-push": "^3.6.4",
     "@vercel/speed-insights": "^1.2.0",
     "axios": "^1.7.7",
+    "canvas-confetti": "^1.9.4",
     "chart.js": "^4.5.0",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.1",
@@ -132,6 +133,7 @@
     "zustand": "^5.0.0"
   },
   "devDependencies": {
+    "@types/canvas-confetti": "^1.9.0",
     "@types/dom-to-image": "^2.6.7",
     "@types/file-saver": "^2.0.7",
     "@types/html2canvas": "^0.5.35",

@@ -1,6 +1,6 @@
 'use client';
 
-import { use, useState, useMemo } from 'react';
+import { use, useEffect, useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
@@ -21,7 +21,9 @@ import { useVerifiedLeaderboard } from '@/hooks/startup-studio/use-appathon-veri
 import { useLeaderboard } from '@/hooks/startup-studio/use-event-leaderboard';
 import { LeaderboardTable } from './_components/leaderboard-table';
 import { MrrVerificationQueue } from './_components/mrr-verification-queue';
+import { CelebrationConfetti } from './_components/celebration-confetti';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
 
 export default function LeaderboardPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -35,13 +37,14 @@ export default function LeaderboardPage({ params }: { params: Promise<{ id: stri
   const { data: verifiedEntries = [], isLoading: verifiedLoading } = useVerifiedLeaderboard(id);
   const { data: prePublishedEntries = [] } = useLeaderboard(id);
 
+  const isStudent = profile?.role === 'student';
   const [selectedInstitution, setSelectedInstitution] = useState<string>('all');
 
-  // Derive unique institutions from whichever data source is active
+  // Derive unique institutions from the active data source (prefer verified when available)
+  const activeEntries: any[] = verifiedEntries.length > 0 ? verifiedEntries : prePublishedEntries;
   const institutions = useMemo(() => {
     const map = new Map<string, { id: string; name: string; count: number }>();
-    const entries: any[] = isPublished ? verifiedEntries : prePublishedEntries;
-    entries.forEach((e) => {
+    activeEntries.forEach((e) => {
       const iid = e.institution_id;
       const iname = e.institution_name || 'Unknown';
       if (!iid) return;
@@ -53,7 +56,15 @@ export default function LeaderboardPage({ params }: { params: Promise<{ id: stri
       }
     });
     return Array.from(map.values()).sort((a, b) => b.count - a.count);
-  }, [verifiedEntries, prePublishedEntries, isPublished]);
+  }, [activeEntries]);
+
+  // Auto-select student's own institution in the "By Institution" tab
+  useEffect(() => {
+    if (isStudent && profile?.institution_id && institutions.length > 0 && selectedInstitution === 'all') {
+      const match = institutions.find((inst) => inst.id === profile.institution_id);
+      if (match) setSelectedInstitution(match.id);
+    }
+  }, [isStudent, profile?.institution_id, institutions, selectedInstitution]);
 
   const breadcrumbs = [
     { label: 'Home', href: '/' },
@@ -102,6 +113,9 @@ export default function LeaderboardPage({ params }: { params: Promise<{ id: stri
     <ContentLayout title="Leaderboard">
       <PageBreadcrumb items={breadcrumbs} />
 
+      {/* Celebration confetti on page load when results are published */}
+      <CelebrationConfetti active={isPublished && !verifiedLoading && verifiedEntries.length > 0} />
+
       <div className="space-y-6 mt-4 pb-10">
         {/* Back Button */}
         <Button
@@ -114,12 +128,26 @@ export default function LeaderboardPage({ params }: { params: Promise<{ id: stri
         </Button>
 
         {/* Header */}
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <Trophy className="h-6 w-6 text-yellow-500" />
-            Leaderboard
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">{event?.name || 'Event'}</p>
+        <div className="relative">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+            <div>
+              <h1 className="text-xl sm:text-2xl font-bold flex items-center gap-2">
+                <Trophy className="h-5 w-5 sm:h-6 sm:w-6 text-yellow-500" />
+                Leaderboard
+                {isPublished && (
+                  <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 text-[10px] sm:text-xs">
+                    Results Published
+                  </Badge>
+                )}
+              </h1>
+              <p className="text-xs sm:text-sm text-muted-foreground mt-1">{event?.name || 'Event'}</p>
+            </div>
+            {isPublished && activeEntries.length > 0 && (
+              <p className="text-xs text-muted-foreground">
+                {activeEntries.length} teams evaluated
+              </p>
+            )}
+          </div>
         </div>
 
         {/* State banners */}
@@ -143,15 +171,15 @@ export default function LeaderboardPage({ params }: { params: Promise<{ id: stri
         )}
 
         {/* Content Tabs */}
-        <Tabs defaultValue="overall" className="space-y-5">
-          <TabsList className={`grid w-full max-w-md ${isAdmin ? 'grid-cols-3' : 'grid-cols-2'}`}>
-            <TabsTrigger value="overall" className="gap-1.5">
-              <Globe className="h-3.5 w-3.5" />
+        <Tabs defaultValue="overall" className="space-y-4 sm:space-y-5">
+          <TabsList className={`grid w-full max-w-md ${isAdmin ? 'grid-cols-3' : 'grid-cols-2'} h-9 sm:h-10`}>
+            <TabsTrigger value="overall" className="gap-1 sm:gap-1.5 text-xs sm:text-sm">
+              <Globe className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
               Overall
             </TabsTrigger>
-            <TabsTrigger value="institution" className="gap-1.5">
-              <Building2 className="h-3.5 w-3.5" />
-              By Institution
+            <TabsTrigger value="institution" className="gap-1 sm:gap-1.5 text-xs sm:text-sm">
+              <Building2 className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
+              By College
             </TabsTrigger>
             {isAdmin && (
               <TabsTrigger value="mrr-queue">MRR Verification</TabsTrigger>
@@ -224,8 +252,8 @@ export default function LeaderboardPage({ params }: { params: Promise<{ id: stri
                   isAdmin={isAdmin}
                   isPublished={isPublished}
                   isFrozen={isFrozen}
-                  entriesOverride={isPublished ? verifiedEntries as any : undefined}
-                  isLoadingOverride={isPublished ? verifiedLoading : undefined}
+                  entriesOverride={verifiedEntries.length > 0 ? verifiedEntries as any : undefined}
+                  isLoadingOverride={verifiedLoading || undefined}
                   institutionView
                   institutionId={selectedInstitution}
                 />

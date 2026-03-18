@@ -47,61 +47,69 @@ export function LeaderboardStats({ entries }: LeaderboardStatsProps) {
   if (!stats) return null;
 
   return (
-    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-      <Card>
-        <CardContent className="pt-4 pb-4 px-4">
-          <div className="flex items-center gap-2 text-muted-foreground mb-1">
-            <Users className="h-3.5 w-3.5" />
-            <span className="text-xs font-medium">Teams</span>
+    <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-3">
+      {/* Teams Card */}
+      <Card className="overflow-hidden">
+        <CardContent className="p-3 sm:pt-4 sm:pb-4 sm:px-4">
+          <div className="flex items-center gap-1.5 sm:gap-2 text-muted-foreground mb-0.5 sm:mb-1">
+            <Users className="h-3 w-3 sm:h-3.5 sm:w-3.5 shrink-0" />
+            <span className="text-[10px] sm:text-xs font-medium truncate">Teams</span>
           </div>
-          <p className="text-2xl font-bold">{entries.length}</p>
-          <p className="text-xs text-muted-foreground mt-0.5">
+          <p className="text-xl sm:text-2xl font-bold">{entries.length}</p>
+          <p className="text-[10px] sm:text-xs text-muted-foreground mt-0.5">
             {stats.scoredTeams} scored
           </p>
         </CardContent>
       </Card>
 
-      <Card>
-        <CardContent className="pt-4 pb-4 px-4">
-          <div className="flex items-center gap-2 text-muted-foreground mb-1">
-            <Trophy className="h-3.5 w-3.5" />
-            <span className="text-xs font-medium">Top Score</span>
+      {/* Top Score Card */}
+      <Card className="overflow-hidden">
+        <CardContent className="p-3 sm:pt-4 sm:pb-4 sm:px-4">
+          <div className="flex items-center gap-1.5 sm:gap-2 text-muted-foreground mb-0.5 sm:mb-1">
+            <Trophy className="h-3 w-3 sm:h-3.5 sm:w-3.5 shrink-0 text-yellow-500" />
+            <span className="text-[10px] sm:text-xs font-medium truncate">Top Score</span>
           </div>
-          <p className="text-2xl font-bold">{stats.topScore}</p>
-          <p className="text-xs text-muted-foreground mt-0.5">out of 60</p>
+          <p className="text-xl sm:text-2xl font-bold">{stats.topScore}</p>
+          <p className="text-[10px] sm:text-xs text-muted-foreground mt-0.5">out of 60</p>
         </CardContent>
       </Card>
 
-      <Card>
-        <CardContent className="pt-4 pb-4 px-4">
-          <div className="flex items-center gap-2 text-muted-foreground mb-1">
-            <TrendingUp className="h-3.5 w-3.5" />
-            <span className="text-xs font-medium">Avg Score</span>
+      {/* Avg Score Card */}
+      <Card className="overflow-hidden">
+        <CardContent className="p-3 sm:pt-4 sm:pb-4 sm:px-4">
+          <div className="flex items-center gap-1.5 sm:gap-2 text-muted-foreground mb-0.5 sm:mb-1">
+            <TrendingUp className="h-3 w-3 sm:h-3.5 sm:w-3.5 shrink-0" />
+            <span className="text-[10px] sm:text-xs font-medium truncate">Avg Score</span>
           </div>
-          <p className="text-2xl font-bold">{stats.avgScore.toFixed(1)}</p>
-          <p className="text-xs text-muted-foreground mt-0.5">per team</p>
+          <p className="text-xl sm:text-2xl font-bold">{stats.avgScore.toFixed(1)}</p>
+          <p className="text-[10px] sm:text-xs text-muted-foreground mt-0.5">per team</p>
         </CardContent>
       </Card>
 
-      <Card>
-        <CardContent className="pt-4 pb-4 px-4">
-          <div className="flex items-center gap-2 text-muted-foreground mb-1">
-            <BarChart3 className="h-3.5 w-3.5" />
-            <span className="text-xs font-medium">Tier Spread</span>
+      {/* Tier Spread Card */}
+      <Card className="overflow-hidden">
+        <CardContent className="p-3 sm:pt-4 sm:pb-4 sm:px-4">
+          <div className="flex items-center gap-1.5 sm:gap-2 text-muted-foreground mb-0.5 sm:mb-1">
+            <BarChart3 className="h-3 w-3 sm:h-3.5 sm:w-3.5 shrink-0" />
+            <span className="text-[10px] sm:text-xs font-medium truncate">Tier Spread</span>
           </div>
-          <div className="flex items-end gap-1 h-8 mt-1">
+          <div className="flex items-end gap-0.5 sm:gap-1 h-7 sm:h-8 mt-1">
             {[0, 1, 2, 3, 4].map((tier) => (
               <div key={tier} className="flex flex-col items-center flex-1 gap-0.5">
                 <div
                   className={cn('w-full rounded-sm min-h-[2px]', TIER_COLORS[tier])}
                   style={{ height: `${Math.max((stats.tierCounts[tier] / stats.maxTierCount) * 28, 2)}px` }}
                 />
-                <span className="text-[9px] text-muted-foreground leading-none">{TIER_SHORT[tier]}</span>
+                <span className="text-[8px] sm:text-[9px] text-muted-foreground leading-none">{TIER_SHORT[tier]}</span>
               </div>
             ))}
           </div>
-          <p className="text-[10px] text-muted-foreground mt-1">
+          <p className="text-[8px] sm:text-[10px] text-muted-foreground mt-1 hidden sm:block">
             {[4, 3, 2, 1, 0].map((t) => `T${t}: ${stats.tierCounts[t]}`).join(' · ')}
+          </p>
+          {/* Mobile: compact tier counts */}
+          <p className="text-[8px] text-muted-foreground mt-0.5 sm:hidden">
+            {[4, 3, 2, 1, 0].map((t) => `${stats.tierCounts[t]}`).join(' · ')}
           </p>
         </CardContent>
       </Card>

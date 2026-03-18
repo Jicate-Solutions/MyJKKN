@@ -476,6 +476,44 @@ export default function EventDetailPage({ params }: { params: Promise<{ id: stri
           </div>
         )}
 
+        {/* Results Published Banner — visible to ALL roles */}
+        {event.is_results_published && (
+          <div className="relative overflow-hidden rounded-xl border border-yellow-200 dark:border-yellow-800/50 shadow-sm">
+            {/* Gradient background */}
+            <div className="absolute inset-0 bg-gradient-to-r from-yellow-50 via-amber-50 to-orange-50 dark:from-yellow-950/40 dark:via-amber-950/30 dark:to-orange-950/20" />
+            {/* Shimmer effect */}
+            <div className="absolute inset-0 bg-[linear-gradient(110deg,transparent_25%,rgba(255,215,0,0.1)_50%,transparent_75%)] bg-[length:250%_100%] animate-shimmer" />
+
+            <div className="relative z-10 p-6 md:p-8">
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-6">
+                <div className="flex items-center gap-4">
+                  <div className="h-14 w-14 rounded-full bg-gradient-to-br from-yellow-400 to-amber-500 flex items-center justify-center shrink-0 shadow-lg shadow-yellow-200/50 dark:shadow-yellow-900/30">
+                    <Trophy className="h-7 w-7 text-white" />
+                  </div>
+                  <div className="space-y-1">
+                    <h2 className="text-xl sm:text-2xl font-bold text-amber-950 dark:text-amber-50">
+                      Results are Live!
+                    </h2>
+                    <p className="text-sm text-amber-800/80 dark:text-amber-200/70">
+                      The final leaderboard has been published. See how teams ranked!
+                    </p>
+                  </div>
+                </div>
+                <Link href={`/startup-studio/events/${id}/leaderboard`}>
+                  <Button
+                    size="lg"
+                    className="bg-gradient-to-r from-yellow-500 to-amber-600 hover:from-yellow-600 hover:to-amber-700 text-white shadow-lg shadow-amber-200/50 dark:shadow-amber-900/30 gap-2 font-semibold px-6 transition-all hover:scale-[1.02] active:scale-[0.98]"
+                  >
+                    <Trophy className="h-4 w-4" />
+                    View Results
+                    <ArrowRight className="h-4 w-4" />
+                  </Button>
+                </Link>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Evaluator Panel — shown to judges/evaluators/panel_chairs who are not admins */}
         {!isAdmin && isEventEvaluator && (
           <Card className="border-dashed border-2 shadow-none bg-muted/10">

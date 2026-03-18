@@ -35,7 +35,8 @@ import { LeaderboardStats } from './leaderboard-stats';
 
 type AnyLeaderboardEntry = LeaderboardEntry & Partial<Pick<VerifiedLeaderboardEntry,
   'college_rank' | 'verification_status' | 'verified_tier' | 'overall_rank' |
-  'institution_name' | 'institution_id' | 'tier_points' | 'revenue_bonus' | 'verified_revenue' | 'verified_at'
+  'institution_name' | 'institution_id' | 'tier_points' | 'revenue_bonus' |
+  'verified_revenue' | 'verified_users' | 'verified_active_users' | 'verified_at'
 >>;
 
 const TIER_NAMES: Record<number, string> = {
@@ -191,7 +192,7 @@ export function LeaderboardTable({
                 <Trophy className="h-4 w-4 text-yellow-500" />
                 {institutionView ? 'College Rankings' : 'Overall Rankings'}
               </CardTitle>
-              <CardDescription className="mt-1">
+              <div className="text-sm text-muted-foreground mt-1">
                 {filtered.length} team{filtered.length !== 1 ? 's' : ''}
                 {filtered.length !== institutionFiltered.length && ` (filtered from ${institutionFiltered.length})`}
                 {event?.is_results_published && (
@@ -199,7 +200,7 @@ export function LeaderboardTable({
                     Published
                   </Badge>
                 )}
-              </CardDescription>
+              </div>
             </div>
           </div>
 
@@ -301,6 +302,8 @@ export function LeaderboardTable({
                         {!institutionView && (
                           <TableHead className="min-w-[120px]">College</TableHead>
                         )}
+                        <TableHead className="text-right min-w-[70px]">Users</TableHead>
+                        <TableHead className="text-right min-w-[90px]">Active Users</TableHead>
                         <TableHead className="text-center min-w-[120px]">Tier</TableHead>
                         <TableHead className="text-right min-w-[80px]">MRR</TableHead>
                         <TableHead className="text-right min-w-[100px]">Score</TableHead>
@@ -312,8 +315,9 @@ export function LeaderboardTable({
                         const displayRank = institutionView
                           ? (entry.college_rank ?? ((safePage - 1) * PAGE_SIZE + idx + 1))
                           : (entry.overall_rank ?? entry.rank ?? ((safePage - 1) * PAGE_SIZE + idx + 1));
-                        const verifiedTierLabel = isPublished
-                          ? VERIFIED_TIER_LABELS[entry.verified_tier ?? entry.tier_level] || VERIFIED_TIER_LABELS[0]
+                        const resolvedTier = entry.verified_tier ?? entry.tier_level ?? 0;
+                        const verifiedTierLabel = entry.verified_tier != null
+                          ? VERIFIED_TIER_LABELS[resolvedTier] || VERIFIED_TIER_LABELS[0]
                           : null;
                         const tierPts = entry.tier_points ?? 0;
                         const revBonus = entry.revenue_bonus ?? entry.mrr_bonus_points ?? 0;
@@ -358,21 +362,31 @@ export function LeaderboardTable({
                                 </span>
                               </TableCell>
                             )}
+                            <TableCell className="text-right">
+                              <span className="font-mono text-sm">
+                                {(entry.verified_users ?? entry.user_count) || 0}
+                              </span>
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <span className="font-mono text-sm font-medium">
+                                {(entry.verified_active_users ?? entry.active_users_count) || 0}
+                              </span>
+                            </TableCell>
                             <TableCell className="text-center">
-                              {isPublished && verifiedTierLabel ? (
+                              {verifiedTierLabel ? (
                                 <Badge variant="secondary" className={cn('text-xs', verifiedTierLabel.className)}>
                                   {verifiedTierLabel.label}
                                 </Badge>
                               ) : (
                                 <Badge variant="secondary" className="text-xs">
-                                  T{entry.tier_level} — {TIER_NAMES[entry.tier_level] || ''}
+                                  T{resolvedTier} — {TIER_NAMES[resolvedTier] || ''}
                                 </Badge>
                               )}
                             </TableCell>
                             <TableCell className="text-right">
                               <span className="font-mono text-sm">
-                                {(entry.mrr_amount ?? entry.verified_revenue ?? 0) > 0
-                                  ? `₹${entry.mrr_amount ?? entry.verified_revenue}`
+                                {((entry.verified_revenue ?? entry.mrr_amount) ?? 0) > 0
+                                  ? `₹${entry.verified_revenue ?? entry.mrr_amount}`
                                   : '—'}
                               </span>
                             </TableCell>

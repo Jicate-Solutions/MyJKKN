@@ -381,6 +381,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_mv_lifecycle_dashboard_inst_module
 -- Verified scores are ONLY used when verification_status IN ('verified','flagged','disqualified').
 -- A 'pending' verification (score=0 default) falls back to self-reported scores to prevent
 -- rank inversions mid-evaluation.
+-- Updated: 2026-03-18 - Filter leaderboard to only include teams verified on demo_date.
+-- Teams verified on other dates (late/re-evaluations) are excluded from rankings.
+-- If demo_date is NULL, all verifications are included (backward compatible).
 CREATE OR REPLACE VIEW appathon_leaderboard AS
 WITH resolved AS (
     SELECT
@@ -413,19 +416,24 @@ WITH resolved AS (
             THEN av.verified_revenue   ELSE es.mrr_amount           END AS verified_revenue
     FROM event_submissions es
     JOIN event_registrations er ON es.registration_id = er.id
+    JOIN startup_events se ON se.id = er.event_id
     LEFT JOIN institutions i ON er.institution_id = i.id
     -- Pick only the single best verification per submission:
     -- Priority: highest total_score, then most recent created_at.
     -- This prevents duplicate leaderboard rows when multiple evaluators verify the same team.
+    -- Only consider verifications from the event's demo_date (if set).
     LEFT JOIN LATERAL (
         SELECT av2.*
         FROM appathon_verifications av2
         WHERE av2.submission_id = es.id
+          AND (se.demo_date IS NULL OR av2.created_at::date = se.demo_date::date)
         ORDER BY av2.total_score DESC, av2.created_at DESC
         LIMIT 1
     ) av ON true
     LEFT JOIN event_venue_assignments eva ON av.venue_id = eva.id
     WHERE es.submitted_at IS NOT NULL
+      -- Only include teams that were actually verified on demo_date (when demo_date is set)
+      AND (se.demo_date IS NULL OR av.id IS NOT NULL)
 )
 SELECT
     submission_id,
