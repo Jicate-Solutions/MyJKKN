@@ -63,7 +63,6 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { cn } from '@/lib/utils';
 import { PersonalConnectionTab } from './_components/personal-connection-tab';
-import { usePermissions } from '@/hooks/use-permissions';
 import { useDepartments } from '@/hooks/organization/use-departments';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
@@ -301,7 +300,7 @@ function WhatsAppNumbersContent() {
   const { profile } = useAuth();
   const { selectedInstitutionId } = useUserInstitutionAccess();
   const institutionId = selectedInstitutionId || profile?.institution_id || '';
-  const { isSuperAdmin } = usePermissions();
+  const isSuperAdmin = profile?.role === 'super_admin' || profile?.is_super_admin === true;
   const queryClient = useQueryClient();
   const [deleteTarget, setDeleteTarget] = useState<WAPhoneNumber | null>(null);
 
@@ -310,12 +309,12 @@ function WhatsAppNumbersContent() {
   const [selectedDeptId, setSelectedDeptId] = useState<string>(userDepartmentId);
   const personalWaDeptId = isSuperAdmin ? selectedDeptId : userDepartmentId;
 
-  // Fetch departments for the selector (only needed for super admins)
+  // Fetch departments for the selector
   const { data: deptData } = useDepartments({
-    institution_id: institutionId,
+    ...(institutionId ? { institution_id: institutionId } : {}),
     page: 1,
     limit: 100,
-    is_active: true,
+    isActive: true,
   });
 
   const { data: numbers, isLoading, refetch } = useQuery({
