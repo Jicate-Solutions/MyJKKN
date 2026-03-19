@@ -204,7 +204,7 @@ export default function MyRegistrationPage({ params }: { params: Promise<{ id: s
     <ContentLayout title="My Registration">
       <PageBreadcrumb items={breadcrumbs} />
 
-      <div className="mx-auto max-w-3xl space-y-5 mt-6 pb-12">
+      <div className="mx-auto space-y-5 mt-6 pb-12">
 
         {/* Top bar */}
         <div className="flex items-center justify-between">
