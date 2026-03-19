@@ -67,7 +67,6 @@ const API_RESOURCES: {
   badge: string;
   badgeClass: string;
   url: string;
-  urlLabel: string;
   fieldName: 'gemini_page_url' | 'maps_page_url';
   fieldLabel: string;
   fieldPlaceholder: string;
@@ -80,7 +79,6 @@ const API_RESOURCES: {
     badge: 'Required',
     badgeClass: 'border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/20 dark:text-amber-300',
     url: 'https://aistudio.google.com/app/apikey',
-    urlLabel: 'Get API Key at Google AI Studio',
     fieldName: 'gemini_page_url',
     fieldLabel: 'Page using Gemini in your app',
     fieldPlaceholder: 'https://your-project.lovable.app/chat',
@@ -93,7 +91,6 @@ const API_RESOURCES: {
     badge: 'Optional',
     badgeClass: 'border-muted text-muted-foreground',
     url: 'https://console.cloud.google.com/apis/library/maps-backend.googleapis.com',
-    urlLabel: 'Enable Maps API in Google Cloud Console',
     fieldName: 'maps_page_url',
     fieldLabel: 'Page using Maps in your app',
     fieldPlaceholder: 'https://your-project.lovable.app/map',
@@ -452,15 +449,6 @@ function SarvamGalattaFormInner({ event, autoFill, fields }: InnerProps) {
                         </Badge>
                       </div>
                       <p className="text-xs text-muted-foreground">{api.description}</p>
-                      <a
-                        href={api.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline"
-                      >
-                        <ExternalLink className="h-3 w-3" />
-                        {api.urlLabel}
-                      </a>
                     </div>
                   </div>
 

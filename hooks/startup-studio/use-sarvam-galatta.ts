@@ -90,7 +90,7 @@ export function useRegisterSarvamGalatta(eventId: string) {
       queryClient.invalidateQueries({ queryKey: ['sarvam-galatta-my-registration'] });
       queryClient.invalidateQueries({ queryKey: ['sarvam-galatta-all-registrations'] });
       queryClient.invalidateQueries({ queryKey: ['sarvam-galatta-stats'] });
-      // Redirect to my-registration view
+      toast.success('Registration successful! Welcome to Sarvam Galatta.');
       router.push(`/startup-studio/events/${eventId}/my-registration`);
     },
     onError: (error: Error) => {
