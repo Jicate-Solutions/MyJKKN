@@ -126,6 +126,36 @@ export function useSetApprovalStatus() {
 }
 
 // ---------------------------------------------------------------
+// Mutation: bulk approve or reject multiple registrations (admin)
+// ---------------------------------------------------------------
+export function useBulkSetApprovalStatus() {
+  const queryClient = useQueryClient();
+  const { profile } = useAuth();
+
+  return useMutation({
+    mutationFn: ({
+      ids,
+      status,
+    }: {
+      ids: string[];
+      status: 'shortlisted' | 'rejected';
+    }) => SarvamGalattaRegistrationService.bulkSetApprovalStatus(ids, status, profile!.id),
+    onSuccess: (_, { ids, status }) => {
+      queryClient.invalidateQueries({ queryKey: ['sarvam-galatta-all-registrations'] });
+      queryClient.invalidateQueries({ queryKey: ['sarvam-galatta-stats'] });
+      toast.success(
+        status === 'shortlisted'
+          ? `${ids.length} registration${ids.length > 1 ? 's' : ''} shortlisted.`
+          : `${ids.length} registration${ids.length > 1 ? 's' : ''} rejected.`,
+      );
+    },
+    onError: (error: Error) => {
+      toast.error(error.message ?? 'Bulk update failed. Please try again.');
+    },
+  });
+}
+
+// ---------------------------------------------------------------
 // Mutation: update registration (before deadline)
 // ---------------------------------------------------------------
 export function useUpdateRegistration() {

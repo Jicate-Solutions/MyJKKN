@@ -6,10 +6,11 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { DataTable } from '@/components/ui/data-table';
 import {
-  Building2, MapPin, RotateCw, Sparkles, Users,
+  Building2, MapPin, RotateCw, ShieldCheck, ShieldX, Sparkles, Users,
 } from 'lucide-react';
 import {
   useAllRegistrations,
+  useBulkSetApprovalStatus,
   useSarvamGalattaStats,
   useSetApprovalStatus,
 } from '@/hooks/startup-studio/use-sarvam-galatta';
@@ -60,6 +61,7 @@ export function SarvamGalattaTable({ eventId }: SarvamGalattaTableProps) {
   // Data hooks
   const { data: stats, isPending: statsPending } = useSarvamGalattaStats();
   const approvalMutation = useSetApprovalStatus();
+  const bulkApprovalMutation = useBulkSetApprovalStatus();
   const {
     data: result,
     isPending: tablePending,
@@ -196,6 +198,32 @@ export function SarvamGalattaTable({ eventId }: SarvamGalattaTableProps) {
             Refresh
           </Button>
         }
+        // ── Bulk shortlist (primary) ──────────────────────────────
+        onBulkAction={async (selectedRows) => {
+          const ids = selectedRows.map((r) => r.id);
+          await bulkApprovalMutation.mutateAsync({ ids, status: 'shortlisted' });
+        }}
+        bulkActionConfig={{
+          label: 'Shortlist Selected',
+          icon: ShieldCheck,
+          variant: 'default',
+          confirmTitle: 'Shortlist selected registrations?',
+          confirmDescription:
+            'This will mark all selected registrations as shortlisted. You can change this later.',
+          successMessage: 'Shortlisted {count} registration{plural}',
+          errorMessage: 'Failed to shortlist selected registrations.',
+          loadingText: 'Shortlisting…',
+        }}
+        // ── Bulk reject (secondary) ───────────────────────────────
+        secondaryBulkAction={{
+          label: 'Reject Selected',
+          icon: ShieldX,
+          variant: 'destructive',
+          onClick: (selectedRows) => {
+            const ids = selectedRows.map((r) => r.id);
+            bulkApprovalMutation.mutate({ ids, status: 'rejected' });
+          },
+        }}
         serverSidePagination={{
           currentPage: page,
           totalPages,

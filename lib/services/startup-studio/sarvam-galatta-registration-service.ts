@@ -535,4 +535,39 @@ export class SarvamGalattaRegistrationService {
 
     return data as SarvamGalattaRegistration;
   }
+
+  // ---------------------------------------------------------------
+  // Admin: bulk approve / reject multiple registrations in one query
+  // ---------------------------------------------------------------
+  static async bulkSetApprovalStatus(
+    ids: string[],
+    status: 'shortlisted' | 'rejected',
+    adminUserId: string
+  ): Promise<void> {
+    if (!ids.length) return;
+
+    const { data: profile } = await this.supabase
+      .from('profiles')
+      .select('is_super_admin, role')
+      .eq('id', adminUserId)
+      .single();
+
+    const isAdmin =
+      profile?.is_super_admin ||
+      ['super_admin', 'admin', 'administrator'].includes(profile?.role ?? '');
+
+    if (!isAdmin) {
+      throw new Error('Only administrators can approve or reject registrations.');
+    }
+
+    const { error } = await this.supabase
+      .from('sarvam_galatta_registrations')
+      .update({ approval_status: status, updated_at: new Date().toISOString() })
+      .in('id', ids);
+
+    if (error) {
+      console.error('[startup/sarvam-galatta] bulkSetApprovalStatus failed:', error);
+      throw new Error(`Failed to bulk ${status} registrations. Please try again.`);
+    }
+  }
 }
