@@ -2559,6 +2559,62 @@ CREATE INDEX IF NOT EXISTS idx_marketing_leads_db_created
 
 ALTER TABLE marketing_leads_database ENABLE ROW LEVEL SECURITY;
 
+-- =============================================================================
+-- SARVAM GALATTA EVENT REGISTRATIONS
+-- Purpose: Specialized registration extension for Sarvam Galatta event.
+--          Extends event_registrations with project URLs, API keys, and
+--          a snapshot of the student's learner profile at registration time.
+-- Added: 2026-03-19
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS public.sarvam_galatta_registrations (
+  id                    UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+
+  -- Links to startup_events (for direct querying without joining event_registrations)
+  event_id              UUID NOT NULL REFERENCES startup_events(id) ON DELETE CASCADE,
+
+  -- 1:1 extension of event_registrations (base record holds owner_id, institution_id, team_name, team_code)
+  registration_id       UUID NOT NULL UNIQUE REFERENCES event_registrations(id) ON DELETE CASCADE,
+
+  -- Learner reference
+  learner_id            UUID NOT NULL REFERENCES learners_profiles(id) ON DELETE CASCADE,
+
+  -- Snapshot of academic assignment at time of registration (nullable — partial profiles allowed)
+  snap_first_name       TEXT NOT NULL,
+  snap_last_name        TEXT,
+  snap_institution_id   UUID REFERENCES institutions(id),
+  snap_degree_id        UUID,
+  snap_department_id    UUID REFERENCES departments(id),
+  snap_program_id       UUID REFERENCES programs(id),
+  snap_semester_id      UUID REFERENCES semesters(id),
+  snap_section_id       UUID REFERENCES sections(id),
+
+  -- Project links (all nullable on save — required enforced at app layer)
+  project_url           TEXT,
+  github_url            TEXT,
+  supabase_project_url  TEXT,
+
+  -- API credentials (plaintext MVP — Phase 2 adds pgcrypto encryption)
+  gemini_api_key        TEXT NOT NULL,
+  google_maps_api_key   TEXT,
+
+  -- Edit tracking
+  submitted_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_edited_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+  -- Standard audit columns
+  created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at            TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_sgr_event_id        ON sarvam_galatta_registrations(event_id);
+CREATE INDEX IF NOT EXISTS idx_sgr_learner_id      ON sarvam_galatta_registrations(learner_id);
+CREATE INDEX IF NOT EXISTS idx_sgr_registration_id ON sarvam_galatta_registrations(registration_id);
+CREATE INDEX IF NOT EXISTS idx_sgr_institution_id  ON sarvam_galatta_registrations(snap_institution_id);
+CREATE INDEX IF NOT EXISTS idx_sgr_submitted_at    ON sarvam_galatta_registrations(submitted_at DESC);
+
+ALTER TABLE sarvam_galatta_registrations ENABLE ROW LEVEL SECURITY;
+
 -- =====================================================
 -- END OF TABLE DEFINITIONS
 -- =====================================================

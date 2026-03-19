@@ -1287,3 +1287,16 @@ npx tsx scripts/repair-learner-profile-sync.ts
 ---
 
 **Remember: ONE file per object type, NO duplicates, ALWAYS update existing files!**
+
+---
+
+### 2026-03-19: Sarvam Galatta Event Registrations
+
+- **Tables** (01_tables.sql): `sarvam_galatta_registrations`
+- **Policies** (03_policies.sql): 4 policies — `sgr_select_own`, `sgr_insert_own`, `sgr_update_own`, `sgr_all_super_admin`
+- **Indexes**: 5 (event_id, learner_id, registration_id, snap_institution_id, submitted_at DESC)
+- **Purpose**: Specialized 1:1 extension of `event_registrations` for Sarvam Galatta event — stores project URLs (project, GitHub, Supabase), API keys (Gemini required, Maps optional), and a snapshot of the student's learner profile hierarchy at registration time
+- **Key columns**: `registration_id` (UNIQUE FK to event_registrations), `learner_id`, `snap_*` columns (profile snapshot), `gemini_api_key` (NOT NULL), `last_edited_at` (edit tracking)
+- **Event record**: `startup_events.id = ad357482-7087-4390-ac75-ad4c13838d4f` (config.registration_type = 'sarvam_galatta')
+
+| 2026-03-19 | Added `sarvam_galatta_registrations` table + RLS for Sarvam Galatta startup event registration |

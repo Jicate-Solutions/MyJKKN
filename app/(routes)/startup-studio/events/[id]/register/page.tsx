@@ -6,6 +6,7 @@ import { PageBreadcrumb } from '@/components/navigation';
 import { useEvent } from '@/hooks/startup-studio/use-events';
 import { useAuth } from '@/hooks/use-auth';
 import { RegistrationForm } from './_components/registration-form';
+import { SarvamGalattaForm } from './_components/sarvam-galatta-form';
 import { Loader2, ShieldX } from 'lucide-react';
 
 export default function RegisterPage({ params }: { params: Promise<{ id: string }> }) {
@@ -70,15 +71,28 @@ export default function RegisterPage({ params }: { params: Promise<{ id: string 
         { label: 'Register' },
       ]} />
 
-      <div className="space-y-6 mt-4 max-w-5xl">
-        <div>
-          <h1 className="text-2xl font-bold py-1">Register Your Team</h1>
-          <p className="text-sm text-muted-foreground">
-            Team size: 1-{event.config?.team_max_size || 5} members. At least one member must have a laptop.
-          </p>
+      {/* Sarvam Galatta uses individual registration flow */}
+      {(event.config as any)?.registration_type === 'sarvam_galatta' ? (
+        <div className="mt-4 max-w-2xl space-y-4">
+          <div>
+            <h1 className="py-1 text-2xl font-bold">Register for {event.name}</h1>
+            <p className="text-sm text-muted-foreground">
+              Individual registration — one entry per student.
+            </p>
+          </div>
+          <SarvamGalattaForm event={event} />
         </div>
-        <RegistrationForm event={event} />
-      </div>
+      ) : (
+        <div className="space-y-6 mt-4 max-w-5xl">
+          <div>
+            <h1 className="text-2xl font-bold py-1">Register Your Team</h1>
+            <p className="text-sm text-muted-foreground">
+              Team size: 1-{event.config?.team_max_size || 5} members. At least one member must have a laptop.
+            </p>
+          </div>
+          <RegistrationForm event={event} />
+        </div>
+      )}
     </ContentLayout>
   );
 }

@@ -409,6 +409,7 @@ export const MENU_PERMISSIONS: MenuPermissions = {
   '/startup-studio/events/[id]/venues': 'startup_studio.venues.manage',
   '/startup-studio/events/[id]/submit': 'startup_studio.events.view',
   '/startup-studio/events/[id]/my-team': 'startup_studio.events.view',
+  '/startup-studio/events/[id]/my-registration': 'startup_studio.events.view',
   '/startup-studio/events/[id]/my-assignment': 'startup_studio.venues.manage',
   '/startup-studio/events/[id]/demo-day': 'startup_studio.demo_day.manage',
   '/startup-studio/events/[id]/evaluate': 'startup_studio.evaluations.manage',
@@ -1445,6 +1446,11 @@ export function GetPages(pathname: string): MenuGroup[] {
                 href: `/startup-studio/events/${activeId}/my-team`,
                 label: 'My Team',
                 active: pathname.includes('/my-team')
+              },
+              {
+                href: `/startup-studio/events/${activeId}/my-registration`,
+                label: 'My Registration',
+                active: pathname.includes('/my-registration')
               },
               {
                 href: `/startup-studio/events/${activeId}/submit`,
