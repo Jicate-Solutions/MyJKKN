@@ -31,7 +31,7 @@ import type {
 
 const DEFAULT_FIELDS: IndividualRegistrationField[] = [
   {
-    key: 'team_name', label: 'Team / Project Name', type: 'text', required: true,
+    key: 'team_name', label: 'Project Name', type: 'text', required: true,
     placeholder: 'e.g. FarmBot AI', section: 'basic',
   },
   {
@@ -103,8 +103,8 @@ const SECTION_META: Record<string, {
   className?: string;
 }> = {
   basic: {
-    title: 'Team / Project Name',
-    description: 'What is your project or team called?',
+    title: 'Project Details',
+    description: 'Give your project a unique name',
   },
   links: {
     title: 'Project Links',
@@ -314,6 +314,47 @@ function SarvamGalattaFormInner({ event, autoFill, fields }: InnerProps) {
           </CardContent>
         </Card>
 
+        {/* API Resources — shown before form fields so students know what they need */}
+        <Card className="border-amber-200 dark:border-amber-900">
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Sparkles className="h-4 w-4 text-amber-500" />
+              APIs Required for Your Project
+            </CardTitle>
+            <CardDescription className="text-xs">
+              You must use these APIs when building your application. Click the links below to get your keys.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {API_RESOURCES.map((api, idx) => (
+              <div key={api.name}>
+                {idx > 0 && <Separator className="mb-4" />}
+                <div className="flex items-start gap-3">
+                  <div className="mt-0.5 p-2 rounded-md bg-muted/50 shrink-0">{api.icon}</div>
+                  <div className="flex-1 min-w-0 space-y-1.5">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="text-sm font-medium">{api.name}</p>
+                      <Badge variant="outline" className={`text-xs ${api.badgeClass}`}>
+                        {api.badge}
+                      </Badge>
+                    </div>
+                    <p className="text-xs text-muted-foreground">{api.description}</p>
+                    <a
+                      href={api.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline"
+                    >
+                      <ExternalLink className="h-3 w-3" />
+                      {api.urlLabel}
+                    </a>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+
         {/* Dynamic field sections */}
         {Array.from(sections.entries()).map(([sectionKey, sectionFields]) => {
           const meta = SECTION_META[sectionKey] ?? { title: sectionKey, description: '' };
@@ -392,47 +433,6 @@ function SarvamGalattaFormInner({ event, autoFill, fields }: InnerProps) {
             </Card>
           );
         })}
-
-        {/* API Resources — informational, not inputs */}
-        <Card className="border-amber-200 dark:border-amber-900">
-          <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Sparkles className="h-4 w-4 text-amber-500" />
-              APIs Required for Your Project
-            </CardTitle>
-            <CardDescription className="text-xs">
-              You must use these APIs when building your application. Click the links below to get your keys.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {API_RESOURCES.map((api, idx) => (
-              <div key={api.name}>
-                {idx > 0 && <Separator className="mb-4" />}
-                <div className="flex items-start gap-3">
-                  <div className="mt-0.5 p-2 rounded-md bg-muted/50 shrink-0">{api.icon}</div>
-                  <div className="flex-1 min-w-0 space-y-1.5">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <p className="text-sm font-medium">{api.name}</p>
-                      <Badge variant="outline" className={`text-xs ${api.badgeClass}`}>
-                        {api.badge}
-                      </Badge>
-                    </div>
-                    <p className="text-xs text-muted-foreground">{api.description}</p>
-                    <a
-                      href={api.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline"
-                    >
-                      <ExternalLink className="h-3 w-3" />
-                      {api.urlLabel}
-                    </a>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
 
         {/* Submit */}
         <Button type="submit" className="w-full" disabled={register.isPending} size="lg">
