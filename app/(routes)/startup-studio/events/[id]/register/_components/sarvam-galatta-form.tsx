@@ -55,11 +55,24 @@ const DEFAULT_FIELDS: IndividualRegistrationField[] = [
 ];
 
 // ---------------------------------------------------------------
-// Static API resource links — shown below the form fields
-// Informs students which APIs to use and where to get keys
+// API resource config — shown at the bottom of the form
+// Each entry pairs static metadata (badge, link) with a URL input
+// where students enter which page in their app uses that API.
 // ---------------------------------------------------------------
 
-const API_RESOURCES = [
+const API_RESOURCES: {
+  icon: React.ReactNode;
+  name: string;
+  description: string;
+  badge: string;
+  badgeClass: string;
+  url: string;
+  urlLabel: string;
+  fieldName: 'gemini_page_url' | 'maps_page_url';
+  fieldLabel: string;
+  fieldPlaceholder: string;
+  fieldDescription: string;
+}[] = [
   {
     icon: <Sparkles className="h-4 w-4 text-amber-500" />,
     name: 'Google Gemini API',
@@ -68,6 +81,10 @@ const API_RESOURCES = [
     badgeClass: 'border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/20 dark:text-amber-300',
     url: 'https://aistudio.google.com/app/apikey',
     urlLabel: 'Get API Key at Google AI Studio',
+    fieldName: 'gemini_page_url',
+    fieldLabel: 'Page using Gemini in your app',
+    fieldPlaceholder: 'https://your-project.lovable.app/chat',
+    fieldDescription: 'Enter the URL of the page where your app uses the Gemini API',
   },
   {
     icon: <MapPin className="h-4 w-4 text-red-500" />,
@@ -77,6 +94,10 @@ const API_RESOURCES = [
     badgeClass: 'border-muted text-muted-foreground',
     url: 'https://console.cloud.google.com/apis/library/maps-backend.googleapis.com',
     urlLabel: 'Enable Maps API in Google Cloud Console',
+    fieldName: 'maps_page_url',
+    fieldLabel: 'Page using Maps in your app',
+    fieldPlaceholder: 'https://your-project.lovable.app/map',
+    fieldDescription: 'Enter the URL of the page where your app uses Google Maps (leave blank if not used)',
   },
 ];
 
@@ -197,9 +218,19 @@ function SarvamGalattaFormInner({ event, autoFill, fields }: InnerProps) {
   const [showFields, setShowFields] = useState<Record<string, boolean>>({});
   const register = useRegisterSarvamGalatta(event.id);
 
-  const schema = useMemo(() => buildSchema(fields), [fields]);
+  const schema = useMemo(
+    () => buildSchema(fields).extend({
+      gemini_page_url: z.string().url('Must be a valid URL').or(z.literal('')),
+      maps_page_url:   z.string().url('Must be a valid URL').or(z.literal('')),
+    }),
+    [fields],
+  );
   const defaultValues = useMemo(
-    () => Object.fromEntries(fields.map(f => [f.key, ''])),
+    () => ({
+      ...Object.fromEntries(fields.map(f => [f.key, ''])),
+      gemini_page_url: '',
+      maps_page_url: '',
+    }),
     [fields],
   );
 
@@ -227,6 +258,8 @@ function SarvamGalattaFormInner({ event, autoFill, fields }: InnerProps) {
       supabase_project_url: values.supabase_project_url || undefined,
       gemini_api_key: values.gemini_api_key ?? '',
       google_maps_api_key: values.google_maps_api_key || undefined,
+      gemini_page_url: values.gemini_page_url || undefined,
+      maps_page_url: values.maps_page_url || undefined,
     } as SarvamGalattaRegistrationDto);
   }
 
@@ -314,47 +347,6 @@ function SarvamGalattaFormInner({ event, autoFill, fields }: InnerProps) {
           </CardContent>
         </Card>
 
-        {/* API Resources — shown before form fields so students know what they need */}
-        <Card className="border-amber-200 dark:border-amber-900">
-          <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Sparkles className="h-4 w-4 text-amber-500" />
-              APIs Required for Your Project
-            </CardTitle>
-            <CardDescription className="text-xs">
-              You must use these APIs when building your application. Click the links below to get your keys.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {API_RESOURCES.map((api, idx) => (
-              <div key={api.name}>
-                {idx > 0 && <Separator className="mb-4" />}
-                <div className="flex items-start gap-3">
-                  <div className="mt-0.5 p-2 rounded-md bg-muted/50 shrink-0">{api.icon}</div>
-                  <div className="flex-1 min-w-0 space-y-1.5">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <p className="text-sm font-medium">{api.name}</p>
-                      <Badge variant="outline" className={`text-xs ${api.badgeClass}`}>
-                        {api.badge}
-                      </Badge>
-                    </div>
-                    <p className="text-xs text-muted-foreground">{api.description}</p>
-                    <a
-                      href={api.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline"
-                    >
-                      <ExternalLink className="h-3 w-3" />
-                      {api.urlLabel}
-                    </a>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-
         {/* Dynamic field sections */}
         {Array.from(sections.entries()).map(([sectionKey, sectionFields]) => {
           const meta = SECTION_META[sectionKey] ?? { title: sectionKey, description: '' };
@@ -433,6 +425,71 @@ function SarvamGalattaFormInner({ event, autoFill, fields }: InnerProps) {
             </Card>
           );
         })}
+
+        {/* APIs Required — hybrid card: info + URL inputs, shown at the bottom */}
+        <Card className="border-amber-200 dark:border-amber-900">
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Sparkles className="h-4 w-4 text-amber-500" />
+              APIs Required for Your Project
+            </CardTitle>
+            <CardDescription className="text-xs">
+              Your app must use these APIs. Get your keys via the links below, then enter the URL
+              of the page in your application where each API is used.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            {API_RESOURCES.map((api, idx) => (
+              <div key={api.fieldName}>
+                {idx > 0 && <Separator />}
+                <div className={idx > 0 ? 'pt-6' : ''}>
+                  {/* API info row */}
+                  <div className="flex items-start gap-3 mb-4">
+                    <div className="mt-0.5 p-2 rounded-md bg-muted/50 shrink-0">{api.icon}</div>
+                    <div className="flex-1 min-w-0 space-y-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="text-sm font-semibold">{api.name}</p>
+                        <Badge variant="outline" className={`text-xs ${api.badgeClass}`}>
+                          {api.badge}
+                        </Badge>
+                      </div>
+                      <p className="text-xs text-muted-foreground">{api.description}</p>
+                      <a
+                        href={api.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline"
+                      >
+                        <ExternalLink className="h-3 w-3" />
+                        {api.urlLabel}
+                      </a>
+                    </div>
+                  </div>
+
+                  {/* URL input for the page that uses this API */}
+                  <FormField
+                    control={form.control}
+                    name={api.fieldName as any}
+                    render={({ field: f }) => (
+                      <FormItem>
+                        <FormLabel className="text-xs">{api.fieldLabel}</FormLabel>
+                        <FormControl>
+                          <Input
+                            {...f}
+                            type="url"
+                            placeholder={api.fieldPlaceholder}
+                          />
+                        </FormControl>
+                        <FormDescription className="text-xs">{api.fieldDescription}</FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
 
         {/* Submit */}
         <Button type="submit" className="w-full" disabled={register.isPending} size="lg">

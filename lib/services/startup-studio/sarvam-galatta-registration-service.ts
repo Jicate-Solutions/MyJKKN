@@ -232,6 +232,8 @@ export class SarvamGalattaRegistrationService {
         supabase_project_url: dto.supabase_project_url ?? null,
         gemini_api_key: dto.gemini_api_key ?? null,
         google_maps_api_key: dto.google_maps_api_key ?? null,
+        gemini_page_url: dto.gemini_page_url ?? null,
+        maps_page_url: dto.maps_page_url ?? null,
         submitted_at: now,
         last_edited_at: now,
       })
@@ -260,7 +262,7 @@ export class SarvamGalattaRegistrationService {
   // ---------------------------------------------------------------
   static async updateRegistration(
     sarvamGalattaId: string,
-    dto: Partial<Pick<SarvamGalattaRegistrationDto, 'team_name' | 'project_url' | 'github_url' | 'supabase_project_url' | 'gemini_api_key' | 'google_maps_api_key'>>,
+    dto: Partial<Pick<SarvamGalattaRegistrationDto, 'team_name' | 'project_url' | 'github_url' | 'supabase_project_url' | 'gemini_api_key' | 'google_maps_api_key' | 'gemini_page_url' | 'maps_page_url'>>,
     userId: string
   ): Promise<SarvamGalattaRegistration> {
     // Verify ownership
@@ -297,6 +299,8 @@ export class SarvamGalattaRegistrationService {
     if (dto.supabase_project_url !== undefined) sgrUpdates.supabase_project_url = dto.supabase_project_url || null;
     if (dto.gemini_api_key !== undefined)       sgrUpdates.gemini_api_key = dto.gemini_api_key;
     if (dto.google_maps_api_key !== undefined)  sgrUpdates.google_maps_api_key = dto.google_maps_api_key || null;
+    if (dto.gemini_page_url !== undefined)      sgrUpdates.gemini_page_url = dto.gemini_page_url || null;
+    if (dto.maps_page_url !== undefined)        sgrUpdates.maps_page_url = dto.maps_page_url || null;
 
     const { data: updated, error } = await this.supabase
       .from('sarvam_galatta_registrations')

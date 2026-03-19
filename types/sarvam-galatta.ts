@@ -13,10 +13,12 @@ export type IndividualFieldKey =
   | 'github_url'
   | 'supabase_project_url'
   | 'gemini_api_key'
-  | 'google_maps_api_key';
+  | 'google_maps_api_key'
+  | 'gemini_page_url'
+  | 'maps_page_url';
 
 export type IndividualFieldType = 'text' | 'url' | 'password';
-export type IndividualFieldSection = 'basic' | 'links' | 'keys';
+export type IndividualFieldSection = 'basic' | 'links' | 'keys' | 'apis';
 
 export interface IndividualRegistrationField {
   key: IndividualFieldKey;
@@ -88,6 +90,10 @@ export interface SarvamGalattaRegistrationDto {
   gemini_api_key?: string;
   /** Optional */
   google_maps_api_key?: string;
+  /** URL of the page in the student's app that uses Gemini API */
+  gemini_page_url?: string;
+  /** URL of the page in the student's app that uses Google Maps API */
+  maps_page_url?: string;
 }
 
 // ---------------------------------------------------------------
@@ -119,6 +125,10 @@ export interface SarvamGalattaRegistration {
   // API keys — masked in UI after submission
   gemini_api_key: string;
   google_maps_api_key: string | null;
+
+  // API usage page URLs — where in the student's app each API is used
+  gemini_page_url: string | null;
+  maps_page_url: string | null;
 
   // Timestamps
   submitted_at: string;

@@ -2599,6 +2599,11 @@ CREATE TABLE IF NOT EXISTS public.sarvam_galatta_registrations (
   gemini_api_key        TEXT,
   google_maps_api_key   TEXT,
 
+  -- API usage page URLs — students enter which page in their app uses each API
+  -- Added: 2026-03-19 via ALTER TABLE sarvam_galatta_registrations ADD COLUMN
+  gemini_page_url       TEXT,
+  maps_page_url         TEXT,
+
   -- Edit tracking
   submitted_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
   last_edited_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
