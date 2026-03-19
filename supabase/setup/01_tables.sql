@@ -2604,6 +2604,12 @@ CREATE TABLE IF NOT EXISTS public.sarvam_galatta_registrations (
   gemini_page_url       TEXT,
   maps_page_url         TEXT,
 
+  -- Admin approval workflow
+  -- Added: 2026-03-19 via ALTER TABLE sarvam_galatta_registrations ADD COLUMN
+  -- 'waitlisted' (default) → admin reviews → 'shortlisted' or 'rejected'
+  approval_status       TEXT NOT NULL DEFAULT 'waitlisted'
+                          CHECK (approval_status IN ('waitlisted', 'shortlisted', 'rejected')),
+
   -- Edit tracking
   submitted_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
   last_edited_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -2618,6 +2624,7 @@ CREATE INDEX IF NOT EXISTS idx_sgr_learner_id      ON sarvam_galatta_registratio
 CREATE INDEX IF NOT EXISTS idx_sgr_registration_id ON sarvam_galatta_registrations(registration_id);
 CREATE INDEX IF NOT EXISTS idx_sgr_institution_id  ON sarvam_galatta_registrations(snap_institution_id);
 CREATE INDEX IF NOT EXISTS idx_sgr_submitted_at    ON sarvam_galatta_registrations(submitted_at DESC);
+CREATE INDEX IF NOT EXISTS idx_sgr_approval_status ON sarvam_galatta_registrations(approval_status);
 
 ALTER TABLE sarvam_galatta_registrations ENABLE ROW LEVEL SECURITY;
 

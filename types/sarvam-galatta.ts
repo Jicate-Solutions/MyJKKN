@@ -130,6 +130,10 @@ export interface SarvamGalattaRegistration {
   gemini_page_url: string | null;
   maps_page_url: string | null;
 
+  // Admin approval workflow
+  /** 'waitlisted' → 'shortlisted' | 'rejected' */
+  approval_status: 'waitlisted' | 'shortlisted' | 'rejected';
+
   // Timestamps
   submitted_at: string;
   last_edited_at: string;

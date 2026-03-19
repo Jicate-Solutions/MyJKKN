@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import {
   AlertCircle, CheckCircle2, Clock, ExternalLink, Github,
-  Key, Loader2, MapPin, Pencil, Rocket, Sparkles,
+  Key, Loader2, MapPin, Pencil, Rocket, ShieldCheck, ShieldX, Sparkles,
 } from 'lucide-react';
 import { useMyRegistration } from '@/hooks/startup-studio/use-sarvam-galatta';
 import { useAuth } from '@/hooks/use-auth';
@@ -102,29 +102,62 @@ export default function MyRegistrationPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Badge
-            variant="outline"
-            className="gap-1 border-green-300 bg-green-50 text-green-700 dark:border-green-800 dark:bg-green-950/20"
-          >
-            <CheckCircle2 className="h-3 w-3" />
-            {registration.status === 'registered' ? 'Registered' : registration.status}
-          </Badge>
+          {(registration as any).approval_status === 'shortlisted' ? (
+            <Badge variant="outline" className="gap-1 border-green-300 bg-green-50 text-green-700 dark:border-green-800 dark:bg-green-950/20">
+              <ShieldCheck className="h-3 w-3" /> Shortlisted
+            </Badge>
+          ) : (registration as any).approval_status === 'rejected' ? (
+            <Badge variant="outline" className="gap-1 border-red-300 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950/20">
+              <ShieldX className="h-3 w-3" /> Not Shortlisted
+            </Badge>
+          ) : (
+            <Badge variant="outline" className="gap-1 border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/20">
+              <Clock className="h-3 w-3" /> Waiting for Approval
+            </Badge>
+          )}
         </div>
       </div>
 
-      {/* Success banner */}
-      <div className="flex items-center gap-3 rounded-lg border border-green-200 bg-green-50 px-4 py-3 dark:border-green-900 dark:bg-green-950/20">
-        <CheckCircle2 className="h-5 w-5 text-green-600" />
-        <div className="flex-1">
-          <p className="text-sm font-medium text-green-900 dark:text-green-100">
-            Registration confirmed!
-          </p>
-          <p className="text-xs text-green-700 dark:text-green-300">
-            Team code: <span className="font-mono font-semibold">{registration.team_code ?? '—'}</span>
-            {' · '}Submitted {new Date(registration.submitted_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
-          </p>
+      {/* Approval status banner */}
+      {(registration as any).approval_status === 'shortlisted' ? (
+        <div className="flex items-center gap-3 rounded-lg border border-green-200 bg-green-50 px-4 py-3 dark:border-green-900 dark:bg-green-950/20">
+          <ShieldCheck className="h-5 w-5 text-green-600 shrink-0" />
+          <div className="flex-1">
+            <p className="text-sm font-medium text-green-900 dark:text-green-100">
+              You've been shortlisted!
+            </p>
+            <p className="text-xs text-green-700 dark:text-green-300">
+              Team code: <span className="font-mono font-semibold">{registration.team_code ?? '—'}</span>
+              {' · '}Submitted {new Date(registration.submitted_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+            </p>
+          </div>
         </div>
-      </div>
+      ) : (registration as any).approval_status === 'rejected' ? (
+        <div className="flex items-center gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 dark:border-red-900 dark:bg-red-950/20">
+          <ShieldX className="h-5 w-5 text-red-600 shrink-0" />
+          <div className="flex-1">
+            <p className="text-sm font-medium text-red-900 dark:text-red-100">
+              Your registration was not shortlisted.
+            </p>
+            <p className="text-xs text-red-700 dark:text-red-300">
+              Contact the organizers if you have questions about this decision.
+            </p>
+          </div>
+        </div>
+      ) : (
+        <div className="flex items-center gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-900 dark:bg-amber-950/20">
+          <Clock className="h-5 w-5 text-amber-600 shrink-0" />
+          <div className="flex-1">
+            <p className="text-sm font-medium text-amber-900 dark:text-amber-100">
+              Registration submitted — waiting for admin approval.
+            </p>
+            <p className="text-xs text-amber-700 dark:text-amber-300">
+              Team code: <span className="font-mono font-semibold">{registration.team_code ?? '—'}</span>
+              {' · '}Submitted {new Date(registration.submitted_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Profile snapshot */}
       <Card>

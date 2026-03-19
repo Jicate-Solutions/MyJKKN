@@ -238,6 +238,7 @@ export class SarvamGalattaRegistrationService {
         google_maps_api_key: dto.google_maps_api_key ?? null,
         gemini_page_url: dto.gemini_page_url ?? null,
         maps_page_url: dto.maps_page_url ?? null,
+        approval_status: 'waitlisted',
         submitted_at: now,
         last_edited_at: now,
       })
@@ -487,5 +488,43 @@ export class SarvamGalattaRegistrationService {
         .sort(([a], [b]) => a.localeCompare(b))
         .map(([date, count]) => ({ date, count })),
     };
+  }
+
+  // ---------------------------------------------------------------
+  // Admin: approve / reject a registration
+  // Only super_admin / admin roles may call these.
+  // ---------------------------------------------------------------
+  static async setApprovalStatus(
+    sarvamGalattaId: string,
+    status: 'shortlisted' | 'rejected',
+    adminUserId: string
+  ): Promise<SarvamGalattaRegistration> {
+    const { data: profile } = await this.supabase
+      .from('profiles')
+      .select('is_super_admin, role')
+      .eq('id', adminUserId)
+      .single();
+
+    const isAdmin =
+      profile?.is_super_admin ||
+      ['super_admin', 'admin', 'administrator'].includes(profile?.role ?? '');
+
+    if (!isAdmin) {
+      throw new Error('Only administrators can approve or reject registrations.');
+    }
+
+    const { data, error } = await this.supabase
+      .from('sarvam_galatta_registrations')
+      .update({ approval_status: status, updated_at: new Date().toISOString() })
+      .eq('id', sarvamGalattaId)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('[startup/sarvam-galatta] setApprovalStatus failed:', error);
+      throw new Error('Failed to update approval status. Please try again.');
+    }
+
+    return data as SarvamGalattaRegistration;
   }
 }

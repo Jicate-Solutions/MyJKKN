@@ -12,10 +12,14 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import {
-  Building2, CheckCircle2, ExternalLink, Github, Key, Loader2,
-  MapPin, RotateCw, Search, Sparkles, Users,
+  Building2, CheckCircle2, ChevronDown, ExternalLink, Github, Key, Loader2,
+  MapPin, RotateCw, Search, ShieldCheck, ShieldX, Sparkles, Users,
 } from 'lucide-react';
-import { useAllRegistrations, useSarvamGalattaStats } from '@/hooks/startup-studio/use-sarvam-galatta';
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem,
+  DropdownMenuSeparator, DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { useAllRegistrations, useSarvamGalattaStats, useSetApprovalStatus } from '@/hooks/startup-studio/use-sarvam-galatta';
 import type { SarvamGalattaRegistration } from '@/types/sarvam-galatta';
 
 // ---------------------------------------------------------------
@@ -43,6 +47,32 @@ function StatCard({
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+// ---------------------------------------------------------------
+// Approval status badge
+// ---------------------------------------------------------------
+
+function ApprovalBadge({ status }: { status: 'waitlisted' | 'shortlisted' | 'rejected' }) {
+  if (status === 'shortlisted') {
+    return (
+      <Badge variant="outline" className="gap-1 border-green-300 bg-green-50 text-green-700 dark:border-green-800 dark:bg-green-950/20 dark:text-green-400 text-xs whitespace-nowrap">
+        <ShieldCheck className="h-3 w-3" /> Shortlisted
+      </Badge>
+    );
+  }
+  if (status === 'rejected') {
+    return (
+      <Badge variant="outline" className="gap-1 border-red-300 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950/20 dark:text-red-400 text-xs whitespace-nowrap">
+        <ShieldX className="h-3 w-3" /> Rejected
+      </Badge>
+    );
+  }
+  return (
+    <Badge variant="outline" className="gap-1 border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/20 dark:text-amber-400 text-xs whitespace-nowrap">
+      <Loader2 className="h-3 w-3" /> Waitlisted
+    </Badge>
   );
 }
 
@@ -93,6 +123,7 @@ export function SarvamGalattaTable({ eventId }: SarvamGalattaTableProps) {
   const LIMIT = 25;
 
   const { data: stats, isPending: statsPending } = useSarvamGalattaStats();
+  const approvalMutation = useSetApprovalStatus();
   const { data: result, isPending: tablePending, refetch } = useAllRegistrations({
     search: search || undefined,
     institution_id: institutionFilter || undefined,
@@ -219,18 +250,20 @@ export function SarvamGalattaTable({ eventId }: SarvamGalattaTableProps) {
               </TableHead>
               <TableHead>Team Code</TableHead>
               <TableHead>Submitted</TableHead>
+              <TableHead className="text-center">Approval</TableHead>
+              <TableHead className="w-10" />
             </TableRow>
           </TableHeader>
           <TableBody>
             {tablePending ? (
               <TableRow>
-                <TableCell colSpan={9} className="py-12 text-center">
+                <TableCell colSpan={11} className="py-12 text-center">
                   <Loader2 className="mx-auto h-5 w-5 animate-spin text-muted-foreground" />
                 </TableCell>
               </TableRow>
             ) : rows.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={9} className="py-12 text-center text-muted-foreground text-sm">
+                <TableCell colSpan={11} className="py-12 text-center text-muted-foreground text-sm">
                   {search || institutionFilter ? 'No results match your filters.' : 'No registrations yet.'}
                 </TableCell>
               </TableRow>
@@ -278,6 +311,37 @@ export function SarvamGalattaTable({ eventId }: SarvamGalattaTableProps) {
                     {new Date(row.submitted_at).toLocaleDateString('en-IN', {
                       day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
                     })}
+                  </TableCell>
+                  <TableCell className="text-center">
+                    <ApprovalBadge status={(row.approval_status as any) ?? 'waitlisted'} />
+                  </TableCell>
+                  <TableCell>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon" className="h-7 w-7">
+                          <ChevronDown className="h-3.5 w-3.5" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem
+                          className="gap-2 text-green-700 focus:text-green-700"
+                          disabled={row.approval_status === 'shortlisted' || approvalMutation.isPending}
+                          onClick={() => approvalMutation.mutate({ sarvamGalattaId: row.id, status: 'shortlisted' })}
+                        >
+                          <ShieldCheck className="h-4 w-4" />
+                          Shortlist
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          className="gap-2 text-destructive focus:text-destructive"
+                          disabled={row.approval_status === 'rejected' || approvalMutation.isPending}
+                          onClick={() => approvalMutation.mutate({ sarvamGalattaId: row.id, status: 'rejected' })}
+                        >
+                          <ShieldX className="h-4 w-4" />
+                          Reject
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </TableCell>
                 </TableRow>
               ))

@@ -100,6 +100,32 @@ export function useRegisterSarvamGalatta(eventId: string) {
 }
 
 // ---------------------------------------------------------------
+// Mutation: admin approve or reject a registration
+// ---------------------------------------------------------------
+export function useSetApprovalStatus() {
+  const queryClient = useQueryClient();
+  const { profile } = useAuth();
+
+  return useMutation({
+    mutationFn: ({
+      sarvamGalattaId,
+      status,
+    }: {
+      sarvamGalattaId: string;
+      status: 'shortlisted' | 'rejected';
+    }) => SarvamGalattaRegistrationService.setApprovalStatus(sarvamGalattaId, status, profile!.id),
+    onSuccess: (_, { status }) => {
+      queryClient.invalidateQueries({ queryKey: ['sarvam-galatta-all-registrations'] });
+      queryClient.invalidateQueries({ queryKey: ['sarvam-galatta-my-registration'] });
+      toast.success(status === 'shortlisted' ? 'Registration shortlisted.' : 'Registration rejected.');
+    },
+    onError: (error: Error) => {
+      toast.error(error.message ?? 'Failed to update approval status.');
+    },
+  });
+}
+
+// ---------------------------------------------------------------
 // Mutation: update registration (before deadline)
 // ---------------------------------------------------------------
 export function useUpdateRegistration() {
