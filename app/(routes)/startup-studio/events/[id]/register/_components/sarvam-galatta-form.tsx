@@ -407,14 +407,17 @@ function SarvamGalattaFormInner({ event, autoFill, fields }: InnerProps) {
 // ---------------------------------------------------------------
 
 export function SarvamGalattaForm({ event }: { event: StartupEvent }) {
-  const { data: autoFill, isPending } = useStudentAutoFill();
+  // fetchStatus === 'idle' means the query is disabled (non-student role).
+  // In TanStack Query v5, isPending is true for BOTH in-flight AND disabled queries,
+  // so we must check fetchStatus to avoid an infinite spinner for super admins.
+  const { data: autoFill, isPending, fetchStatus } = useStudentAutoFill();
 
   // Read field definitions from event config, fall back to Sarvam Galatta defaults.
   // This makes the form reusable for any individual-registration event.
   const fields: IndividualRegistrationField[] =
     (event.config as any)?.registration_fields ?? DEFAULT_FIELDS;
 
-  if (isPending) {
+  if (isPending && fetchStatus === 'fetching') {
     return (
       <div className="flex items-center justify-center py-12">
         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
