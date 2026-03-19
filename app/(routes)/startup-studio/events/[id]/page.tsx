@@ -127,7 +127,7 @@ export default function EventDetailPage({ params }: { params: Promise<{ id: stri
   const canRegister = profile?.role === 'student' || isSuperAdmin;
   const config = event.config;
   // Individual-registration events (e.g. Sarvam Galatta) don't use team pages
-  const isIndividualEvent = config?.registration_type === 'individual';
+  const isIndividualEvent = config?.registration_type === 'individual' || config?.registration_type === 'sarvam_galatta';
   const deadlineCountdown = getDaysUntil(event.registration_deadline);
   const isActive = ['registration_open', 'build_day', 'demo_day'].includes(event.status);
 
