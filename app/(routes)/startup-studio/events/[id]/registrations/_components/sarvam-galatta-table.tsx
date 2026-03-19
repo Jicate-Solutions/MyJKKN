@@ -21,6 +21,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { useAllRegistrations, useSarvamGalattaStats, useSetApprovalStatus } from '@/hooks/startup-studio/use-sarvam-galatta';
 import type { SarvamGalattaRegistration } from '@/types/sarvam-galatta';
+import { RegistrationDetailSheet } from './registration-detail-sheet';
 
 // ---------------------------------------------------------------
 // KPI stat card
@@ -120,6 +121,7 @@ export function SarvamGalattaTable({ eventId }: SarvamGalattaTableProps) {
   const [search, setSearch] = useState('');
   const [institutionFilter, setInstitutionFilter] = useState<string>('');
   const [page, setPage] = useState(1);
+  const [detailRow, setDetailRow] = useState<SarvamGalattaRegistration | null>(null);
   const LIMIT = 25;
 
   const { data: stats, isPending: statsPending } = useSarvamGalattaStats();
@@ -324,6 +326,14 @@ export function SarvamGalattaTable({ eventId }: SarvamGalattaTableProps) {
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
                         <DropdownMenuItem
+                          className="gap-2"
+                          onClick={() => setDetailRow(row)}
+                        >
+                          <ExternalLink className="h-4 w-4" />
+                          View Details
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
                           className="gap-2 text-green-700 focus:text-green-700"
                           disabled={row.approval_status === 'shortlisted' || approvalMutation.isPending}
                           onClick={() => approvalMutation.mutate({ sarvamGalattaId: row.id, status: 'shortlisted' })}
@@ -376,6 +386,13 @@ export function SarvamGalattaTable({ eventId }: SarvamGalattaTableProps) {
           </div>
         </div>
       )}
+
+      {/* Registration detail sheet */}
+      <RegistrationDetailSheet
+        registration={detailRow}
+        open={!!detailRow}
+        onOpenChange={(open) => { if (!open) setDetailRow(null); }}
+      />
     </div>
   );
 }
