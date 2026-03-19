@@ -136,7 +136,11 @@ export class SarvamGalattaRegistrationService {
       throw new Error('Only students can register for this event.');
     }
 
-    if (isStudent && !profile?.learner_id) {
+    // Both students AND super admins require a linked learner profile —
+    // sarvam_galatta_registrations.learner_id is NOT NULL.
+    // Without this check a super admin with no learner_id would create an
+    // orphaned event_registrations row (step 1 succeeds, step 2 fails at DB).
+    if (!profile?.learner_id) {
       throw new Error('Your profile is not linked to a learner record. Please contact admin.');
     }
 
