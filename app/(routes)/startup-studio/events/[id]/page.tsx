@@ -126,6 +126,8 @@ export default function EventDetailPage({ params }: { params: Promise<{ id: stri
   // Only students and super admins can register teams
   const canRegister = profile?.role === 'student' || isSuperAdmin;
   const config = event.config;
+  // Individual-registration events (e.g. Sarvam Galatta) don't use team pages
+  const isIndividualEvent = config?.registration_type === 'individual';
   const deadlineCountdown = getDaysUntil(event.registration_deadline);
   const isActive = ['registration_open', 'build_day', 'demo_day'].includes(event.status);
 
@@ -192,9 +194,14 @@ export default function EventDetailPage({ params }: { params: Promise<{ id: stri
                   </Link>
                 )}
                 {isInATeam && (
-                  <Link href={`/startup-studio/events/${id}/my-team`} className="w-full">
+                  <Link
+                    href={isIndividualEvent
+                      ? `/startup-studio/events/${id}/my-registration`
+                      : `/startup-studio/events/${id}/my-team`}
+                    className="w-full"
+                  >
                     <Button variant="outline" size="lg" className="w-full gap-2 border-primary/20 bg-primary/5 hover:bg-primary/10 text-primary">
-                      <Users className="h-4 w-4" /> View My Team
+                      <Users className="h-4 w-4" /> {isIndividualEvent ? 'View My Registration' : 'View My Team'}
                     </Button>
                   </Link>
                 )}
@@ -423,29 +430,41 @@ export default function EventDetailPage({ params }: { params: Promise<{ id: stri
                     <div>
                       <h3 className="font-semibold text-blue-950 dark:text-blue-50">Registration Confirmed</h3>
                       <p className="text-sm text-blue-800/80 dark:text-blue-200/80">
-                        You are participating as <span className="font-semibold">{teamName}</span>
-                        {isLeader && ` with ${memberCount} members`}.
+                        {isIndividualEvent
+                          ? <>You are registered as <span className="font-semibold">{teamName}</span>.</>
+                          : <>You are participating as <span className="font-semibold">{teamName}</span>{isLeader && ` with ${memberCount} members`}.</>
+                        }
                       </p>
                     </div>
                   </div>
                   <div className="flex gap-3 shrink-0 flex-wrap">
-                    <Link href={`/startup-studio/events/${id}/my-team`}>
-                      <Button variant="outline" className="bg-white/50 hover:bg-white/80 dark:bg-black/20 dark:hover:bg-black/40 border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 gap-2">
-                        <Users className="h-4 w-4" /> {isLeader ? 'Manage Team' : 'View My Team'}
-                      </Button>
-                    </Link>
-                    {event.voting_opened_at && (
-                      <Link href={`/startup-studio/events/${id}/vote`}>
-                        <Button variant="outline" className="bg-white/50 hover:bg-white/80 dark:bg-black/20 dark:hover:bg-black/40 border-purple-200 dark:border-purple-800 text-purple-700 dark:text-purple-300 gap-2">
-                          <Vote className="h-4 w-4" /> {event.voting_closed_at ? 'View Votes' : 'Vote Now'}
+                    {isIndividualEvent ? (
+                      <Link href={`/startup-studio/events/${id}/my-registration`}>
+                        <Button variant="outline" className="bg-white/50 hover:bg-white/80 dark:bg-black/20 dark:hover:bg-black/40 border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 gap-2">
+                          <FileText className="h-4 w-4" /> View Registration
                         </Button>
                       </Link>
+                    ) : (
+                      <>
+                        <Link href={`/startup-studio/events/${id}/my-team`}>
+                          <Button variant="outline" className="bg-white/50 hover:bg-white/80 dark:bg-black/20 dark:hover:bg-black/40 border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 gap-2">
+                            <Users className="h-4 w-4" /> {isLeader ? 'Manage Team' : 'View My Team'}
+                          </Button>
+                        </Link>
+                        {event.voting_opened_at && (
+                          <Link href={`/startup-studio/events/${id}/vote`}>
+                            <Button variant="outline" className="bg-white/50 hover:bg-white/80 dark:bg-black/20 dark:hover:bg-black/40 border-purple-200 dark:border-purple-800 text-purple-700 dark:text-purple-300 gap-2">
+                              <Vote className="h-4 w-4" /> {event.voting_closed_at ? 'View Votes' : 'Vote Now'}
+                            </Button>
+                          </Link>
+                        )}
+                        <Link href={`/startup-studio/events/${id}/submit`}>
+                          <Button className="bg-blue-600 hover:bg-blue-700 text-white shadow-sm gap-2">
+                            <FileText className="h-4 w-4" /> {isLeader ? 'Submit Project' : 'View Submission'}
+                          </Button>
+                        </Link>
+                      </>
                     )}
-                    <Link href={`/startup-studio/events/${id}/submit`}>
-                      <Button className="bg-blue-600 hover:bg-blue-700 text-white shadow-sm gap-2">
-                        <FileText className="h-4 w-4" /> {isLeader ? 'Submit Project' : 'View Submission'}
-                      </Button>
-                    </Link>
                   </div>
                 </div>
               </div>
