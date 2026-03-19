@@ -62,8 +62,8 @@ export default function AdminRegistrationsPage({ params }: { params: Promise<{ i
           <p className="text-sm text-muted-foreground">{event.name}</p>
         </div>
 
-        {/* Sarvam Galatta uses a specialized individual registration view */}
-        {(event.config as any)?.registration_type === 'sarvam_galatta' ? (
+        {/* Individual-registration events use the per-registrant admin view */}
+        {(['individual', 'sarvam_galatta'] as string[]).includes((event.config as any)?.registration_type) ? (
           <SarvamGalattaTable eventId={id} />
         ) : (
           <Tabs defaultValue="teams">

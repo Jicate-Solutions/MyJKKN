@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -13,50 +13,133 @@ import {
   Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription,
 } from '@/components/ui/form';
 import {
-  AlertCircle, CheckCircle2, Clock, Eye, EyeOff, Github,
+  AlertCircle, CheckCircle2, Clock, Database, Eye, EyeOff, Github,
   Key, Loader2, MapPin, Rocket, Sparkles, User,
 } from 'lucide-react';
 import { useStudentAutoFill, useRegisterSarvamGalatta } from '@/hooks/startup-studio/use-sarvam-galatta';
 import type { StartupEvent } from '@/types/startup-studio';
-import type { StudentAutoFillProfile } from '@/types/sarvam-galatta';
+import type {
+  StudentAutoFillProfile,
+  IndividualRegistrationField,
+  SarvamGalattaRegistrationDto,
+} from '@/types/sarvam-galatta';
 
 // ---------------------------------------------------------------
-// Validation schema
+// Default fields (Sarvam Galatta spec) — used as fallback when
+// event.config.registration_fields is not yet configured.
 // ---------------------------------------------------------------
 
-const schema = z.object({
-  team_name: z.string().min(2, 'Team name must be at least 2 characters'),
-  project_url: z.string().url('Must be a valid URL (e.g. https://...)').or(z.literal('')),
-  github_url: z
-    .string()
-    .refine((v) => !v || v.includes('github.com'), { message: 'Must be a GitHub URL' })
-    .or(z.literal('')),
-  supabase_project_url: z
-    .string()
-    .refine((v) => !v || v.includes('supabase.co'), { message: 'Must be a Supabase project URL' })
-    .or(z.literal('')),
-  gemini_api_key: z.string().min(10, 'Gemini API key is required'),
-  google_maps_api_key: z.string().optional(),
-});
-
-type FormValues = z.infer<typeof schema>;
+const DEFAULT_FIELDS: IndividualRegistrationField[] = [
+  {
+    key: 'team_name', label: 'Team / Project Name', type: 'text', required: true,
+    placeholder: 'e.g. FarmBot AI', section: 'basic',
+  },
+  {
+    key: 'project_url', label: 'Project URL', type: 'url', required: true,
+    placeholder: 'https://your-project.lovable.app',
+    description: 'Your Lovable or Vercel deployed project URL',
+    icon: 'rocket', section: 'links',
+  },
+  {
+    key: 'github_url', label: 'GitHub Repository', type: 'url', required: true,
+    placeholder: 'https://github.com/username/repo',
+    description: 'Make sure the repository is public',
+    icon: 'github', validation: { must_contain: 'github.com' }, section: 'links',
+  },
+  {
+    key: 'supabase_project_url', label: 'Supabase Project URL', type: 'url', required: true,
+    placeholder: 'https://your-project.supabase.co',
+    description: 'Your Supabase project REST API base URL',
+    icon: 'database', validation: { must_contain: 'supabase.co' }, section: 'links',
+  },
+  {
+    key: 'gemini_api_key', label: 'Google Gemini API Key', type: 'password', required: true,
+    placeholder: 'AIza••••••••••••••••••••••••••••••••••••••',
+    description: 'Required. Your project must use Google Gemini API.',
+    icon: 'sparkles', validation: { min_length: 10 }, section: 'keys',
+  },
+  {
+    key: 'google_maps_api_key', label: 'Google Maps API Key', type: 'password', required: false,
+    placeholder: 'AIza••••••••••••••••••••••••••••••••••••••',
+    description: 'Only required if your project uses Google Maps',
+    icon: 'map_pin', section: 'keys',
+  },
+];
 
 // ---------------------------------------------------------------
-// Helpers
+// Icon map (field.icon → React element)
 // ---------------------------------------------------------------
 
-function getTimeRemaining(deadline: string): string {
-  const diff = new Date(deadline).getTime() - Date.now();
-  if (diff <= 0) return 'Closed';
-  const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-  const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-  if (days > 0) return `${days}d ${hours}h remaining`;
-  const mins = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-  return `${hours}h ${mins}m remaining`;
+const FIELD_ICONS: Record<string, React.ReactNode> = {
+  github:   <Github   className="h-3.5 w-3.5" />,
+  rocket:   <Rocket   className="h-3.5 w-3.5 text-emerald-600" />,
+  sparkles: <Sparkles className="h-3.5 w-3.5 text-amber-500" />,
+  map_pin:  <MapPin   className="h-3.5 w-3.5 text-red-500" />,
+  key:      <Key      className="h-3.5 w-3.5 text-blue-600" />,
+  database: <Database className="h-3.5 w-3.5 text-violet-600" />,
+};
+
+// ---------------------------------------------------------------
+// Section card meta (title, description, accent)
+// ---------------------------------------------------------------
+
+const SECTION_META: Record<string, {
+  title: string;
+  description: string;
+  icon?: React.ReactNode;
+  className?: string;
+}> = {
+  basic: {
+    title: 'Team / Project Name',
+    description: 'What is your project or team called?',
+  },
+  links: {
+    title: 'Project Links',
+    description: 'Share where your project lives',
+    icon: <Rocket className="h-4 w-4 text-emerald-600" />,
+  },
+  keys: {
+    title: 'API Keys',
+    description: 'Required for project verification. Keys are stored securely.',
+    icon: <Key className="h-4 w-4 text-blue-600" />,
+    className: 'border-blue-200 dark:border-blue-900',
+  },
+};
+
+// ---------------------------------------------------------------
+// Dynamic Zod schema built from field config
+// ---------------------------------------------------------------
+
+function buildSchema(fields: IndividualRegistrationField[]) {
+  const shape: Record<string, z.ZodTypeAny> = {};
+
+  for (const field of fields) {
+    const mc = field.validation?.must_contain;
+    const minLen = field.validation?.min_length ?? 1;
+
+    if (field.type === 'text' || field.type === 'password') {
+      const base = z.string().min(minLen, `${field.label} is required`);
+      shape[field.key] = field.required ? base : z.string().or(z.literal(''));
+    } else {
+      // url
+      if (mc) {
+        const msg = `Must be a ${mc} URL`;
+        shape[field.key] = field.required
+          ? z.string().min(1, `${field.label} is required`).refine(v => v.includes(mc), { message: msg })
+          : z.string().refine(v => !v || v.includes(mc), { message: msg }).or(z.literal(''));
+      } else {
+        shape[field.key] = field.required
+          ? z.string().url('Must be a valid URL')
+          : z.string().url('Must be a valid URL').or(z.literal(''));
+      }
+    }
+  }
+
+  return z.object(shape);
 }
 
 // ---------------------------------------------------------------
-// Auto-fill profile display section
+// Auto-fill profile display
 // ---------------------------------------------------------------
 
 function ProfileField({ label, value }: { label: string; value: string | null }) {
@@ -77,51 +160,76 @@ function ProfileField({ label, value }: { label: string; value: string | null })
   );
 }
 
-// ---------------------------------------------------------------
-// Main form
-// ---------------------------------------------------------------
-
-interface SarvamGalattaFormProps {
-  event: StartupEvent;
-  autoFill: StudentAutoFillProfile | null;
+function getTimeRemaining(deadline: string): string {
+  const diff = new Date(deadline).getTime() - Date.now();
+  if (diff <= 0) return 'Closed';
+  const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+  const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+  if (days > 0) return `${days}d ${hours}h remaining`;
+  const mins = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+  return `${hours}h ${mins}m remaining`;
 }
 
-function SarvamGalattaFormInner({ event, autoFill }: SarvamGalattaFormProps) {
-  const [showGemini, setShowGemini] = useState(false);
-  const [showMaps, setShowMaps] = useState(false);
+// ---------------------------------------------------------------
+// Inner form — receives resolved fields from wrapper
+// ---------------------------------------------------------------
 
+interface InnerProps {
+  event: StartupEvent;
+  autoFill: StudentAutoFillProfile | null;
+  fields: IndividualRegistrationField[];
+}
+
+function SarvamGalattaFormInner({ event, autoFill, fields }: InnerProps) {
+  const [showFields, setShowFields] = useState<Record<string, boolean>>({});
   const register = useRegisterSarvamGalatta(event.id);
 
-  const form = useForm<FormValues>({
+  const schema = useMemo(() => buildSchema(fields), [fields]);
+  const defaultValues = useMemo(
+    () => Object.fromEntries(fields.map(f => [f.key, ''])),
+    [fields],
+  );
+
+  const form = useForm({
     resolver: zodResolver(schema),
-    defaultValues: {
-      team_name: '',
-      project_url: '',
-      github_url: '',
-      supabase_project_url: '',
-      gemini_api_key: '',
-      google_maps_api_key: '',
-    },
+    defaultValues,
   });
 
-  function onSubmit(values: FormValues) {
+  // Group fields by section, preserving declaration order
+  const sections = useMemo(() => {
+    const map = new Map<string, IndividualRegistrationField[]>();
+    for (const field of fields) {
+      const sec = field.section ?? 'basic';
+      if (!map.has(sec)) map.set(sec, []);
+      map.get(sec)!.push(field);
+    }
+    return map;
+  }, [fields]);
+
+  function onSubmit(values: Record<string, string>) {
     register.mutate({
-      team_name: values.team_name,
+      team_name: values.team_name ?? '',
       project_url: values.project_url || undefined,
       github_url: values.github_url || undefined,
       supabase_project_url: values.supabase_project_url || undefined,
-      gemini_api_key: values.gemini_api_key,
+      gemini_api_key: values.gemini_api_key ?? '',
       google_maps_api_key: values.google_maps_api_key || undefined,
-    });
+    } as SarvamGalattaRegistrationDto);
   }
 
   const deadline = event.registration_deadline;
   const timeLeft = deadline ? getTimeRemaining(deadline) : null;
   const isUrgent = deadline ? new Date(deadline).getTime() - Date.now() < 24 * 60 * 60 * 1000 : false;
+  const deadlineLabel = deadline
+    ? new Date(deadline).toLocaleString('en-IN', {
+        weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
+        hour: '2-digit', minute: '2-digit', timeZoneName: 'short',
+      })
+    : null;
 
   return (
     <Form {...form}>
-      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+      <form onSubmit={form.handleSubmit(onSubmit as any)} className="space-y-6">
 
         {/* Deadline Banner */}
         {deadline && (
@@ -136,7 +244,7 @@ function SarvamGalattaFormInner({ event, autoFill }: SarvamGalattaFormProps) {
                 Registration closes soon
               </p>
               <p className={`text-xs ${isUrgent ? 'text-red-700 dark:text-red-300' : 'text-amber-700 dark:text-amber-300'}`}>
-                Deadline: Sunday, March 22, 2026 at 11:59 PM IST
+                Deadline: {deadlineLabel}
               </p>
             </div>
             <Badge
@@ -193,216 +301,100 @@ function SarvamGalattaFormInner({ event, autoFill }: SarvamGalattaFormProps) {
           </CardContent>
         </Card>
 
-        {/* Team / Project name */}
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">Team / Project Name</CardTitle>
-            <CardDescription className="text-xs">What is your project or team called?</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <FormField
-              control={form.control}
-              name="team_name"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>
-                    Team / Project Name <span className="text-destructive">*</span>
-                  </FormLabel>
-                  <FormControl>
-                    <Input {...field} placeholder="e.g. FarmBot AI" />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-          </CardContent>
-        </Card>
-
-        {/* Project URLs */}
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Rocket className="h-4 w-4 text-emerald-600" />
-              Project Links
-            </CardTitle>
-            <CardDescription className="text-xs">Share where your project lives</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <FormField
-              control={form.control}
-              name="project_url"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>
-                    Project URL <span className="text-destructive">*</span>
-                  </FormLabel>
-                  <FormControl>
-                    <Input {...field} type="url" placeholder="https://your-project.lovable.app" />
-                  </FormControl>
-                  <FormDescription className="text-xs">
-                    Your Lovable or Vercel deployed project URL
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="github_url"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel className="flex items-center gap-1.5">
-                    <Github className="h-3.5 w-3.5" />
-                    GitHub Repository <span className="text-destructive">*</span>
-                  </FormLabel>
-                  <FormControl>
-                    <Input {...field} type="url" placeholder="https://github.com/username/repo" />
-                  </FormControl>
-                  <FormDescription className="text-xs">
-                    Make sure the repository is public
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="supabase_project_url"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>
-                    Supabase Project URL <span className="text-destructive">*</span>
-                  </FormLabel>
-                  <FormControl>
-                    <Input {...field} type="url" placeholder="https://your-project.supabase.co" />
-                  </FormControl>
-                  <FormDescription className="text-xs">
-                    Your Supabase project REST API base URL
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-          </CardContent>
-        </Card>
-
-        {/* API Keys */}
-        <Card className="border-blue-200 dark:border-blue-900">
-          <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Key className="h-4 w-4 text-blue-600" />
-              API Keys
-            </CardTitle>
-            <CardDescription className="text-xs">
-              Required for project verification. Keys are stored securely.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-5">
-
-            <FormField
-              control={form.control}
-              name="gemini_api_key"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel className="flex items-center gap-1.5">
-                    <Sparkles className="h-3.5 w-3.5 text-amber-500" />
-                    Google Gemini API Key <span className="text-destructive">*</span>
-                  </FormLabel>
-                  <FormControl>
-                    <div className="relative">
-                      <Input
-                        {...field}
-                        type={showGemini ? 'text' : 'password'}
-                        placeholder="AIza••••••••••••••••••••••••••••••••••••••"
-                        className="pr-10"
-                      />
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="absolute right-1 top-1/2 h-7 w-7 -translate-y-1/2 p-0"
-                        onClick={() => setShowGemini((v) => !v)}
-                        tabIndex={-1}
-                      >
-                        {showGemini ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                      </Button>
-                    </div>
-                  </FormControl>
-                  <FormDescription className="flex items-start gap-1.5 rounded-md border border-amber-100 bg-amber-50/60 px-2 py-1.5 text-xs dark:border-amber-900 dark:bg-amber-950/20">
-                    <AlertCircle className="mt-0.5 h-3 w-3 shrink-0 text-amber-600" />
-                    <span>
-                      <strong>Required.</strong> Your project must use Google Gemini API. Key is used for verification only.
-                    </span>
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <Separator />
-
-            <FormField
-              control={form.control}
-              name="google_maps_api_key"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel className="flex items-center gap-1.5">
-                    <MapPin className="h-3.5 w-3.5 text-red-500" />
-                    Google Maps API Key
-                    <Badge variant="secondary" className="ml-1 text-xs font-normal">Optional</Badge>
-                  </FormLabel>
-                  <FormControl>
-                    <div className="relative">
-                      <Input
-                        {...field}
-                        type={showMaps ? 'text' : 'password'}
-                        placeholder="AIza••••••••••••••••••••••••••••••••••••••"
-                        className="pr-10"
-                      />
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="absolute right-1 top-1/2 h-7 w-7 -translate-y-1/2 p-0"
-                        onClick={() => setShowMaps((v) => !v)}
-                        tabIndex={-1}
-                      >
-                        {showMaps ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                      </Button>
-                    </div>
-                  </FormControl>
-                  <FormDescription className="text-xs">
-                    Only required if your project uses Google Maps
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-          </CardContent>
-        </Card>
+        {/* Dynamic field sections */}
+        {Array.from(sections.entries()).map(([sectionKey, sectionFields]) => {
+          const meta = SECTION_META[sectionKey] ?? { title: sectionKey, description: '' };
+          return (
+            <Card key={sectionKey} className={meta.className}>
+              <CardHeader className="pb-3">
+                <CardTitle className="flex items-center gap-2 text-base">
+                  {meta.icon}
+                  {meta.title}
+                </CardTitle>
+                {meta.description && (
+                  <CardDescription className="text-xs">{meta.description}</CardDescription>
+                )}
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {sectionFields.map((field, idx) => (
+                  <div key={field.key}>
+                    {idx > 0 && <Separator className="mb-4" />}
+                    <FormField
+                      control={form.control}
+                      name={field.key as any}
+                      render={({ field: f }) => (
+                        <FormItem>
+                          <FormLabel className="flex items-center gap-1.5">
+                            {field.icon && FIELD_ICONS[field.icon]}
+                            {field.label}
+                            {field.required ? (
+                              <span className="text-destructive">*</span>
+                            ) : (
+                              <Badge variant="secondary" className="ml-1 text-xs font-normal">Optional</Badge>
+                            )}
+                          </FormLabel>
+                          <FormControl>
+                            {field.type === 'password' ? (
+                              <div className="relative">
+                                <Input
+                                  {...f}
+                                  type={showFields[field.key] ? 'text' : 'password'}
+                                  placeholder={field.placeholder ?? ''}
+                                  className="pr-10"
+                                />
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  className="absolute right-1 top-1/2 h-7 w-7 -translate-y-1/2 p-0"
+                                  onClick={() =>
+                                    setShowFields(prev => ({ ...prev, [field.key]: !prev[field.key] }))
+                                  }
+                                  tabIndex={-1}
+                                >
+                                  {showFields[field.key]
+                                    ? <EyeOff className="h-4 w-4" />
+                                    : <Eye className="h-4 w-4" />
+                                  }
+                                </Button>
+                              </div>
+                            ) : (
+                              <Input
+                                {...f}
+                                type={field.type === 'url' ? 'url' : 'text'}
+                                placeholder={field.placeholder ?? ''}
+                              />
+                            )}
+                          </FormControl>
+                          {field.description && (
+                            <FormDescription className="text-xs">{field.description}</FormDescription>
+                          )}
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          );
+        })}
 
         {/* Submit */}
-        <Button
-          type="submit"
-          className="w-full"
-          disabled={register.isPending}
-          size="lg"
-        >
+        <Button type="submit" className="w-full" disabled={register.isPending} size="lg">
           {register.isPending ? (
             <>
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               Registering…
             </>
           ) : (
-            'Register for Sarvam Galatta'
+            `Register for ${event.name}`
           )}
         </Button>
 
-        {deadline && (
+        {deadlineLabel && (
           <p className="text-center text-xs text-muted-foreground">
-            Deadline: Sunday, March 22, 2026 · 11:59 PM IST
+            Deadline: {deadlineLabel}
           </p>
         )}
       </form>
@@ -411,11 +403,16 @@ function SarvamGalattaFormInner({ event, autoFill }: SarvamGalattaFormProps) {
 }
 
 // ---------------------------------------------------------------
-// Exported wrapper — fetches auto-fill then renders form
+// Exported wrapper — fetches auto-fill, resolves fields from config
 // ---------------------------------------------------------------
 
 export function SarvamGalattaForm({ event }: { event: StartupEvent }) {
   const { data: autoFill, isPending } = useStudentAutoFill();
+
+  // Read field definitions from event config, fall back to Sarvam Galatta defaults.
+  // This makes the form reusable for any individual-registration event.
+  const fields: IndividualRegistrationField[] =
+    (event.config as any)?.registration_fields ?? DEFAULT_FIELDS;
 
   if (isPending) {
     return (
@@ -425,5 +422,5 @@ export function SarvamGalattaForm({ event }: { event: StartupEvent }) {
     );
   }
 
-  return <SarvamGalattaFormInner event={event} autoFill={autoFill ?? null} />;
+  return <SarvamGalattaFormInner event={event} autoFill={autoFill ?? null} fields={fields} />;
 }

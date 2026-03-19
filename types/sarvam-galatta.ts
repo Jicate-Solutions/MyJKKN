@@ -3,14 +3,50 @@
 // Event ID: ad357482-7087-4390-ac75-ad4c13838d4f
 
 // ---------------------------------------------------------------
+// Dynamic field definitions (stored in startup_events.config JSONB)
+// Each individual-registration event declares its own fields here.
+// ---------------------------------------------------------------
+
+export type IndividualFieldKey =
+  | 'team_name'
+  | 'project_url'
+  | 'github_url'
+  | 'supabase_project_url'
+  | 'gemini_api_key'
+  | 'google_maps_api_key';
+
+export type IndividualFieldType = 'text' | 'url' | 'password';
+export type IndividualFieldSection = 'basic' | 'links' | 'keys';
+
+export interface IndividualRegistrationField {
+  key: IndividualFieldKey;
+  label: string;
+  type: IndividualFieldType;
+  required: boolean;
+  placeholder?: string;
+  description?: string;
+  /** Maps to a Lucide icon: github | rocket | sparkles | map_pin | key | database */
+  icon?: string;
+  /** Card grouping — basic (name), links (URLs), keys (API keys) */
+  section?: IndividualFieldSection;
+  validation?: {
+    min_length?: number;
+    /** URL must contain this substring (e.g. "github.com") */
+    must_contain?: string;
+  };
+}
+
+// ---------------------------------------------------------------
 // Event Config (stored in startup_events.config JSONB)
 // ---------------------------------------------------------------
 
-export interface SarvamGalattaEventConfig {
-  registration_type: 'sarvam_galatta';
-  team_max_size: 1;
-  objectives: string[];
-  outcomes: string[];
+export interface IndividualEventConfig {
+  registration_type: 'individual';
+  team_max_size: number;
+  /** Field definitions for the dynamic registration form */
+  registration_fields: IndividualRegistrationField[];
+  objectives?: string[];
+  outcomes?: string[];
 }
 
 // ---------------------------------------------------------------
