@@ -267,6 +267,7 @@ export default function EventDetailPage({ params }: { params: Promise<{ id: stri
                   date={formatDate(event.start_date)}
                   time={formatTime(event.start_date)}
                   countdown={getDaysUntil(event.start_date)}
+                  comingSoon={!event.start_date}
                 />
                 {event.submission_deadline && (
                   <>
@@ -292,6 +293,7 @@ export default function EventDetailPage({ params }: { params: Promise<{ id: stri
                   date={formatDate(event.demo_date)}
                   time={formatTime(event.demo_date)}
                   countdown={getDaysUntil(event.demo_date)}
+                  comingSoon={!event.demo_date}
                 />
                 {event.end_date && event.end_date !== event.demo_date && (
                   <>
@@ -601,35 +603,41 @@ function StatCard({ icon, label, value, color }: { icon: React.ReactNode; label:
   );
 }
 
-function TimelineItem({ icon, label, date, time, countdown, isNext }: {
-  icon: React.ReactNode; label: string; date: string; time: string; countdown: string | null; isNext?: boolean;
+function TimelineItem({ icon, label, date, time, countdown, isNext, comingSoon }: {
+  icon: React.ReactNode; label: string; date: string; time: string; countdown: string | null; isNext?: boolean; comingSoon?: boolean;
 }) {
   return (
     <div className={cn("flex gap-4 group", isNext && "bg-muted/30 -mx-4 px-4 py-3 rounded-lg border border-muted/50")}>
-      <div className={cn("mt-1 p-2 rounded-full shrink-0 h-10 w-10 flex items-center justify-center", isNext ? "bg-background shadow-sm" : "bg-muted/50")}>
+      <div className={cn("mt-1 p-2 rounded-full shrink-0 h-10 w-10 flex items-center justify-center", comingSoon ? "bg-muted/30" : isNext ? "bg-background shadow-sm" : "bg-muted/50")}>
         {icon}
       </div>
       <div className="flex-1 min-w-0 py-1">
         <div className="flex items-center justify-between gap-2 mb-1">
-          <p className={cn("font-medium", isNext ? "text-base text-foreground" : "text-sm text-foreground/80")}>{label}</p>
+          <p className={cn("font-medium", comingSoon ? "text-sm text-muted-foreground/70" : isNext ? "text-base text-foreground" : "text-sm text-foreground/80")}>{label}</p>
           {countdown && (
             <Badge variant={isNext ? "default" : "secondary"} className="shrink-0">
               {countdown}
             </Badge>
           )}
         </div>
-        <div className="flex items-center gap-3 text-sm text-muted-foreground">
-          <div className="flex items-center gap-1.5">
-            <Calendar className="h-3.5 w-3.5" />
-            <span>{date}</span>
-          </div>
-          {time && (
-            <div className="flex items-center gap-1.5 border-l pl-3 border-muted-foreground/30">
-              <CalendarClock className="h-3.5 w-3.5" />
-              <span>{time}</span>
+        {comingSoon ? (
+          <Badge variant="outline" className="gap-1.5 text-xs text-muted-foreground border-dashed">
+            <CalendarClock className="h-3 w-3" /> Coming Soon
+          </Badge>
+        ) : (
+          <div className="flex items-center gap-3 text-sm text-muted-foreground">
+            <div className="flex items-center gap-1.5">
+              <Calendar className="h-3.5 w-3.5" />
+              <span>{date}</span>
             </div>
-          )}
-        </div>
+            {time && (
+              <div className="flex items-center gap-1.5 border-l pl-3 border-muted-foreground/30">
+                <CalendarClock className="h-3.5 w-3.5" />
+                <span>{time}</span>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
