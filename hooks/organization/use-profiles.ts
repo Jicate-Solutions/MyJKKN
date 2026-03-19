@@ -6,7 +6,8 @@ import { useAuth } from '../use-auth';
 import {
   ProfileService,
   ProfileFilters,
-  ProfileForSelection
+  ProfileForSelection,
+  ApproverProfileForSelection
 } from '@/lib/services/organization/profile-service';
 
 /**
@@ -135,5 +136,75 @@ export function useProfiles(profileIds: string[]) {
       profileIds.length > 0,
     staleTime: 60000,
     gcTime: 600000
+  });
+}
+
+/**
+ * Fetch profiles for approver selection with cross-institution + role-based filtering
+ * Used in resource approval workflow setup
+ *
+ * @example
+ * ```typescript
+ * const { data, isLoading } = useApproverProfiles({
+ *   institution_ids: ['inst-1', 'inst-2'],
+ *   role_key: 'hod',
+ *   search: debouncedSearch,
+ *   is_active: true
+ * });
+ * ```
+ */
+export function useApproverProfiles(
+  filters: {
+    institution_ids?: string[];
+    institution_id?: string;
+    department_id?: string;
+    role_key?: string;
+    search?: string;
+    is_active?: boolean;
+  } = {}
+): UseQueryResult<ApproverProfileForSelection[], Error> {
+  const { profile, isLoading: authLoading } = useAuth();
+
+  const queryKey = useMemo(() => {
+    return [
+      'approver-profiles',
+      filters.institution_ids?.sort().join(',') || '',
+      filters.institution_id || '',
+      filters.department_id || '',
+      filters.role_key || '',
+      filters.search || '',
+      filters.is_active
+    ];
+  }, [
+    filters.institution_ids,
+    filters.institution_id,
+    filters.department_id,
+    filters.role_key,
+    filters.search,
+    filters.is_active
+  ]);
+
+  const queryFn = useCallback(async () => {
+    try {
+      return await ProfileService.getProfilesForApproverSelection(filters);
+    } catch (error) {
+      console.error('[useApproverProfiles] Fetch Error:', error);
+      throw new Error('Failed to fetch approver profiles.');
+    }
+  }, [filters]);
+
+  // Enable when: authenticated AND at least one institution filter or role_key is provided
+  const hasFilters = !!(
+    filters.institution_ids?.length ||
+    filters.institution_id ||
+    filters.role_key
+  );
+
+  return useQuery({
+    queryKey,
+    queryFn,
+    enabled: !authLoading && !!profile && hasFilters,
+    staleTime: 60000, // 1 minute - profiles don't change frequently
+    gcTime: 600000 // 10 minutes
   });
 }

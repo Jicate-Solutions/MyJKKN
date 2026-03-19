@@ -286,6 +286,10 @@ export class ResourceService {
         caretaker_user_ids: validCaretakerIds.length > 0 ? validCaretakerIds : [], // Array of caretakers
         initial_stock_quantity: initialStock,
         current_stock_quantity: initialStock,
+        // Ensure JSONB config fields are explicitly included
+        approval_config: resourceData.approval_config || {},
+        booking_config: resourceData.booking_config || {},
+        reminder_config: resourceData.reminder_config || {},
         created_by: userId,
         updated_by: userId
       };
@@ -393,6 +397,16 @@ export class ResourceService {
         ...(caretaker_user_ids !== undefined && {
           caretaker_user_id: validCaretakerIds[0] || null,
           caretaker_user_ids: validCaretakerIds.length > 0 ? validCaretakerIds : []
+        }),
+        // Ensure JSONB config fields are explicitly included when provided
+        ...(resourceData.approval_config !== undefined && {
+          approval_config: resourceData.approval_config || {}
+        }),
+        ...(resourceData.booking_config !== undefined && {
+          booking_config: resourceData.booking_config || {}
+        }),
+        ...(resourceData.reminder_config !== undefined && {
+          reminder_config: resourceData.reminder_config || {}
         }),
         updated_by: userId,
         updated_at: new Date().toISOString()

@@ -56,8 +56,9 @@ import { useProfilesForSelection } from '@/hooks/organization/use-profiles';
 import { SubCategoryService } from '@/lib/services/resource-management/sub-category-service';
 import { ResourceService } from '@/lib/services/resource-management/resource-service';
 import { generateResourceCode, isValidResourceCode } from '@/lib/utils/resource-id-generator';
-import { Loader2, Upload, Trash2, Eye, RefreshCw } from 'lucide-react';
+import { Loader2, Upload, Trash2, Eye, RefreshCw, Search } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { ApproverSelector } from './approver-selector';
 import Image from 'next/image';
 import { DateAvailabilityConfigComponent } from './date-availability-config';
 import { TimeSlotConfigComponent } from './time-slot-config';
@@ -171,6 +172,9 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
   const customAttributes = form.watch('custom_attributes') || {};
   const imageUrls = form.watch('image_urls') || [];
 
+  // Caretaker search state (must be at component level, not inside render prop)
+  const [caretakerSearch, setCaretakerSearch] = useState('');
+
   const { institutions: accessibleInstitutions } = useUserInstitutionAccess();
   const institutionId = accessibleInstitutions[0]?.institution_id;
   const { institutions, loading: loadingInstitutions } =
@@ -193,7 +197,8 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
     isActive: true
   });
 
-  // Fetch profiles (users) for caretaker selection - supports ALL roles (not just staff)
+  // Fetch profiles (staff only) for caretaker selection - excludes students/guests
+  // Only staff-type roles should be responsible persons for resources
   const {
     data: profiles = [],
     isLoading: loadingProfiles,
@@ -204,8 +209,26 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
           institution_id: selectedInstitutionId,
           department_id: selectedDepartmentId || undefined,
           is_active: true,
-          // Optional: Uncomment to limit to specific roles
-          // roles: ['faculty', 'hod', 'admin', 'librarian']
+          // Exclude students (4918) and guests (219) — not valid caretakers
+          // All other roles: faculty, hod, super_admin, accounts, administrator,
+          // admission, coe, coe_office, principal, counselor, staff, admin,
+          // digital_coordinator, driver
+          roles: [
+            'faculty',
+            'hod',
+            'super_admin',
+            'accounts',
+            'administrator',
+            'admission',
+            'coe',
+            'coe_office',
+            'principal',
+            'counselor',
+            'staff',
+            'admin',
+            'digital_coordinator',
+            'driver'
+          ]
         }
       : { institution_id: '' } // Won't fetch due to enabled check in hook
   );
@@ -844,88 +867,124 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
             <FormField
               control={form.control}
               name='caretaker_user_ids'
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Caretaker / Responsible Person(s)</FormLabel>
-                  <div className='rounded-lg border p-4'>
-                    <div className='space-y-2 max-h-60 overflow-y-auto'>
-                      {!selectedInstitutionId ? (
-                        <p className='text-sm text-muted-foreground'>
-                          Please select an institution first
-                        </p>
-                      ) : loadingProfiles ? (
-                        <p className='text-sm text-muted-foreground'>
-                          Loading users...
-                        </p>
-                      ) : profiles.length === 0 ? (
-                        <p className='text-sm text-muted-foreground'>
-                          No users found for the selected institution
-                          {selectedDepartmentId && '/department'}
-                        </p>
-                      ) : (
-                        profiles.map((profile) => {
-                          // Skip if id is missing
-                          if (!profile.id) return null;
+              render={({ field }) => {
+                const filteredProfiles = caretakerSearch
+                  ? profiles.filter((p) => {
+                      const query = caretakerSearch.toLowerCase();
+                      return (
+                        p.full_name?.toLowerCase().includes(query) ||
+                        p.email?.toLowerCase().includes(query) ||
+                        p.role?.toLowerCase().includes(query) ||
+                        p.designation?.toLowerCase().includes(query)
+                      );
+                    })
+                  : profiles;
+                const selectedCount = field.value?.length || 0;
 
-                          return (
-                            <div
-                              key={profile.id}
-                              className='flex items-center space-x-2'
-                            >
-                              <Checkbox
-                                id={`caretaker-${profile.id}`}
-                                checked={field.value?.includes(profile.id) || false}
-                                disabled={!selectedInstitutionId}
-                                onCheckedChange={(checked) => {
-                                  // Double-check institution is selected
-                                  if (!selectedInstitutionId) {
-                                    toast.error(
-                                      'Please select an institution first'
-                                    );
-                                    return;
-                                  }
-
-                                  if (!profile.id) {
-                                    toast.error('Invalid user');
-                                    return;
-                                  }
-
-                                  const currentValue = field.value || [];
-                                  if (checked) {
-                                    field.onChange([...currentValue, profile.id]);
-                                  } else {
-                                    field.onChange(
-                                      currentValue.filter(
-                                        (id: string) => id !== profile.id
-                                      )
-                                    );
-                                  }
-                                }}
-                              />
-                              <Label
-                                htmlFor={`caretaker-${profile.id}`}
-                                className='text-sm font-normal cursor-pointer'
-                              >
-                                {profile.full_name}
-                                {profile.role && ` (${profile.role})`}
-                                {profile.designation && ` - ${profile.designation}`}
-                              </Label>
-                            </div>
-                          );
-                        })
+                return (
+                  <FormItem>
+                    <FormLabel>Caretaker / Responsible Person(s)</FormLabel>
+                    <div className='rounded-lg border p-4 space-y-3'>
+                      {/* Search input */}
+                      {selectedInstitutionId && profiles.length > 0 && (
+                        <div className='relative'>
+                          <Search className='absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground' />
+                          <Input
+                            placeholder='Search by name, email, role, or designation...'
+                            value={caretakerSearch}
+                            onChange={(e) => setCaretakerSearch(e.target.value)}
+                            className='pl-9 h-9'
+                          />
+                          {selectedCount > 0 && (
+                            <Badge variant='secondary' className='absolute right-2 top-1.5 text-xs'>
+                              {selectedCount} selected
+                            </Badge>
+                          )}
+                        </div>
                       )}
+
+                      {/* User list - fixed height to prevent layout shifts */}
+                      <div className='space-y-2 h-60 overflow-y-scroll overscroll-contain'>
+                        {!selectedInstitutionId ? (
+                          <p className='text-sm text-muted-foreground py-4 text-center'>
+                            Please select an institution first
+                          </p>
+                        ) : loadingProfiles ? (
+                          <p className='text-sm text-muted-foreground py-4 text-center'>
+                            Loading users...
+                          </p>
+                        ) : profiles.length === 0 ? (
+                          <p className='text-sm text-muted-foreground py-4 text-center'>
+                            No users found for the selected institution
+                            {selectedDepartmentId && '/department'}
+                          </p>
+                        ) : filteredProfiles.length === 0 ? (
+                          <p className='text-sm text-muted-foreground py-4 text-center'>
+                            No users matching &quot;{caretakerSearch}&quot;
+                          </p>
+                        ) : (
+                          filteredProfiles.map((profile) => {
+                            if (!profile.id) return null;
+
+                            return (
+                              <div
+                                key={profile.id}
+                                className='flex items-center space-x-2'
+                              >
+                                <Checkbox
+                                  id={`caretaker-${profile.id}`}
+                                  checked={field.value?.includes(profile.id) || false}
+                                  disabled={!selectedInstitutionId}
+                                  onCheckedChange={(checked) => {
+                                    if (!selectedInstitutionId) {
+                                      toast.error(
+                                        'Please select an institution first'
+                                      );
+                                      return;
+                                    }
+
+                                    if (!profile.id) {
+                                      toast.error('Invalid user');
+                                      return;
+                                    }
+
+                                    const currentValue = field.value || [];
+                                    if (checked) {
+                                      field.onChange([...currentValue, profile.id]);
+                                    } else {
+                                      field.onChange(
+                                        currentValue.filter(
+                                          (id: string) => id !== profile.id
+                                        )
+                                      );
+                                    }
+                                  }}
+                                />
+                                <Label
+                                  htmlFor={`caretaker-${profile.id}`}
+                                  className='text-sm font-normal cursor-pointer'
+                                >
+                                  {profile.full_name}
+                                  {profile.role && ` (${profile.role})`}
+                                  {profile.designation && ` - ${profile.designation}`}
+                                </Label>
+                              </div>
+                            );
+                          })
+                        )}
+                      </div>
                     </div>
-                  </div>
-                  <FormDescription>
-                    {!selectedInstitutionId
-                      ? 'Select an institution to view available users'
-                      : selectedDepartmentId
-                      ? 'Showing users from selected department. Select one or more responsible persons.'
-                      : 'Showing all users from selected institution. Select one or more responsible persons.'}
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
+                    <FormDescription>
+                      {!selectedInstitutionId
+                        ? 'Select an institution to view available users'
+                        : selectedDepartmentId
+                        ? 'Showing users from selected department. Select one or more responsible persons.'
+                        : 'Showing all users from selected institution. Select one or more responsible persons.'}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                );
+              }}
             />
           </CardContent>
         </Card>
@@ -1606,94 +1665,46 @@ export function ResourceForm({ resource, mode }: ResourceFormProps) {
                           </Button>
                         </div>
 
-                        <div className='grid gap-4 md:grid-cols-2'>
-                          {/* Role or User Selection */}
-                          <div className='space-y-2'>
-                            <Label>Select by Role</Label>
-                            <Select
-                              value={approver.role_key || 'none'}
-                              onValueChange={(value) => {
-                                const updated = approvalConfig.approvers?.map(
-                                  (a) =>
-                                    a.id === approver.id
-                                      ? {
-                                          ...a,
-                                          role_key:
-                                            value === 'none'
-                                              ? undefined
-                                              : value,
-                                          user_id: undefined // Clear user if role selected
-                                        }
-                                      : a
-                                );
-                                updateApprovalConfig(
-                                  'approvers',
-                                  updated || []
-                                );
-                              }}
-                            >
-                              <SelectTrigger>
-                                <SelectValue placeholder='Select role' />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value='none'>
-                                  None (Select User Instead)
-                                </SelectItem>
-                                {customRoles.map((role: any) => (
-                                  <SelectItem
-                                    key={role.id}
-                                    value={role.role_key}
-                                  >
-                                    {role.role_name}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
-
-                          <div className='space-y-2'>
-                            <Label>Or Select Specific User</Label>
-                            <Select
-                              value={approver.user_id || 'none'}
-                              disabled={!!approver.role_key}
-                              onValueChange={(value) => {
-                                const updated = approvalConfig.approvers?.map(
-                                  (a) =>
-                                    a.id === approver.id
-                                      ? {
-                                          ...a,
-                                          user_id:
-                                            value === 'none' ? undefined : value
-                                        }
-                                      : a
-                                );
-                                updateApprovalConfig(
-                                  'approvers',
-                                  updated || []
-                                );
-                              }}
-                            >
-                              <SelectTrigger>
-                                <SelectValue placeholder='Select user' />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value='none'>
-                                  None (Use Role)
-                                </SelectItem>
-                                {profiles.map((profile) => {
-                                  if (!profile.id) return null;
-                                  return (
-                                    <SelectItem key={profile.id} value={profile.id}>
-                                      {profile.full_name}
-                                      {profile.role && ` (${profile.role})`}
-                                      {profile.designation && ` - ${profile.designation}`}
-                                    </SelectItem>
-                                  );
-                                })}
-                              </SelectContent>
-                            </Select>
-                          </div>
-                        </div>
+                        {/* Approver Selection - Role filter + searchable user picker */}
+                        <ApproverSelector
+                          selectedUserId={approver.user_id}
+                          selectedRoleKey={approver.role_key}
+                          institutions={institutions}
+                          customRoles={customRoles}
+                          accessibleInstitutionIds={institutions.map((i: any) => i.id)}
+                          onUserSelect={(userId, roleKey) => {
+                            const updated = approvalConfig.approvers?.map(
+                              (a) =>
+                                a.id === approver.id
+                                  ? {
+                                      ...a,
+                                      user_id: userId,
+                                      role_key: roleKey
+                                    }
+                                  : a
+                            );
+                            updateApprovalConfig(
+                              'approvers',
+                              updated || []
+                            );
+                          }}
+                          onClear={() => {
+                            const updated = approvalConfig.approvers?.map(
+                              (a) =>
+                                a.id === approver.id
+                                  ? {
+                                      ...a,
+                                      user_id: undefined,
+                                      role_key: undefined
+                                    }
+                                  : a
+                            );
+                            updateApprovalConfig(
+                              'approvers',
+                              updated || []
+                            );
+                          }}
+                        />
 
                         <div className='flex items-center gap-4'>
                           <div className='flex items-center space-x-2'>
