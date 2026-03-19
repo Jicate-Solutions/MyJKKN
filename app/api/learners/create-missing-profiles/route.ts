@@ -228,11 +228,11 @@ export async function POST(request: Request) {
           throw new Error(`Profile ID not found for ${learner.college_email}`);
         }
 
-        // Build update object
-        // Only include learner_id if it's different from what's already set,
-        // otherwise the partial unique index (idx_profiles_learner_id_unique)
-        // will throw a duplicate key error even when updating the same row.
-        const existingProfile = profilesByEmail.get(learner.college_email.toLowerCase());
+        // Build update object — NEVER re-set learner_id if already correct,
+        // as the partial unique index will reject the update even for same-value writes.
+        const matchedProfile = profilesByEmail.get(learner.college_email.toLowerCase());
+        const learnerIdAlreadyCorrect = matchedProfile?.learner_id === learner.id;
+
         const updateData: Record<string, any> = {
           role: 'student',
           institution_id: learner.institution_id,
@@ -243,7 +243,9 @@ export async function POST(request: Request) {
           is_active: true,
           updated_at: new Date().toISOString()
         };
-        if (existingProfile?.learner_id !== learner.id) {
+
+        // Only set learner_id when it's missing or different
+        if (!learnerIdAlreadyCorrect) {
           updateData.learner_id = learner.id;
         }
 
@@ -252,17 +254,39 @@ export async function POST(request: Request) {
           if (updateData[key] === undefined) delete updateData[key];
         });
 
+        console.log(`[learner-sync] Updating ${learner.college_email}: learner_id_included=${!learnerIdAlreadyCorrect}, fields=${Object.keys(updateData).join(',')}`);
+
         const { error: updateError } = await supabaseAdmin
           .from('profiles')
           .update(updateData)
           .eq('id', profileId);
 
         if (updateError) {
-          console.error(
-            `[learner-sync] Profile update error for ${learner.college_email}:`,
-            updateError
-          );
-          throw updateError;
+          // If we hit a duplicate learner_id error, retry without learner_id
+          if (updateError.code === '23505' && updateError.message?.includes('learner_id')) {
+            console.warn(
+              `[learner-sync] Retrying update without learner_id for ${learner.college_email}`
+            );
+            delete updateData.learner_id;
+            const { error: retryError } = await supabaseAdmin
+              .from('profiles')
+              .update(updateData)
+              .eq('id', profileId);
+
+            if (retryError) {
+              console.error(
+                `[learner-sync] Retry also failed for ${learner.college_email}:`,
+                retryError
+              );
+              throw retryError;
+            }
+          } else {
+            console.error(
+              `[learner-sync] Profile update error for ${learner.college_email}:`,
+              updateError
+            );
+            throw updateError;
+          }
         }
 
         updatedCount++;
