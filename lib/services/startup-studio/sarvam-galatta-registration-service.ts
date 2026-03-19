@@ -97,7 +97,11 @@ export class SarvamGalattaRegistrationService {
           team_name,
           team_code,
           status
-        )
+        ),
+        institutions:snap_institution_id ( name ),
+        departments:snap_department_id ( department_name ),
+        programs:snap_program_id ( program_name ),
+        semesters:snap_semester_id ( semester_name )
       `)
       .eq('event_id', SARVAM_GALATTA_EVENT_ID)
       .maybeSingle();
@@ -112,6 +116,10 @@ export class SarvamGalattaRegistrationService {
       team_name: er?.team_name,
       team_code: er?.team_code,
       status: er?.status,
+      institution_name: data.institutions?.name ?? null,
+      department_name: data.departments?.department_name ?? null,
+      program_name: data.programs?.program_name ?? null,
+      semester_name: data.semesters?.semester_name ?? null,
     };
   }
 
