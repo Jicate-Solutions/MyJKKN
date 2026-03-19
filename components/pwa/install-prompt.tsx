@@ -11,6 +11,7 @@ interface BeforeInstallPromptEvent extends Event {
 
 const INSTALL_DISMISSED_KEY = 'pwa-install-dismissed-until';
 const INSTALL_COMPLETED_KEY = 'pwa-install-completed';
+const SHOWN_THIS_SESSION_KEY = 'pwa-install-shown';
 const DISMISS_DURATION_DAYS = 7;
 const AUTO_CLOSE_MS = 5000; // Auto-close after 5 seconds
 
@@ -31,6 +32,9 @@ export function InstallPrompt() {
     const dismissedUntil = localStorage.getItem(INSTALL_DISMISSED_KEY);
     const isDismissed =
       dismissedUntil && new Date() < new Date(dismissedUntil);
+
+    const shownThisSession =
+      sessionStorage.getItem(SHOWN_THIS_SESSION_KEY) === 'true';
 
     if (isStandalone || installCompleted) {
       setIsInstalled(true);
@@ -55,9 +59,10 @@ export function InstallPrompt() {
       e.preventDefault();
       setDeferredPrompt(e as BeforeInstallPromptEvent);
 
-      if (!isDismissed) {
+      if (!isDismissed && !shownThisSession) {
         setTimeout(() => {
           setShowPrompt(true);
+          sessionStorage.setItem(SHOWN_THIS_SESSION_KEY, 'true');
         }, 10000);
       }
     };
