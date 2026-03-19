@@ -69,9 +69,9 @@ export function getSarvamGalattaColumns(
   return [
     // ── Student ──────────────────────────────────────────────────
     {
-      id: 'student',
+      id: 'learner',
       accessorFn: (row) => `${row.snap_first_name} ${row.snap_last_name ?? ''}`.trim(),
-      header: 'Student',
+      header: 'Learner',
       enableHiding: false,
       cell: ({ row }) => {
         const r = row.original;
