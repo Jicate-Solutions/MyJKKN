@@ -1017,8 +1017,12 @@ export class LeaveOndutyService {
       periodType,
     });
 
-    // Get active timetable for section AND semester (use maybeSingle to handle 0 rows gracefully)
-    const { data: timetable, error: timetableError } = await supabase
+    // Get active timetable: try section-specific first, fall back to semester-only
+    let timetable: any = null;
+    let timetableError: any = null;
+
+    // Try section + semester match first
+    const { data: sectionTimetable, error: sectionErr } = await supabase
       .from('timetables')
       .select('*')
       .eq('section_id', sectionId)
@@ -1027,6 +1031,24 @@ export class LeaveOndutyService {
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle();
+
+    if (sectionTimetable) {
+      timetable = sectionTimetable;
+    } else {
+      // Fallback: semester-only match (section_id is null on many timetables)
+      const { data: semesterTimetable, error: semesterErr } = await supabase
+        .from('timetables')
+        .select('*')
+        .is('section_id', null)
+        .eq('semester_id', semesterId)
+        .eq('is_active', true)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      timetable = semesterTimetable;
+      timetableError = sectionErr || semesterErr;
+    }
 
     console.log('[LeaveOndutyService.getPeriodsForDate] Timetable query result:', {
       timetable: timetable ? { id: timetable.id, section_id: timetable.section_id, semester_id: timetable.semester_id, is_active: timetable.is_active } : null,
@@ -1261,7 +1283,8 @@ export class LeaveOndutyService {
   ): Promise<ValidationResult> {
     const supabase = getSupabase();
 
-    const { data: timetable, error } = await supabase
+    // Try section-specific timetable first, fall back to semester-only
+    const { data: sectionTt, error: sectionErr } = await supabase
       .from('timetables')
       .select('id, timetable_data')
       .eq('section_id', sectionId)
@@ -1271,11 +1294,27 @@ export class LeaveOndutyService {
       .limit(1)
       .maybeSingle();
 
-    if (error) {
-      return {
-        valid: false,
-        error: 'Failed to verify timetable. Please try again.',
-      };
+    let timetable = sectionTt;
+
+    if (!timetable) {
+      const { data: semesterTt, error: semesterErr } = await supabase
+        .from('timetables')
+        .select('id, timetable_data')
+        .is('section_id', null)
+        .eq('semester_id', semesterId)
+        .eq('is_active', true)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      timetable = semesterTt;
+
+      if (sectionErr || semesterErr) {
+        return {
+          valid: false,
+          error: 'Failed to verify timetable. Please try again.',
+        };
+      }
     }
 
     if (!timetable) {
@@ -1682,22 +1721,44 @@ export class LeaveOndutyService {
     });
 
     // Get timetable to map period IDs to slot IDs
+    // Try section-specific first, then fall back to semester-only (section_id is null on many timetables)
     console.log('[attendance-integration] Fetching timetable for section:', application.section_id);
 
-    // Note: Use limit(1).single() instead of maybeSingle() because there might be multiple active timetables
-    // We'll use the most recent one
-    const { data: timetable, error: timetableError } = await supabase
+    let timetable: any = null;
+
+    // Try section-specific match
+    const { data: sectionTt } = await supabase
       .from('timetables')
       .select('timetable_data')
       .eq('section_id', application.section_id)
       .eq('is_active', true)
       .order('created_at', { ascending: false })
       .limit(1)
-      .single();
+      .maybeSingle();
 
-    if (timetableError) {
-      console.error('[attendance-integration] Error fetching timetable:', timetableError);
-      return;
+    if (sectionTt) {
+      timetable = sectionTt;
+    } else {
+      // Fallback: find timetable by semester via the section's semester_id
+      const { data: section } = await supabase
+        .from('sections')
+        .select('semester_id')
+        .eq('id', application.section_id)
+        .single();
+
+      if (section?.semester_id) {
+        const { data: semesterTt } = await supabase
+          .from('timetables')
+          .select('timetable_data')
+          .is('section_id', null)
+          .eq('semester_id', section.semester_id)
+          .eq('is_active', true)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        timetable = semesterTt;
+      }
     }
 
     console.log('[attendance-integration] Timetable result:', {
