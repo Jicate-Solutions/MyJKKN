@@ -89,7 +89,6 @@ const FIELD_ICONS: Record<string, React.ReactNode> = {
   rocket:   <Rocket   className="h-3.5 w-3.5 text-emerald-600" />,
   sparkles: <Sparkles className="h-3.5 w-3.5 text-amber-500" />,
   map_pin:  <MapPin   className="h-3.5 w-3.5 text-red-500" />,
-  key:      <Key      className="h-3.5 w-3.5 text-blue-600" />,
   database: <Database className="h-3.5 w-3.5 text-violet-600" />,
 };
 
