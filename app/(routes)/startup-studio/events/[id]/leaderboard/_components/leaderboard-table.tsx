@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -105,11 +105,14 @@ export function LeaderboardTable({
     isLoading,
   };
 
-  // Global search handler
-  const handleSearch = (query: string) => {
+  // Global search handler — wrapped in useCallback so the reference stays stable
+  // across re-renders. Without this, the DataTable's debounced-search useEffect
+  // sees a new onSearch reference on every render and fires setPage(1) after 500ms,
+  // silently resetting any page navigation.
+  const handleSearch = useCallback((query: string) => {
     setSearch(query);
     setPage(1);
-  };
+  }, []); // useState setters are always stable — no deps needed
 
   if (isLoading && entries.length === 0) {
     return (
