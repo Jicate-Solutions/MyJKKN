@@ -77,13 +77,13 @@ export function getSarvamGalattaColumns(
         const r = row.original;
         const name = `${r.snap_first_name} ${r.snap_last_name ?? ''}`.trim();
         return (
-          <div className="min-w-[140px]">
-            <p className="font-medium text-sm">{name}</p>
+          <div
+            className="min-w-[140px] cursor-pointer"
+            onClick={() => onViewDetails(r)}
+          >
+            <p className="font-medium text-sm text-primary hover:underline">{name}</p>
             {r.owner_email && (
               <p className="text-xs text-muted-foreground">{r.owner_email}</p>
-            )}
-            {r.team_name && (
-              <p className="text-xs text-muted-foreground italic">{r.team_name}</p>
             )}
           </div>
         );
@@ -229,7 +229,7 @@ export function getSarvamGalattaColumns(
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
-                className="gap-2 text-destructive focus:text-destructive"
+                className="gap-2 text-destructive dark:text-red-400 focus:text-destructive dark:focus:text-red-400"
                 disabled={status === 'rejected' || approvePending}
                 onClick={() => onApprove(r.id, 'rejected')}
               >
