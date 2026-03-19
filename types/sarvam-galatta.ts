@@ -84,8 +84,8 @@ export interface SarvamGalattaRegistrationDto {
   project_url?: string;
   github_url?: string;
   supabase_project_url?: string;
-  /** Required — validated at app layer */
-  gemini_api_key: string;
+  /** No longer collected at registration — students get key from Google AI Studio */
+  gemini_api_key?: string;
   /** Optional */
   google_maps_api_key?: string;
 }

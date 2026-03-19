@@ -73,7 +73,7 @@ export default function RegisterPage({ params }: { params: Promise<{ id: string 
 
       {/* Individual registration events use a config-driven dynamic form */}
       {(['individual', 'sarvam_galatta'] as string[]).includes((event.config as any)?.registration_type) ? (
-        <div className="mt-4 max-w-2xl space-y-4">
+        <div className="mt-4 space-y-4">
           <div>
             <h1 className="py-1 text-2xl font-bold">Register for {event.name}</h1>
             <p className="text-sm text-muted-foreground">

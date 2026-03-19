@@ -13,8 +13,8 @@ import {
   Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription,
 } from '@/components/ui/form';
 import {
-  AlertCircle, CheckCircle2, Clock, Database, Eye, EyeOff, Github,
-  Key, Loader2, MapPin, Rocket, Sparkles, User,
+  AlertCircle, CheckCircle2, Clock, Database, ExternalLink, Eye, EyeOff, Github,
+  Loader2, MapPin, Rocket, Sparkles, User,
 } from 'lucide-react';
 import { useStudentAutoFill, useRegisterSarvamGalatta } from '@/hooks/startup-studio/use-sarvam-galatta';
 import type { StartupEvent } from '@/types/startup-studio';
@@ -52,17 +52,31 @@ const DEFAULT_FIELDS: IndividualRegistrationField[] = [
     description: 'Your Supabase project REST API base URL',
     icon: 'database', validation: { must_contain: 'supabase.co' }, section: 'links',
   },
+];
+
+// ---------------------------------------------------------------
+// Static API resource links — shown below the form fields
+// Informs students which APIs to use and where to get keys
+// ---------------------------------------------------------------
+
+const API_RESOURCES = [
   {
-    key: 'gemini_api_key', label: 'Google Gemini API Key', type: 'password', required: true,
-    placeholder: 'AIza••••••••••••••••••••••••••••••••••••••',
-    description: 'Required. Your project must use Google Gemini API.',
-    icon: 'sparkles', validation: { min_length: 10 }, section: 'keys',
+    icon: <Sparkles className="h-4 w-4 text-amber-500" />,
+    name: 'Google Gemini API',
+    description: 'Required — your project must integrate Gemini AI',
+    badge: 'Required',
+    badgeClass: 'border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/20 dark:text-amber-300',
+    url: 'https://aistudio.google.com/app/apikey',
+    urlLabel: 'Get API Key at Google AI Studio',
   },
   {
-    key: 'google_maps_api_key', label: 'Google Maps API Key', type: 'password', required: false,
-    placeholder: 'AIza••••••••••••••••••••••••••••••••••••••',
-    description: 'Only required if your project uses Google Maps',
-    icon: 'map_pin', section: 'keys',
+    icon: <MapPin className="h-4 w-4 text-red-500" />,
+    name: 'Google Maps API',
+    description: 'Optional — only if your project uses maps or location',
+    badge: 'Optional',
+    badgeClass: 'border-muted text-muted-foreground',
+    url: 'https://console.cloud.google.com/apis/library/maps-backend.googleapis.com',
+    urlLabel: 'Enable Maps API in Google Cloud Console',
   },
 ];
 
@@ -101,7 +115,7 @@ const SECTION_META: Record<string, {
   keys: {
     title: 'API Keys',
     description: 'Required for project verification. Keys are stored securely.',
-    icon: <Key className="h-4 w-4 text-blue-600" />,
+    icon: <Sparkles className="h-4 w-4 text-amber-500" />,
     className: 'border-blue-200 dark:border-blue-900',
   },
 };
@@ -379,6 +393,47 @@ function SarvamGalattaFormInner({ event, autoFill, fields }: InnerProps) {
             </Card>
           );
         })}
+
+        {/* API Resources — informational, not inputs */}
+        <Card className="border-amber-200 dark:border-amber-900">
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Sparkles className="h-4 w-4 text-amber-500" />
+              APIs Required for Your Project
+            </CardTitle>
+            <CardDescription className="text-xs">
+              You must use these APIs when building your application. Click the links below to get your keys.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {API_RESOURCES.map((api, idx) => (
+              <div key={api.name}>
+                {idx > 0 && <Separator className="mb-4" />}
+                <div className="flex items-start gap-3">
+                  <div className="mt-0.5 p-2 rounded-md bg-muted/50 shrink-0">{api.icon}</div>
+                  <div className="flex-1 min-w-0 space-y-1.5">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="text-sm font-medium">{api.name}</p>
+                      <Badge variant="outline" className={`text-xs ${api.badgeClass}`}>
+                        {api.badge}
+                      </Badge>
+                    </div>
+                    <p className="text-xs text-muted-foreground">{api.description}</p>
+                    <a
+                      href={api.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline"
+                    >
+                      <ExternalLink className="h-3 w-3" />
+                      {api.urlLabel}
+                    </a>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
 
         {/* Submit */}
         <Button type="submit" className="w-full" disabled={register.isPending} size="lg">

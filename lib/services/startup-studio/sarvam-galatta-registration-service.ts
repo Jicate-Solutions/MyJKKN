@@ -230,7 +230,7 @@ export class SarvamGalattaRegistrationService {
         project_url: dto.project_url ?? null,
         github_url: dto.github_url ?? null,
         supabase_project_url: dto.supabase_project_url ?? null,
-        gemini_api_key: dto.gemini_api_key,
+        gemini_api_key: dto.gemini_api_key ?? null,
         google_maps_api_key: dto.google_maps_api_key ?? null,
         submitted_at: now,
         last_edited_at: now,

@@ -2594,8 +2594,9 @@ CREATE TABLE IF NOT EXISTS public.sarvam_galatta_registrations (
   github_url            TEXT,
   supabase_project_url  TEXT,
 
-  -- API credentials (plaintext MVP — Phase 2 adds pgcrypto encryption)
-  gemini_api_key        TEXT NOT NULL,
+  -- API credentials — nullable (not collected at registration; students
+  -- use links provided on the form to obtain keys independently)
+  gemini_api_key        TEXT,
   google_maps_api_key   TEXT,
 
   -- Edit tracking
