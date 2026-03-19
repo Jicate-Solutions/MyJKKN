@@ -1,39 +1,28 @@
 'use client';
 
-import { useState } from 'react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { useCallback, useMemo, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { DataTable } from '@/components/ui/data-table';
 import {
-  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
-} from '@/components/ui/table';
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from '@/components/ui/select';
-import {
-  Building2, CheckCircle2, ChevronDown, ExternalLink, Github, Key, Loader2,
-  MapPin, RotateCw, Search, ShieldCheck, ShieldX, Sparkles, Users,
+  Building2, MapPin, RotateCw, Sparkles, Users,
 } from 'lucide-react';
 import {
-  DropdownMenu, DropdownMenuContent, DropdownMenuItem,
-  DropdownMenuSeparator, DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
-import { useAllRegistrations, useSarvamGalattaStats, useSetApprovalStatus } from '@/hooks/startup-studio/use-sarvam-galatta';
+  useAllRegistrations,
+  useSarvamGalattaStats,
+  useSetApprovalStatus,
+} from '@/hooks/startup-studio/use-sarvam-galatta';
 import type { SarvamGalattaRegistration } from '@/types/sarvam-galatta';
+import { getSarvamGalattaColumns } from './sarvam-galatta-columns';
 import { RegistrationDetailSheet } from './registration-detail-sheet';
 
-// ---------------------------------------------------------------
-// KPI stat card
-// ---------------------------------------------------------------
+// ── KPI stat card ────────────────────────────────────────────────
 
 function StatCard({
   icon, label, value, sub,
 }: {
-  icon: React.ReactNode;
-  label: string;
-  value: number | string;
-  sub?: string;
+  icon: React.ReactNode; label: string; value: number | string; sub?: string;
 }) {
   return (
     <Card>
@@ -51,82 +40,31 @@ function StatCard({
   );
 }
 
-// ---------------------------------------------------------------
-// Approval status badge
-// ---------------------------------------------------------------
-
-function ApprovalBadge({ status }: { status: 'waitlisted' | 'shortlisted' | 'rejected' }) {
-  if (status === 'shortlisted') {
-    return (
-      <Badge variant="outline" className="gap-1 border-green-300 bg-green-50 text-green-700 dark:border-green-800 dark:bg-green-950/20 dark:text-green-400 text-xs whitespace-nowrap">
-        <ShieldCheck className="h-3 w-3" /> Shortlisted
-      </Badge>
-    );
-  }
-  if (status === 'rejected') {
-    return (
-      <Badge variant="outline" className="gap-1 border-red-300 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950/20 dark:text-red-400 text-xs whitespace-nowrap">
-        <ShieldX className="h-3 w-3" /> Rejected
-      </Badge>
-    );
-  }
-  return (
-    <Badge variant="outline" className="gap-1 border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/20 dark:text-amber-400 text-xs whitespace-nowrap">
-      <Loader2 className="h-3 w-3" /> Waitlisted
-    </Badge>
-  );
-}
-
-// ---------------------------------------------------------------
-// API key checkbox display (admin sees tick, never the key value)
-// ---------------------------------------------------------------
-
-function KeyBadge({ provided }: { provided: boolean }) {
-  return provided ? (
-    <Badge variant="outline" className="gap-1 border-green-300 bg-green-50 text-green-700 dark:border-green-800 dark:bg-green-950/20 dark:text-green-400 text-xs">
-      <CheckCircle2 className="h-3 w-3" /> Yes
-    </Badge>
-  ) : (
-    <Badge variant="outline" className="text-muted-foreground text-xs">—</Badge>
-  );
-}
-
-// ---------------------------------------------------------------
-// Row detail
-// ---------------------------------------------------------------
-
-function LinkCell({ url }: { url: string | null }) {
-  if (!url) return <span className="text-xs text-muted-foreground">—</span>;
-  return (
-    <a
-      href={url}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
-    >
-      View <ExternalLink className="h-3 w-3" />
-    </a>
-  );
-}
-
-// ---------------------------------------------------------------
-// Main component
-// ---------------------------------------------------------------
+// ── main component ───────────────────────────────────────────────
 
 interface SarvamGalattaTableProps {
   eventId: string;
 }
 
 export function SarvamGalattaTable({ eventId }: SarvamGalattaTableProps) {
-  const [search, setSearch] = useState('');
-  const [institutionFilter, setInstitutionFilter] = useState<string>('');
-  const [page, setPage] = useState(1);
-  const [detailRow, setDetailRow] = useState<SarvamGalattaRegistration | null>(null);
   const LIMIT = 25;
 
+  // Filters & pagination state
+  const [search, setSearch] = useState('');
+  const [institutionFilter, setInstitutionFilter] = useState('');
+  const [page, setPage] = useState(1);
+
+  // Detail sheet
+  const [detailRow, setDetailRow] = useState<SarvamGalattaRegistration | null>(null);
+
+  // Data hooks
   const { data: stats, isPending: statsPending } = useSarvamGalattaStats();
   const approvalMutation = useSetApprovalStatus();
-  const { data: result, isPending: tablePending, refetch } = useAllRegistrations({
+  const {
+    data: result,
+    isPending: tablePending,
+    refetch,
+  } = useAllRegistrations({
     search: search || undefined,
     institution_id: institutionFilter || undefined,
     page,
@@ -137,10 +75,70 @@ export function SarvamGalattaTable({ eventId }: SarvamGalattaTableProps) {
   const total = result?.total ?? 0;
   const totalPages = Math.ceil(total / LIMIT);
 
+  // Stable search callback — prevents DataTable's useEffect resetting page
+  const handleSearch = useCallback((query: string) => {
+    setSearch(query);
+    setPage(1);
+  }, []);
+
+  const handleApprove = useCallback(
+    (id: string, status: 'shortlisted' | 'rejected') => {
+      approvalMutation.mutate({ sarvamGalattaId: id, status });
+    },
+    [approvalMutation],
+  );
+
+  // Columns — recreated only when callbacks change (which is never)
+  const columns = useMemo(
+    () =>
+      getSarvamGalattaColumns({
+        onViewDetails: setDetailRow,
+        onApprove: handleApprove,
+        approvePending: approvalMutation.isPending,
+      }),
+    [handleApprove, approvalMutation.isPending],
+  );
+
+  // Institution filter badges — shown as toolbar tools
+  const institutionTools = useMemo(() => {
+    if (statsPending || !stats?.by_institution.length) return null;
+    return (
+      <div className="flex flex-wrap items-center gap-2">
+        {stats.by_institution.map((inst) => (
+          <Badge
+            key={inst.institution_id}
+            variant={institutionFilter === inst.institution_id ? 'default' : 'secondary'}
+            className="cursor-pointer gap-1"
+            onClick={() =>
+              setInstitutionFilter(
+                institutionFilter === inst.institution_id ? '' : inst.institution_id,
+              )
+            }
+          >
+            {inst.institution_name}
+            <span className="ml-1 rounded-full bg-background/60 px-1.5 py-0.5 text-xs font-semibold">
+              {inst.count}
+            </span>
+          </Badge>
+        ))}
+        {institutionFilter && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 text-xs"
+            onClick={() => { setInstitutionFilter(''); setPage(1); }}
+          >
+            Clear
+          </Button>
+        )}
+      </div>
+    );
+  }, [stats, statsPending, institutionFilter]);
+
   return (
     <div className="space-y-6">
 
-      {/* Stats */}
+      {/* KPI stats */}
       {!statsPending && stats && (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <StatCard
@@ -169,225 +167,48 @@ export function SarvamGalattaTable({ eventId }: SarvamGalattaTableProps) {
         </div>
       )}
 
-      {/* Institution breakdown */}
-      {!statsPending && stats && stats.by_institution.length > 0 && (
+      {/* Institution filter strip */}
+      {institutionTools && (
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Registrations by Institution</CardTitle>
+            <CardTitle className="text-sm">Filter by Institution</CardTitle>
           </CardHeader>
-          <CardContent>
-            <div className="flex flex-wrap gap-2">
-              {stats.by_institution.map((inst) => (
-                <Badge
-                  key={inst.institution_id}
-                  variant="secondary"
-                  className="gap-1 cursor-pointer"
-                  onClick={() =>
-                    setInstitutionFilter(
-                      institutionFilter === inst.institution_id ? '' : inst.institution_id
-                    )
-                  }
-                >
-                  {inst.institution_name}
-                  <span className="ml-1 rounded-full bg-background/60 px-1.5 py-0.5 text-xs font-semibold">
-                    {inst.count}
-                  </span>
-                </Badge>
-              ))}
-            </div>
-          </CardContent>
+          <CardContent>{institutionTools}</CardContent>
         </Card>
       )}
 
-      {/* Search + filters */}
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="relative flex-1 min-w-[200px]">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            placeholder="Search by name or URL…"
-            value={search}
-            onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-            className="pl-9"
-          />
-        </div>
-        <Button
-          variant="outline"
-          size="sm"
-          className="gap-1.5"
-          onClick={() => refetch()}
-        >
-          <RotateCw className="h-3.5 w-3.5" />
-          Refresh
-        </Button>
-        {(search || institutionFilter) && (
+      {/* Main TanStack DataTable */}
+      <DataTable
+        columns={columns}
+        data={rows}
+        searchPlaceholder="Search by name, email or URL…"
+        onSearch={handleSearch}
+        onRefresh={() => refetch()}
+        showRefresh
+        tableTools={
           <Button
-            variant="ghost"
+            variant="outline"
             size="sm"
-            onClick={() => { setSearch(''); setInstitutionFilter(''); setPage(1); }}
+            className="gap-1.5"
+            onClick={() => refetch()}
           >
-            Clear filters
+            <RotateCw className="h-3.5 w-3.5" />
+            Refresh
           </Button>
-        )}
-      </div>
+        }
+        serverSidePagination={{
+          currentPage: page,
+          totalPages,
+          pageSize: LIMIT,
+          totalItems: total,
+          hasNextPage: page < totalPages,
+          hasPreviousPage: page > 1,
+          onPageChange: setPage,
+          isLoading: tablePending,
+        }}
+      />
 
-      {/* Table */}
-      <div className="rounded-md border">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Student</TableHead>
-              <TableHead>Institution</TableHead>
-              <TableHead>Program · Semester</TableHead>
-              <TableHead>Project</TableHead>
-              <TableHead>GitHub</TableHead>
-              <TableHead className="text-center">
-                <span className="flex items-center justify-center gap-1">
-                  <Sparkles className="h-3.5 w-3.5 text-amber-500" /> Gemini
-                </span>
-              </TableHead>
-              <TableHead className="text-center">
-                <span className="flex items-center justify-center gap-1">
-                  <MapPin className="h-3.5 w-3.5 text-red-500" /> Maps
-                </span>
-              </TableHead>
-              <TableHead>Team Code</TableHead>
-              <TableHead>Submitted</TableHead>
-              <TableHead className="text-center">Approval</TableHead>
-              <TableHead className="w-10" />
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {tablePending ? (
-              <TableRow>
-                <TableCell colSpan={11} className="py-12 text-center">
-                  <Loader2 className="mx-auto h-5 w-5 animate-spin text-muted-foreground" />
-                </TableCell>
-              </TableRow>
-            ) : rows.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={11} className="py-12 text-center text-muted-foreground text-sm">
-                  {search || institutionFilter ? 'No results match your filters.' : 'No registrations yet.'}
-                </TableCell>
-              </TableRow>
-            ) : (
-              rows.map((row) => (
-                <TableRow key={row.id}>
-                  <TableCell>
-                    <div className="font-medium text-sm">
-                      {`${row.snap_first_name} ${row.snap_last_name ?? ''}`.trim()}
-                    </div>
-                    {row.owner_email && (
-                      <div className="text-xs text-muted-foreground">{row.owner_email}</div>
-                    )}
-                    {row.team_name && (
-                      <div className="text-xs text-muted-foreground italic">{row.team_name}</div>
-                    )}
-                  </TableCell>
-                  <TableCell className="text-sm">
-                    {row.institution_name ?? '—'}
-                  </TableCell>
-                  <TableCell className="text-sm">
-                    <div>{row.program_name ?? '—'}</div>
-                    {row.semester_name && (
-                      <div className="text-xs text-muted-foreground">{row.semester_name}</div>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    <LinkCell url={row.project_url} />
-                  </TableCell>
-                  <TableCell>
-                    <LinkCell url={row.github_url} />
-                  </TableCell>
-                  <TableCell className="text-center">
-                    <KeyBadge provided={!!row.gemini_api_key} />
-                  </TableCell>
-                  <TableCell className="text-center">
-                    <KeyBadge provided={!!row.google_maps_api_key} />
-                  </TableCell>
-                  <TableCell>
-                    <span className="font-mono text-xs text-muted-foreground">
-                      {row.team_code ?? '—'}
-                    </span>
-                  </TableCell>
-                  <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
-                    {new Date(row.submitted_at).toLocaleDateString('en-IN', {
-                      day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
-                    })}
-                  </TableCell>
-                  <TableCell className="text-center">
-                    <ApprovalBadge status={(row.approval_status as any) ?? 'waitlisted'} />
-                  </TableCell>
-                  <TableCell>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-7 w-7">
-                          <ChevronDown className="h-3.5 w-3.5" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem
-                          className="gap-2"
-                          onClick={() => setDetailRow(row)}
-                        >
-                          <ExternalLink className="h-4 w-4" />
-                          View Details
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem
-                          className="gap-2 text-green-700 focus:text-green-700"
-                          disabled={row.approval_status === 'shortlisted' || approvalMutation.isPending}
-                          onClick={() => approvalMutation.mutate({ sarvamGalattaId: row.id, status: 'shortlisted' })}
-                        >
-                          <ShieldCheck className="h-4 w-4" />
-                          Shortlist
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem
-                          className="gap-2 text-destructive focus:text-destructive"
-                          disabled={row.approval_status === 'rejected' || approvalMutation.isPending}
-                          onClick={() => approvalMutation.mutate({ sarvamGalattaId: row.id, status: 'rejected' })}
-                        >
-                          <ShieldX className="h-4 w-4" />
-                          Reject
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </TableCell>
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-      </div>
-
-      {/* Pagination */}
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between text-sm text-muted-foreground">
-          <span>
-            Showing {(page - 1) * LIMIT + 1}–{Math.min(page * LIMIT, total)} of {total}
-          </span>
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={page === 1}
-              onClick={() => setPage((p) => p - 1)}
-            >
-              Previous
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={page >= totalPages}
-              onClick={() => setPage((p) => p + 1)}
-            >
-              Next
-            </Button>
-          </div>
-        </div>
-      )}
-
-      {/* Registration detail sheet */}
+      {/* Detail sheet */}
       <RegistrationDetailSheet
         registration={detailRow}
         open={!!detailRow}
