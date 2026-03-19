@@ -14,7 +14,7 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const isActive = searchParams.get('is_active');
 
-    const filters: { is_active?: boolean; userRoleKeys?: string[]; isSuperAdmin?: boolean } = {};
+    const filters: Parameters<typeof ServiceTypeService.getServiceTypes>[0] = {};
     if (isActive !== null) {
       filters.is_active = isActive === 'true';
     }
@@ -25,7 +25,7 @@ export async function GET(request: Request) {
 
     const { data: profile } = await supabase
       .from('profiles')
-      .select('role, is_super_admin')
+      .select('role, is_super_admin, institution_id, department_id')
       .eq('id', session.user.id)
       .single();
 
@@ -52,6 +52,44 @@ export async function GET(request: Request) {
       }
 
       filters.userRoleKeys = [...roleKeys];
+    }
+
+    // Build user scope context for filtering scoped service types.
+    // Non-admin users get types filtered by their org membership.
+    const scopeParam = searchParams.get('scope');
+    if (scopeParam === 'user' && profile && !isSuperAdmin) {
+      const userScope: { institution_id?: string; degree_id?: string; department_id?: string; program_id?: string } = {};
+      if (profile.institution_id) userScope.institution_id = profile.institution_id;
+      if (profile.department_id) userScope.department_id = profile.department_id;
+
+      // For students, resolve degree_id and program_id from learner_profiles
+      if (profile.role === 'student') {
+        const { data: learner, error: learnerError } = await supabase
+          .from('learner_profiles')
+          .select('degree_id, program_id')
+          .eq('user_id', session.user.id)
+          .maybeSingle();
+
+        if (learnerError) {
+          console.warn('[service-requests/types] Failed to fetch learner profile for scope:', learnerError.message);
+        } else if (learner) {
+          if (learner.degree_id) userScope.degree_id = learner.degree_id;
+          if (learner.program_id) userScope.program_id = learner.program_id;
+        }
+      }
+
+      // For faculty/staff, resolve degree_id from department's parent
+      if (profile.department_id && !userScope.degree_id) {
+        const { data: dept } = await supabase
+          .from('departments')
+          .select('degree_id')
+          .eq('id', profile.department_id)
+          .maybeSingle();
+
+        if (dept?.degree_id) userScope.degree_id = dept.degree_id;
+      }
+
+      filters.userScope = userScope;
     }
 
     const types = await ServiceTypeService.getServiceTypes(filters);

@@ -29,6 +29,7 @@ import {
 import { useRoles } from '@/hooks/organization/use-roles';
 import { FieldBuilder } from './field-builder';
 import { ApprovalStepBuilder } from './approval-step-builder';
+import { ScopeSelector } from './scope-selector';
 import {
   createServiceTypeSchema,
   type CreateServiceTypeDto,
@@ -36,6 +37,7 @@ import {
   type CreateApprovalStepDto,
   type ServiceType,
   type ApprovalWorkflowType,
+  type ServiceTypeScopeLevel,
 } from '@/types/service-request';
 
 interface ServiceTypeFormProps {
@@ -72,11 +74,29 @@ export function ServiceTypeForm({ initialData, onSubmit, isSubmitting }: Service
     })) || []
   );
 
+  // Scope state
+  const [scopeLevel, setScopeLevel] = useState<ServiceTypeScopeLevel>(
+    initialData?.scope_level || 'common'
+  );
+  const [scopeInstitutionIds, setScopeInstitutionIds] = useState<string[]>(
+    initialData?.institution_ids || []
+  );
+  const [scopeDegreeIds, setScopeDegreeIds] = useState<string[]>(
+    initialData?.degree_ids || []
+  );
+  const [scopeDepartmentIds, setScopeDepartmentIds] = useState<string[]>(
+    initialData?.department_ids || []
+  );
+  const [scopeProgramIds, setScopeProgramIds] = useState<string[]>(
+    initialData?.program_ids || []
+  );
+
   const {
     register,
     handleSubmit,
     setValue,
     watch,
+    clearErrors,
     formState: { errors },
   } = useForm<CreateServiceTypeDto>({
     resolver: zodResolver(createServiceTypeSchema),
@@ -93,6 +113,11 @@ export function ServiceTypeForm({ initialData, onSubmit, isSubmitting }: Service
       enable_priority: initialData?.enable_priority || false,
       enable_attachments: initialData?.enable_attachments || false,
       enable_email_notifications: initialData?.enable_email_notifications ?? true,
+      scope_level: initialData?.scope_level || 'common',
+      institution_ids: initialData?.institution_ids || [],
+      degree_ids: initialData?.degree_ids || [],
+      department_ids: initialData?.department_ids || [],
+      program_ids: initialData?.program_ids || [],
       fields: fields,
       approval_steps: approvalSteps,
     },
@@ -104,6 +129,12 @@ export function ServiceTypeForm({ initialData, onSubmit, isSubmitting }: Service
   const handleFormSubmit = (data: CreateServiceTypeDto) => {
     onSubmit({
       ...data,
+      scope_level: scopeLevel,
+      // Explicitly null non-applicable scope arrays to clear stale data on updates
+      institution_ids: scopeLevel === 'institution' ? scopeInstitutionIds : null as any,
+      degree_ids: scopeLevel === 'degree' ? scopeDegreeIds : null as any,
+      department_ids: scopeLevel === 'department' ? scopeDepartmentIds : null as any,
+      program_ids: scopeLevel === 'program' ? scopeProgramIds : null as any,
       fields,
       approval_steps: approvalSteps,
     });
@@ -123,6 +154,41 @@ export function ServiceTypeForm({ initialData, onSubmit, isSubmitting }: Service
 
   return (
     <form onSubmit={handleSubmit(handleFormSubmit)} className="space-y-6">
+      {/* Service Visibility / Scope */}
+      <ScopeSelector
+        scopeLevel={scopeLevel}
+        institutionIds={scopeInstitutionIds}
+        degreeIds={scopeDegreeIds}
+        departmentIds={scopeDepartmentIds}
+        programIds={scopeProgramIds}
+        onScopeLevelChange={(level) => {
+          setScopeLevel(level);
+          setValue('scope_level', level);
+          clearErrors('scope_level');
+        }}
+        onInstitutionIdsChange={(ids) => {
+          setScopeInstitutionIds(ids);
+          setValue('institution_ids', ids);
+          if (ids.length > 0) clearErrors('scope_level');
+        }}
+        onDegreeIdsChange={(ids) => {
+          setScopeDegreeIds(ids);
+          setValue('degree_ids', ids);
+          if (ids.length > 0) clearErrors('scope_level');
+        }}
+        onDepartmentIdsChange={(ids) => {
+          setScopeDepartmentIds(ids);
+          setValue('department_ids', ids);
+          if (ids.length > 0) clearErrors('scope_level');
+        }}
+        onProgramIdsChange={(ids) => {
+          setScopeProgramIds(ids);
+          setValue('program_ids', ids);
+          if (ids.length > 0) clearErrors('scope_level');
+        }}
+        error={(errors as any).scope_level?.message}
+      />
+
       {/* Basic Info */}
       <Card>
         <CardHeader>

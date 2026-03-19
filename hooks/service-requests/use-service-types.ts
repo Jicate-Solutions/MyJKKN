@@ -38,13 +38,19 @@ export const serviceTypeKeys = {
 /**
  * Fetch all service types with optional filters
  */
-export function useServiceTypes(filters?: { is_active?: boolean; search?: string }) {
+export function useServiceTypes(filters?: {
+  is_active?: boolean;
+  search?: string;
+  /** Pass 'user' to filter types by the current user's org scope (for request creation) */
+  scope?: 'user';
+}) {
   return useQuery<ServiceType[]>({
     queryKey: serviceTypeKeys.list(filters),
     queryFn: async () => {
       const params = new URLSearchParams();
       if (filters?.is_active !== undefined) params.set('is_active', String(filters.is_active));
       if (filters?.search) params.set('search', filters.search);
+      if (filters?.scope) params.set('scope', filters.scope);
       const res = await fetch(`/api/service-requests/types?${params}`);
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
@@ -176,6 +182,33 @@ export function useDeactivateServiceType() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: serviceTypeKeys.all });
       toast.success('Service type deactivated');
+    },
+    onError: (error: Error) => {
+      toast.error(error.message);
+    },
+  });
+}
+
+/**
+ * Permanently delete a service type (only if no requests exist for it)
+ */
+export function useDeleteServiceType() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const res = await fetch(`/api/service-requests/types/${id}`, {
+        method: 'DELETE',
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Failed to delete service type');
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: serviceTypeKeys.all });
+      toast.success('Service type deleted successfully');
     },
     onError: (error: Error) => {
       toast.error(error.message);

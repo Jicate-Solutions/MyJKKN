@@ -35,7 +35,7 @@ export default function NewServiceRequestPage() {
   const [selectedType, setSelectedType] = useState<ServiceType | null>(null);
   const [priority, setPriority] = useState<ServiceRequestPriority>('normal');
 
-  const { data: serviceTypes, isLoading: typesLoading } = useServiceTypes({ is_active: true });
+  const { data: serviceTypes, isLoading: typesLoading } = useServiceTypes({ is_active: true, scope: 'user' });
   const { data: typeDetail } = useServiceType(selectedType?.id || '');
   const createRequest = useCreateServiceRequest();
 

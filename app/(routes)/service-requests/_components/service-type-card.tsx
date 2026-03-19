@@ -4,6 +4,8 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { FileText } from 'lucide-react';
 import type { ServiceType } from '@/types/service-request';
+import { SERVICE_TYPE_SCOPE_CONFIG } from '@/types/service-request';
+import { SCOPE_ICONS } from './scope-icons';
 import { cn } from '@/lib/utils';
 
 interface ServiceTypeCardProps {
@@ -38,20 +40,30 @@ export function ServiceTypeCard({ serviceType, onSelect, selected }: ServiceType
                 {serviceType.description}
               </p>
             )}
-            {serviceType.allowed_roles.length > 0 && (
-              <div className="flex flex-wrap gap-1 mt-2">
-                {serviceType.allowed_roles.slice(0, 3).map((role) => (
-                  <Badge key={role} variant="outline" className="text-xs capitalize">
-                    {role.replace(/_/g, ' ')}
-                  </Badge>
-                ))}
-                {serviceType.allowed_roles.length > 3 && (
-                  <Badge variant="outline" className="text-xs">
-                    +{serviceType.allowed_roles.length - 3} more
-                  </Badge>
-                )}
-              </div>
-            )}
+            <div className="flex flex-wrap gap-1 mt-2">
+              {serviceType.scope_level && serviceType.scope_level !== 'common' && (
+                (() => {
+                  const ScopeIcon = SCOPE_ICONS[serviceType.scope_level];
+                  const scopeConfig = SERVICE_TYPE_SCOPE_CONFIG[serviceType.scope_level];
+                  return (
+                    <Badge className={cn('text-xs gap-1', scopeConfig.color)}>
+                      <ScopeIcon className="h-3 w-3" />
+                      {scopeConfig.label}
+                    </Badge>
+                  );
+                })()
+              )}
+              {serviceType.allowed_roles.slice(0, 3).map((role) => (
+                <Badge key={role} variant="outline" className="text-xs capitalize">
+                  {role.replace(/_/g, ' ')}
+                </Badge>
+              ))}
+              {serviceType.allowed_roles.length > 3 && (
+                <Badge variant="outline" className="text-xs">
+                  +{serviceType.allowed_roles.length - 3} more
+                </Badge>
+              )}
+            </div>
           </div>
         </div>
       </CardContent>

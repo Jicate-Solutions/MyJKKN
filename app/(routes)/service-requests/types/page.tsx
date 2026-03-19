@@ -16,21 +16,37 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import {
   useServiceTypes,
   useDeactivateServiceType,
   useUpdateServiceType,
+  useDeleteServiceType,
 } from '@/hooks/service-requests/use-service-types';
-import { Plus, FileText, Settings, Edit, Bus, Loader2 } from 'lucide-react';
+import { Plus, FileText, Settings, Edit, Bus, Loader2, Trash2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import type { ServiceType } from '@/types/service-request';
+import { SERVICE_TYPE_SCOPE_CONFIG } from '@/types/service-request';
+import { SCOPE_ICONS } from '../_components/scope-icons';
+import { cn } from '@/lib/utils';
 
 export default function ServiceTypesPage() {
   const [showInactive, setShowInactive] = useState(false);
   const [isSeeding, setIsSeeding] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<ServiceType | null>(null);
   const { data: serviceTypes, isLoading, refetch } = useServiceTypes(
     showInactive ? undefined : { is_active: true }
   );
   const updateServiceType = useUpdateServiceType();
+  const deleteServiceType = useDeleteServiceType();
   const { toast } = useToast();
 
   const hasTransportType = serviceTypes?.some((t) => t.slug === 'transport-request');
@@ -159,6 +175,18 @@ export default function ServiceTypesPage() {
                   )}
 
                   <div className="flex flex-wrap gap-1 mb-4">
+                    {/* Scope Badge */}
+                    {(() => {
+                      const scopeLevel = type.scope_level || 'common';
+                      const ScopeIcon = SCOPE_ICONS[scopeLevel];
+                      const scopeConfig = SERVICE_TYPE_SCOPE_CONFIG[scopeLevel];
+                      return (
+                        <Badge className={cn('text-xs gap-1', scopeConfig.color)}>
+                          <ScopeIcon className="h-3 w-3" />
+                          {scopeConfig.label}
+                        </Badge>
+                      );
+                    })()}
                     {type.allowed_roles.slice(0, 3).map((role) => (
                       <Badge key={role} variant="outline" className="text-xs capitalize">
                         {role.replace(/_/g, ' ')}
@@ -193,6 +221,14 @@ export default function ServiceTypesPage() {
                           <Edit className="h-4 w-4" />
                         </Link>
                       </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                        onClick={() => setDeleteTarget(type)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
                     </div>
                   </div>
                 </CardContent>
@@ -211,6 +247,36 @@ export default function ServiceTypesPage() {
           </Card>
         )}
       </div>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Service Type</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to permanently delete <strong>{deleteTarget?.name}</strong>?
+              This action cannot be undone. If there are existing requests using this type,
+              the deletion will be blocked — consider deactivating it instead.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                if (deleteTarget) {
+                  deleteServiceType.mutate(deleteTarget.id, {
+                    onSettled: () => setDeleteTarget(null),
+                  });
+                }
+              }}
+              disabled={deleteServiceType.isPending}
+            >
+              {deleteServiceType.isPending ? 'Deleting...' : 'Delete'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </ContentLayout>
   );
 }

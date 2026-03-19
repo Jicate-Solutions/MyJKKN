@@ -1738,6 +1738,13 @@ CREATE TABLE service_types (
     approval_workflow_type TEXT NOT NULL DEFAULT 'sequential' CHECK (approval_workflow_type IN ('sequential', 'parallel')),
     attachment_config JSONB DEFAULT '{"max_files": 3, "max_size_mb": 10, "allowed_types": ["pdf", "jpg", "png", "doc", "docx"]}'::jsonb,
     validity_period_days INTEGER,
+    -- Scope: controls visibility of this service type (common = all, or scoped to specific org entities)
+    -- Updated: 2026-03-19 - Added scope columns for institution/degree/department/program-level service types
+    scope_level TEXT NOT NULL DEFAULT 'common' CHECK (scope_level IN ('common', 'institution', 'degree', 'department', 'program')),
+    institution_ids UUID[] DEFAULT NULL,
+    degree_ids UUID[] DEFAULT NULL,
+    department_ids UUID[] DEFAULT NULL,
+    program_ids UUID[] DEFAULT NULL,
     created_by UUID REFERENCES profiles(id),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -1746,6 +1753,7 @@ CREATE TABLE service_types (
 CREATE INDEX idx_service_types_slug ON service_types(slug);
 CREATE INDEX idx_service_types_is_active ON service_types(is_active);
 CREATE INDEX idx_service_types_is_system_default ON service_types(is_system_default);
+CREATE INDEX idx_service_types_scope_level ON service_types(scope_level);
 
 -- Service Type Fields: Dynamic form fields per service type
 CREATE TABLE service_type_fields (

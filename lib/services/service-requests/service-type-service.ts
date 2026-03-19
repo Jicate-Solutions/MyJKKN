@@ -27,6 +27,13 @@ export class ServiceTypeService {
     is_active?: boolean;
     userRoleKeys?: string[];
     isSuperAdmin?: boolean;
+    /** User's org context — used to filter scoped service types for requesters */
+    userScope?: {
+      institution_id?: string;
+      degree_id?: string;
+      department_id?: string;
+      program_id?: string;
+    };
   }): Promise<ServiceType[]> {
     const supabase = await getSupabase();
 
@@ -57,7 +64,32 @@ export class ServiceTypeService {
       throw new Error(`Failed to fetch service types: ${error.message}`);
     }
 
-    return data || [];
+    // For admin views (superadmin or no userScope), return all types unfiltered
+    if (filters?.isSuperAdmin || !filters?.userScope) {
+      return data || [];
+    }
+
+    // For requester views, filter scoped types by user's org context.
+    // Common types always pass. Scoped types only pass if user matches the scope.
+    const scope = filters.userScope;
+    return (data || []).filter((type) => {
+      if (type.scope_level === 'common') return true;
+
+      if (type.scope_level === 'institution' && scope.institution_id) {
+        return type.institution_ids?.includes(scope.institution_id);
+      }
+      if (type.scope_level === 'degree' && scope.degree_id) {
+        return type.degree_ids?.includes(scope.degree_id);
+      }
+      if (type.scope_level === 'department' && scope.department_id) {
+        return type.department_ids?.includes(scope.department_id);
+      }
+      if (type.scope_level === 'program' && scope.program_id) {
+        return type.program_ids?.includes(scope.program_id);
+      }
+
+      return false;
+    });
   }
 
   /**

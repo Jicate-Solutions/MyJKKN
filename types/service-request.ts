@@ -41,6 +41,20 @@ export type ServiceTimelineEventType =
 
 export type ApprovalWorkflowType = 'sequential' | 'parallel';
 
+export type ServiceTypeScopeLevel = 'common' | 'institution' | 'degree' | 'department' | 'program';
+
+export const SERVICE_TYPE_SCOPE_OPTIONS: Array<{
+  value: ServiceTypeScopeLevel;
+  label: string;
+  description: string;
+}> = [
+  { value: 'common', label: 'Common', description: 'Available to all users across all institutions' },
+  { value: 'institution', label: 'Institution', description: 'Available only to selected institutions' },
+  { value: 'degree', label: 'Degree', description: 'Available only to selected degrees' },
+  { value: 'department', label: 'Department', description: 'Available only to selected departments' },
+  { value: 'program', label: 'Program', description: 'Available only to selected programs' },
+];
+
 // ---------- Status Transitions ----------
 
 export const SERVICE_REQUEST_STATUS_TRANSITIONS: Record<ServiceRequestStatus, ServiceRequestStatus[]> = {
@@ -79,6 +93,11 @@ export interface ServiceType {
     allowed_types: string[];
   } | null;
   validity_period_days: number | null;
+  scope_level: ServiceTypeScopeLevel;
+  institution_ids: string[] | null;
+  degree_ids: string[] | null;
+  department_ids: string[] | null;
+  program_ids: string[] | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -221,6 +240,11 @@ export interface CreateServiceTypeDto {
   approval_workflow_type?: ApprovalWorkflowType;
   attachment_config?: { max_files: number; max_size_mb: number; allowed_types: string[] };
   validity_period_days?: number | null;
+  scope_level?: ServiceTypeScopeLevel;
+  institution_ids?: string[];
+  degree_ids?: string[];
+  department_ids?: string[];
+  program_ids?: string[];
   fields: CreateServiceTypeFieldDto[];
   approval_steps: CreateApprovalStepDto[];
 }
@@ -359,8 +383,23 @@ export const createServiceTypeSchema = z.object({
     allowed_types: z.array(z.string()),
   }).optional(),
   validity_period_days: z.number().int().min(1).optional().nullable(),
+  scope_level: z.enum(['common', 'institution', 'degree', 'department', 'program']).default('common'),
+  institution_ids: z.array(z.string().uuid()).optional().nullable(),
+  degree_ids: z.array(z.string().uuid()).optional().nullable(),
+  department_ids: z.array(z.string().uuid()).optional().nullable(),
+  program_ids: z.array(z.string().uuid()).optional().nullable(),
   fields: z.array(serviceTypeFieldSchema).min(1, 'At least one field required'),
   approval_steps: z.array(approvalStepSchema).min(1, 'At least one approval step required'),
+}).refine((data) => {
+  if (data.scope_level === 'common') return true;
+  if (data.scope_level === 'institution') return data.institution_ids && data.institution_ids.length > 0;
+  if (data.scope_level === 'degree') return data.degree_ids && data.degree_ids.length > 0;
+  if (data.scope_level === 'department') return data.department_ids && data.department_ids.length > 0;
+  if (data.scope_level === 'program') return data.program_ids && data.program_ids.length > 0;
+  return true;
+}, {
+  message: 'Please select at least one entity for the chosen scope level',
+  path: ['scope_level'],
 });
 
 export const createServiceRequestSchema = z.object({
@@ -392,6 +431,20 @@ export const SERVICE_REQUEST_STATUS_CONFIG: Record<ServiceRequestStatus, {
   fulfilled: { label: 'Fulfilled', variant: 'success', color: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300', icon: 'PackageCheck' },
   closed: { label: 'Closed', variant: 'outline', color: 'bg-gray-200 text-gray-600 dark:bg-gray-700 dark:text-gray-400', icon: 'Archive' },
   cancelled: { label: 'Cancelled', variant: 'destructive', color: 'bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400', icon: 'Ban' },
+};
+
+// ---------- Scope Display Config ----------
+
+export const SERVICE_TYPE_SCOPE_CONFIG: Record<ServiceTypeScopeLevel, {
+  label: string;
+  icon: string;
+  color: string;
+}> = {
+  common: { label: 'Common', icon: 'Globe', color: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300' },
+  institution: { label: 'Institution', icon: 'Building2', color: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300' },
+  degree: { label: 'Degree', icon: 'GraduationCap', color: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300' },
+  department: { label: 'Department', icon: 'FolderTree', color: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300' },
+  program: { label: 'Program', icon: 'BookOpen', color: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300' },
 };
 
 // ---------- Priority Display Config ----------
