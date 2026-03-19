@@ -229,17 +229,23 @@ export async function POST(request: Request) {
         }
 
         // Build update object
+        // Only include learner_id if it's different from what's already set,
+        // otherwise the partial unique index (idx_profiles_learner_id_unique)
+        // will throw a duplicate key error even when updating the same row.
+        const existingProfile = profilesByEmail.get(learner.college_email.toLowerCase());
         const updateData: Record<string, any> = {
           role: 'student',
           institution_id: learner.institution_id,
           department_id: learner.department_id,
-          learner_id: learner.id,
           full_name: fullName,
           phone_number: learner.student_mobile,
           gender: learner.gender || undefined,
           is_active: true,
           updated_at: new Date().toISOString()
         };
+        if (existingProfile?.learner_id !== learner.id) {
+          updateData.learner_id = learner.id;
+        }
 
         // Remove undefined values (don't overwrite with null if learner has no gender)
         Object.keys(updateData).forEach(key => {
@@ -309,12 +315,15 @@ export async function POST(request: Request) {
               role: 'student',
               institution_id: learner.institution_id,
               department_id: learner.department_id,
-              learner_id: learner.id,
               full_name: fullName,
               phone_number: learner.student_mobile,
               is_active: true,
               updated_at: new Date().toISOString()
             };
+            // Only set learner_id if different to avoid unique index conflict
+            if (existingProfileCheck.learner_id !== learner.id) {
+              fallbackUpdate.learner_id = learner.id;
+            }
             if (learner.gender) fallbackUpdate.gender = learner.gender;
 
             const { error: updateError } = await supabaseAdmin
