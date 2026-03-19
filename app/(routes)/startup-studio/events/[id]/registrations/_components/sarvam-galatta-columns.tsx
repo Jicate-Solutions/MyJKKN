@@ -7,8 +7,8 @@ import {
   DropdownMenuSeparator, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
-  CheckCircle2, ChevronDown, Database, ExternalLink,
-  Github, MapPin, MoreHorizontal, Rocket, ShieldCheck, ShieldX, Sparkles,
+  Database, ExternalLink,
+  Github, MoreHorizontal, Rocket, ShieldCheck, ShieldX,
 } from 'lucide-react';
 import type { PermissionColumnDef } from '@/components/ui/data-table';
 import type { SarvamGalattaRegistration } from '@/types/sarvam-galatta';
@@ -30,15 +30,6 @@ function LinkCell({ url }: { url: string | null | undefined }) {
   );
 }
 
-function KeyBadge({ provided }: { provided: boolean }) {
-  return provided ? (
-    <Badge variant="outline" className="gap-1 border-green-300 bg-green-50 text-green-700 dark:border-green-800 dark:bg-green-950/20 text-xs">
-      <CheckCircle2 className="h-3 w-3" /> Yes
-    </Badge>
-  ) : (
-    <Badge variant="outline" className="text-muted-foreground text-xs">—</Badge>
-  );
-}
 
 function ApprovalBadge({ status }: { status: string }) {
   if (status === 'shortlisted') {
@@ -134,7 +125,7 @@ export function getSarvamGalattaColumns(
       header: 'Project',
       cell: ({ row }) => (
         <div className="flex items-center gap-1">
-          <Rocket className="h-3 w-3 text-emerald-600 shrink-0" />
+          <Rocket className="h-3 w-3 text-emerald-600 dark:text-emerald-400 shrink-0" />
           <LinkCell url={row.original.project_url} />
         </div>
       ),
@@ -160,7 +151,7 @@ export function getSarvamGalattaColumns(
       header: 'Supabase',
       cell: ({ row }) => (
         <div className="flex items-center gap-1">
-          <Database className="h-3 w-3 text-emerald-500 shrink-0" />
+          <Database className="h-3 w-3 text-emerald-500 dark:text-emerald-400 shrink-0" />
           <LinkCell url={row.original.supabase_project_url} />
         </div>
       ),
@@ -229,7 +220,7 @@ export function getSarvamGalattaColumns(
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
-                className="gap-2 text-green-700 focus:text-green-700"
+                className="gap-2 text-green-700 dark:text-green-400 focus:text-green-700 dark:focus:text-green-400"
                 disabled={status === 'shortlisted' || approvePending}
                 onClick={() => onApprove(r.id, 'shortlisted')}
               >
