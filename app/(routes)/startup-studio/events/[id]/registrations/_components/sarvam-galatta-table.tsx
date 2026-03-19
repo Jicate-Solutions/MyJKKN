@@ -150,15 +150,15 @@ export function SarvamGalattaTable({ eventId }: SarvamGalattaTableProps) {
           />
           <StatCard
             icon={<Sparkles className="h-4 w-4" />}
-            label="Gemini API Keys"
-            value={stats.total}
-            sub="All required"
+            label="Programs"
+            value={stats.by_program.length}
+            sub="Unique programs"
           />
           <StatCard
             icon={<MapPin className="h-4 w-4" />}
-            label="Maps API Keys"
-            value={stats.with_maps_key}
-            sub={`${stats.total > 0 ? Math.round((stats.with_maps_key / stats.total) * 100) : 0}% provided`}
+            label="Semesters"
+            value={stats.by_semester.length}
+            sub="Unique semesters"
           />
           <StatCard
             icon={<Building2 className="h-4 w-4" />}

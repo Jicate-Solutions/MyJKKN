@@ -242,8 +242,6 @@ export class SarvamGalattaRegistrationService {
         project_url: dto.project_url ?? null,
         github_url: dto.github_url ?? null,
         supabase_project_url: dto.supabase_project_url ?? null,
-        gemini_api_key: dto.gemini_api_key ?? null,
-        google_maps_api_key: dto.google_maps_api_key ?? null,
         gemini_page_url: dto.gemini_page_url ?? null,
         maps_page_url: dto.maps_page_url ?? null,
         approval_status: 'waitlisted',
@@ -275,7 +273,7 @@ export class SarvamGalattaRegistrationService {
   // ---------------------------------------------------------------
   static async updateRegistration(
     sarvamGalattaId: string,
-    dto: Partial<Pick<SarvamGalattaRegistrationDto, 'team_name' | 'project_url' | 'github_url' | 'supabase_project_url' | 'gemini_api_key' | 'google_maps_api_key' | 'gemini_page_url' | 'maps_page_url'>>,
+    dto: Partial<Pick<SarvamGalattaRegistrationDto, 'team_name' | 'project_url' | 'github_url' | 'supabase_project_url' | 'gemini_page_url' | 'maps_page_url'>>,
     userId: string
   ): Promise<SarvamGalattaRegistration> {
     // Verify ownership
@@ -310,8 +308,6 @@ export class SarvamGalattaRegistrationService {
     if (dto.project_url !== undefined)          sgrUpdates.project_url = dto.project_url || null;
     if (dto.github_url !== undefined)           sgrUpdates.github_url = dto.github_url || null;
     if (dto.supabase_project_url !== undefined) sgrUpdates.supabase_project_url = dto.supabase_project_url || null;
-    if (dto.gemini_api_key !== undefined)       sgrUpdates.gemini_api_key = dto.gemini_api_key;
-    if (dto.google_maps_api_key !== undefined)  sgrUpdates.google_maps_api_key = dto.google_maps_api_key || null;
     if (dto.gemini_page_url !== undefined)      sgrUpdates.gemini_page_url = dto.gemini_page_url || null;
     if (dto.maps_page_url !== undefined)        sgrUpdates.maps_page_url = dto.maps_page_url || null;
 
@@ -415,7 +411,6 @@ export class SarvamGalattaRegistrationService {
       .from('sarvam_galatta_registrations')
       .select(`
         id,
-        google_maps_api_key,
         snap_institution_id,
         snap_program_id,
         snap_semester_id,
@@ -432,7 +427,6 @@ export class SarvamGalattaRegistrationService {
     }
 
     const total = rows?.length ?? 0;
-    const with_maps_key = (rows ?? []).filter((r: any) => !!r.google_maps_api_key).length;
 
     // Group by institution
     const instMap = new Map<string, { institution_name: string; count: number }>();
@@ -476,7 +470,6 @@ export class SarvamGalattaRegistrationService {
 
     return {
       total,
-      with_maps_key,
       by_institution: Array.from(instMap.entries()).map(([id, v]) => ({
         institution_id: id,
         institution_name: v.institution_name,

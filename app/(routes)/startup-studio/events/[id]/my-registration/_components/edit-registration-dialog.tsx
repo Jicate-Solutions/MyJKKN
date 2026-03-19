@@ -1,6 +1,5 @@
 'use client';
 
-import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -13,7 +12,7 @@ import { Separator } from '@/components/ui/separator';
 import {
   Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription,
 } from '@/components/ui/form';
-import { Eye, EyeOff, Github, Key, Loader2, MapPin, Rocket, Sparkles } from 'lucide-react';
+import { Github, Loader2, MapPin, Rocket, Sparkles } from 'lucide-react';
 import { useUpdateRegistration } from '@/hooks/startup-studio/use-sarvam-galatta';
 import type { SarvamGalattaRegistration } from '@/types/sarvam-galatta';
 
@@ -28,8 +27,8 @@ const editSchema = z.object({
     .string()
     .refine((v) => !v || v.includes('supabase.co'), { message: 'Must be a Supabase project URL' })
     .or(z.literal('')),
-  gemini_api_key: z.string().min(10, 'Gemini API key is required'),
-  google_maps_api_key: z.string().optional(),
+  gemini_page_url: z.string().url('Must be a valid URL').or(z.literal('')),
+  maps_page_url: z.string().url('Must be a valid URL').or(z.literal('')),
 });
 
 type EditFormValues = z.infer<typeof editSchema>;
@@ -45,8 +44,6 @@ export function EditRegistrationDialog({
   onOpenChange,
   registration,
 }: EditRegistrationDialogProps) {
-  const [showGemini, setShowGemini] = useState(false);
-  const [showMaps, setShowMaps] = useState(false);
   const update = useUpdateRegistration();
 
   const form = useForm<EditFormValues>({
@@ -56,8 +53,8 @@ export function EditRegistrationDialog({
       project_url: registration.project_url ?? '',
       github_url: registration.github_url ?? '',
       supabase_project_url: registration.supabase_project_url ?? '',
-      gemini_api_key: registration.gemini_api_key ?? '',
-      google_maps_api_key: registration.google_maps_api_key ?? '',
+      gemini_page_url: registration.gemini_page_url ?? '',
+      maps_page_url: registration.maps_page_url ?? '',
     },
   });
 
@@ -70,8 +67,8 @@ export function EditRegistrationDialog({
           project_url: values.project_url || undefined,
           github_url: values.github_url || undefined,
           supabase_project_url: values.supabase_project_url || undefined,
-          gemini_api_key: values.gemini_api_key,
-          google_maps_api_key: values.google_maps_api_key || undefined,
+          gemini_page_url: values.gemini_page_url || undefined,
+          maps_page_url: values.maps_page_url || undefined,
         },
       },
       {
@@ -161,36 +158,22 @@ export function EditRegistrationDialog({
 
             <Separator />
 
-            {/* API Keys */}
+            {/* API Usage Pages */}
             <FormField
               control={form.control}
-              name="gemini_api_key"
+              name="gemini_page_url"
               render={({ field }) => (
                 <FormItem>
                   <FormLabel className="flex items-center gap-1.5">
                     <Sparkles className="h-3.5 w-3.5 text-amber-500" />
-                    Gemini API Key <span className="text-destructive">*</span>
+                    Page using Gemini in your app
                   </FormLabel>
                   <FormControl>
-                    <div className="relative">
-                      <Input
-                        {...field}
-                        type={showGemini ? 'text' : 'password'}
-                        placeholder="AIza••••••••••••••••••••••••••"
-                        className="pr-10"
-                      />
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="absolute right-1 top-1/2 h-7 w-7 -translate-y-1/2 p-0"
-                        onClick={() => setShowGemini((v) => !v)}
-                        tabIndex={-1}
-                      >
-                        {showGemini ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                      </Button>
-                    </div>
+                    <Input {...field} type="url" placeholder="https://your-project.lovable.app/chat" />
                   </FormControl>
+                  <FormDescription className="text-xs">
+                    URL of the page where your app uses the Gemini API
+                  </FormDescription>
                   <FormMessage />
                 </FormItem>
               )}
@@ -198,36 +181,19 @@ export function EditRegistrationDialog({
 
             <FormField
               control={form.control}
-              name="google_maps_api_key"
+              name="maps_page_url"
               render={({ field }) => (
                 <FormItem>
                   <FormLabel className="flex items-center gap-1.5">
                     <MapPin className="h-3.5 w-3.5 text-red-500" />
-                    Google Maps API Key
+                    Page using Maps in your app
                     <span className="text-xs font-normal text-muted-foreground">(optional)</span>
                   </FormLabel>
                   <FormControl>
-                    <div className="relative">
-                      <Input
-                        {...field}
-                        type={showMaps ? 'text' : 'password'}
-                        placeholder="AIza••••••••••••••••••••••••••"
-                        className="pr-10"
-                      />
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="absolute right-1 top-1/2 h-7 w-7 -translate-y-1/2 p-0"
-                        onClick={() => setShowMaps((v) => !v)}
-                        tabIndex={-1}
-                      >
-                        {showMaps ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                      </Button>
-                    </div>
+                    <Input {...field} type="url" placeholder="https://your-project.lovable.app/map" />
                   </FormControl>
                   <FormDescription className="text-xs">
-                    Only needed if your project uses Google Maps
+                    Leave blank if your project doesn't use Google Maps
                   </FormDescription>
                   <FormMessage />
                 </FormItem>

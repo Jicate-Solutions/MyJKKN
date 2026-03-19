@@ -12,20 +12,21 @@ import {
 } from 'lucide-react';
 import type { PermissionColumnDef } from '@/components/ui/data-table';
 import type { SarvamGalattaRegistration } from '@/types/sarvam-galatta';
+import Link from 'next/link';
 
 // ── helpers ─────────────────────────────────────────────────────
 
 function LinkCell({ url }: { url: string | null | undefined }) {
   if (!url) return <span className="text-xs text-muted-foreground">—</span>;
   return (
-    <a
-      href={url}
+    <Link
+      href={url ?? ''}
       target="_blank"
       rel="noopener noreferrer"
       className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
     >
       View <ExternalLink className="h-3 w-3" />
-    </a>
+    </Link>
   );
 }
 
@@ -165,47 +166,7 @@ export function getSarvamGalattaColumns(
       ),
     },
 
-    // ── Gemini key ───────────────────────────────────────────────
-    {
-      id: 'gemini_api_key',
-      accessorKey: 'gemini_api_key',
-      header: () => (
-        <span className="flex items-center gap-1">
-          <Sparkles className="h-3.5 w-3.5 text-amber-500" /> Gemini
-        </span>
-      ),
-      cell: ({ row }) => <KeyBadge provided={!!row.original.gemini_api_key} />,
-      meta: { className: 'text-center' },
-    },
 
-    // ── Maps key ─────────────────────────────────────────────────
-    {
-      id: 'google_maps_api_key',
-      accessorKey: 'google_maps_api_key',
-      header: () => (
-        <span className="flex items-center gap-1">
-          <MapPin className="h-3.5 w-3.5 text-red-500" /> Maps
-        </span>
-      ),
-      cell: ({ row }) => <KeyBadge provided={!!row.original.google_maps_api_key} />,
-      meta: { className: 'text-center' },
-    },
-
-    // ── Gemini page URL ──────────────────────────────────────────
-    {
-      id: 'gemini_page_url',
-      accessorKey: 'gemini_page_url',
-      header: 'Gemini Page',
-      cell: ({ row }) => <LinkCell url={row.original.gemini_page_url} />,
-    },
-
-    // ── Maps page URL ────────────────────────────────────────────
-    {
-      id: 'maps_page_url',
-      accessorKey: 'maps_page_url',
-      header: 'Maps Page',
-      cell: ({ row }) => <LinkCell url={row.original.maps_page_url} />,
-    },
 
     // ── Team Code ────────────────────────────────────────────────
     {

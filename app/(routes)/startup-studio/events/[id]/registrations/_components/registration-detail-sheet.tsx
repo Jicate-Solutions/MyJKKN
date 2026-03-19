@@ -7,8 +7,8 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import {
-  CheckCircle2, Clock, Database, ExternalLink, Github,
-  Key, Loader2, MapPin, Rocket, ShieldCheck, ShieldX, Sparkles, User,
+  Clock, Database, ExternalLink, Github,
+  Loader2, MapPin, Rocket, ShieldCheck, ShieldX, Sparkles, User,
 } from 'lucide-react';
 import { useSetApprovalStatus } from '@/hooks/startup-studio/use-sarvam-galatta';
 import type { SarvamGalattaRegistration } from '@/types/sarvam-galatta';
@@ -47,45 +47,6 @@ function LinkRow({
       ) : (
         <span className="shrink-0 text-xs italic text-muted-foreground">Not provided</span>
       )}
-    </div>
-  );
-}
-
-function KeyRow({
-  label, hasKey, pageUrl, pageLabel, icon,
-}: {
-  label: string; hasKey: boolean; pageUrl: string | null | undefined; pageLabel: string; icon: React.ReactNode;
-}) {
-  return (
-    <div className="rounded-lg border bg-muted/30 p-3 space-y-2">
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2 text-sm font-medium">
-          <span className="text-muted-foreground">{icon}</span>
-          {label}
-        </div>
-        {hasKey ? (
-          <Badge variant="outline" className="gap-1 border-green-300 bg-green-50 text-xs text-green-700 dark:border-green-800 dark:bg-green-950/20 dark:text-green-400">
-            <CheckCircle2 className="h-3 w-3" /> Provided
-          </Badge>
-        ) : (
-          <Badge variant="outline" className="text-xs text-muted-foreground">Not provided</Badge>
-        )}
-      </div>
-      <div className="flex items-center justify-between border-t pt-2">
-        <span className="text-xs text-muted-foreground">{pageLabel}</span>
-        {pageUrl ? (
-          <a
-            href={pageUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-1 text-xs font-medium text-primary hover:underline"
-          >
-            View page <ExternalLink className="h-3 w-3" />
-          </a>
-        ) : (
-          <span className="text-xs italic text-muted-foreground">Not provided</span>
-        )}
-      </div>
     </div>
   );
 }
@@ -247,25 +208,21 @@ export function RegistrationDetailSheet({
             </div>
           </div>
 
-          {/* API keys + usage pages */}
+          {/* API usage pages */}
           <div>
             <div className="flex items-center gap-2 mb-2">
-              <Key className="h-4 w-4 text-blue-600" />
-              <p className="text-sm font-semibold">API Keys & Usage Pages</p>
+              <Sparkles className="h-4 w-4 text-amber-500" />
+              <p className="text-sm font-semibold">API Usage Pages</p>
             </div>
             <div className="space-y-2">
-              <KeyRow
-                label="Google Gemini API Key"
-                hasKey={!!registration.gemini_api_key}
-                pageUrl={registration.gemini_page_url}
-                pageLabel="Gemini usage page"
+              <LinkRow
+                label="Gemini usage page"
+                url={registration.gemini_page_url}
                 icon={<Sparkles className="h-3.5 w-3.5 text-amber-500" />}
               />
-              <KeyRow
-                label="Google Maps API Key"
-                hasKey={!!registration.google_maps_api_key}
-                pageUrl={registration.maps_page_url}
-                pageLabel="Maps usage page"
+              <LinkRow
+                label="Maps usage page"
+                url={registration.maps_page_url}
                 icon={<MapPin className="h-3.5 w-3.5 text-red-500" />}
               />
             </div>

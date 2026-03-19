@@ -256,8 +256,6 @@ function SarvamGalattaFormInner({ event, autoFill, fields }: InnerProps) {
       project_url: values.project_url || undefined,
       github_url: values.github_url || undefined,
       supabase_project_url: values.supabase_project_url || undefined,
-      gemini_api_key: values.gemini_api_key ?? '',
-      google_maps_api_key: values.google_maps_api_key || undefined,
       gemini_page_url: values.gemini_page_url || undefined,
       maps_page_url: values.maps_page_url || undefined,
     } as SarvamGalattaRegistrationDto);
