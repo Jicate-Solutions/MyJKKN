@@ -10,6 +10,7 @@ import { useEvent } from '@/hooks/startup-studio/use-events';
 import { useAuth } from '@/hooks/use-auth';
 import { RegistrationsTable } from './_components/registrations-table';
 import { NotParticipatedTable } from './_components/not-participated-table';
+import { SarvamGalattaTable } from './_components/sarvam-galatta-table';
 import { ArrowLeft, Loader2, Users, UserX } from 'lucide-react';
 
 export default function AdminRegistrationsPage({ params }: { params: Promise<{ id: string }> }) {
@@ -61,26 +62,31 @@ export default function AdminRegistrationsPage({ params }: { params: Promise<{ i
           <p className="text-sm text-muted-foreground">{event.name}</p>
         </div>
 
-        <Tabs defaultValue="teams">
-          <TabsList className="mb-4">
-            <TabsTrigger value="teams" className="gap-2">
-              <Users className="h-4 w-4" />
-              Registered Teams
-            </TabsTrigger>
-            <TabsTrigger value="not-participated" className="gap-2">
-              <UserX className="h-4 w-4" />
-              Not Participated
-            </TabsTrigger>
-          </TabsList>
+        {/* Individual-registration events use the per-registrant admin view */}
+        {(['individual', 'sarvam_galatta'] as string[]).includes((event.config as any)?.registration_type) ? (
+          <SarvamGalattaTable eventId={id} />
+        ) : (
+          <Tabs defaultValue="teams">
+            <TabsList className="mb-4">
+              <TabsTrigger value="teams" className="gap-2">
+                <Users className="h-4 w-4" />
+                Registered Teams
+              </TabsTrigger>
+              <TabsTrigger value="not-participated" className="gap-2">
+                <UserX className="h-4 w-4" />
+                Not Participated
+              </TabsTrigger>
+            </TabsList>
 
-          <TabsContent value="teams">
-            <RegistrationsTable eventId={id} isSuperAdmin={isSuperAdmin} eventName={event.name} />
-          </TabsContent>
+            <TabsContent value="teams">
+              <RegistrationsTable eventId={id} isSuperAdmin={isSuperAdmin} eventName={event.name} />
+            </TabsContent>
 
-          <TabsContent value="not-participated">
-            <NotParticipatedTable eventId={id} eventName={event.name} />
-          </TabsContent>
-        </Tabs>
+            <TabsContent value="not-participated">
+              <NotParticipatedTable eventId={id} eventName={event.name} />
+            </TabsContent>
+          </Tabs>
+        )}
       </div>
     </ContentLayout>
   );

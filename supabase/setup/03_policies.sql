@@ -3743,3 +3743,39 @@ CREATE POLICY "marketing_leads_db_delete" ON marketing_leads_database FOR DELETE
     AND cr.role_key = 'admission'
   )
 );
+
+-- =============================================================================
+-- SARVAM GALATTA REGISTRATIONS POLICIES
+-- Added: 2026-03-19
+-- =============================================================================
+
+CREATE POLICY "sgr_select_own" ON sarvam_galatta_registrations
+  FOR SELECT USING (
+    EXISTS (
+      SELECT 1 FROM event_registrations er
+      WHERE er.id = registration_id AND er.owner_id = auth.uid()
+    )
+  );
+
+CREATE POLICY "sgr_insert_own" ON sarvam_galatta_registrations
+  FOR INSERT WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM event_registrations er
+      WHERE er.id = registration_id AND er.owner_id = auth.uid()
+    )
+  );
+
+CREATE POLICY "sgr_update_own" ON sarvam_galatta_registrations
+  FOR UPDATE USING (
+    EXISTS (
+      SELECT 1 FROM event_registrations er
+      WHERE er.id = registration_id AND er.owner_id = auth.uid()
+    )
+  );
+
+CREATE POLICY "sgr_all_super_admin" ON sarvam_galatta_registrations
+  FOR ALL USING (
+    EXISTS (
+      SELECT 1 FROM profiles p WHERE p.id = auth.uid() AND p.is_super_admin = true
+    )
+  );
