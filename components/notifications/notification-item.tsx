@@ -22,30 +22,30 @@ export function NotificationItem({
   const getIcon = (type: NotificationType) => {
     switch (type) {
       case 'success':
-        return <CheckCircle2 className='h-5 w-5 text-green-600' />;
+        return <CheckCircle2 className='h-5 w-5 text-green-600 dark:text-green-400' />;
       case 'warning':
-        return <AlertTriangle className='h-5 w-5 text-yellow-600' />;
+        return <AlertTriangle className='h-5 w-5 text-yellow-600 dark:text-yellow-400' />;
       case 'error':
-        return <XCircle className='h-5 w-5 text-red-600' />;
+        return <XCircle className='h-5 w-5 text-red-600 dark:text-red-400' />;
       case 'reminder':
-        return <Bell className='h-5 w-5 text-blue-600' />;
+        return <Bell className='h-5 w-5 text-blue-600 dark:text-blue-400' />;
       default:
-        return <Info className='h-5 w-5 text-blue-600' />;
+        return <Info className='h-5 w-5 text-blue-600 dark:text-blue-400' />;
     }
   };
 
   const getTypeColor = (type: NotificationType) => {
     switch (type) {
       case 'success':
-        return 'text-green-700 bg-green-50 border-green-200';
+        return 'text-green-700 dark:text-green-300 bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-800';
       case 'warning':
-        return 'text-yellow-700 bg-yellow-50 border-yellow-200';
+        return 'text-yellow-700 dark:text-yellow-300 bg-yellow-50 dark:bg-yellow-950/30 border-yellow-200 dark:border-yellow-800';
       case 'error':
-        return 'text-red-700 bg-red-50 border-red-200';
+        return 'text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-800';
       case 'reminder':
-        return 'text-blue-700 bg-blue-50 border-blue-200';
+        return 'text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-800';
       default:
-        return 'text-gray-700 bg-gray-50 border-gray-200';
+        return 'text-foreground bg-muted/30 border-border';
     }
   };
 
@@ -59,7 +59,7 @@ export function NotificationItem({
     }
     if (notification.priority === 'high') {
       return (
-        <Badge variant='default' className='text-xs bg-orange-500'>
+        <Badge variant='default' className='text-xs bg-orange-500 dark:bg-orange-600'>
           High
         </Badge>
       );
@@ -70,8 +70,8 @@ export function NotificationItem({
   return (
     <div
       className={cn(
-        'p-3 sm:p-4 hover:bg-gray-50 transition-colors cursor-pointer border-l-4',
-        !notification.is_read && 'bg-blue-50/50',
+        'p-3 sm:p-4 hover:bg-muted/50 transition-colors cursor-pointer border-l-4',
+        !notification.is_read && 'bg-blue-50/50 dark:bg-blue-950/20',
         getTypeColor(notification.type)
       )}
       onClick={onClick}
@@ -116,7 +116,7 @@ export function NotificationItem({
 
           {notification.action_url && notification.action_label && (
             <div className='pt-1'>
-              <span className='text-xs text-blue-600 hover:underline'>
+              <span className='text-xs text-blue-600 dark:text-blue-400 hover:underline'>
                 {notification.action_label} →
               </span>
             </div>
@@ -125,7 +125,7 @@ export function NotificationItem({
 
         {!notification.is_read && (
           <div className='flex-shrink-0'>
-            <div className='h-2 w-2 bg-blue-600 rounded-full' />
+            <div className='h-2 w-2 bg-blue-600 dark:bg-blue-400 rounded-full' />
           </div>
         )}
       </div>
