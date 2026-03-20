@@ -44,9 +44,11 @@ export function DepartmentCard({ dept }: { dept: DepartmentParadigmShift }) {
             </div>
             <div>
               <p className="text-sm font-semibold">
-                {dept.metrics.revenue_generated > 0
-                  ? `${Math.round(dept.metrics.revenue_generated / 1000)}K`
-                  : '0'}
+                {dept.metrics.revenue_generated === 0
+                  ? '\u2014'
+                  : dept.metrics.revenue_generated < 1000
+                    ? `\u20B9${dept.metrics.revenue_generated}`
+                    : `${Math.round(dept.metrics.revenue_generated / 1000)}K`}
               </p>
               <p className="text-[10px] text-muted-foreground">Revenue</p>
             </div>
