@@ -184,7 +184,7 @@ export class ParadigmShiftService extends BaseService {
     // Filter by institution if provided
     let filteredDepts = departments;
     if (filters?.institution_id) {
-      filteredDepts = departments.filter(d => d.institution_id === filters.institution_id);
+      filteredDepts = departments.filter((d: { institution_id: string }) => d.institution_id === filters.institution_id);
     }
 
     // 2. Run all metric queries in parallel
