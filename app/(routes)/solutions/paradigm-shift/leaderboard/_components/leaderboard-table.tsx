@@ -64,7 +64,7 @@ export function LeaderboardTable() {
         </Button>
 
         <Select value={institutionFilter} onValueChange={setInstitutionFilter}>
-          <SelectTrigger className="w-[220px]">
+          <SelectTrigger className="w-full sm:w-[280px]">
             <SelectValue placeholder="All Institutions" />
           </SelectTrigger>
           <SelectContent>
