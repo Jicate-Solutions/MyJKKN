@@ -85,23 +85,28 @@ export function DepartmentDetailView() {
               <CardTitle className="text-base">Monthly Progress (Last 12 Months)</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="space-y-1">
-                {dept.monthly_timeline.map(month => (
-                  <div key={month.month} className="flex items-center gap-3 text-sm">
-                    <span className="w-16 text-muted-foreground font-mono text-xs">{month.month}</span>
-                    <div className="flex-1 flex items-center gap-2">
-                      <div
-                        className="h-4 bg-blue-200 rounded"
-                        style={{ width: `${Math.min(month.solutions * 20, 100)}%`, minWidth: month.solutions > 0 ? 8 : 0 }}
-                      />
-                      <span className="text-xs text-muted-foreground">
-                        {month.solutions} sol, {month.discovery_visits} visits
-                        {month.revenue > 0 ? `, ${formatCurrency(month.revenue)}` : ''}
-                      </span>
-                    </div>
+              {(() => {
+                const maxSolutions = Math.max(1, ...dept.monthly_timeline.map(m => m.solutions));
+                return (
+                  <div className="space-y-1">
+                    {dept.monthly_timeline.map(month => (
+                      <div key={month.month} className="flex items-center gap-3 text-sm">
+                        <span className="w-16 text-muted-foreground font-mono text-xs">{month.month}</span>
+                        <div className="flex-1 flex items-center gap-2">
+                          <div
+                            className="h-4 bg-blue-200 rounded"
+                            style={{ width: `${(month.solutions / maxSolutions) * 100}%`, minWidth: month.solutions > 0 ? 8 : 0 }}
+                          />
+                          <span className="text-xs text-muted-foreground">
+                            {month.solutions} solutions, {month.discovery_visits} visits
+                            {month.revenue > 0 ? `, ${formatCurrency(month.revenue)}` : ''}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
+                );
+              })()}
             </CardContent>
           </Card>
 
