@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -52,6 +52,7 @@ import { AttendanceSummaryModal } from './components/attendance-summary-modal';
 import { SubdividedAttendanceGrid } from './_components/subdivided-attendance-grid';
 import { PracticalAttendanceSelector } from './_components/practical-attendance-selector';
 import type { SubdivisionGroup, PeriodMode, PracticalConfig } from '@/types/academics';
+import type { AttendanceEditDiff } from '@/types/attendance';
 import { cn } from '@/lib/utils';
 // Updated: 2026-01-29 - Leave/OnDuty attendance integration
 import { LeaveOndutyAttendanceCheckService } from '@/lib/services/academic/leave-onduty-attendance-check-service';
@@ -91,11 +92,25 @@ export default function AttendanceMarkPage() {
   >({});
   const [contextData, setContextData] = useState<any>(null);
   const [loadingContext, setLoadingContext] = useState(true);
+
+  // HOD edit-gate variables (Added: 2026-03-20 — extend edit to dept-scoped HOD)
+  const isHOD = profile?.role === 'hod'
+  const isHODDepartmentMatch =
+    isHOD &&
+    !!profile?.department_id &&
+    profile.department_id === contextData?.department_id &&
+    profile.institution_id === contextData?.institution_id
+  const canEditAttendance = isSuperAdmin || isHODDepartmentMatch
+
   const [existingAttendance, setExistingAttendance] = useState<any>(null);
   const [loadingExistingAttendance, setLoadingExistingAttendance] =
     useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
+  // Snapshot of attendance state at the moment edit mode is entered (Added: 2026-03-20)
+  const initialEditSnapshot = useRef<Record<string, string>>({})
   const [showSummaryModal, setShowSummaryModal] = useState(false);
+  // Computed diff passed to summary modal for edit confirmation (Added: 2026-03-20)
+  const [editDiff, setEditDiff] = useState<AttendanceEditDiff[]>([]);
   const [assignedStaff, setAssignedStaff] = useState<any[]>([]);
   const [loadingStaff, setLoadingStaff] = useState(false);
 
@@ -1066,6 +1081,9 @@ export default function AttendanceMarkPage() {
   // Toggle attendance status
   // Updated: 2026-01-29 - Check approved leave before toggling
   const toggleAttendance = (studentId: string) => {
+    // OnDuty is leave-system controlled — never allow manual toggle
+    // Cast needed: attendanceData type is 'Present'|'Absent' but DB may contain 'OnDuty' at runtime
+    if ((attendanceData[studentId] as string) === 'OnDuty') return
     const newStatus = attendanceData[studentId] === 'Present' ? 'Absent' : 'Present';
     const leaveInfo = approvedLeaveMap.get(studentId);
 
@@ -1150,6 +1168,26 @@ export default function AttendanceMarkPage() {
       toast.error('Missing institution information. Please try again.');
       return;
     }
+
+    // Compute edit diff before opening modal (Added: 2026-03-20)
+    const computedDiff: AttendanceEditDiff[] = isEditMode
+      ? students
+          .filter(
+            (s: any) =>
+              initialEditSnapshot.current[s.id] !== attendanceData[s.id] &&
+              (attendanceData[s.id] as string) !== 'OnDuty'
+          )
+          .map((s: any) => ({
+            studentId: s.id,
+            studentName:
+              `${s.first_name || ''} ${s.last_name || ''}`.trim() || 'Unknown',
+            oldStatus: initialEditSnapshot.current[s.id] as
+              | 'Present'
+              | 'Absent',
+            newStatus: attendanceData[s.id] as 'Present' | 'Absent',
+          }))
+      : []
+    setEditDiff(computedDiff)
 
     // Show summary modal
     setShowSummaryModal(true);
@@ -1388,7 +1426,18 @@ export default function AttendanceMarkPage() {
         attendance_date: date,
         attendance_data: attendancePayload,
         marked_by: profile?.id || '',
-        institution_id: institutionId
+        institution_id: institutionId,
+        // Audit trail fields (Added: 2026-03-20)
+        is_edit_mode: isEditMode && !!existingAttendance,
+        period_id_being_edited: isEditMode ? periodId : undefined,
+        editor_profile:
+          isEditMode && profile
+            ? {
+                id: profile.id,
+                full_name: profile.full_name || 'Unknown',
+                role: profile.role || 'unknown',
+              }
+            : undefined,
       });
 
       if (result) {
@@ -1541,11 +1590,14 @@ export default function AttendanceMarkPage() {
                 </div>
                 {!isEditMode && (
                   <div className='flex gap-2'>
-                    {isSuperAdmin ? (
+                    {canEditAttendance ? (
                       <Button
                         variant='outline'
                         size='sm'
-                        onClick={() => setIsEditMode(true)}
+                        onClick={() => {
+                          initialEditSnapshot.current = { ...attendanceData }
+                          setIsEditMode(true)
+                        }}
                         className='bg-white dark:bg-gray-800'
                       >
                         ✏️ Edit Attendance
@@ -2543,6 +2595,8 @@ export default function AttendanceMarkPage() {
           startTime={startTime || undefined}
           endTime={endTime || undefined}
           existingAttendance={existingAttendance}
+          isEditMode={isEditMode}
+          editDiff={editDiff}
         />
       </div>
     </ContentLayout>

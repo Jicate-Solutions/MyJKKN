@@ -27,6 +27,8 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
+import type { AttendanceEditDiff } from '@/types/attendance';
+
 interface AttendanceSummaryModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -41,6 +43,9 @@ interface AttendanceSummaryModalProps {
   startTime?: string;
   endTime?: string;
   existingAttendance?: any;
+  // Edit mode audit support (Added: 2026-03-20 — used by Task 7 diff preview)
+  isEditMode?: boolean;
+  editDiff?: AttendanceEditDiff[];
 }
 
 export function AttendanceSummaryModal({
