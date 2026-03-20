@@ -9,6 +9,7 @@ export async function OPTIONS() {
 }
 
 export const GET = withAuth(async (request, auth) => {
+  void request; // required by withAuth signature
   const url = new URL(request.url)
   const institution_id = url.searchParams.get('institution_id') || undefined
   const limit = parseInt(url.searchParams.get('limit') || '50', 10)
