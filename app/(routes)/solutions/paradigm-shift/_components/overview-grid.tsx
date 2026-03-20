@@ -11,37 +11,42 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Trophy, ArrowRight, Lightbulb, IndianRupee, BookOpen, Building2 } from 'lucide-react';
+import { Trophy, ArrowRight, Lightbulb, IndianRupee, BookOpen, Building2, AlertCircle } from 'lucide-react';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import Link from 'next/link';
 import { useParadigmShiftOverview } from '@/hooks/solutions/use-paradigm-shift';
 import { DepartmentCard } from './department-card';
 import { TierBadge, getTierColor } from './tier-badge';
+import { formatCurrency } from '@/lib/services/solutions';
 import type { ReadinessTier } from '@/lib/services/solutions/paradigm-shift-service';
-
-function formatCurrency(amount: number): string {
-  return new Intl.NumberFormat('en-IN', {
-    style: 'currency',
-    currency: 'INR',
-    maximumFractionDigits: 0,
-  }).format(amount);
-}
 
 export function OverviewGrid() {
   const [institutionFilter, setInstitutionFilter] = useState<string>('all');
   const [tierFilter, setTierFilter] = useState<string>('all');
 
-  const filters: Record<string, string> = {};
+  const filters: {
+    institution_id?: string;
+    tier?: ReadinessTier;
+  } = {};
   if (institutionFilter !== 'all') filters.institution_id = institutionFilter;
-  if (tierFilter !== 'all') filters.tier = tierFilter;
+  if (tierFilter !== 'all') filters.tier = tierFilter as ReadinessTier;
 
-  const { data, isLoading } = useParadigmShiftOverview(
-    Object.keys(filters).length > 0 ? filters as { institution_id?: string; tier?: ReadinessTier } : undefined
+  const { data, isLoading, error } = useParadigmShiftOverview(
+    Object.keys(filters).length > 0 ? filters : undefined
   );
 
-  // Get unique institutions for filter
-  const institutions = data?.departments
-    ? [...new Map(data.departments.map(d => [d.institution_id, d.institution_name])).entries()]
-    : [];
+  // Fetch institutions from unfiltered data on first load, then keep stable
+  // Use a ref to avoid the self-referential dropdown problem
+  const [allInstitutions, setAllInstitutions] = useState<[string, string][]>([]);
+  const institutions = allInstitutions;
+
+  // Populate institutions list from unfiltered data
+  if (data?.departments && allInstitutions.length === 0) {
+    const instMap = new Map(data.departments.map(d => [d.institution_id, d.institution_name]));
+    if (instMap.size > 0) {
+      setAllInstitutions([...instMap.entries()]);
+    }
+  }
 
   // Sort by composite score (highest first)
   const sortedDepts = data?.departments
