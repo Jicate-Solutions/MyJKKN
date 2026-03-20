@@ -140,7 +140,10 @@ export function LeaderboardTable() {
                   <TableRow
                     key={dept.department_id}
                     className="cursor-pointer hover:bg-muted/50"
-                    onClick={() => window.location.href = `/solutions/paradigm-shift/${dept.department_id}`}
+                    tabIndex={0}
+                    role="link"
+                    onClick={() => router.push(`/solutions/paradigm-shift/${dept.department_id}`)}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); router.push(`/solutions/paradigm-shift/${dept.department_id}`); } }}
                   >
                     <TableCell>
                       <RankIcon rank={dept.rank} />
