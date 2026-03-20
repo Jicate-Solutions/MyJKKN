@@ -11,7 +11,8 @@ import type {
   ConsolidatedStudentAttendance,
   ConsolidatedAttendanceData,
   ConsolidatedAttendanceStudent,
-  UpsertConsolidatedAttendanceDto
+  UpsertConsolidatedAttendanceDto,
+  AttendanceAuditEntry
 } from '@/types/attendance';
 import type { TimetableData } from '@/types/academics';
 
@@ -1213,6 +1214,47 @@ export class AttendanceCoreService {
       logger.error('academic/attendance', 'Error in checkPracticalConflict', error);
       throw error;
     }
+  }
+
+  // =====================
+  // AUDIT LOG METHODS
+  // =====================
+
+  /**
+   * Returns all audit log entries for a given student_attendance record.
+   * RLS ensures only super_admin can read these — all other roles get [].
+   * Throws on unexpected Supabase errors.
+   * Added: 2026-03-20 — Attendance edit audit trail
+   */
+  static async getAttendanceAuditLog(attendanceId: string): Promise<AttendanceAuditEntry[]> {
+    const { data, error } = await (this.supabase as any)
+      .from('attendance_audit_log')
+      .select(`
+        *,
+        learners_profiles!student_id (
+          full_name,
+          roll_number
+        )
+      `)
+      .eq('attendance_id', attendanceId)
+      .order('edited_at', { ascending: false })
+
+    if (error) {
+      logger.error('academic/attendance', 'Failed to fetch attendance audit log', error)
+      throw error
+    }
+
+    // Flatten the joined learners_profiles into the flat AttendanceAuditEntry shape
+    return (data || []).map((row: any) => {
+      const profiles = row.learners_profiles
+      const result = { ...row }
+      if (profiles) {
+        result.student_name = profiles.full_name ?? undefined
+        result.roll_number = profiles.roll_number ?? undefined
+      }
+      delete result.learners_profiles
+      return result as AttendanceAuditEntry
+    })
   }
 
   // =====================

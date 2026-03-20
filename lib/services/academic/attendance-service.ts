@@ -92,6 +92,12 @@ export class AttendanceService {
     return AttendanceCoreService.checkPracticalConflict(...args);
   }
 
+  static getAttendanceAuditLog(
+    ...args: Parameters<typeof AttendanceCoreService.getAttendanceAuditLog>
+  ) {
+    return AttendanceCoreService.getAttendanceAuditLog(...args)
+  }
+
   // =====================
   // NEW CONSOLIDATED ATTENDANCE METHODS
   // Forwarding stubs — moved to AttendanceRosterService (Task 5.2)
