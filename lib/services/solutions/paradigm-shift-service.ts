@@ -18,7 +18,7 @@ export interface DepartmentMetrics {
   revenue_generated: number;     // sh_payments SUM (completed)
   publications: number;          // sh_publications COUNT
   prototypes_built: number;      // sh_prototype_iterations COUNT via phases
-  ip_retained: number;           // sh_products with patent_status != 'none'
+  ip_retained: number;           // sh_solutions WHERE retained_ip = true
   trl4_products: number;         // sh_products WHERE current_trl >= 4
   training_completed: number;    // sh_training_programs participant count
 }
