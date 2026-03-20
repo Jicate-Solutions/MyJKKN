@@ -554,11 +554,16 @@ export class AttendanceDashboardService {
       // Type cast to fix TypeScript inference after React 19 upgrade
       const timetablesData = timetables as { timetable_data: any }[] | null;
 
+      // Apply timetable ID filter if specified (spec Change 3)
+      const filteredTimetablesData = filters.timetableId
+        ? timetablesData?.filter((t: any) => t.id === filters.timetableId) ?? null
+        : timetablesData;
+
       // Step 2: Get courses and staff data for enrichment
       const courseIds = new Set<string>();
       const staffIds = new Set<string>();
 
-      timetablesData?.forEach((timetable) => {
+      filteredTimetablesData?.forEach((timetable) => {
         const timetableData = timetable.timetable_data as TimetableData | null;
         if (timetableData) {
           Object.values(timetableData).forEach((daySlots) => {
@@ -615,7 +620,7 @@ export class AttendanceDashboardService {
           .toLocaleDateString('en-US', { weekday: 'long' })
           .toUpperCase();
 
-        timetablesData?.forEach((timetable: any) => {
+        filteredTimetablesData?.forEach((timetable: any) => {
           // Check if timetable is valid for the current date
           const isValidForDate =
             (!timetable.start_date || timetable.start_date <= date) &&
