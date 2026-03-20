@@ -11,7 +11,7 @@ export interface PendingAttendancePeriod {
   end_time: string;
 
   // Course info
-  course_id: string        // slot.course_id — retained for metadata aggregation
+  course_id: string;       // slot.course_id — retained for metadata aggregation
   course_name: string;
   course_code?: string;
 
@@ -54,11 +54,11 @@ export interface PendingAttendanceResponse {
     page: number;
     limit: number;
     totalPages: number;
-    overdueCount: number      // periods where attendance_date < today
-    todayCount: number        // periods where attendance_date === today
-    sectionsCount: number     // unique sections with pending periods
-    subjectsCount: number     // unique courses with pending periods
-    staffCount: number        // unique staff with pending periods
+    overdueCount: number;     // periods where attendance_date < today
+    todayCount: number;       // periods where attendance_date === today
+    sectionsCount: number;    // unique sections with pending periods
+    subjectsCount: number;    // unique courses with pending periods
+    staffCount: number;       // unique staff with pending periods
   };
 }
 
@@ -123,7 +123,7 @@ export interface DashboardFilters {
 
   // Staff filtering
   staffId?: string;
-  timetableId?: string     // server-side timetable filter for pending page
+  timetableId?: string;    // server-side timetable filter for pending page
 }
 
 export interface AttendanceTrendData {

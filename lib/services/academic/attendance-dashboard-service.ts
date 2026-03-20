@@ -552,11 +552,11 @@ export class AttendanceDashboardService {
       }
 
       // Type cast to fix TypeScript inference after React 19 upgrade
-      const timetablesData = timetables as { timetable_data: any }[] | null;
+      const timetablesData = timetables as { id: string; timetable_data: any }[] | null;
 
       // Apply timetable ID filter if specified (spec Change 3)
       const filteredTimetablesData = filters.timetableId
-        ? timetablesData?.filter((t: any) => t.id === filters.timetableId) ?? null
+        ? timetablesData?.filter(t => t.id === filters.timetableId) ?? null
         : timetablesData;
 
       // Step 2: Get courses and staff data for enrichment
