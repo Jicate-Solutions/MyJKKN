@@ -24,7 +24,8 @@ export const GET = withAuth(async (request, auth, context) => {
   }
 
   // Enforce institution scoping for non-super_admin users
-  if (!auth.isSuperAdmin && auth.institutionId && result.institution_id !== auth.institutionId) {
+  const isSuperAdmin = auth.user.role === 'super_admin'
+  if (!isSuperAdmin && auth.institutionId && result.institution_id !== auth.institutionId) {
     return errorResponse('Department not found', 404)
   }
 
