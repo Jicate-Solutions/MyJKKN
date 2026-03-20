@@ -19,6 +19,7 @@ import {
   Lightbulb,
   Shield,
   Target,
+  Sparkles,
 } from 'lucide-react';
 import { useSolutionStats } from '@/hooks/solutions/use-solutions';
 import { useBuilderStats } from '@/hooks/solutions/use-builders';
