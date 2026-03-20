@@ -306,6 +306,7 @@ export function LeadsDatabaseDataTable() {
           enableUrlState: false,
           enableDateFilter: false,
           enableExport: true,
+          enableColumnResizing: false,
         }}
       />
 

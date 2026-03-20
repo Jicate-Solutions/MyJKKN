@@ -46,7 +46,6 @@ const baseColumns: ColumnDef<MarketingLeadDatabase>[] = [
     ),
     enableSorting: false,
     enableHiding: false,
-    size: 40,
   },
 
   // Student Name — placeholder, replaced in getColumns with clickable version
@@ -56,11 +55,10 @@ const baseColumns: ColumnDef<MarketingLeadDatabase>[] = [
       <DataTableColumnHeader column={column} title="Student Name" />
     ),
     cell: ({ row }) => (
-      <div className="font-medium min-w-[150px]">
+      <div className="font-medium">
         {row.getValue('student_name')}
       </div>
     ),
-    size: 180,
   },
 
   // Father Name
@@ -72,7 +70,6 @@ const baseColumns: ColumnDef<MarketingLeadDatabase>[] = [
     cell: ({ row }) => (
       <span className="text-sm">{row.getValue('father_name') || '—'}</span>
     ),
-    size: 160,
   },
 
   // Gender
@@ -89,7 +86,6 @@ const baseColumns: ColumnDef<MarketingLeadDatabase>[] = [
         <span className="text-muted-foreground">—</span>
       );
     },
-    size: 100,
   },
 
   // Mobile Number
@@ -103,7 +99,6 @@ const baseColumns: ColumnDef<MarketingLeadDatabase>[] = [
         {row.getValue('mobile_number') || '—'}
       </span>
     ),
-    size: 130,
   },
 
   // District
@@ -115,7 +110,6 @@ const baseColumns: ColumnDef<MarketingLeadDatabase>[] = [
     cell: ({ row }) => (
       <span className="text-sm">{row.getValue('district') || '—'}</span>
     ),
-    size: 140,
   },
 
   // Sub District
@@ -127,7 +121,6 @@ const baseColumns: ColumnDef<MarketingLeadDatabase>[] = [
     cell: ({ row }) => (
       <span className="text-sm">{row.getValue('sub_district') || '—'}</span>
     ),
-    size: 140,
   },
 
   // Community
@@ -139,7 +132,6 @@ const baseColumns: ColumnDef<MarketingLeadDatabase>[] = [
     cell: ({ row }) => (
       <span className="text-sm">{row.getValue('community') || '—'}</span>
     ),
-    size: 120,
   },
 
   // Group Detail
@@ -151,7 +143,6 @@ const baseColumns: ColumnDef<MarketingLeadDatabase>[] = [
     cell: ({ row }) => (
       <span className="text-sm">{row.getValue('group_detail') || '—'}</span>
     ),
-    size: 120,
   },
 
   // School Name
@@ -161,11 +152,10 @@ const baseColumns: ColumnDef<MarketingLeadDatabase>[] = [
       <DataTableColumnHeader column={column} title="School Name" />
     ),
     cell: ({ row }) => (
-      <div className="text-sm max-w-[200px] truncate" title={row.getValue('school_name') as string}>
+      <div className="text-sm truncate" title={row.getValue('school_name') as string}>
         {row.getValue('school_name') || '—'}
       </div>
     ),
-    size: 200,
   },
 
   // Pincode
@@ -177,7 +167,6 @@ const baseColumns: ColumnDef<MarketingLeadDatabase>[] = [
     cell: ({ row }) => (
       <span className="text-sm font-mono">{row.getValue('pincode') || '—'}</span>
     ),
-    size: 90,
   },
 ];
 
@@ -227,7 +216,6 @@ export const getColumns = (
       },
       enableSorting: false,
       enableHiding: false,
-      size: 60,
     },
   ];
 };
