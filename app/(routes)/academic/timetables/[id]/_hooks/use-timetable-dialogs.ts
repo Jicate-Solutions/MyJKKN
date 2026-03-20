@@ -1,3 +1,5 @@
+'use client';
+
 import { useState, useCallback } from 'react';
 import { Period, DayOfWeek } from '@/types/academics';
 
@@ -164,9 +166,13 @@ export function useTimetableDialogs(): UseTimetableDialogsResult {
   }, []);
 
   // Delete Dialog Control
+  // FIX: 2026-03-20 - Add setTimeout to prevent race condition when opening delete dialog
+  // while slot dialog may still be in its closing animation
   const openDeleteDialog = useCallback((slot: any) => {
-    setSlotToDelete(slot);
-    setDeleteDialogOpen(true);
+    setTimeout(() => {
+      setSlotToDelete(slot);
+      setDeleteDialogOpen(true);
+    }, 0);
   }, []);
 
   // Date Range Dialog Clear
@@ -176,6 +182,9 @@ export function useTimetableDialogs(): UseTimetableDialogsResult {
   }, []);
 
   // FIX: 2026-01-31 - Proper cleanup on dialog close
+  // FIX: 2026-03-20 - Increased from 150ms to 300ms — 150ms matched the Radix exit animation
+  // duration exactly, causing state changes to land mid-animation when a second dialog
+  // opened immediately after (subdivision case). 300ms guarantees animation is done.
   const closeSlotDialog = useCallback(() => {
     setSlotDialogOpen(false);
     // Clear state after dialog animation completes
@@ -184,10 +193,11 @@ export function useTimetableDialogs(): UseTimetableDialogsResult {
       setSelectedPeriod(null);
       setSelectedSlot(null);
       setSlotDialogReadOnly(false);
-    }, 150); // Wait for Radix close animation
+    }, 300);
   }, []);
 
   // FIX: 2026-01-31 - Proper cleanup on subdivision dialog close
+  // FIX: 2026-03-20 - Increased from 150ms to 300ms (same reasoning as closeSlotDialog)
   const closeSubdivisionDialog = useCallback(() => {
     setSubdivisionDialogOpen(false);
     // Clear state after dialog animation completes
@@ -198,7 +208,7 @@ export function useTimetableDialogs(): UseTimetableDialogsResult {
       setPendingPeriod(null);
       setPendingDay(null);
       setAllStudentsForSubdivision([]);
-    }, 150); // Wait for Radix close animation
+    }, 300);
   }, []);
 
   return {

@@ -118,12 +118,29 @@ const FORM_DATA = {
 } as const;
 
 /**
+ * TIMETABLE_DATA - For timetable schedule data
+ * Use for: timetable lists, timetable detail, slot data
+ * Behavior: Cache for 5 minutes, don't refetch on mount if fresh
+ * Rationale: Timetables don't change during a typical browsing session.
+ *   DYNAMIC_DATA (30s) was causing refetch on every page navigation.
+ *   Added: 2026-03-20
+ */
+const TIMETABLE_DATA = {
+  staleTime: 5 * 60 * 1000, // 5 minutes — fresh enough for schedule data
+  gcTime: 15 * 60 * 1000, // 15 minutes — keep in memory across navigations
+  refetchOnWindowFocus: false,
+  refetchOnMount: false, // Don't refetch if data is within 5 minutes
+  retry: 1
+} as const;
+
+/**
  * Combined export for easy import
  */
 export const QUERY_CONFIG = {
   STABLE_DATA,
   SEMI_STABLE_DATA,
   DYNAMIC_DATA,
+  TIMETABLE_DATA,
   REALTIME_DATA,
   DASHBOARD_DATA,
   USER_SESSION_DATA,

@@ -18,10 +18,16 @@ import type { TimetablesSearchParams } from './data-table-schema';
 
 interface TimetableFiltersClientProps {
   searchParams: TimetablesSearchParams;
+  /** Institution ID from server — avoids waiting for client-side permission chain */
+  userInstitutionId?: string;
+  /** Department ID from server — pre-populates department filter for HOD/faculty */
+  userDepartmentId?: string;
 }
 
 export function TimetableFiltersClient({
-  searchParams: _serverSearchParams
+  searchParams: _serverSearchParams,
+  userInstitutionId,
+  userDepartmentId,
 }: TimetableFiltersClientProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -93,6 +99,8 @@ export function TimetableFiltersClient({
       searchParams={searchParams}
       onFilterChange={handleFilterChange}
       onClearFilters={handleClearFilters}
+      userInstitutionId={userInstitutionId}
+      userDepartmentId={userDepartmentId}
     />
   );
 }

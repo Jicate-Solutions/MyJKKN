@@ -16,6 +16,14 @@ const nextConfig: NextConfig = {
   // Enable Cache Components for server-side caching (Next.js 16.1.1)
   cacheComponents: true,
 
+  // Exclude browser-only PDF libraries from server bundle.
+  // jspdf depends on fflate which uses Node.js Worker via a dynamic `new Worker()`
+  // call that Turbopack cannot resolve at build time — even with `await import('jspdf')`
+  // inside a function, Turbopack still statically traces and bundles the module for SSR.
+  // Marking them as external tells Next.js to skip bundling entirely and resolve them
+  // at runtime via require() — which is never called on the server anyway.
+  serverExternalPackages: ['jspdf', 'jspdf-autotable', 'fflate'],
+
   // Turbopack is the default bundler in Next.js 16. The @serwist/next plugin
   // injects a webpack config for SW compilation (production only). This empty
   // turbopack key tells Next.js we're aware and silences the mismatch error.

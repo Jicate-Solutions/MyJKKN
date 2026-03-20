@@ -1,8 +1,9 @@
 import { Period } from '@/types/academics';
-import { jsPDF } from 'jspdf';
-import autoTable from 'jspdf-autotable';
 import { format } from 'date-fns';
 import { logger } from '@/lib/utils/enhanced-logger';
+// jspdf and jspdf-autotable are dynamically imported inside exportTimetableToPDF
+// to prevent SSR bundling errors — fflate (jspdf dep) uses Node.js Worker which
+// Turbopack cannot resolve during server-side rendering.
 
 /**
  * Sort periods by name naturally (Period 1, Period 2, etc.)
@@ -149,6 +150,9 @@ export async function exportTimetableToPDF(
   if (!timetableGridRef.current) {
     throw new Error('Timetable grid not found');
   }
+
+  const { jsPDF } = await import('jspdf');
+  const { default: autoTable } = await import('jspdf-autotable');
 
   const pdf = new jsPDF({
     orientation: 'landscape',

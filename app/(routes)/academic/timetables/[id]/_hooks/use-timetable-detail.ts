@@ -1,4 +1,6 @@
-import { useState, useEffect, useCallback } from 'react';
+'use client';
+
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { TimetableService } from '@/lib/services/academic/timetable-service';
 import { PeriodService } from '@/lib/services/academic/period-service';
 import { logger } from '@/lib/utils/enhanced-logger';
@@ -85,6 +87,52 @@ function recoverDatesFromTimetableData(timetableData: Record<string, any> | null
   return ranges;
 }
 
+// ─── State shape ─────────────────────────────────────────────────────────────
+
+/**
+ * All timetable detail state in a single object.
+ * Batching into one shape lets fetchTimetableData do a single setState
+ * at the end of each load cycle — collapsing 8 separate renders into 1.
+ *
+ * Performance fix: 2026-03-20
+ */
+interface TimetableDetailState {
+  timetable: Timetable | null;
+  periods: Period[];
+  slots: any[];
+  loading: boolean;
+  error: string | null;
+  hasAttendance: boolean;
+  markedPeriods: string[];
+  timetableFormat: 'regular' | 'batch';
+  selectedDays: DayOfWeek[];
+  selectedDates: string[];
+}
+
+const DEFAULT_SELECTED_DAYS: DayOfWeek[] = [
+  'MONDAY',
+  'TUESDAY',
+  'WEDNESDAY',
+  'THURSDAY',
+  'FRIDAY',
+  'SATURDAY'
+];
+
+const INITIAL_STATE: TimetableDetailState = {
+  timetable: null,
+  periods: [],
+  slots: [],
+  loading: true,
+  error: null,
+  hasAttendance: false,
+  markedPeriods: [],
+  timetableFormat: 'regular',
+  selectedDays: DEFAULT_SELECTED_DAYS,
+  selectedDates: [],
+};
+
+// ─── Public interface ─────────────────────────────────────────────────────────
+
 interface UseTimetableDetailResult {
   // Data
   timetable: Timetable | null;
@@ -112,40 +160,35 @@ interface UseTimetableDetailResult {
   setSlots: (slots: any[]) => void;
 }
 
+// ─── Hook ─────────────────────────────────────────────────────────────────────
+
 /**
- * Custom hook for managing timetable detail data
- * Handles fetching timetable, periods, slots, and attendance status
+ * Custom hook for managing timetable detail data.
+ * Handles fetching timetable, periods, slots, and attendance status.
+ *
+ * Performance fix (2026-03-20):
+ * - Collapsed 8 individual useState calls into one state object.
+ * - fetchTimetableData now does a single batched setState at the end,
+ *   reducing render count from 8 to 1 per load cycle.
+ * - stateRef keeps fetchTimetableData stable (no stale-closure deps)
+ *   while still reading latest selectedDates/selectedDays.
  */
 export function useTimetableDetail(timetableId: string): UseTimetableDetailResult {
-  // State
-  const [timetable, setTimetable] = useState<Timetable | null>(null);
-  const [periods, setPeriods] = useState<Period[]>([]);
-  const [slots, setSlots] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [hasAttendance, setHasAttendance] = useState(false);
-  const [markedPeriods, setMarkedPeriods] = useState<string[]>([]);
-  const [timetableFormat, setTimetableFormat] = useState<'regular' | 'batch'>('regular');
-  const [selectedDays, setSelectedDays] = useState<DayOfWeek[]>([
-    'MONDAY',
-    'TUESDAY',
-    'WEDNESDAY',
-    'THURSDAY',
-    'FRIDAY',
-    'SATURDAY'
-  ]);
-  const [selectedDates, setSelectedDates] = useState<string[]>([]);
+  const [state, setState] = useState<TimetableDetailState>(INITIAL_STATE);
+
+  // Always-current ref — avoids adding state to useCallback deps
+  const stateRef = useRef(state);
+  stateRef.current = state;
 
   /**
    * Fetch timetable data from server
    * @param preserveUnsavedDates - Whether to preserve current date selections (for batch mode)
    *
    * Fixed: 2025-10-27 - Removed selectedDates from dependency array to prevent stale closures
-   * Now uses a ref pattern to access current selectedDates value
    * Fixed: 2026-02-03 - Added UUID validation to prevent errors from DRP placeholders
    * Fixed: 2026-02-25 - DRP placeholders now keep loading state instead of setting error.
-   *   The %%drp:id:xxxx%% pattern comes from Next.js fallback-params.js (not TanStack Table).
-   *   It's a transient state during client-side navigation that resolves automatically.
+   * Fixed: 2026-03-20 - Single batched setState replaces 8 scattered setState calls.
+   *   Uses stateRef to read current selectedDates/selectedDays without adding them to deps.
    */
   const fetchTimetableData = useCallback(async (preserveUnsavedDates: boolean = false) => {
     // Validate timetable ID before making API calls
@@ -157,137 +200,127 @@ export function useTimetableDetail(timetableId: string): UseTimetableDetailResul
       }
       // Truly invalid ID (not a DRP placeholder)
       logger.error('academic/timetables', 'Invalid timetable ID format', { timetableId });
-      setError('Invalid timetable ID. Please navigate from the timetables list.');
-      setLoading(false);
+      setState(prev => ({ ...prev, error: 'Invalid timetable ID. Please navigate from the timetables list.', loading: false }));
       return;
     }
 
+    // Read current selected dates via ref (avoids stale closure without extra deps)
+    const currentSelectedDates = preserveUnsavedDates ? stateRef.current.selectedDates : [];
+
+    // Show loading — single setState here, one more at the end = 2 total renders
+    setState(prev => ({ ...prev, loading: true, error: null }));
+
     try {
-      setLoading(true);
-      setError(null);
-
-      // Use functional setState to access current selectedDates without adding to dependencies
-      let currentSelectedDates: string[] = [];
-      if (preserveUnsavedDates) {
-        setSelectedDates((prev) => {
-          currentSelectedDates = prev;
-          return prev; // Don't change state, just capture current value
-        });
-      }
-
-      // Fetch timetable data
+      // Fetch main timetable record
       const timetableData = await TimetableService.getTimetable(timetableId);
 
-      setTimetable(timetableData);
-
-      // Check attendance status in parallel with other operations
+      // Kick off parallel operations immediately after timetable resolves
       const attendanceStatusPromise = TimetableService.hasAttendanceMarked(timetableId);
-
-      // Update timetable format
-      if (timetableData.timetable_format) {
-        setTimetableFormat(timetableData.timetable_format);
-      }
-
-      // Update selected days/dates based on format
-      if (timetableData.timetable_format === 'batch') {
-        // Batch mode: Load selected dates
-        // FIX: 2026-02-05 - Preserve unsaved dates even if empty (user may have deleted all ranges)
-        if (preserveUnsavedDates) {
-          // When preserving unsaved dates, use current state (even if empty)
-          // This allows users to delete all date ranges
-          setSelectedDates(currentSelectedDates);
-        } else if (
-          timetableData.selected_dates &&
-          Array.isArray(timetableData.selected_dates) &&
-          timetableData.selected_dates.length > 0
-        ) {
-          // Use non-empty database value directly
-          setSelectedDates(timetableData.selected_dates);
-        } else {
-          // AUTO-RECOVERY: selected_dates is null, undefined, or empty []
-          // Fixed: 2026-02-10 - Always attempt recovery when selected_dates has no entries.
-          // Previously, [] was treated as "intentionally empty", but this caused a bug where
-          // date ranges were stored in timetable_data (via slot creation) but never saved to
-          // selected_dates (user didn't click "Save Configuration"). The result was date ranges
-          // invisible in the UI but blocking new range creation via checkDatesWithSlots.
-          // Now we check timetable_data for RANGE keys or date keys to recover missing ranges.
-          const recoveredDates = recoverDatesFromTimetableData(timetableData.timetable_data);
-          if (recoveredDates.length > 0) {
-            setSelectedDates(recoveredDates);
-          } else {
-            setSelectedDates([]);
-          }
-        }
-      } else {
-        // Regular mode: Load selected days
-        if (
-          timetableData.selected_days &&
-          Array.isArray(timetableData.selected_days)
-        ) {
-          setSelectedDays(timetableData.selected_days);
-        }
-      }
-
-      // Load available periods in parallel
       const periodsPromise = PeriodService.getPeriods({
         institution_id: timetableData.institution_id,
         limit: 100
       });
 
-      // Wait for parallel operations
-      try {
-        const [attendanceStatus, periodsResponse] = await Promise.all([
-          attendanceStatusPromise,
-          periodsPromise
-        ]);
+      // Resolve format-dependent days/dates
+      const format: 'regular' | 'batch' = timetableData.timetable_format || 'regular';
+      let resolvedDays: DayOfWeek[] = stateRef.current.selectedDays;
+      let resolvedDates: string[] = [];
 
-        setHasAttendance(attendanceStatus.hasAttendance);
-        setMarkedPeriods(attendanceStatus.markedPeriods);
-        setPeriods(periodsResponse.data || []);
-      } catch (error) {
-        logger.error('academic/timetables', 'Error fetching parallel data', error);
+      if (format === 'batch') {
+        // Batch mode: Load selected dates
+        // FIX: 2026-02-05 - Preserve unsaved dates even if empty (user may have deleted all ranges)
+        if (preserveUnsavedDates) {
+          resolvedDates = currentSelectedDates;
+        } else if (
+          timetableData.selected_dates &&
+          Array.isArray(timetableData.selected_dates) &&
+          timetableData.selected_dates.length > 0
+        ) {
+          resolvedDates = timetableData.selected_dates;
+        } else {
+          // AUTO-RECOVERY: selected_dates is null, undefined, or empty []
+          // Fixed: 2026-02-10 - Always attempt recovery when selected_dates has no entries.
+          resolvedDates = recoverDatesFromTimetableData(timetableData.timetable_data);
+        }
+      } else {
+        // Regular mode: Load selected days
+        if (timetableData.selected_days && Array.isArray(timetableData.selected_days)) {
+          resolvedDays = timetableData.selected_days;
+        }
       }
 
-      // Set slots (use enriched slots from timetable data)
-      setSlots(timetableData.slots || []);
+      // Await parallel ops together
+      const [attendanceStatus, periodsResponse] = await Promise.all([
+        attendanceStatusPromise,
+        periodsPromise
+      ]);
+
+      // ── Single batched setState — only 1 render after all data is ready ──
+      setState({
+        timetable: timetableData,
+        periods: periodsResponse.data || [],
+        slots: timetableData.slots || [],
+        loading: false,
+        error: null,
+        hasAttendance: attendanceStatus.hasAttendance,
+        markedPeriods: attendanceStatus.markedPeriods,
+        timetableFormat: format,
+        selectedDays: resolvedDays,
+        selectedDates: resolvedDates,
+      });
+
     } catch (err) {
       logger.error('academic/timetables', 'Error fetching timetable data', err);
-      setError(err instanceof Error ? err.message : 'An error occurred');
       toast.error('Failed to load timetable data');
-    } finally {
-      setLoading(false);
+      setState(prev => ({
+        ...prev,
+        loading: false,
+        error: err instanceof Error ? err.message : 'An error occurred',
+      }));
     }
-  }, [timetableId]); // Removed selectedDates from dependencies
+  }, [timetableId]); // stateRef always current — no need to add state to deps
 
-  // Initial load
+  // Initial load — only re-run when timetableId changes (not on fetchTimetableData recreation)
   useEffect(() => {
     fetchTimetableData();
-  }, [timetableId]); // Only depend on timetableId, not the full callback
+  }, [timetableId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Stable individual setters (backward-compatible API) ──────────────────
+
+  const setTimetableFormat = useCallback((format: 'regular' | 'batch') => {
+    setState(prev => ({ ...prev, timetableFormat: format }));
+  }, []);
+
+  const setSelectedDays = useCallback((days: DayOfWeek[]) => {
+    setState(prev => ({ ...prev, selectedDays: days }));
+  }, []);
+
+  const setSelectedDates = useCallback((dates: string[]) => {
+    setState(prev => ({ ...prev, selectedDates: dates }));
+  }, []);
+
+  const setSlots = useCallback((slots: any[]) => {
+    setState(prev => ({ ...prev, slots }));
+  }, []);
 
   return {
-    // Data
-    timetable,
-    periods,
-    slots,
-
-    // Loading & Error
-    loading,
-    error,
-
-    // Attendance Status
-    hasAttendance,
-    markedPeriods,
-
-    // Format & Configuration
-    timetableFormat,
-    selectedDays,
-    selectedDates,
+    // Spread state fields for backward-compatible destructuring
+    timetable: state.timetable,
+    periods: state.periods,
+    slots: state.slots,
+    loading: state.loading,
+    error: state.error,
+    hasAttendance: state.hasAttendance,
+    markedPeriods: state.markedPeriods,
+    timetableFormat: state.timetableFormat,
+    selectedDays: state.selectedDays,
+    selectedDates: state.selectedDates,
 
     // Actions
     fetchTimetableData,
     setTimetableFormat,
     setSelectedDays,
     setSelectedDates,
-    setSlots
+    setSlots,
   };
 }

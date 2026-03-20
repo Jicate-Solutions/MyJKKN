@@ -143,7 +143,18 @@ export default async function TimetablesPage({
             <CardContent className="p-6">
               <div className="space-y-6">
                 {/* Filters (Client Component) */}
-                <TimetableFiltersClient searchParams={search} />
+                {/* Pass user institution/department from server to avoid
+                    client-side permission chain triggering extra router.replace */}
+                <TimetableFiltersClient
+                  searchParams={search}
+                  userInstitutionId={!isSuperAdmin ? (userProfile?.institution_id ?? undefined) : undefined}
+                  userDepartmentId={
+                    !isSuperAdmin &&
+                    (userProfile?.role === 'hod' || userProfile?.role === 'faculty')
+                      ? (userProfile?.department_id ?? undefined)
+                      : undefined
+                  }
+                />
 
                 {/* Data Table (Server Component with Suspense) */}
                 <Suspense fallback={<TableSkeleton rows={10} columns={7} />}>

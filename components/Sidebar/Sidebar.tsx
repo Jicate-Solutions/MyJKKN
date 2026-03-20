@@ -37,7 +37,7 @@ const Sidebar = () => {
               width={32}
               height={32}
               className='mr-1 rounded-sm'
-              style={{ width: 32, height: 'auto' }}
+              style={{ width: 32, height: 32 }}
             />
             <h1
               className={cn(

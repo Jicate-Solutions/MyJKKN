@@ -43,7 +43,10 @@ export function useTimetables(initialFilters: TimetableFilters = {}) {
     queryKey: TIMETABLE_KEYS.list(effectiveFilters),
     queryFn: () => TimetableService.getTimetables(effectiveFilters),
     enabled: true,
-    ...QUERY_CONFIG.DYNAMIC_DATA,
+    // TIMETABLE_DATA: 5-min staleTime, no refetch on mount if fresh.
+    // Previously used DYNAMIC_DATA (30s) which caused refetch on every page navigation.
+    // Changed: 2026-03-20
+    ...QUERY_CONFIG.TIMETABLE_DATA,
   });
 
   // ── Derived state ──────────────────────────────────────────────────────────

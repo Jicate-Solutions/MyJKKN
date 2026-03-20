@@ -630,7 +630,13 @@ export default function TimetableDetailPage() {
     ) => {
       try {
         if (shouldConfigureSubdivision) {
-          // Store data for subdivision configuration
+          // FIX: 2026-03-20 - Close slot dialog FIRST, before the async student fetch.
+          // Previously subdivisionDialog.openWith() (which has setTimeout(0) inside) was called
+          // BEFORE slotDialog.close(), causing both dialogs to transition simultaneously.
+          // Closing first + awaiting the network fetch provides natural separation (RTT > 150ms
+          // animation) so the subdivision dialog opens only after the slot dialog is fully gone.
+          slotDialog.close();
+
           if (slotData.section_ids?.[0]) {
             const { LearnerProfileService } = await import(
               '@/lib/services/learner-profile-service'
@@ -651,8 +657,6 @@ export default function TimetableDetailPage() {
               students: studentsResponse.data || []
             });
           }
-
-          slotDialog.close();
         } else {
           // Regular slot save
           // Add required fields for validation (Updated: 2025-10-25)
@@ -738,6 +742,8 @@ export default function TimetableDetailPage() {
       } catch (error) {
         logger.error('academic/timetables', 'Error saving slot', error);
         toast.error('Failed to save slot. Please try again.');
+        // FIX: 2026-03-20 - Always close the slot dialog on error so UI doesn't get stuck
+        slotDialog.close();
       }
     },
     [

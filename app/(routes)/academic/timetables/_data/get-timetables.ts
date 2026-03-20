@@ -17,7 +17,7 @@
  */
 
 import { createClient } from '@/lib/supabase/server';
-
+import { cache } from 'react';
 
 import type { Timetable } from '@/types/academics';
 
@@ -44,23 +44,23 @@ export interface TimetablesResponse {
 }
 
 /**
- * Get timetables list with server-side caching
+ * Get timetables list — deduplicated within each server request.
  *
- * Cache Strategy: COLD (1 hour TTL)
- * - Timetables are relatively static once created
- * - Structure changes infrequently
- * - 1 hour cache balances freshness with performance
+ * WHY NOT 'use cache':
+ * getTimetables calls createClient() which reads the auth cookie via next/headers.
+ * Next.js 16 forbids dynamic request data (headers, auth tokens) inside 'use cache'
+ * scopes because a shared cache could serve one user's session data to another user.
+ * See: https://nextjs.org/docs/messages/next-request-in-use-cache
+ *
+ * DEDUPLICATION STRATEGY:
+ * React's cache() deduplicates identical calls within the same server render pass.
+ * If page.tsx calls getTimetables(filters) twice with the same args, Supabase is
+ * only queried once. Cross-request caching is intentionally not used here since
+ * the data is auth-scoped (institution_id filter comes from the user's profile).
  */
-export async function getTimetables(
+export const getTimetables = cache(async function getTimetables(
   filters: TimetablesFilters = {}
 ): Promise<TimetablesResponse> {
-  // Apply cache profile for cold data (1 hour)
-
-  // Add cache tags for invalidation
-
-  if (filters.sectionId) {
-  }
-
   const supabase = await createClient();
 
   const page = filters.page || 1;
@@ -131,4 +131,4 @@ export async function getTimetables(
     page,
     pageSize
   };
-}
+});

@@ -26,12 +26,18 @@ interface TimetableFiltersProps {
   searchParams: TimetablesSearchParams;
   onFilterChange: (key: string, value: string | undefined) => void;
   onClearFilters: () => void;
+  /** Institution ID from server — lets dependent dropdowns load immediately */
+  userInstitutionId?: string;
+  /** Department ID from server — pre-populates for HOD/faculty roles */
+  userDepartmentId?: string;
 }
 
 export function TimetableFilters({
   searchParams,
   onFilterChange,
-  onClearFilters
+  onClearFilters,
+  userInstitutionId,
+  userDepartmentId,
 }: TimetableFiltersProps) {
   const [institutions, setInstitutions] = useState<
     Array<{ id: string; name: string }>
@@ -58,6 +64,15 @@ export function TimetableFilters({
   const [searchValue, setSearchValue] = useState(searchParams.search || '');
   const [isSearching, setIsSearching] = useState(false);
   const { isSuperAdmin, userProfile } = usePermissions();
+
+  /**
+   * Effective institution ID — prefers URL param (user explicitly chose one),
+   * falls back to server-provided ID (from userProfile, resolved at request time).
+   * This allows degree/dept/etc. dropdowns to load immediately on first render
+   * without waiting for the client-side permission chain to resolve.
+   * Performance fix: 2026-03-20
+   */
+  const effectiveInstitutionId = searchParams.institution_id || userInstitutionId;
 
   // CRITICAL FIX: Use ref to store the latest onFilterChange callback
   // This allows useEffects to call the latest callback without re-triggering
@@ -113,32 +128,26 @@ export function TimetableFilters({
     loadInstitutions();
   }, []);
 
-  // Auto-set institution filter for non-super admin users
-  // Uses stable callback reference to prevent re-render loops
+  // Auto-set institution filter for non-super admin users.
+  //
+  // Performance fix (2026-03-20): Previously depended on isSuperAdmin/userProfile
+  // from usePermissions() which has a 3-hop async chain (auth→profile→permissions→roles).
+  // That caused: permission resolves → effect fires → router.replace() → full server re-render.
+  //
+  // Now depends only on userInstitutionId (a stable server-side prop). Since the server
+  // already resolved the user's institution at request time, this fires on first render
+  // with the correct value — no extra round-trip needed.
   useEffect(() => {
-    if (
-      !isSuperAdmin &&
-      userProfile?.institution_id &&
-      !searchParams.institution_id &&
-      !loading
-    ) {
-      stableFilterChange('institution_id', userProfile.institution_id);
+    if (userInstitutionId && !searchParams.institution_id) {
+      stableFilterChange('institution_id', userInstitutionId);
     }
-  }, [
-    userProfile,
-    isSuperAdmin,
-    searchParams.institution_id,
-    stableFilterChange,
-    loading
-  ]);
+  }, [userInstitutionId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     async function loadDegrees() {
-      if (searchParams.institution_id) {
+      if (effectiveInstitutionId) {
         try {
-          const data = await DegreeService.getDegreesByInstitution(
-            searchParams.institution_id
-          );
+          const data = await DegreeService.getDegreesByInstitution(effectiveInstitutionId);
           setDegrees(data);
         } catch (error) {
           logger.error('academic/timetables', 'Error loading degrees', error);
@@ -148,7 +157,7 @@ export function TimetableFilters({
       }
     }
     loadDegrees();
-  }, [searchParams.institution_id]);
+  }, [effectiveInstitutionId]); // uses effectiveInstitutionId so loads immediately from server prop
 
   useEffect(() => {
     async function loadDepartments() {
@@ -237,11 +246,9 @@ export function TimetableFilters({
 
   useEffect(() => {
     async function loadAcademicYears() {
-      if (searchParams.institution_id) {
+      if (effectiveInstitutionId) {
         try {
-          const data = await AcademicYearService.getAcademicYearsByInstitution(
-            searchParams.institution_id
-          );
+          const data = await AcademicYearService.getAcademicYearsByInstitution(effectiveInstitutionId);
           setAcademicYears(data);
         } catch (error) {
           logger.error('academic/timetables', 'Error loading academic years', error);
@@ -251,7 +258,7 @@ export function TimetableFilters({
       }
     }
     loadAcademicYears();
-  }, [searchParams.institution_id]);
+  }, [effectiveInstitutionId]); // uses effectiveInstitutionId so loads immediately from server prop
 
   const hasActiveFilters = !!(
     searchParams.institution_id ||
@@ -330,7 +337,7 @@ export function TimetableFilters({
                 onFilterChange('section', undefined);
               }
             }}
-            disabled={!searchParams.institution_id}
+            disabled={!effectiveInstitutionId}
           >
             <SelectTrigger className='w-full sm:w-[180px]'>
               <SelectValue placeholder='Select degree' />
