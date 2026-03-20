@@ -23,6 +23,7 @@ import type { ReadinessTier } from '@/lib/services/solutions/paradigm-shift-serv
 export function OverviewGrid() {
   const [institutionFilter, setInstitutionFilter] = useState<string>('all');
   const [tierFilter, setTierFilter] = useState<string>('all');
+  const [sortBy, setSortBy] = useState<'score' | 'revenue' | 'solutions' | 'publications'>('score');
 
   const filters: {
     institution_id?: string;
