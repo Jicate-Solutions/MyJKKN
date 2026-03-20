@@ -20,6 +20,17 @@ import type {
 // QUERY HOOKS
 // ============================================
 
+function stripUndefined(obj?: Record<string, unknown>): Record<string, string> | undefined {
+  if (!obj) return undefined;
+  const result: Record<string, string> = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (value !== undefined && value !== null) {
+      result[key] = String(value);
+    }
+  }
+  return Object.keys(result).length > 0 ? result : undefined;
+}
+
 export function useParadigmShiftOverview(filters?: {
   institution_id?: string;
   tier?: ReadinessTier;
@@ -28,7 +39,7 @@ export function useParadigmShiftOverview(filters?: {
     queryKey: solutionsHubKeys.paradigmShift.overview(filters),
     queryFn: () =>
       apiClient.get<ParadigmShiftOverview>('/api/solutions/paradigm-shift', {
-        params: filters as Record<string, string>,
+        params: stripUndefined(filters as Record<string, unknown>),
       }),
     ...QUERY_CONFIG.DASHBOARD_DATA,
   });
