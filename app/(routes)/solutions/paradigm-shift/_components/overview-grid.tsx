@@ -132,7 +132,7 @@ export function OverviewGrid() {
                 style={{ backgroundColor: getTierColor(tier) }}
               />
               <TierBadge tier={tier} />
-              <span className="text-sm font-medium">{data.summary.by_tier[tier]}</span>
+              <span className="text-sm font-medium">{data.summary.by_tier[tier] ?? 0}</span>
             </div>
           ))}
         </div>
