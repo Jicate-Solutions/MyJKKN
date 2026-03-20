@@ -10,8 +10,16 @@ export async function OPTIONS() {
 
 export const GET = withAuth(async (request, auth) => {
   const url = new URL(request.url)
-  const institution_id = url.searchParams.get('institution_id') || undefined
-  const limit = parseInt(url.searchParams.get('limit') || '50', 10)
+
+  // Institution scoping: non-super_admin users are scoped to their institution
+  const requestedInstitution = url.searchParams.get('institution_id') || undefined
+  const institution_id = auth.isSuperAdmin
+    ? requestedInstitution
+    : auth.institutionId || requestedInstitution
+
+  // Clamp limit to valid range
+  const parsed = parseInt(url.searchParams.get('limit') || '50', 10)
+  const limit = Math.max(1, Math.min(isNaN(parsed) ? 50 : parsed, 200))
 
   const result = await ParadigmShiftService.runWithClient(auth.supabase, () =>
     ParadigmShiftService.getLeaderboard({ institution_id, limit })
