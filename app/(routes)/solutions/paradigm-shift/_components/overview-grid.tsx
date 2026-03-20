@@ -11,7 +11,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Trophy, ArrowRight, Lightbulb, IndianRupee, BookOpen, Building2, AlertCircle } from 'lucide-react';
+import { Trophy, ArrowRight, Lightbulb, IndianRupee, BookOpen, Building2, AlertCircle, ArrowUpDown, CalendarDays } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import Link from 'next/link';
 import { useParadigmShiftOverview } from '@/hooks/solutions/use-paradigm-shift';
