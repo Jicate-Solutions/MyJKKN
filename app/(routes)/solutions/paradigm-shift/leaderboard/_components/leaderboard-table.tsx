@@ -53,6 +53,25 @@ export function LeaderboardTable() {
   }
   const institutions = institutionsRef.current;
 
+  // Count departments that improved tier this month
+  const moversCount = useMemo(() => data?.filter(d => d.tier_changed).length ?? 0, [data]);
+
+  // Institution-level aggregation
+  const instSummaries = useMemo(() => {
+    if (!data || data.length === 0) return [];
+    const map = new Map<string, { name: string; depts: number; avgScore: number; pioneers: number; totalRevenue: number }>();
+    data.forEach(d => {
+      const existing = map.get(d.institution_id) || { name: d.institution_name, depts: 0, avgScore: 0, pioneers: 0, totalRevenue: 0 };
+      existing.depts++;
+      existing.avgScore += d.composite_score;
+      if (d.tier === 'pioneer') existing.pioneers++;
+      existing.totalRevenue += d.metrics.revenue_generated;
+      map.set(d.institution_id, existing);
+    });
+    map.forEach(v => { v.avgScore = Math.round(v.avgScore / v.depts); });
+    return [...map.values()].sort((a, b) => b.avgScore - a.avgScore);
+  }, [data]);
+
   return (
     <div className="space-y-6">
       {/* Controls */}
