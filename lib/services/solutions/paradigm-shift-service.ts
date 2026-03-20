@@ -231,10 +231,16 @@ export class ParadigmShiftService extends BaseService {
         .gte('created_at', fy.start + 'T00:00:00')
         .lte('created_at', fy.end + 'T23:59:59'),
 
-      // Products with TRL and patent data (cumulative — no FY filter, products are assets)
+      // Products with TRL data (cumulative — no FY filter, products are assets)
       this.supabase
         .from('sh_products')
-        .select('lead_department_id, current_trl, patent_status'),
+        .select('lead_department_id, current_trl'),
+
+      // IP retained: solutions where JKKN retained IP/learnings (spec: sh_solutions.retained_ip = true)
+      this.supabase
+        .from('sh_solutions')
+        .select('lead_department_id')
+        .eq('retained_ip', true),
 
       // Training programs with participant counts
       this.supabase
