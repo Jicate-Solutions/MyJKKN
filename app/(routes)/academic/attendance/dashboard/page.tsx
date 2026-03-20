@@ -2,7 +2,7 @@
 
 import { Suspense, useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
-import { Calendar, TrendingUp, Users, AlertCircle } from 'lucide-react';
+import { Calendar, TrendingUp, Users, AlertCircle, ArrowRight } from 'lucide-react';
 import { ContentLayout } from '@/components/layout/content-layout';
 import {
   Breadcrumb,
@@ -405,6 +405,12 @@ function AttendanceDashboardContent() {
                   </Suspense>
                 </CardContent>
               </Card>
+              <div className="flex justify-end pt-2">
+                <Link href="/academic/attendance/pending" className="text-sm text-muted-foreground hover:text-foreground flex items-center gap-1">
+                  View Full Pending History
+                  <ArrowRight className="h-3 w-3" />
+                </Link>
+              </div>
             </div>
           </TabsContent>
         </Tabs>
