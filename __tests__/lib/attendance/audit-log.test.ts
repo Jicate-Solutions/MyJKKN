@@ -68,3 +68,61 @@ describe('AttendanceCoreService.getAttendanceAuditLog', () => {
     ).rejects.toThrow()
   })
 })
+
+describe('computeAttendanceDiff (exported helper)', () => {
+  it('detects changed statuses between old and new student arrays', async () => {
+    const { computeAttendanceDiff } = await import(
+      '../../../lib/services/academic/attendance-core-service'
+    )
+
+    const oldStudents = [
+      { student_id: 's1', status: 'Absent', section_id: 'sec1', marked_at: '' },
+      { student_id: 's2', status: 'Present', section_id: 'sec1', marked_at: '' },
+      { student_id: 's3', status: 'OnDuty', section_id: 'sec1', marked_at: '' },
+    ]
+    const newStudents = [
+      { student_id: 's1', status: 'Present', section_id: 'sec1', marked_at: '' }, // changed
+      { student_id: 's2', status: 'Present', section_id: 'sec1', marked_at: '' }, // unchanged
+      { student_id: 's3', status: 'Absent', section_id: 'sec1', marked_at: '' },  // OnDuty → skip
+    ]
+
+    const diff = computeAttendanceDiff(oldStudents, newStudents)
+
+    expect(diff).toHaveLength(1)
+    expect(diff[0]).toEqual({
+      student_id: 's1',
+      old_status: 'Absent',
+      new_status: 'Present',
+    })
+  })
+
+  it('returns empty array when nothing changed', async () => {
+    const { computeAttendanceDiff } = await import(
+      '../../../lib/services/academic/attendance-core-service'
+    )
+    const students = [
+      { student_id: 's1', status: 'Present', section_id: 'sec1', marked_at: '' },
+    ]
+    const diff = computeAttendanceDiff(students, students)
+    expect(diff).toEqual([])
+  })
+
+  it('skips students whose new status is OnDuty (Absent → OnDuty)', async () => {
+    const { computeAttendanceDiff } = await import(
+      '../../../lib/services/academic/attendance-core-service'
+    )
+    const oldStudents = [
+      { student_id: 's1', status: 'Absent', section_id: 'sec1', marked_at: '' },
+      { student_id: 's2', status: 'Present', section_id: 'sec1', marked_at: '' },
+    ]
+    const newStudents = [
+      { student_id: 's1', status: 'OnDuty', section_id: 'sec1', marked_at: '' }, // Absent → OnDuty: skip
+      { student_id: 's2', status: 'Absent', section_id: 'sec1', marked_at: '' }, // Present → Absent: include
+    ]
+    const diff = computeAttendanceDiff(oldStudents, newStudents)
+    expect(diff).toHaveLength(1)
+    expect(diff[0].student_id).toBe('s2')
+    expect(diff[0].old_status).toBe('Present')
+    expect(diff[0].new_status).toBe('Absent')
+  })
+})
