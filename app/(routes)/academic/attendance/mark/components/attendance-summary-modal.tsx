@@ -61,7 +61,9 @@ export function AttendanceSummaryModal({
   date,
   startTime,
   endTime,
-  existingAttendance
+  existingAttendance,
+  isEditMode,
+  editDiff
 }: AttendanceSummaryModalProps) {
   // Calculate stats
   const presentCount = Object.values(attendanceData).filter(
@@ -299,6 +301,39 @@ export function AttendanceSummaryModal({
               </CardContent>
             </Card>
           </div>
+
+          {isEditMode && editDiff && editDiff.length > 0 && (
+            <div className="rounded-md border border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/20 p-3 space-y-2">
+              <p className="text-sm font-medium text-amber-800 dark:text-amber-200">
+                ⚠️ You are editing already-marked attendance. The following changes will be saved:
+              </p>
+              <div className="rounded border dark:border-gray-700 overflow-hidden">
+                <table className="w-full text-xs">
+                  <thead className="bg-gray-100 dark:bg-gray-800">
+                    <tr>
+                      <th className="text-left px-3 py-2 font-medium">Student</th>
+                      <th className="text-left px-3 py-2 font-medium">Change</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {editDiff.map((diff) => (
+                      <tr key={diff.studentId} className="border-t dark:border-gray-700">
+                        <td className="px-3 py-2">{diff.studentName}</td>
+                        <td className="px-3 py-2">
+                          <span className="text-red-600 dark:text-red-400">{diff.oldStatus}</span>
+                          {' → '}
+                          <span className="text-green-600 dark:text-green-400">{diff.newStatus}</span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <p className="text-xs text-amber-700 dark:text-amber-300">
+                These changes will be recorded in the audit log.
+              </p>
+            </div>
+          )}
         </div>
 
         <DialogFooter>
@@ -311,7 +346,8 @@ export function AttendanceSummaryModal({
           </Button>
           <Button
             onClick={onConfirm}
-            disabled={loading}
+            disabled={loading || (isEditMode && (!editDiff || editDiff.length === 0))}
+            title={isEditMode && (!editDiff || editDiff.length === 0) ? 'No changes detected' : undefined}
             className='bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700'
           >
             {loading ? (
