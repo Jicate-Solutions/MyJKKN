@@ -6,19 +6,19 @@ import type { ReadinessTier } from '@/lib/services/solutions/paradigm-shift-serv
 const TIER_CONFIG: Record<ReadinessTier, { label: string; className: string }> = {
   traditional: {
     label: 'Traditional',
-    className: 'bg-rose-100 text-rose-800 border-rose-200 hover:bg-rose-100',
+    className: 'bg-rose-100 text-rose-800 border-rose-200',
   },
   emerging: {
     label: 'Emerging',
-    className: 'bg-amber-100 text-amber-800 border-amber-200 hover:bg-amber-100',
+    className: 'bg-amber-100 text-amber-800 border-amber-200',
   },
   solution_ready: {
     label: 'Solution-Ready',
-    className: 'bg-blue-100 text-blue-800 border-blue-200 hover:bg-blue-100',
+    className: 'bg-blue-100 text-blue-800 border-blue-200',
   },
   pioneer: {
     label: 'Pioneer',
-    className: 'bg-green-100 text-green-800 border-green-200 hover:bg-green-100',
+    className: 'bg-green-100 text-green-800 border-green-200',
   },
 };
 
