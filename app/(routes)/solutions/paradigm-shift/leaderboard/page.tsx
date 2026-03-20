@@ -2,6 +2,7 @@ import { Metadata } from 'next';
 import { ContentLayout } from '@/components/layout/content-layout';
 import { PageBreadcrumb } from '@/components/navigation';
 import { LeaderboardTable } from './_components/leaderboard-table';
+import { ExportPDFButton } from './_components/export-pdf-button';
 
 export const metadata: Metadata = {
   title: 'Leaderboard | Paradigm Shift',
@@ -20,11 +21,14 @@ export default function LeaderboardPage() {
         ]}
       />
       <div className="space-y-6 mt-4">
-        <div>
-          <h1 className="text-2xl font-bold py-1">Paradigm Shift Leaderboard</h1>
-          <p className="text-sm sm:text-base text-muted-foreground">
-            Departments ranked by composite score across all 9 metrics
-          </p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold py-1">Paradigm Shift Leaderboard</h1>
+            <p className="text-sm sm:text-base text-muted-foreground">
+              Departments ranked by composite score across all 9 metrics
+            </p>
+          </div>
+          <ExportPDFButton />
         </div>
 
         <LeaderboardTable />
