@@ -496,47 +496,68 @@ export class ParadigmShiftService extends BaseService {
   // ----------------------------------------
 
   private static async getMonthlyTimeline(departmentId: string): Promise<MonthlyProgress[]> {
-    const months: MonthlyProgress[] = [];
     const now = new Date();
+    // Calculate 12-month range
+    const startDate = new Date(now.getFullYear(), now.getMonth() - 11, 1);
+    const rangeStart = startDate.toISOString().slice(0, 10);
+    const endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    const rangeEnd = endDate.toISOString().slice(0, 10);
 
+    // 3 bulk queries instead of 36 sequential ones
+    const [solRes, revRes, discRes] = await Promise.all([
+      this.supabase
+        .from('sh_solutions')
+        .select('created_at')
+        .eq('lead_department_id', departmentId)
+        .gte('created_at', rangeStart + 'T00:00:00')
+        .lte('created_at', rangeEnd + 'T23:59:59'),
+      this.supabase
+        .from('sh_payments')
+        .select('amount, payment_date, solution:sh_solutions!solution_id(lead_department_id)')
+        .eq('status', 'completed')
+        .gte('payment_date', rangeStart)
+        .lte('payment_date', rangeEnd),
+      this.supabase
+        .from('sh_discovery_visits')
+        .select('visit_date')
+        .eq('department_id', departmentId)
+        .gte('visit_date', rangeStart)
+        .lte('visit_date', rangeEnd),
+    ]);
+
+    // Bucket results by month
+    const bucketByMonth = (dateStr: string): string => dateStr.slice(0, 7); // "YYYY-MM"
+
+    const solutionsByMonth: Record<string, number> = {};
+    (solRes.data || []).forEach((row: { created_at: string }) => {
+      const m = bucketByMonth(row.created_at);
+      solutionsByMonth[m] = (solutionsByMonth[m] || 0) + 1;
+    });
+
+    const revenueByMonth: Record<string, number> = {};
+    (revRes.data || []).forEach((row: { amount: number; payment_date: string; solution: { lead_department_id: string } | null }) => {
+      if (row.solution?.lead_department_id === departmentId) {
+        const m = bucketByMonth(row.payment_date);
+        revenueByMonth[m] = (revenueByMonth[m] || 0) + (Number(row.amount) || 0);
+      }
+    });
+
+    const visitsByMonth: Record<string, number> = {};
+    (discRes.data || []).forEach((row: { visit_date: string }) => {
+      const m = bucketByMonth(row.visit_date);
+      visitsByMonth[m] = (visitsByMonth[m] || 0) + 1;
+    });
+
+    // Build 12-month array
+    const months: MonthlyProgress[] = [];
     for (let i = 11; i >= 0; i--) {
       const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      const monthStart = date.toISOString().slice(0, 10);
-      const monthEnd = new Date(date.getFullYear(), date.getMonth() + 1, 0).toISOString().slice(0, 10);
       const label = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-
-      const [solRes, revRes, discRes] = await Promise.all([
-        this.supabase
-          .from('sh_solutions')
-          .select('id', { count: 'exact', head: true })
-          .eq('lead_department_id', departmentId)
-          .gte('created_at', monthStart + 'T00:00:00')
-          .lte('created_at', monthEnd + 'T23:59:59'),
-        this.supabase
-          .from('sh_payments')
-          .select('amount, solution:sh_solutions!solution_id(lead_department_id)')
-          .eq('status', 'completed')
-          .gte('payment_date', monthStart)
-          .lte('payment_date', monthEnd),
-        this.supabase
-          .from('sh_discovery_visits')
-          .select('id', { count: 'exact', head: true })
-          .eq('department_id', departmentId)
-          .gte('visit_date', monthStart)
-          .lte('visit_date', monthEnd),
-      ]);
-
-      const monthRevenue = (revRes.data || [])
-        .filter((p: { solution: { lead_department_id: string } | null }) =>
-          p.solution?.lead_department_id === departmentId
-        )
-        .reduce((sum: number, p: { amount: number }) => sum + (Number(p.amount) || 0), 0);
-
       months.push({
         month: label,
-        solutions: solRes.count || 0,
-        revenue: monthRevenue,
-        discovery_visits: discRes.count || 0,
+        solutions: solutionsByMonth[label] || 0,
+        revenue: revenueByMonth[label] || 0,
+        discovery_visits: visitsByMonth[label] || 0,
       });
     }
 
