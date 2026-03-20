@@ -341,7 +341,8 @@ export class ParadigmShiftService extends BaseService {
     const result: DepartmentParadigmShift[] = filteredDepts.map((dept) => {
       const metrics = metricsMap[dept.id] || emptyMetrics();
       const activeCount = countActiveMetrics(metrics);
-      const inst = dept.institution as { id: string; name: string } | null;
+      const rawInst = dept.institution;
+      const inst = Array.isArray(rawInst) ? rawInst[0] : rawInst as { id: string; name: string } | null;
 
       return {
         department_id: dept.id,
