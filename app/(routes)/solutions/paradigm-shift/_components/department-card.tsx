@@ -4,10 +4,11 @@ import Link from 'next/link';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { TierBadge } from './tier-badge';
+import { TOTAL_METRICS_COUNT } from '@/lib/services/solutions/paradigm-shift-service';
 import type { DepartmentParadigmShift } from '@/lib/services/solutions/paradigm-shift-service';
 
 export function DepartmentCard({ dept }: { dept: DepartmentParadigmShift }) {
-  const progressPct = Math.round((dept.active_metrics_count / 9) * 100);
+  const progressPct = Math.round((dept.active_metrics_count / TOTAL_METRICS_COUNT) * 100);
 
   return (
     <Link href={`/solutions/paradigm-shift/${dept.department_id}`}>
