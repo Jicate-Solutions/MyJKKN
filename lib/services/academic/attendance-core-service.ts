@@ -1323,13 +1323,7 @@ export class AttendanceCoreService {
   static async getAttendanceAuditLog(attendanceId: string): Promise<AttendanceAuditEntry[]> {
     const { data, error } = await (this.supabase as any)
       .from('attendance_audit_log')
-      .select(`
-        *,
-        learners_profiles!student_id (
-          full_name,
-          roll_number
-        )
-      `)
+      .select('*')
       .eq('attendance_id', attendanceId)
       .order('edited_at', { ascending: false })
 
@@ -1338,16 +1332,31 @@ export class AttendanceCoreService {
       throw error
     }
 
-    // Flatten the joined learners_profiles into the flat AttendanceAuditEntry shape
-    return (data || []).map((row: any) => {
-      const profiles = row.learners_profiles
-      const result = { ...row }
-      if (profiles) {
-        result.student_name = profiles.full_name ?? undefined
-        result.roll_number = profiles.roll_number ?? undefined
-      }
-      delete result.learners_profiles
-      return result as AttendanceAuditEntry
+    const rows = data || []
+    if (rows.length === 0) return []
+
+    // Fetch student names in a separate query — no FK exists between
+    // attendance_audit_log.student_id and learners_profiles, so PostgREST
+    // join syntax is not available.
+    const studentIds = [...new Set(rows.map((r: any) => r.student_id as string))]
+    const { data: profiles } = await (this.supabase as any)
+      .from('learners_profiles')
+      .select('id, first_name, last_name, roll_number')
+      .in('id', studentIds)
+
+    const profileMap = new Map<string, { first_name: string; last_name: string; roll_number: string }>(
+      (profiles || []).map((p: any) => [p.id, p])
+    )
+
+    return rows.map((row: any) => {
+      const profile = profileMap.get(row.student_id)
+      return {
+        ...row,
+        student_name: profile
+          ? `${profile.first_name ?? ''} ${profile.last_name ?? ''}`.trim() || undefined
+          : undefined,
+        roll_number: profile?.roll_number ?? undefined,
+      } as AttendanceAuditEntry
     })
   }
 

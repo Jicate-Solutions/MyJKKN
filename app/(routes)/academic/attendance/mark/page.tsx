@@ -637,8 +637,8 @@ export default function AttendanceMarkPage() {
         );
         if (existingRecord) {
           setExistingAttendance(existingRecord);
-          if (isSuperAdmin) {
-            toast.error('Attendance was already marked for this class. You can review and update it if needed.');
+          if (isSuperAdmin || profile?.role === 'hod') {
+            toast('Attendance already marked. Use the Edit Attendance button below to make changes.', { icon: 'ℹ️' });
           } else {
             toast.error('Attendance was already marked for this class. This record is read-only.');
           }
@@ -915,13 +915,7 @@ export default function AttendanceMarkPage() {
             toast.error('No students found for this section');
           }
         } else {
-          const groupInfo =
-            isSubdividedFromUrl && subdivisionGroupName
-              ? ` (${subdivisionGroupName})`
-              : '';
-          toast.success(
-            `Loaded ${filteredStudents.length} students${groupInfo}`
-          );
+          // No toast here — student list is visible in the UI
         }
       } catch (error) {
         logger.error('academic/attendance/mark', 'Error fetching students for attendance', error);
@@ -1002,7 +996,7 @@ export default function AttendanceMarkPage() {
             return updated;
           });
 
-          toast.success(`Pre-filled attendance for ${leaveMap.size} student(s) with approved leave/onduty`);
+          // Leave pre-fill is a background convenience — no toast needed
         }
       } catch (error) {
         logger.error('academic/attendance/mark', 'Error loading approved leave', error);
@@ -1451,10 +1445,6 @@ export default function AttendanceMarkPage() {
         setShowSummaryModal(false);
 
         // Redirect to report details page after delay
-        setTimeout(() => {
-          toast.success('Redirecting to report details...');
-        }, 500);
-
         setTimeout(() => {
           // Redirect to report details page using the attendance record ID
           if (result.id) {

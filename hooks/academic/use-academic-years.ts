@@ -2,7 +2,7 @@
 // Updated: 2026-02-28 — Migrated from useState/useCallback/useEffect to React Query
 // Previous: manual fetch lifecycle with stale-closure workarounds and setTimeout hacks
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { QUERY_CONFIG } from '@/lib/config/query-config';
 import { AcademicYearService } from '@/lib/services/academic/academic-year-service';
@@ -132,6 +132,15 @@ export function useAcademicYearsByInstitution(institutionId?: string) {
 
   // Allow callers to imperatively switch the institution
   const [resolvedId, setResolvedId] = useState<string | undefined>(institutionId);
+
+  // Sync resolvedId when the institutionId prop changes (e.g. parent filter selection)
+  // useState(initialValue) only captures the value on first render — subsequent prop
+  // changes are ignored without this effect.
+  useEffect(() => {
+    if (institutionId !== resolvedId) {
+      setResolvedId(institutionId);
+    }
+  }, [institutionId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const query = useQuery({
     queryKey: ACADEMIC_YEAR_KEYS.byInstitution(resolvedId ?? ''),

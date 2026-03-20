@@ -38,7 +38,8 @@ import {
   ChevronRight,
   Search,
   ArrowUpDown,
-  Shield
+  Shield,
+  Pencil
 } from 'lucide-react';
 import {
   Table,
@@ -105,6 +106,17 @@ export default function AttendanceReportDetailPage() {
     if (profile?.role === 'admin') return 'admin';
     return 'faculty';
   }, [isSuperAdmin, profile?.role, profile?.is_super_admin]);
+
+  // Edit permission: super admin (any institution) or HOD (own dept only)
+  const canEditAttendance = useMemo(() => {
+    if (isSuperAdmin) return true;
+    if (profile?.role !== 'hod') return false;
+    return (
+      !!profile.department_id &&
+      profile.department_id === report?.department_id &&
+      profile.institution_id === report?.institution_id
+    );
+  }, [isSuperAdmin, profile?.role, profile?.department_id, profile?.institution_id, report?.department_id, report?.institution_id]);
 
   // Fetch staff ID for faculty users
   useEffect(() => {
@@ -300,6 +312,29 @@ export default function AttendanceReportDetailPage() {
             Back to Reports
           </Button>
           <div className='flex gap-2'>
+            {canEditAttendance && (
+              <Button
+                variant='outline'
+                size='sm'
+                onClick={() => {
+                  const firstPeriod = report.period_details[0];
+                  const params = new URLSearchParams({
+                    timetableId: report.timetable_id,
+                    sectionId: report.section_id,
+                    date: report.attendance_date,
+                    periodId: firstPeriod.period_id,
+                  });
+                  if (firstPeriod.period_name) params.set('periodName', firstPeriod.period_name);
+                  if (firstPeriod.course_name) params.set('courseName', firstPeriod.course_name);
+                  if (firstPeriod.start_time) params.set('startTime', firstPeriod.start_time);
+                  if (firstPeriod.end_time) params.set('endTime', firstPeriod.end_time);
+                  router.push(`/academic/attendance/mark?${params.toString()}`);
+                }}
+              >
+                <Pencil className='h-4 w-4 mr-2' />
+                Edit Attendance
+              </Button>
+            )}
             <Button variant='outline' size='sm' onClick={() => window.print()}>
               <Printer className='h-4 w-4 mr-2' />
               Print
