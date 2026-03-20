@@ -42,15 +42,15 @@ export function LeaderboardTable() {
 
   const { data, isLoading } = useParadigmShiftLeaderboard(filters);
 
-  // Keep stable institution list that doesn't change on filter
-  const [allInstitutions, setAllInstitutions] = useState<[string, string][]>([]);
-  if (data && allInstitutions.length === 0) {
+  // Keep stable institution list from first load to avoid self-referential filter
+  const institutionsRef = useRef<[string, string][]>([]);
+  if (data && institutionsRef.current.length === 0) {
     const instMap = new Map(data.map(d => [d.institution_id, d.institution_name]));
     if (instMap.size > 0) {
-      setAllInstitutions([...instMap.entries()]);
+      institutionsRef.current = [...instMap.entries()];
     }
   }
-  const institutions = allInstitutions;
+  const institutions = institutionsRef.current;
 
   return (
     <div className="space-y-6">
