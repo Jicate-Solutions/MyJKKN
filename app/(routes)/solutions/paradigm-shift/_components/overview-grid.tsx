@@ -35,18 +35,15 @@ export function OverviewGrid() {
     Object.keys(filters).length > 0 ? filters : undefined
   );
 
-  // Fetch institutions from unfiltered data on first load, then keep stable
-  // Use a ref to avoid the self-referential dropdown problem
-  const [allInstitutions, setAllInstitutions] = useState<[string, string][]>([]);
-  const institutions = allInstitutions;
-
-  // Populate institutions list from unfiltered data
-  if (data?.departments && allInstitutions.length === 0) {
+  // Keep stable institution list from first load to avoid self-referential filter
+  const institutionsRef = useRef<[string, string][]>([]);
+  if (data?.departments && institutionsRef.current.length === 0) {
     const instMap = new Map(data.departments.map(d => [d.institution_id, d.institution_name]));
     if (instMap.size > 0) {
-      setAllInstitutions([...instMap.entries()]);
+      institutionsRef.current = [...instMap.entries()];
     }
   }
+  const institutions = institutionsRef.current;
 
   // Sort by composite score (highest first)
   const sortedDepts = data?.departments
