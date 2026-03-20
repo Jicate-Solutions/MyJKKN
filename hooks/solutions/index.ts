@@ -689,3 +689,13 @@ export {
   type UpdateValidationInput,
   type UpdatePrerequisiteInput,
 } from './use-products';
+
+// ============================================
+// PARADIGM SHIFT DASHBOARD HOOKS
+// ============================================
+
+export {
+  useParadigmShiftOverview,
+  useParadigmShiftDepartment,
+  useParadigmShiftLeaderboard,
+} from './use-paradigm-shift';
