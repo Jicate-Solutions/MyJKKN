@@ -46,9 +46,16 @@ export function OverviewGrid() {
   }
   const institutions = institutionsRef.current;
 
-  // Sort by composite score (highest first)
+  // Sort departments by selected criterion (highest first)
   const sortedDepts = data?.departments
-    ? [...data.departments].sort((a, b) => b.composite_score - a.composite_score)
+    ? [...data.departments].sort((a, b) => {
+        switch (sortBy) {
+          case 'revenue': return b.metrics.revenue_generated - a.metrics.revenue_generated;
+          case 'solutions': return b.metrics.solutions_built - a.metrics.solutions_built;
+          case 'publications': return b.metrics.publications - a.metrics.publications;
+          default: return b.composite_score - a.composite_score;
+        }
+      })
     : [];
 
   const tiers: ReadinessTier[] = ['traditional', 'emerging', 'solution_ready', 'pioneer'];
