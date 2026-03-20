@@ -1,7 +1,6 @@
 'use client';
 
-import { useParams } from 'next/navigation';
-import { useRouter } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -11,20 +10,14 @@ import Link from 'next/link';
 import { useParadigmShiftDepartment } from '@/hooks/solutions/use-paradigm-shift';
 import { TierBadge } from '../../_components/tier-badge';
 import { MetricCard } from '../../_components/metric-card';
+import { formatCurrency } from '@/lib/services/solutions';
 import type { DepartmentDetail as DeptDetailType } from '@/lib/services/solutions/paradigm-shift-service';
-
-function formatCurrency(amount: number): string {
-  return new Intl.NumberFormat('en-IN', {
-    style: 'currency',
-    currency: 'INR',
-    maximumFractionDigits: 0,
-  }).format(amount);
-}
 
 export function DepartmentDetailView() {
   const params = useParams();
   const router = useRouter();
-  const departmentId = params.departmentId as string;
+  const rawId = params.departmentId;
+  const departmentId = Array.isArray(rawId) ? rawId[0] : (rawId as string);
 
   const { data, isLoading, error } = useParadigmShiftDepartment(departmentId);
 
