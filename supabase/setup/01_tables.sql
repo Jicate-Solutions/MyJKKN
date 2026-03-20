@@ -2652,6 +2652,20 @@ CREATE INDEX IF NOT EXISTS idx_audit_log_edited_at
 CREATE INDEX IF NOT EXISTS idx_audit_log_student_id
     ON attendance_audit_log(student_id, edited_at DESC);
 
+-- Updated: 2026-03-20 — Added institution_off_days for pending attendance filtering
+CREATE TABLE IF NOT EXISTS institution_off_days (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  institution_id  UUID NOT NULL REFERENCES institutions(id) ON DELETE CASCADE,
+  off_date        DATE NOT NULL,
+  reason          TEXT,
+  created_by      UUID REFERENCES auth.users(id),
+  created_at      TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(institution_id, off_date)
+);
+
+CREATE INDEX IF NOT EXISTS idx_institution_off_days
+  ON institution_off_days(institution_id, off_date);
+
 -- =====================================================
 -- END OF TABLE DEFINITIONS
 -- =====================================================
