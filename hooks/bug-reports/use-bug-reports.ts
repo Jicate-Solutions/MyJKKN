@@ -9,7 +9,9 @@ import {
   DetailedBugReport,
   BugReportMessage,
   BugReportParticipant,
-  BugReportFilters
+  BugReportFilters,
+  BugReporterStats,
+  BugReporterStatsFilters
 } from '@/types/bugs';
 
 // --- API Fetching Functions ---
@@ -17,10 +19,11 @@ import {
 const fetchBugReports = async (filters: BugReportFilters) => {
   const params = new URLSearchParams();
   if (filters.status) params.append('status', filters.status);
-  if (filters.institution_id)
-    params.append('institution_id', filters.institution_id);
-  if (filters.department_id)
-    params.append('department_id', filters.department_id);
+  if (filters.category) params.append('category', filters.category);
+  if (filters.institution_id) params.append('institution_id', filters.institution_id);
+  if (filters.department_id) params.append('department_id', filters.department_id);
+  if (filters.reporter_user_id) params.append('reporter_user_id', filters.reporter_user_id);
+  if (filters.search) params.append('search', filters.search);
   if (filters.page) params.append('page', filters.page.toString());
   if (filters.limit) params.append('limit', filters.limit.toString());
 
@@ -29,6 +32,22 @@ const fetchBugReports = async (filters: BugReportFilters) => {
     throw new Error('Failed to fetch bug reports');
   }
   return response.json();
+};
+
+const fetchBugReporterStats = async (filters: BugReporterStatsFilters) => {
+  const params = new URLSearchParams();
+  if (filters.institution_id) params.append('institution_id', filters.institution_id);
+  if (filters.department_id) params.append('department_id', filters.department_id);
+  if (filters.sort_by) params.append('sort_by', filters.sort_by);
+  if (filters.sort_order) params.append('sort_order', filters.sort_order);
+  if (filters.page) params.append('page', filters.page.toString());
+  if (filters.limit) params.append('limit', filters.limit.toString());
+
+  const response = await fetch(`/api/bug-reports/reporters?${params.toString()}`);
+  if (!response.ok) {
+    throw new Error('Failed to fetch reporter statistics');
+  }
+  return response.json() as Promise<{ data: BugReporterStats[]; metadata: any }>;
 };
 
 const fetchBugReportById = async (reportId: string) => {
@@ -478,10 +497,23 @@ export const useDepartments = (institutionId?: string) => {
     staleTime: 10 * 60 * 1000, // 10 minutes
     select: (data) => {
       if (!data) return [];
-      return data.map((d: any) => ({ 
+      return data.map((d: any) => ({
         id: d.id,
         name: d.department_name
       }));
     }
+  });
+};
+
+export const useBugReporterStats = (
+  filters: BugReporterStatsFilters,
+  enabled = true
+) => {
+  return useQuery<{ data: BugReporterStats[]; metadata: any }>({
+    queryKey: queryKeys.bugReports.reporterStats(filters),
+    queryFn: () => fetchBugReporterStats(filters),
+    enabled,
+    staleTime: 2 * 60 * 1000,    // 2 minutes — analytics don't need real-time precision
+    refetchOnWindowFocus: false
   });
 };

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   useBugReports,
   useUpdateBugReportStatus,
@@ -49,6 +49,8 @@ import { ContentLayout } from '@/components/layout/content-layout';
 import { DataTable } from '@/components/ui/data-table';
 import { ColumnDef } from '@tanstack/react-table';
 import { BugCategoryBadge } from '@/components/bug-reporter/bug-category-badge';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { ReporterAnalyticsTab } from './_components/reporter-analytics-tab';
 import {
   Users,
   Bug,
@@ -59,7 +61,9 @@ import {
   TrendingDown,
   Trash2,
   Trophy,
-  Search
+  Search,
+  X,
+  Loader2
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -172,10 +176,24 @@ export default function AdminBugReportsPage() {
   const [bulkStatusUpdateOpen, setBulkStatusUpdateOpen] = useState(false);
   const [bulkStatusValue, setBulkStatusValue] =
     useState<BugReportStatus>('seen');
-  const [reporterSearch, setReporterSearch] = useState<string>('');
+  const [searchInput, setSearchInput] = useState('');
   const { isSuperAdmin } = usePermissions();
 
-  const { data, isLoading, refetch } = useBugReports(filters);
+  // Debounce search: update filters.search 300ms after the user stops typing.
+  // This prevents a fetch on every keystroke while keeping the input responsive.
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setFilters((prev) => ({
+        ...prev,
+        search: searchInput.trim() || undefined,
+        page: 1
+      }));
+      setSelectedReports([]);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
+
+  const { data, isLoading, isFetching, refetch } = useBugReports(filters);
   const updateStatusMutation = useUpdateBugReportStatus();
   const deleteReportMutation = useDeleteBugReport();
   const bulkDeleteMutation = useBulkDeleteBugReports();
@@ -283,24 +301,8 @@ export default function AdminBugReportsPage() {
     refetchStats
   ]);
 
-  const reports = useMemo(() => {
-    const allReports = data?.data ?? [];
-
-    // Filter by reporter name/email if search query exists
-    if (!reporterSearch.trim()) {
-      return allReports;
-    }
-
-    const searchLower = reporterSearch.toLowerCase().trim();
-    return allReports.filter((report) => {
-      const reporterName = report.reporter?.full_name?.toLowerCase() || '';
-      const reporterEmail = report.reporter?.email?.toLowerCase() || '';
-      return (
-        reporterName.includes(searchLower) ||
-        reporterEmail.includes(searchLower)
-      );
-    });
-  }, [data?.data, reporterSearch]);
+  // Search is now server-side via filters.search — no client-side filtering needed
+  const reports = data?.data ?? [];
   const metadata = data?.metadata;
 
   const handleSelectAll = useCallback(() => {
@@ -350,9 +352,12 @@ export default function AdminBugReportsPage() {
         accessorKey: 'display_id',
         header: 'Bug ID',
         cell: ({ row }) => (
-          <span className='font-mono font-medium text-xs sm:text-sm'>
+          <Link
+            href={`/admin/bug-reports/${row.original.id}`}
+            className='font-mono font-medium text-xs sm:text-sm hover:text-primary transition-colors hover:underline underline-offset-2'
+          >
             {row.original.display_id}
-          </span>
+          </Link>
         )
       },
       {
@@ -368,12 +373,7 @@ export default function AdminBugReportsPage() {
         cell: ({ row }) => {
           const reporter = row.original.reporter;
           return (
-            <div
-              className='text-xs sm:text-sm min-w-[120px] cursor-pointer hover:text-primary transition-colors'
-              onClick={() =>
-                window.open(`/admin/bug-reports/${row.original.id}`, '_blank')
-              }
-            >
+            <div className='text-xs sm:text-sm min-w-[120px]'>
               {reporter ? (
                 <div>
                   <div className='font-medium text-gray-900 dark:text-gray-100'>
@@ -612,7 +612,20 @@ export default function AdminBugReportsPage() {
             />
           </div>
 
-          {/* Data Table Section */}
+          {/* Tabs: Reports List + Reporter Analytics */}
+          <Tabs defaultValue='reports'>
+            <TabsList>
+              <TabsTrigger value='reports' className='flex items-center gap-2'>
+                <Bug className='w-4 h-4' />
+                Reports List
+              </TabsTrigger>
+              <TabsTrigger value='reporters' className='flex items-center gap-2'>
+                <Users className='w-4 h-4' />
+                Reporter Analytics
+              </TabsTrigger>
+            </TabsList>
+
+            <TabsContent value='reports'>
           <Card>
             <CardHeader className='w-full flex flex-col justify-between'>
               <CardTitle className='flex items-center gap-2 py-4'>
@@ -620,23 +633,34 @@ export default function AdminBugReportsPage() {
                 Bug Reports List
               </CardTitle>
               <div className='flex flex-wrap items-center gap-2'>
-                <div className='w-full sm:w-auto md:w-64'>
+                <div className='w-full sm:w-auto md:w-72'>
                   <div className='relative'>
                     <Search className='absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground' />
                     <Input
                       type='text'
-                      placeholder='Search by reporter name or email...'
-                      value={reporterSearch}
-                      onChange={(e) => setReporterSearch(e.target.value)}
-                      className='pl-8'
+                      placeholder='Search by name or email...'
+                      value={searchInput}
+                      onChange={(e) => setSearchInput(e.target.value)}
+                      className='pl-8 pr-8'
                     />
+                    {/* Show spinner while refetching, clear button when input has value */}
+                    {isFetching && !isLoading ? (
+                      <Loader2 className='absolute right-2.5 top-2.5 h-4 w-4 text-muted-foreground animate-spin' />
+                    ) : searchInput ? (
+                      <button
+                        onClick={() => setSearchInput('')}
+                        className='absolute right-2.5 top-2.5 text-muted-foreground hover:text-foreground transition-colors'
+                      >
+                        <X className='h-4 w-4' />
+                      </button>
+                    ) : null}
                   </div>
                 </div>
 
                 <div className='w-full sm:w-auto md:w-48'>
                   <Select
                     value={filters.status || 'all'}
-                    onValueChange={(value) =>
+                    onValueChange={(value) => {
                       setFilters((prev) => ({
                         ...prev,
                         status:
@@ -644,8 +668,9 @@ export default function AdminBugReportsPage() {
                             ? undefined
                             : (value as BugReportStatus),
                         page: 1
-                      }))
-                    }
+                      }));
+                      setSelectedReports([]);
+                    }}
                   >
                     <SelectTrigger className='w-full'>
                       <SelectValue placeholder='Filter by status...' />
@@ -664,13 +689,14 @@ export default function AdminBugReportsPage() {
                 <div className='w-full sm:w-auto md:w-48'>
                   <Select
                     value={filters.category || 'all'}
-                    onValueChange={(value) =>
+                    onValueChange={(value) => {
                       setFilters((prev) => ({
                         ...prev,
                         category: value === 'all' ? undefined : (value as any),
                         page: 1
-                      }))
-                    }
+                      }));
+                      setSelectedReports([]);
+                    }}
                   >
                     <SelectTrigger className='w-full'>
                       <SelectValue placeholder='Filter by category...' />
@@ -692,14 +718,15 @@ export default function AdminBugReportsPage() {
                 <div className='w-full sm:w-auto md:w-48'>
                   <Select
                     value={filters.institution_id || 'all'}
-                    onValueChange={(value) =>
+                    onValueChange={(value) => {
                       setFilters((prev) => ({
                         ...prev,
                         institution_id: value === 'all' ? undefined : value,
-                        department_id: undefined, // Reset department when institution changes
+                        department_id: undefined,
                         page: 1
-                      }))
-                    }
+                      }));
+                      setSelectedReports([]);
+                    }}
                   >
                     <SelectTrigger className='w-full'>
                       <SelectValue placeholder='Filter by institution...' />
@@ -718,13 +745,14 @@ export default function AdminBugReportsPage() {
                 <div className='w-full sm:w-auto md:w-48'>
                   <Select
                     value={filters.department_id || 'all'}
-                    onValueChange={(value) =>
+                    onValueChange={(value) => {
                       setFilters((prev) => ({
                         ...prev,
                         department_id: value === 'all' ? undefined : value,
                         page: 1
-                      }))
-                    }
+                      }));
+                      setSelectedReports([]);
+                    }}
                     disabled={!filters.institution_id}
                   >
                     <SelectTrigger className='w-full'>
@@ -771,6 +799,15 @@ export default function AdminBugReportsPage() {
               </div>
             </CardContent>
           </Card>
+            </TabsContent>
+
+            <TabsContent value='reporters'>
+              <ReporterAnalyticsTab
+                institution_id={filters.institution_id}
+                department_id={filters.department_id}
+              />
+            </TabsContent>
+          </Tabs>
         </div>
       </ContentLayout>
 

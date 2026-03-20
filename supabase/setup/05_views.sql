@@ -121,14 +121,17 @@ GROUP BY p.id, p.full_name, p.avatar_url
 ORDER BY COUNT(br.id) DESC;
 
 -- Bug reports with details view
+-- Updated: 2026-03-20 - Added category, attachment_urls columns required for filtering and BugReport type
 CREATE OR REPLACE VIEW bug_reports_with_details AS
-SELECT 
+SELECT
     br.id,
     br.created_at,
     br.reporter_user_id,
     br.page_url,
     br.description,
+    br.category,
     br.screenshot_url,
+    br.attachment_urls,
     br.console_logs,
     br.status,
     br.resolved_at,
@@ -146,6 +149,42 @@ FROM bug_reports br
 LEFT JOIN profiles p ON br.reporter_user_id = p.id
 LEFT JOIN institutions i ON br.institution_id = i.id
 LEFT JOIN departments d ON br.department_id = d.id;
+
+-- Reporter analytics stats view
+-- Updated: 2026-03-20 - New view for per-reporter aggregated statistics in admin analytics tab
+-- Updated: 2026-03-20 - Fixed duplicate rows: removed institution_id/department_id from GROUP BY.
+--   Previously grouped by (reporter_user_id, institution_id, department_id), causing the same
+--   person to appear multiple times if they filed bugs across different departments.
+--   Now groups by reporter_user_id only (one row per person).
+--   institution_id/department_id are returned via mode() for PostgREST .eq() filtering.
+CREATE OR REPLACE VIEW bug_reporter_stats_view AS
+SELECT
+    br.reporter_user_id,
+    COALESCE(p.full_name, 'Deleted User')               AS reporter_name,
+    p.email                                              AS reporter_email,
+    p.avatar_url,
+    COUNT(*)                                             AS total_bugs,
+    COUNT(*) FILTER (WHERE br.status = 'resolved')       AS resolved_count,
+    COUNT(*) FILTER (WHERE br.status IN ('new', 'seen')) AS pending_count,
+    COUNT(*) FILTER (WHERE br.status = 'in_progress')    AS in_progress_count,
+    COUNT(*) FILTER (WHERE br.status = 'wont_fix')       AS wont_fix_count,
+    ROUND(
+        COUNT(*) FILTER (WHERE br.status = 'resolved')::numeric
+        / NULLIF(COUNT(*), 0) * 100,
+        1
+    )                                                    AS resolution_rate,
+    mode() WITHIN GROUP (ORDER BY br.category)           AS top_category,
+    MAX(br.created_at)                                   AS last_reported_at,
+    mode() WITHIN GROUP (ORDER BY br.institution_id)     AS institution_id,
+    mode() WITHIN GROUP (ORDER BY br.department_id)      AS department_id
+FROM bug_reports br
+LEFT JOIN profiles p ON p.id = br.reporter_user_id
+WHERE br.reporter_user_id IS NOT NULL
+GROUP BY
+    br.reporter_user_id,
+    p.full_name,
+    p.email,
+    p.avatar_url;
 
 -- ================================================================================
 -- SECTION 3: ACADEMIC MODULE VIEWS
@@ -532,7 +571,7 @@ GROUP BY av.submission_id, av.event_id;
 
 -- ================================================================================
 -- End of Views File
--- Total Views: 15 (3 billing + 2 bug-report + 2 academic + 2 compatibility
+-- Total Views: 16 (3 billing + 3 bug-report + 2 academic + 2 compatibility
 --               + 1 lifecycle materialized + 2 demo-day regular views
 --               + 1 audience vote summary)
 -- ================================================================================

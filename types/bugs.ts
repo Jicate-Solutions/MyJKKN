@@ -105,6 +105,40 @@ export interface BugReportFilters {
   category?: BugReportCategory;
   institution_id?: string;
   department_id?: string;
+  reporter_user_id?: string;
+  search?: string;
+  page?: number;
+  limit?: number;
+}
+
+export type BugReporterStatsSortField =
+  | 'total_bugs'
+  | 'resolved_count'
+  | 'resolution_rate'
+  | 'last_reported_at';
+
+export interface BugReporterStats {
+  reporter_user_id: string;
+  reporter_name: string | null;
+  reporter_email: string | null;
+  avatar_url: string | null;
+  total_bugs: number;
+  resolved_count: number;
+  pending_count: number;
+  in_progress_count: number;
+  wont_fix_count: number;
+  resolution_rate: number;
+  top_category: BugReportCategory | null;
+  last_reported_at: string;
+  institution_id: string | null;
+  department_id: string | null;
+}
+
+export interface BugReporterStatsFilters {
+  institution_id?: string;
+  department_id?: string;
+  sort_by?: BugReporterStatsSortField;
+  sort_order?: 'asc' | 'desc';
   page?: number;
   limit?: number;
 }

@@ -8,6 +8,8 @@ export const queryKeys = {
     detail: (id: string) => [...queryKeys.bugReports.details(), id] as const,
     mine: () => [...queryKeys.bugReports.all, 'mine'] as const,
     leaderboard: () => [...queryKeys.bugReports.all, 'leaderboard'] as const,
-    stats: () => [...queryKeys.bugReports.all, 'stats'] as const
+    stats: () => [...queryKeys.bugReports.all, 'stats'] as const,
+    reporterStats: (filters: any) =>
+      [...queryKeys.bugReports.all, 'reporter-stats', filters] as const
   }
 } as const;

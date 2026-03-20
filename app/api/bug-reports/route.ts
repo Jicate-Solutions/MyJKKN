@@ -445,8 +445,11 @@ export async function GET(request: Request) {
     const supabase = await createServerSupabaseClient();
     const { searchParams } = new URL(request.url);
     const status = searchParams.get('status') as any;
+    const category = searchParams.get('category') as any;
     const institution_id = searchParams.get('institution_id');
     const department_id = searchParams.get('department_id');
+    const reporter_user_id = searchParams.get('reporter_user_id');
+    const search = searchParams.get('search');
     const page = parseInt(searchParams.get('page') || '1');
     const limit = parseInt(searchParams.get('limit') || '10');
 
@@ -458,12 +461,25 @@ export async function GET(request: Request) {
       query = query.eq('status', status);
     }
 
+    if (category) {
+      query = query.eq('category', category);
+    }
+
     if (institution_id) {
       query = query.eq('institution_id', institution_id);
     }
 
     if (department_id) {
       query = query.eq('department_id', department_id);
+    }
+
+    if (reporter_user_id) {
+      query = query.eq('reporter_user_id', reporter_user_id);
+    }
+
+    if (search) {
+      const term = `%${search.trim()}%`;
+      query = query.or(`reporter_name.ilike.${term},reporter_email.ilike.${term}`);
     }
 
     query = query.range((page - 1) * limit, page * limit - 1);
