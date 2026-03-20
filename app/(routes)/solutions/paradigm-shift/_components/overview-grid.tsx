@@ -170,6 +170,29 @@ export function OverviewGrid() {
           </SelectContent>
         </Select>
 
+        <Select value={sortBy} onValueChange={(v) => setSortBy(v as typeof sortBy)}>
+          <SelectTrigger className="w-[180px]">
+            <ArrowUpDown className="h-3.5 w-3.5 mr-2 text-muted-foreground" />
+            <SelectValue placeholder="Sort by Score" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="score">Sort by Score</SelectItem>
+            <SelectItem value="revenue">Sort by Revenue</SelectItem>
+            <SelectItem value="solutions">Sort by Solutions</SelectItem>
+            <SelectItem value="publications">Sort by Publications</SelectItem>
+          </SelectContent>
+        </Select>
+
+        <Select value="current_fy" disabled>
+          <SelectTrigger className="w-[180px]">
+            <CalendarDays className="h-3.5 w-3.5 mr-2 text-muted-foreground" />
+            <SelectValue placeholder="FY 2025-26" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="current_fy">FY 2025-26</SelectItem>
+          </SelectContent>
+        </Select>
+
         <Button variant="outline" size="sm" asChild>
           <Link href="/solutions/paradigm-shift/leaderboard">
             <Trophy className="h-4 w-4 mr-2" />
