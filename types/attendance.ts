@@ -193,13 +193,13 @@ export interface UpsertConsolidatedAttendanceDto {
   department_id?: string;
   semester_id?: string;
   // Optional fields for edit mode audit trail (added 2026-03-20)
-  is_edit_mode?: boolean
-  period_id_being_edited?: string
+  is_edit_mode?: boolean;
+  period_id_being_edited?: string;
   editor_profile?: {
-    id: string
-    full_name: string
-    role: string
-  }
+    id: string;
+    full_name: string;
+    role: string;
+  };
 }
 
 export interface AttendanceFilters {
