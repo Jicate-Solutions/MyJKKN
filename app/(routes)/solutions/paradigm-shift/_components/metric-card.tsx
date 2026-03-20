@@ -38,7 +38,7 @@ const METRICS: MetricConfig[] = [
   },
   { key: 'publications', label: 'Publications', icon: BookOpen },
   { key: 'prototypes_built', label: 'Prototypes', icon: Boxes },
-  { key: 'ip_retained', label: 'IP / Patents', icon: Shield },
+  { key: 'ip_retained', label: 'IP Retained', icon: Shield },
   { key: 'trl4_products', label: 'TRL 4+ Products', icon: Rocket },
   { key: 'training_completed', label: 'Training Participants', icon: GraduationCap },
 ];
