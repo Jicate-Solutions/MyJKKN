@@ -51,7 +51,7 @@ export function MetricCard({
   average?: DepartmentMetrics;
 }) {
   return (
-    <div className="grid grid-cols-3 gap-3">
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
       {METRICS.map(({ key, label, icon: Icon, format }) => {
         const value = metrics[key] as number;
         const avgValue = average ? (average[key] as number) : undefined;
