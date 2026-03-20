@@ -63,7 +63,7 @@ export function useParadigmShiftLeaderboard(filters?: {
     queryKey: solutionsHubKeys.paradigmShift.leaderboard(filters),
     queryFn: () =>
       apiClient.get<LeaderboardEntry[]>('/api/solutions/paradigm-shift/leaderboard', {
-        params: filters as Record<string, string>,
+        params: stripUndefined(filters as Record<string, unknown>),
       }),
     ...QUERY_CONFIG.DASHBOARD_DATA,
   });
