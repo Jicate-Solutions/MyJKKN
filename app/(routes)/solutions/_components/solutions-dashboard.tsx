@@ -465,7 +465,7 @@ export function SolutionsDashboard() {
         <Card className="cursor-pointer hover:bg-muted/50 transition-colors">
           <Link href="/solutions/payments">
             <CardContent className="flex items-center gap-3 py-4">
-              <DollarSign className="h-8 w-8 text-muted-foreground" />
+              <IndianRupee className="h-8 w-8 text-muted-foreground" />
               <div>
                 <p className="font-medium">Payments</p>
                 <p className="text-sm text-muted-foreground">Track revenue</p>
