@@ -1110,13 +1110,14 @@ export default function AttendanceMarkPage() {
     }));
   };
 
-  // Mark all as present/absent
+  // Mark all as present/absent — skips OnDuty students (leave-system controlled)
   const markAll = (status: 'Present' | 'Absent') => {
     const newData: Record<string, 'Present' | 'Absent'> = {};
     students.forEach((student) => {
+      if ((attendanceData[student.id] as string) === 'OnDuty') return;
       newData[student.id] = status;
     });
-    setAttendanceData(newData);
+    setAttendanceData((prev) => ({ ...prev, ...newData }));
   };
 
   // Show summary modal before saving
