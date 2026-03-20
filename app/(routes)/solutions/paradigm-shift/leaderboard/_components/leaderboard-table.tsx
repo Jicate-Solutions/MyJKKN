@@ -77,26 +77,34 @@ export function LeaderboardTable() {
       </div>
 
       {/* Top 3 Podium */}
-      {!isLoading && data && data.length >= 3 && (
-        <div className="grid grid-cols-3 gap-4">
-          {[data[1], data[0], data[2]].map((dept, idx) => {
-            const rank = idx === 0 ? 2 : idx === 1 ? 1 : 3;
-            return (
+      {!isLoading && data && data.length >= 1 && (() => {
+        // Build podium order: [2nd, 1st, 3rd] for visual layout, handling <3 entries
+        const podiumOrder = data.length >= 3
+          ? [data[1], data[0], data[2]]
+          : data.length === 2
+            ? [data[1], data[0]]
+            : [data[0]];
+        const podiumCols = data.length >= 3 ? 'grid-cols-3' : data.length === 2 ? 'grid-cols-2' : 'grid-cols-1 max-w-sm mx-auto';
+
+        return (
+          <div className={`grid ${podiumCols} gap-4`}>
+            {podiumOrder.filter(Boolean).map((dept) => (
               <Link key={dept.department_id} href={`/solutions/paradigm-shift/${dept.department_id}`}>
-                <Card className={`hover:shadow-md transition-all cursor-pointer ${rank === 1 ? 'border-yellow-300 bg-yellow-50/50' : ''}`}>
+                <Card className={`hover:shadow-md transition-all cursor-pointer ${dept.rank === 1 ? 'border-yellow-300 bg-yellow-50/50' : ''}`}>
                   <CardContent className="p-4 text-center">
-                    <RankIcon rank={rank} />
+                    <RankIcon rank={dept.rank} />
                     <p className="text-sm font-semibold mt-2 truncate">{dept.department_name}</p>
                     <p className="text-xs text-muted-foreground truncate">{dept.institution_name}</p>
                     <TierBadge tier={dept.tier} />
-                    <p className="text-xs mt-1 font-mono">{dept.active_metrics_count}/9</p>
+                    <p className="text-lg font-bold mt-1">{Math.round(dept.composite_score)}</p>
+                    <p className="text-xs font-mono text-muted-foreground">{dept.active_metrics_count}/9</p>
                   </CardContent>
                 </Card>
               </Link>
-            );
-          })}
-        </div>
-      )}
+            ))}
+          </div>
+        );
+      })()}
 
       {/* Full Table */}
       <Card>
