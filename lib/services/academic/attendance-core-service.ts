@@ -11,9 +11,34 @@ import type {
   ConsolidatedStudentAttendance,
   ConsolidatedAttendanceData,
   ConsolidatedAttendanceStudent,
-  UpsertConsolidatedAttendanceDto
+  UpsertConsolidatedAttendanceDto,
+  AttendanceAuditEntry
 } from '@/types/attendance';
 import type { TimetableData } from '@/types/academics';
+
+/**
+ * Computes which students changed status between two snapshots.
+ * OnDuty entries are skipped in both old and new — leave system owns that status.
+ * Exported for unit testing.
+ */
+export function computeAttendanceDiff(
+  oldStudents: Array<{ student_id: string; status: string }>,
+  newStudents: Array<{ student_id: string; status: string }>
+): Array<{ student_id: string; old_status: string; new_status: string }> {
+  const newMap = new Map(newStudents.map((s) => [s.student_id, s.status]))
+  return oldStudents
+    .filter((old) => {
+      if (old.status === 'OnDuty') return false           // skip OnDuty originals
+      const newStatus = newMap.get(old.student_id)
+      if (!newStatus || newStatus === 'OnDuty') return false  // skip if new is OnDuty
+      return old.status !== newStatus                     // only changed rows
+    })
+    .map((old) => ({
+      student_id: old.student_id,
+      old_status: old.status,
+      new_status: newMap.get(old.student_id)!,
+    }))
+}
 
 /**
  * AttendanceCoreService — marking, locking, and validation.
@@ -400,6 +425,37 @@ export class AttendanceCoreService {
 
       let result;
       if (existingRecord) {
+        // ─── Service-layer HOD scope check (added 2026-03-20) ────────────────────
+        // Prevents API-level bypass: only super_admin can edit any record;
+        // HOD can only edit records within their own institution + department.
+        if (data.is_edit_mode) {
+          const editorProfile = data.editor_profile
+          if (!editorProfile) {
+            throw new Error('editor_profile is required for attendance edits')
+          }
+          if (editorProfile.role !== 'super_admin') {
+            if (editorProfile.role !== 'hod') {
+              throw new Error('Not authorized to edit attendance')
+            }
+            // Fetch timetable department to validate HOD scope
+            const { data: timetableData } = await (this.supabase as any)
+              .from('timetables')
+              .select('department_id, institution_id')
+              .eq('id', data.timetable_id)
+              .single()
+            if (!timetableData) {
+              throw new Error('Cannot verify HOD scope: timetable not found')
+            }
+            if (timetableData.department_id !== data.department_id) {
+              throw new Error('HOD can only edit attendance in their own department')
+            }
+            if (timetableData.institution_id !== data.institution_id) {
+              throw new Error('HOD can only edit attendance in their own institution')
+            }
+          }
+        }
+        // ─── End scope check ──────────────────────────────────────────────────────
+
         // Fetch existing record to get current attendance_data for merging
         const { data: currentRecord, error: fetchError } = await this.supabase
           .from('student_attendance')
@@ -445,6 +501,45 @@ export class AttendanceCoreService {
 
         if (updateError) throw updateError;
         result = updateResult;
+
+        // ─── Audit log: record per-student status changes ────────────────────────
+        // Added: 2026-03-20 — Attendance edit audit trail
+        // Only runs when an edit is being performed (data.is_edit_mode === true)
+        if (data.is_edit_mode && data.editor_profile && data.period_id_being_edited) {
+          const periodKey = data.period_id_being_edited
+          const oldPeriodStudents: Array<{ student_id: string; status: string }> =
+            (existingAttendanceData?.[periodKey]?.students || [])
+          const newPeriodStudents: Array<{ student_id: string; status: string }> =
+            (mergedAttendanceData?.[periodKey]?.students || [])
+
+          const diff = computeAttendanceDiff(oldPeriodStudents, newPeriodStudents)
+
+          if (diff.length > 0) {
+            const auditRows = diff.map((change) => ({
+              attendance_id: (existingRecord as any).id,
+              period_id: periodKey,
+              student_id: change.student_id,
+              old_status: change.old_status,
+              new_status: change.new_status,
+              edited_by: data.editor_profile!.id,
+              edited_by_name: data.editor_profile!.full_name,
+              edited_by_role: data.editor_profile!.role,
+              edited_at: new Date().toISOString(),
+              institution_id: data.institution_id,
+              attendance_date: data.attendance_date,
+            }))
+
+            const { error: auditError } = await (this.supabase as any)
+              .from('attendance_audit_log')
+              .insert(auditRows)
+
+            if (auditError) {
+              // Best-effort: log but do not throw — attendance update already succeeded
+              logger.error('academic/attendance', 'Failed to write attendance audit log', auditError)
+            }
+          }
+        }
+        // ─── End audit log ────────────────────────────────────────────────────────
       } else {
         // Create new record
         // Updated: 2025-09-09 - Fetch academic fields from timetable if not provided
@@ -1213,6 +1308,47 @@ export class AttendanceCoreService {
       logger.error('academic/attendance', 'Error in checkPracticalConflict', error);
       throw error;
     }
+  }
+
+  // =====================
+  // AUDIT LOG METHODS
+  // =====================
+
+  /**
+   * Returns all audit log entries for a given student_attendance record.
+   * RLS ensures only super_admin can read these — all other roles get [].
+   * Throws on unexpected Supabase errors.
+   * Added: 2026-03-20 — Attendance edit audit trail
+   */
+  static async getAttendanceAuditLog(attendanceId: string): Promise<AttendanceAuditEntry[]> {
+    const { data, error } = await (this.supabase as any)
+      .from('attendance_audit_log')
+      .select(`
+        *,
+        learners_profiles!student_id (
+          full_name,
+          roll_number
+        )
+      `)
+      .eq('attendance_id', attendanceId)
+      .order('edited_at', { ascending: false })
+
+    if (error) {
+      logger.error('academic/attendance', 'Failed to fetch attendance audit log', error)
+      throw error
+    }
+
+    // Flatten the joined learners_profiles into the flat AttendanceAuditEntry shape
+    return (data || []).map((row: any) => {
+      const profiles = row.learners_profiles
+      const result = { ...row }
+      if (profiles) {
+        result.student_name = profiles.full_name ?? undefined
+        result.roll_number = profiles.roll_number ?? undefined
+      }
+      delete result.learners_profiles
+      return result as AttendanceAuditEntry
+    })
   }
 
   // =====================

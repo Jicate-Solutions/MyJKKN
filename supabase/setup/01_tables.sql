@@ -2623,6 +2623,35 @@ CREATE INDEX IF NOT EXISTS idx_sgr_approval_status ON sarvam_galatta_registratio
 
 ALTER TABLE sarvam_galatta_registrations ENABLE ROW LEVEL SECURITY;
 
+-- ============================================================
+-- attendance_audit_log
+-- Added: 2026-03-20 — Tracks all edits to student attendance status.
+-- Append-only (no UPDATE/DELETE policies). Super admin SELECT only.
+-- ON DELETE RESTRICT prevents deleting a student_attendance record
+-- that has been edited, preserving the accountability chain.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS public.attendance_audit_log (
+    id              UUID        PRIMARY KEY DEFAULT uuid_generate_v4(),
+    attendance_id   UUID        REFERENCES student_attendance(id) ON DELETE RESTRICT,
+    period_id       TEXT        NOT NULL,
+    student_id      UUID        NOT NULL,
+    old_status      TEXT        NOT NULL CHECK (old_status IN ('Present', 'Absent', 'OnDuty')),
+    new_status      TEXT        NOT NULL CHECK (new_status IN ('Present', 'Absent', 'OnDuty')),
+    edited_by       UUID        NOT NULL REFERENCES profiles(id),
+    edited_by_name  TEXT        NOT NULL,
+    edited_by_role  TEXT        NOT NULL,
+    edited_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+    institution_id  UUID        NOT NULL REFERENCES institutions(id),
+    attendance_date DATE        NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_log_attendance_id
+    ON attendance_audit_log(attendance_id);
+CREATE INDEX IF NOT EXISTS idx_audit_log_edited_at
+    ON attendance_audit_log(edited_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_log_student_id
+    ON attendance_audit_log(student_id, edited_at DESC);
+
 -- =====================================================
 -- END OF TABLE DEFINITIONS
 -- =====================================================

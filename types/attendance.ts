@@ -192,6 +192,14 @@ export interface UpsertConsolidatedAttendanceDto {
   program_id?: string;
   department_id?: string;
   semester_id?: string;
+  // Optional fields for edit mode audit trail (added 2026-03-20)
+  is_edit_mode?: boolean;
+  period_id_being_edited?: string;
+  editor_profile?: {
+    id: string;
+    full_name: string;
+    role: string;
+  };
 }
 
 export interface AttendanceFilters {
@@ -647,4 +655,42 @@ export interface FacilitatorReportRaw {
     total_pending: number;
     avg_rate: number;
   }>;
+}
+
+// ─── Attendance Edit Audit Types ──────────────────────────────────────────────
+// Added: 2026-03-20 — Supports attendance edit feature + audit trail
+
+/**
+ * One row from attendance_audit_log, with student details joined from learners_profiles.
+ * old_status / new_status include 'OnDuty' for historical read completeness.
+ * The edit UI never produces OnDuty — use AttendanceEditDiff for UI-layer diffs.
+ * edited_by_role is INFORMATIONAL ONLY — never use for access-control logic.
+ */
+export interface AttendanceAuditEntry {
+  id: string
+  attendance_id: string
+  period_id: string
+  student_id: string
+  student_name?: string    // joined from learners_profiles.full_name
+  roll_number?: string     // joined from learners_profiles.roll_number
+  old_status: 'Present' | 'Absent' | 'OnDuty'
+  new_status: 'Present' | 'Absent' | 'OnDuty'
+  edited_by: string
+  edited_by_name: string
+  edited_by_role: string
+  edited_at: string
+  institution_id: string
+  attendance_date: string
+}
+
+/**
+ * Represents a single student's status change in the edit UI confirmation modal.
+ * Narrowed to Present | Absent only — OnDuty is leave-system controlled and
+ * is never togglable via the edit interface.
+ */
+export interface AttendanceEditDiff {
+  studentId: string
+  studentName: string
+  oldStatus: 'Present' | 'Absent'
+  newStatus: 'Present' | 'Absent'
 }
