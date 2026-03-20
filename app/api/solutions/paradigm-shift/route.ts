@@ -16,7 +16,8 @@ export const GET = withAuth(async (request, auth) => {
 
   // Institution scoping: non-super_admin users are scoped to their institution
   const requestedInstitution = url.searchParams.get('institution_id') || undefined
-  const institution_id = auth.isSuperAdmin
+  const isSuperAdmin = auth.user.role === 'super_admin'
+  const institution_id = isSuperAdmin
     ? requestedInstitution
     : auth.institutionId || requestedInstitution
 
