@@ -202,11 +202,15 @@ export function DepartmentDetailView() {
             <CardContent>
               <div className="space-y-2">
                 {([
+                  ['Problems Identified', dept.metrics.problems_identified, dept.institutional_average.problems_identified],
                   ['Solutions Built', dept.metrics.solutions_built, dept.institutional_average.solutions_built],
                   ['Clients Engaged', dept.metrics.clients_engaged, dept.institutional_average.clients_engaged],
                   ['Revenue', dept.metrics.revenue_generated, dept.institutional_average.revenue_generated],
                   ['Publications', dept.metrics.publications, dept.institutional_average.publications],
+                  ['Prototypes', dept.metrics.prototypes_built, dept.institutional_average.prototypes_built],
+                  ['IP / Patents', dept.metrics.ip_retained, dept.institutional_average.ip_retained],
                   ['TRL 4+ Products', dept.metrics.trl4_products, dept.institutional_average.trl4_products],
+                  ['Training Participants', dept.metrics.training_completed, dept.institutional_average.training_completed],
                 ] as [string, number, number][]).map(([label, value, avg]) => {
                   const diff = avg > 0 ? ((value - avg) / avg) * 100 : value > 0 ? 100 : 0;
                   return (
