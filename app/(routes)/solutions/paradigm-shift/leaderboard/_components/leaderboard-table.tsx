@@ -83,7 +83,6 @@ export function LeaderboardTable() {
         <div className="grid grid-cols-3 gap-4">
           {[data[1], data[0], data[2]].map((dept, idx) => {
             const rank = idx === 0 ? 2 : idx === 1 ? 1 : 3;
-            const height = rank === 1 ? 'h-32' : rank === 2 ? 'h-24' : 'h-20';
             return (
               <Link key={dept.department_id} href={`/solutions/paradigm-shift/${dept.department_id}`}>
                 <Card className={`hover:shadow-md transition-all cursor-pointer ${rank === 1 ? 'border-yellow-300 bg-yellow-50/50' : ''}`}>
