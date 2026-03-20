@@ -482,7 +482,7 @@ export class AttendanceDashboardService {
         dates.push(d.toISOString().split('T')[0]);
       }
 
-      // Change 1: Exclude weekends (Saturday = 6, Sunday = 0)
+      // Exclude weekends from the date range
       const workingDates = dates.filter(date => {
         const day = new Date(date + 'T00:00:00').getDay()
         return day !== 0 && day !== 6
@@ -528,7 +528,7 @@ export class AttendanceDashboardService {
         );
       }
 
-      // Change 2: Exclude institution off days
+      // Exclude institution-specific off days (e.g. public holidays, declared closures)
       let filteredWorkingDates = workingDates
       if (effectiveInstitutionId) {
         const { data: offDays } = await (this.supabase as any)
