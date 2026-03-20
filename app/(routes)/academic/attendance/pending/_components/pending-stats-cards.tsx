@@ -12,6 +12,17 @@ import {
   Users,
 } from 'lucide-react';
 import { format } from 'date-fns';
+import type { ElementType } from 'react';
+
+type StatCard = {
+  label: string
+  icon: ElementType
+  iconBg: string
+  bgGradient: string
+  gradient: string
+  value: number | string
+  description?: string
+}
 
 interface PendingStatsCardsProps {
   metadata: {
@@ -66,7 +77,7 @@ export function PendingStatsCards({
     );
   }
 
-  const adminCards = [
+  const adminCards: StatCard[] = [
     {
       label: 'Total Pending',
       icon: CalendarX,
@@ -74,6 +85,7 @@ export function PendingStatsCards({
       bgGradient: 'from-blue-50 to-blue-100',
       gradient: 'from-blue-500 to-blue-600',
       value: metadata.total,
+      description: 'in selected range',
     },
     {
       label: 'Overdue',
@@ -82,6 +94,7 @@ export function PendingStatsCards({
       bgGradient: 'from-red-50 to-red-100',
       gradient: 'from-red-500 to-red-600',
       value: metadata.overdueCount,
+      description: 'past due date',
     },
     {
       label: 'Due Today',
@@ -90,6 +103,7 @@ export function PendingStatsCards({
       bgGradient: 'from-amber-50 to-amber-100',
       gradient: 'from-amber-500 to-amber-600',
       value: metadata.todayCount,
+      description: 'needs marking today',
     },
     {
       label: 'Sections Affected',
@@ -98,6 +112,7 @@ export function PendingStatsCards({
       bgGradient: 'from-purple-50 to-purple-100',
       gradient: 'from-purple-500 to-purple-600',
       value: metadata.sectionsCount,
+      description: 'unique sections',
     },
     {
       label: 'Subjects Affected',
@@ -106,6 +121,7 @@ export function PendingStatsCards({
       bgGradient: 'from-green-50 to-green-100',
       gradient: 'from-green-500 to-green-600',
       value: metadata.subjectsCount,
+      description: 'unique courses',
     },
     {
       label: 'Staff With Pending',
@@ -114,17 +130,19 @@ export function PendingStatsCards({
       bgGradient: 'from-slate-50 to-slate-100',
       gradient: 'from-slate-500 to-slate-600',
       value: metadata.staffCount,
+      description: 'with unmarked periods',
     },
   ];
 
-  const facultyCards = [
+  const facultyCards: StatCard[] = [
     {
       label: 'Total Pending',
       icon: CalendarX,
       iconBg: 'bg-blue-500',
       bgGradient: 'from-blue-50 to-blue-100',
       gradient: 'from-blue-500 to-blue-600',
-      value: metadata.total as number | string,
+      value: metadata.total,
+      description: 'in selected range',
     },
     {
       label: 'Date Range',
@@ -132,7 +150,8 @@ export function PendingStatsCards({
       iconBg: 'bg-slate-500',
       bgGradient: 'from-slate-50 to-slate-100',
       gradient: 'from-slate-500 to-slate-600',
-      value: formatDateRange(startDate, endDate) as number | string,
+      value: formatDateRange(startDate, endDate),
+      description: 'active filter period',
     },
     {
       label: 'Due Today',
@@ -140,7 +159,8 @@ export function PendingStatsCards({
       iconBg: 'bg-amber-500',
       bgGradient: 'from-amber-50 to-amber-100',
       gradient: 'from-amber-500 to-amber-600',
-      value: metadata.todayCount as number | string,
+      value: metadata.todayCount,
+      description: 'needs marking today',
     },
     {
       label: 'Sections Affected',
@@ -148,7 +168,8 @@ export function PendingStatsCards({
       iconBg: 'bg-purple-500',
       bgGradient: 'from-purple-50 to-purple-100',
       gradient: 'from-purple-500 to-purple-600',
-      value: metadata.sectionsCount as number | string,
+      value: metadata.sectionsCount,
+      description: 'unique sections',
     },
     {
       label: 'Subjects Affected',
@@ -156,7 +177,8 @@ export function PendingStatsCards({
       iconBg: 'bg-green-500',
       bgGradient: 'from-green-50 to-green-100',
       gradient: 'from-green-500 to-green-600',
-      value: metadata.subjectsCount as number | string,
+      value: metadata.subjectsCount,
+      description: 'unique courses',
     },
   ];
 
@@ -183,6 +205,9 @@ export function PendingStatsCards({
             >
               {typeof card.value === 'number' ? card.value.toLocaleString() : card.value}
             </div>
+            {card.description && (
+              <p className="text-xs text-muted-foreground mt-1">{card.description}</p>
+            )}
           </CardContent>
         </Card>
       ))}
