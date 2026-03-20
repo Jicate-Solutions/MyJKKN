@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -23,14 +24,7 @@ import { Trophy, Medal, Award, ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
 import { useParadigmShiftLeaderboard } from '@/hooks/solutions/use-paradigm-shift';
 import { TierBadge } from '../../_components/tier-badge';
-
-function formatCurrency(amount: number): string {
-  return new Intl.NumberFormat('en-IN', {
-    style: 'currency',
-    currency: 'INR',
-    maximumFractionDigits: 0,
-  }).format(amount);
-}
+import { formatCurrency } from '@/lib/services/solutions';
 
 function RankIcon({ rank }: { rank: number }) {
   if (rank === 1) return <Trophy className="h-5 w-5 text-yellow-500" />;
@@ -40,19 +34,23 @@ function RankIcon({ rank }: { rank: number }) {
 }
 
 export function LeaderboardTable() {
+  const router = useRouter();
   const [institutionFilter, setInstitutionFilter] = useState<string>('all');
 
-  const filters: Record<string, string | number> = { limit: 50 };
+  const filters: { institution_id?: string; limit?: number } = { limit: 50 };
   if (institutionFilter !== 'all') filters.institution_id = institutionFilter;
 
-  const { data, isLoading } = useParadigmShiftLeaderboard(
-    filters as { institution_id?: string; limit?: number }
-  );
+  const { data, isLoading } = useParadigmShiftLeaderboard(filters);
 
-  // Get unique institutions from the data
-  const institutions = data
-    ? [...new Map(data.map(d => [d.institution_id, d.institution_name])).entries()]
-    : [];
+  // Keep stable institution list that doesn't change on filter
+  const [allInstitutions, setAllInstitutions] = useState<[string, string][]>([]);
+  if (data && allInstitutions.length === 0) {
+    const instMap = new Map(data.map(d => [d.institution_id, d.institution_name]));
+    if (instMap.size > 0) {
+      setAllInstitutions([...instMap.entries()]);
+    }
+  }
+  const institutions = allInstitutions;
 
   return (
     <div className="space-y-6">
