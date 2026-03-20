@@ -3779,3 +3779,22 @@ CREATE POLICY "sgr_all_super_admin" ON sarvam_galatta_registrations
       SELECT 1 FROM profiles p WHERE p.id = auth.uid() AND p.is_super_admin = true
     )
   );
+
+-- ============================================================
+-- attendance_audit_log RLS policies
+-- Added: 2026-03-20
+-- SELECT: super_admin only (audit history is admin-only visibility)
+-- INSERT: super_admin and hod only (matches edit permission table)
+-- No UPDATE or DELETE — log is immutable
+-- ============================================================
+ALTER TABLE public.attendance_audit_log ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "audit_log_select_super_admin"
+    ON public.attendance_audit_log
+    FOR SELECT
+    USING (get_current_user_role() = 'super_admin');
+
+CREATE POLICY "audit_log_insert_by_role"
+    ON public.attendance_audit_log
+    FOR INSERT
+    WITH CHECK (get_current_user_role() IN ('super_admin', 'hod'));
