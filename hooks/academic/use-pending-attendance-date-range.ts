@@ -26,6 +26,7 @@ export function usePendingAttendanceDateRange() {
   // Compute default date range once at mount time
   const [filters, setFilters] = useState<DashboardFilters>(() => {
     const today = new Date().toISOString().split('T')[0];
+    // UTC-based subtraction; consistent with database date strings stored via .toISOString()
     const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
       .toISOString()
       .split('T')[0];
@@ -78,10 +79,11 @@ export function usePendingAttendanceDateRange() {
   }, []);
 
   /**
-   * Reset all filters back to the defaults used at mount time.
+   * Reset all filters back to defaults (last 7 days from now).
    */
   const resetFilters = useCallback(() => {
     const today = new Date().toISOString().split('T')[0];
+    // UTC-based subtraction; consistent with database date strings stored via .toISOString()
     const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
       .toISOString()
       .split('T')[0];
