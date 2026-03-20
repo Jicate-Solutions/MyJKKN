@@ -96,6 +96,45 @@ export function LeaderboardTable() {
         </Select>
       </div>
 
+      {/* Movers Banner */}
+      {!isLoading && moversCount > 0 && (
+        <div className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2.5">
+          <TrendingUp className="h-4 w-4 text-emerald-600" />
+          <span className="text-sm font-medium text-emerald-800">
+            {moversCount} department{moversCount !== 1 ? 's' : ''} improved tier this month
+          </span>
+        </div>
+      )}
+
+      {/* Institution-Level Aggregation */}
+      {!isLoading && instSummaries.length > 1 && (
+        <div className="space-y-2">
+          <h3 className="text-sm font-semibold flex items-center gap-2 text-muted-foreground">
+            <Building2 className="h-4 w-4" />
+            Institution Summary
+          </h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {instSummaries.map((inst) => (
+              <Card key={inst.name} className="shadow-sm">
+                <CardContent className="p-3">
+                  <p className="text-sm font-semibold truncate">{inst.name}</p>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1 mt-2 text-xs text-muted-foreground">
+                    <span>Departments</span>
+                    <span className="text-right font-mono font-medium text-foreground">{inst.depts}</span>
+                    <span>Avg Score</span>
+                    <span className="text-right font-mono font-medium text-foreground">{inst.avgScore}</span>
+                    <span>Pioneers</span>
+                    <span className="text-right font-mono font-medium text-foreground">{inst.pioneers}</span>
+                    <span>Revenue</span>
+                    <span className="text-right font-mono font-medium text-foreground">{formatCurrency(inst.totalRevenue)}</span>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Top 3 Podium */}
       {!isLoading && data && data.length >= 1 && (() => {
         // Build podium order: [2nd, 1st, 3rd] for visual layout, handling <3 entries
