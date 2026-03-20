@@ -52,6 +52,7 @@ interface PendingDateRangeFiltersProps {
   // User's own institution (for locking department for HOD)
   userInstitutionId?: string;
   userDepartmentId?: string; // HOD's own department — pre-filled and locked
+  userDepartmentName?: string; // HOD's department display name — avoids depending on query state
   // Timetable options (populated by Task 8b hook, empty array for now)
   timetables?: Array<{ id: string; name: string; academicYearId?: string }>;
 }
@@ -73,6 +74,7 @@ export function PendingDateRangeFilters({
   isFaculty,
   userInstitutionId,
   userDepartmentId,
+  userDepartmentName,
   timetables = []
 }: PendingDateRangeFiltersProps) {
   const [expanded, setExpanded] = useState(true);
@@ -85,7 +87,8 @@ export function PendingDateRangeFilters({
     : userInstitutionId;
 
   // ── Hierarchy hooks ──────────────────────────────────────────────────────
-  const { institutions } = useInstitutionsWithAccess({});
+  // Gate institutions fetch to Super Admin only — non-super-admin roles don't need the list
+  const { institutions } = useInstitutionsWithAccess({ autoFetch: isSuperAdmin });
 
   const { academicYears } = useAcademicYearsByInstitution(
     effectiveInstitutionId || undefined
@@ -109,14 +112,18 @@ export function PendingDateRangeFilters({
   });
   const programs = programsData?.data ?? [];
 
-  const { data: semestersData } = useSemesters({
-    program_id: filters.programId || undefined
-  });
+  // Gate semesters — only fire when a program is selected
+  const { data: semestersData } = useSemesters(
+    { program_id: filters.programId || undefined },
+    { enabled: !!filters.programId }
+  );
   const semesters = semestersData?.data ?? [];
 
-  const { data: sectionsData } = useSections({
-    semester_id: filters.semesterId || undefined
-  });
+  // Gate sections — only fire when a semester is selected
+  const { data: sectionsData } = useSections(
+    { semester_id: filters.semesterId || undefined },
+    { enabled: !!filters.semesterId }
+  );
   const sections = sectionsData?.data ?? [];
 
   // ── Quick date helpers ───────────────────────────────────────────────────
@@ -203,6 +210,52 @@ export function PendingDateRangeFilters({
       'Timetable';
     activeFilters.push({ key: 'timetableId', label: timetableName });
   }
+
+  // ── Cascade-clear map for badge dismissal ───────────────────────────────
+  // Clearing a parent filter must also clear all downstream filters that depend on it.
+  const cascadeClearMap: Record<string, Partial<DashboardFilters>> = {
+    institutionId: {
+      institutionId: undefined,
+      academicYearId: undefined,
+      degreeId: undefined,
+      departmentId: undefined,
+      programId: undefined,
+      semesterId: undefined,
+      sectionId: undefined,
+      timetableId: undefined
+    },
+    degreeId: {
+      degreeId: undefined,
+      departmentId: undefined,
+      programId: undefined,
+      semesterId: undefined,
+      sectionId: undefined,
+      timetableId: undefined
+    },
+    departmentId: {
+      departmentId: undefined,
+      programId: undefined,
+      semesterId: undefined,
+      sectionId: undefined,
+      timetableId: undefined
+    },
+    programId: {
+      programId: undefined,
+      semesterId: undefined,
+      sectionId: undefined,
+      timetableId: undefined
+    },
+    semesterId: {
+      semesterId: undefined,
+      sectionId: undefined,
+      timetableId: undefined
+    },
+    sectionId: { sectionId: undefined, timetableId: undefined },
+    timetableId: { timetableId: undefined },
+    academicYearId: { academicYearId: undefined },
+    startDate: { startDate: undefined },
+    endDate: { endDate: undefined }
+  };
 
   // ── Render helpers ───────────────────────────────────────────────────────
   const disableFutureDates = (date: Date) => {
@@ -436,11 +489,16 @@ export function PendingDateRangeFilters({
                   <div className="space-y-1">
                     <Label className="text-xs">Department</Label>
                     {isHOD ? (
-                      // HOD: department pre-filled and locked
+                      // HOD: department pre-filled and locked.
+                      // Prefer the directly-passed userDepartmentName so the label is always
+                      // correct regardless of whether the departments query has loaded or is
+                      // scoped by a degree filter.
                       <div className="flex items-center h-9 px-3 py-2 text-sm border border-input bg-muted text-muted-foreground rounded-md">
-                        {departments.find(
-                          (d: any) => d.id === userDepartmentId
-                        )?.department_name ?? 'Your Department'}
+                        {userDepartmentName ??
+                          departments.find(
+                            (d: any) => d.id === userDepartmentId
+                          )?.department_name ??
+                          'Your Department'}
                       </div>
                     ) : (
                       <Select
@@ -620,7 +678,9 @@ export function PendingDateRangeFilters({
               {filter.label}
               <button
                 onClick={() =>
-                  onFiltersChange({ [filter.key]: undefined })
+                  onFiltersChange(
+                    cascadeClearMap[filter.key] ?? { [filter.key]: undefined }
+                  )
                 }
                 className="ml-0.5 rounded hover:bg-secondary-foreground/10"
                 aria-label={`Remove ${filter.label} filter`}
