@@ -207,7 +207,14 @@ export function LeaderboardTable() {
                     <TableCell>
                       <RankIcon rank={dept.rank} />
                     </TableCell>
-                    <TableCell className="font-medium">{dept.department_name}</TableCell>
+                    <TableCell className="font-medium">
+                      {dept.department_name}
+                      {dept.tier_changed && (
+                        <Badge variant="outline" className="ml-2 bg-emerald-50 text-emerald-700 border-emerald-200 text-[10px]">
+                          ↑ Moved Up
+                        </Badge>
+                      )}
+                    </TableCell>
                     <TableCell className="text-muted-foreground text-sm">{dept.institution_name}</TableCell>
                     <TableCell className="text-center">
                       <TierBadge tier={dept.tier} />
