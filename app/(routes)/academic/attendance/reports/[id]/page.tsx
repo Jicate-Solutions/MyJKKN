@@ -53,9 +53,11 @@ import { usePermissions } from '@/hooks/use-permissions';
 import { AttendanceReportService } from '@/lib/services/academic/attendance-report-service';
 import { AttendanceExportService } from '@/lib/services/academic/attendance-export-service';
 import { AttendanceService } from '@/lib/services/academic/attendance-service';
+import { Skeleton } from '@/components/ui/skeleton';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 import type { DetailedAttendanceReport } from '@/types/attendance-reports';
+import type { AttendanceAuditEntry } from '@/types/attendance';
 
 // Color scheme constants - Using primary (blue), success (green), danger (red)
 const COLORS = {
@@ -93,6 +95,9 @@ export default function AttendanceReportDetailPage() {
   );
   const [facultyStaffId, setFacultyStaffId] = useState<string | null>(null);
   const [roleLoading, setRoleLoading] = useState(false);
+  const [auditLog, setAuditLog] = useState<AttendanceAuditEntry[] | null>(null);
+  const [auditLoading, setAuditLoading] = useState(false);
+  const [auditError, setAuditError] = useState(false);
 
   // Determine user role
   const userRole = useMemo(() => {
@@ -165,6 +170,32 @@ export default function AttendanceReportDetailPage() {
   useEffect(() => {
     fetchReportDetails();
   }, [fetchReportDetails]);
+
+  // Fetch audit log for super admins
+  useEffect(() => {
+    if (!isSuperAdmin || !reportId) return;
+    const controller = new AbortController();
+    const fetchAuditLog = async () => {
+      setAuditLoading(true);
+      setAuditError(false);
+      try {
+        const data = await AttendanceService.getAttendanceAuditLog(reportId);
+        if (!controller.signal.aborted) {
+          setAuditLog(data);
+        }
+      } catch {
+        if (!controller.signal.aborted) {
+          setAuditError(true);
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          setAuditLoading(false);
+        }
+      }
+    };
+    fetchAuditLog();
+    return () => controller.abort();
+  }, [isSuperAdmin, reportId]);
 
   // Handle export
   const handleExport = async (format: 'pdf' | 'excel') => {
@@ -992,6 +1023,91 @@ export default function AttendanceReportDetailPage() {
               </div>
             </CardContent>
           </Card>
+        )}
+
+        {/* Audit History — super admin only */}
+        {isSuperAdmin && (
+          <div className='mt-8 space-y-3'>
+            <h3 className='text-base font-semibold flex items-center gap-2'>
+              📋 Edit History
+            </h3>
+
+            {auditLoading && (
+              <div className='space-y-2'>
+                {[1, 2, 3].map((i) => (
+                  <Skeleton key={i} className='h-10 w-full rounded' />
+                ))}
+              </div>
+            )}
+
+            {auditError && (
+              <p className='text-sm text-destructive'>
+                Could not load edit history. Please try again.
+              </p>
+            )}
+
+            {!auditLoading && !auditError && (!auditLog || auditLog.length === 0) && (
+              <p className='text-sm text-muted-foreground'>
+                No edits recorded — attendance has not been modified since first marked.
+              </p>
+            )}
+
+            {!auditLoading && !auditError && auditLog && auditLog.length > 0 && (
+              <div className='rounded-md border dark:border-gray-700 overflow-hidden'>
+                <table className='w-full text-sm'>
+                  <thead className='bg-muted/50'>
+                    <tr>
+                      <th className='text-left px-4 py-3 font-medium'>Student</th>
+                      <th className='text-left px-4 py-3 font-medium'>Period</th>
+                      <th className='text-left px-4 py-3 font-medium'>Change</th>
+                      <th className='text-left px-4 py-3 font-medium'>Edited By</th>
+                      <th className='text-left px-4 py-3 font-medium'>When</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {auditLog.map((entry: AttendanceAuditEntry) => {
+                      const periodName =
+                        (report as any)?.attendance_data?.[entry.period_id]?.period_name
+                        ?? entry.period_id;
+
+                      return (
+                        <tr key={entry.id} className='border-t dark:border-gray-700'>
+                          <td className='px-4 py-3'>
+                            {entry.student_name ?? entry.student_id}
+                            {entry.roll_number && (
+                              <span className='ml-1 text-xs text-muted-foreground'>
+                                ({entry.roll_number})
+                              </span>
+                            )}
+                          </td>
+                          <td className='px-4 py-3 text-muted-foreground'>{periodName}</td>
+                          <td className='px-4 py-3'>
+                            <span className='text-red-600 dark:text-red-400'>{entry.old_status}</span>
+                            {' → '}
+                            <span className='text-green-600 dark:text-green-400'>{entry.new_status}</span>
+                          </td>
+                          <td className='px-4 py-3'>
+                            {entry.edited_by_name}
+                            <span className='ml-1 text-xs text-muted-foreground'>
+                              ({entry.edited_by_role})
+                            </span>
+                          </td>
+                          <td className='px-4 py-3 text-muted-foreground text-xs'>
+                            {new Date(entry.edited_at).toLocaleString('en-IN', {
+                              day: '2-digit',
+                              month: 'short',
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         )}
       </div>
     </ContentLayout>
